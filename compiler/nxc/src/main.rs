@@ -21,6 +21,7 @@ options:
     --release            optimize (all safety checks remain enabled)
     --target <triple>    cross-compile, e.g. x86_64-linux-gnu, aarch64-macos, wasm32-wasi
     --emit c             write the generated C instead of an executable
+    --json               print the diagnostics as JSON on stdout (for editors)
 ";
 
 struct Args {
@@ -30,13 +31,14 @@ struct Args {
     release: bool,
     target: Option<String>,
     emit_c: bool,
+    json: bool,
     rest: Vec<String>,
 }
 
 fn parse_args() -> Args {
     let mut it = std::env::args().skip(1);
     let cmd = it.next().unwrap_or_else(|| "help".into());
-    let mut a = Args { cmd, file: None, output: None, release: false, target: None, emit_c: false, rest: vec![] };
+    let mut a = Args { cmd, file: None, output: None, release: false, target: None, emit_c: false, json: false, rest: vec![] };
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--" => {
@@ -45,6 +47,7 @@ fn parse_args() -> Args {
             }
             "-o" => a.output = it.next().map(PathBuf::from),
             "--release" => a.release = true,
+            "--json" => a.json = true,
             "--target" => a.target = it.next(),
             "--emit" => match it.next().as_deref() {
                 Some("c") => a.emit_c = true,
@@ -91,7 +94,12 @@ fn main() {
                 "test" => Mode::Tests,
                 _ => Mode::Program,
             };
-            let c = compile_file(&file, mode, color());
+            let c = compile_file(&file, mode, color() && !args.json);
+            if args.json {
+                // Machine-readable diagnostics on stdout (for editors); no code generation.
+                println!("{}", c.json);
+                exit(if c.errors > 0 { 1 } else { 0 });
+            }
             eprint!("{}", c.diagnostics);
             if c.errors > 0 {
                 exit(1);

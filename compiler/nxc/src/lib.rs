@@ -29,6 +29,8 @@ pub struct Compilation {
     pub links: Vec<String>,
     /// Names of the test functions, in the order of their index.
     pub tests: Vec<String>,
+    /// The same diagnostics as a JSON array (for editors and tools).
+    pub json: String,
 }
 
 /// Runs the whole front end and generates C (unless `mode` is `Check`).
@@ -44,6 +46,10 @@ pub fn compile_file(path: &Path, mode: Mode, color: bool) -> Compilation {
                 c_source: None,
                 links: vec![],
                 tests: vec![],
+                json: format!(
+                    "[{{\"level\":\"error\",\"code\":\"\",\"message\":{},\"file\":\"\",\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0,\"labels\":[],\"notes\":[]}}]",
+                    json_str(&format!("cannot read `{}`: {}", path.display(), e))
+                ),
             }
         }
     };
@@ -132,7 +138,76 @@ fn finish(sm: &SourceMap, diags: &DiagSink, c: Option<String>, links: Vec<String
         list.retain(|d| d.level == Level::Error);
     }
     let warnings = list.len() - errors;
-    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, c_source: if errors == 0 { c } else { None }, links, tests }
+    let json = diagnostics_json(&list, sm);
+    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, c_source: if errors == 0 { c } else { None }, links, tests, json }
+}
+
+/// A JSON string literal.
+pub fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
+}
+
+/// Diagnostics as JSON: one object per diagnostic, with 1-based positions of the primary
+/// span (`end_col` is exclusive) and of every secondary label.
+pub fn diagnostics_json(list: &[Diagnostic], sm: &SourceMap) -> String {
+    let pos = |span: Span| -> (String, usize, usize, usize, usize) {
+        match sm.try_get(span.file) {
+            Some(f) if !span.is_dummy() => {
+                let (l1, c1) = f.line_col(span.lo);
+                let (l2, c2) = f.line_col(span.hi.max(span.lo));
+                (f.name.clone(), l1, c1, l2, c2)
+            }
+            _ => (String::new(), 0, 0, 0, 0),
+        }
+    };
+    let mut items = Vec::new();
+    for d in list {
+        let primary = d.primary_span().unwrap_or(Span::DUMMY);
+        let (file, line, col, end_line, end_col) = pos(primary);
+        let mut labels = Vec::new();
+        for l in &d.labels {
+            let (lf, ll, lc, lel, lec) = pos(l.span);
+            labels.push(format!(
+                "{{\"primary\":{},\"message\":{},\"file\":{},\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{}}}",
+                l.primary,
+                json_str(&l.message),
+                json_str(&lf),
+                ll,
+                lc,
+                lel,
+                lec
+            ));
+        }
+        let notes: Vec<String> = d.notes.iter().map(|n| json_str(&format!("note: {}", n))).chain(d.helps.iter().map(|h| json_str(&format!("help: {}", h)))).collect();
+        items.push(format!(
+            "{{\"level\":\"{}\",\"code\":{},\"message\":{},\"file\":{},\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{},\"labels\":[{}],\"notes\":[{}]}}",
+            if d.level == Level::Error { "error" } else { "warning" },
+            json_str(d.code),
+            json_str(&d.message),
+            json_str(&file),
+            line,
+            col,
+            end_line,
+            end_col,
+            labels.join(","),
+            notes.join(",")
+        ));
+    }
+    format!("[{}]", items.join(","))
 }
 
 // ---------------------------------------------------------------------------
