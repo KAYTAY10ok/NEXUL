@@ -1,0 +1,60 @@
+// Spec §1.5, §4.11, §09: strings.
+fn main() {
+    let s = "Bonjour, monde"
+    println("{s.len()} {s.char_count()} {s.is_empty()} {String.new().is_empty()}")
+    let unicode = "été 🌍"
+    println("{unicode} {unicode.len()} {unicode.char_count()}")
+    var t = String.new()
+    t.push('a')
+    t.push('é')
+    t.push('🚀')
+    t.push_str(" fin")
+    println("[{t}] {t.len()}")
+    let copie = t.clone()
+    t.push('!')
+    println("{copie} / {t}")
+    println("{s.contains("monde")} {s.contains("Monde")} {s.starts_with("Bon")} {s.ends_with("de")}")
+    match s.find("mon") {
+        Some(i) => println("trouvé à {i}")
+        None => println("absent")
+    }
+    println("[{s.substring(0, 7)}] [{"  espaces  ".trim()}] [{"   ".trim()}]")
+    println("{s.to_uppercase()} {s.to_lowercase()}")
+    let parts = "a,b,,c".split(",")
+    println("{parts.len()} [{parts[0]}] [{parts[2]}] [{parts[3]}]")
+    let lignes = "un\ndeux\r\ntrois".lines()
+    for l in lignes {
+        print("<{l}>")
+    }
+    println()
+    println("{"a-b-c".replace("-", "+")} {"ab".repeat(3)} {"x".repeat(0).len()}")
+    println("{"123".parse_int().unwrap()} {"-9223372036854775808".parse_int().unwrap()} {"12a".parse_int().is_none()} {"".parse_int().is_none()}")
+    println("{"9223372036854775808".parse_int().is_none()} {"+7".parse_int().unwrap()}")
+    println("{"3.25".parse_float().unwrap()} {"-1e3".parse_float().unwrap()} {"abc".parse_float().is_none()} {"1.".parse_float().is_none()}")
+    let chars = "héllo".chars()
+    println("{chars.len()} {chars[1]}")
+    let bytes = "AB".bytes()
+    println("{bytes[0]} {bytes[1]} {"A".byte_at(0)}")
+    // Comparison and concatenation.
+    println("{"abc" == "abc"} {"abc" != "abd"} {"abc" < "abd"} {"b" > "abc"} {"" < "a"}")
+    let joined = "foo" + "bar"
+    println("{joined}")
+    var acc = "x"
+    acc += "y"
+    acc += acc
+    println("{acc}")
+    // Iteration over characters.
+    var count = 0
+    for c in "aé🌍" {
+        count += 1
+        print("{c}|")
+    }
+    println(" {count}")
+    // Escapes and interpolation.
+    println("tab:\t| quote:\" | backslash:\\ | brace:\{ \} | unicode:\u{263A}")
+    println(r"raw: C:\temp\{x}")
+    let w = "nexul"
+    println("[{w:>8}] [{w:<8}] [{w:^9}] [{w:*^9}] [{w:.3}]")
+    let n = 5
+    println("{n} + {n} = {n + n}, {"imbriqué".len()}")
+}

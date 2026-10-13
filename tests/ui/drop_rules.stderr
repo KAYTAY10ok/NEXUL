@@ -1,0 +1,24 @@
+error[E0432]: a destructor must be declared `fn drop(inout self)`
+  --> drop_rules.nx:16:8
+   |
+16 |     fn drop(self) {
+   |        ^^^^ invalid destructor signature
+
+error[E0430]: a destructor cannot be called explicitly
+  --> drop_rules.nx:22:7
+   |
+22 |     g.drop()
+   |       ^^^^ called automatically when the value is destroyed
+   |
+   = help: use `std.mem.drop(value)` to destroy a value early
+
+error[E0431]: `Guard` defines `drop` and cannot be taken apart
+  --> drop_rules.nx:23:9
+   |
+23 |     let Guard(name: n) = Guard(name: "h")
+   |         ^^^^^^^^^^^^^^ this pattern moves parts out of the value
+   |
+   = note: the destructor must run on the whole value
+   = help: bind the whole value, or copy the parts you need
+
+error: could not compile due to 3 errors

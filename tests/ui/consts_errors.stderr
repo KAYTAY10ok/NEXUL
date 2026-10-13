@@ -1,0 +1,45 @@
+error[E0370]: arithmetic overflow in constant expression of type `i32`
+ --> consts_errors.nx:1:16
+  |
+1 | const A: i32 = 2147483647 + 1
+  |                ^^^^^^^^^^^^^^ overflows
+
+error[E0301]: value 256 does not fit in `u8`
+ --> consts_errors.nx:2:15
+  |
+2 | const B: u8 = 256
+  |               ^^^ the range of `u8` is 0..=255
+
+error[E0372]: constant `C` depends on itself
+ --> consts_errors.nx:3:7
+  |
+3 | const C: i32 = D
+  |       ^ cyclic constant
+
+error[E0372]: constant `D` depends on itself
+ --> consts_errors.nx:4:7
+  |
+4 | const D: i32 = C
+  |       ^ cyclic constant
+
+error[E0371]: this expression cannot be evaluated at compile time
+ --> consts_errors.nx:5:16
+  |
+5 | const E: i32 = f()
+  |                ^^^ not a constant expression
+  |
+  = note: constant expressions may use literals, other constants, operators and `as`
+
+error[E0370]: division by zero in constant expression
+ --> consts_errors.nx:6:16
+  |
+6 | const F: i32 = 1 / 0
+  |                ^^^^^ divides by zero
+
+error[E0302]: mismatched types in constant
+ --> consts_errors.nx:7:21
+  |
+7 | const G: [i32; 2] = 1
+  |                     ^ expected `[i32; 2]`, found an integer
+
+error: could not compile due to 7 errors

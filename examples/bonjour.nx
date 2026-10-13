@@ -1,0 +1,4 @@
+fn main() {
+    let nom = "NEXUL"
+    println("Bonjour depuis {nom} !")
+}

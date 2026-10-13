@@ -1,0 +1,18 @@
+import support.othermod
+
+impl i32 {
+    fn double(self) -> i32 {
+        return self * 2
+    }
+}
+
+impl othermod.Shape {
+    fn extra(self) {
+    }
+}
+
+impl Missing {
+}
+
+fn main() {
+}

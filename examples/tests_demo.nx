@@ -1,0 +1,40 @@
+// Run with: nxc test examples/tests_demo.nx
+
+fn fibonacci(n: u32) -> u64 {
+    var a: u64 = 0
+    var b: u64 = 1
+    for _ in 0..n {
+        let next = a + b
+        a = b
+        b = next
+    }
+    return a
+}
+
+@test
+fn fibonacci_small_values() {
+    assert(fibonacci(0) == 0)
+    assert(fibonacci(1) == 1)
+    assert(fibonacci(10) == 55)
+}
+
+@test
+fn fibonacci_large_value() {
+    assert(fibonacci(90) == 2880067194370816120, "fibonacci(90) is wrong")
+}
+
+@test
+fn strings_reverse() {
+    var reversed = String.new()
+    let chars = "abc".chars()
+    var i = chars.len()
+    while i > 0 {
+        i -= 1
+        reversed.push(chars[i])
+    }
+    assert(reversed == "cba")
+}
+
+fn main() {
+    println("fibonacci(50) = {fibonacci(50)}")
+}

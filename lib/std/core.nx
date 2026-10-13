@@ -1,0 +1,129 @@
+/// Core types of NEXUL: `Option` and `Result` (spec chapter 07).
+
+import std.mem
+
+/// An optional value: either `Some(value)` or `None`.
+@lang("option")
+pub enum Option[T] {
+    Some(T)
+    None
+}
+
+impl Option {
+    /// `true` if the option contains a value.
+    pub fn is_some(self) -> bool {
+        match self {
+            Some(_) => return true
+            None => return false
+        }
+    }
+
+    /// `true` if the option is `None`.
+    pub fn is_none(self) -> bool {
+        return not self.is_some()
+    }
+
+    /// The contained value; panics if the option is `None`.
+    @track_caller
+    pub fn unwrap(owned self) -> T {
+        match move self {
+            Some(value) => return value
+            None => panic("called `Option.unwrap()` on a `None` value")
+        }
+    }
+
+    /// The contained value; panics with `message` if the option is `None`.
+    @track_caller
+    pub fn expect(owned self, message: String) -> T {
+        match move self {
+            Some(value) => return value
+            None => panic(message)
+        }
+    }
+
+    /// The contained value, or `default` if the option is `None`.
+    pub fn unwrap_or(owned self, owned default: T) -> T {
+        match move self {
+            Some(value) => return value
+            None => return default
+        }
+    }
+
+    /// Takes the value out of the option, leaving `None` in its place.
+    pub fn take(inout self) -> Option[T] {
+        return mem.replace(&self, None)
+    }
+}
+
+/// The result of an operation that can fail: `Ok(value)` or `Err(error)`.
+@lang("result")
+pub enum Result[T, E] {
+    Ok(T)
+    Err(E)
+}
+
+impl Result {
+    /// `true` if the result is `Ok`.
+    pub fn is_ok(self) -> bool {
+        match self {
+            Ok(_) => return true
+            Err(_) => return false
+        }
+    }
+
+    /// `true` if the result is `Err`.
+    pub fn is_err(self) -> bool {
+        return not self.is_ok()
+    }
+
+    /// The success value; panics if the result is an error.
+    @track_caller
+    pub fn unwrap(owned self) -> T {
+        match move self {
+            Ok(value) => return value
+            Err(_) => panic("called `Result.unwrap()` on an `Err` value")
+        }
+    }
+
+    /// The error value; panics if the result is a success.
+    @track_caller
+    pub fn unwrap_err(owned self) -> E {
+        match move self {
+            Ok(_) => panic("called `Result.unwrap_err()` on an `Ok` value")
+            Err(error) => return error
+        }
+    }
+
+    /// The success value; panics with `message` if the result is an error.
+    @track_caller
+    pub fn expect(owned self, message: String) -> T {
+        match move self {
+            Ok(value) => return value
+            Err(_) => panic(message)
+        }
+    }
+
+    /// The success value, or `default` if the result is an error.
+    pub fn unwrap_or(owned self, owned default: T) -> T {
+        match move self {
+            Ok(value) => return value
+            Err(_) => return default
+        }
+    }
+
+    /// Converts into an `Option`, discarding the error.
+    pub fn ok(owned self) -> Option[T] {
+        match move self {
+            Ok(value) => return Some(value)
+            Err(_) => return None
+        }
+    }
+
+    /// Converts into an `Option` of the error, discarding the success value.
+    pub fn err(owned self) -> Option[E] {
+        match move self {
+            Ok(_) => return None
+            Err(error) => return Some(error)
+        }
+    }
+}

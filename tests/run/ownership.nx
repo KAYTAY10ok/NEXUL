@@ -1,0 +1,123 @@
+// Spec chapter 05: moves, destruction order, drop flags, conventions.
+import std.mem
+
+struct Trace {
+    name: String
+}
+
+impl Trace {
+    fn new(name: String) -> Trace {
+        println("  create {name}")
+        return Trace(name: name.clone())
+    }
+
+    fn drop(inout self) {
+        println("  drop {self.name}")
+    }
+}
+
+fn consume(owned t: Trace) {
+    println("  consume {t.name}")
+}
+
+fn read(t: Trace) -> String {
+    return t.name.clone()
+}
+
+fn rename(inout t: Trace, name: String) {
+    t.name = name.clone()
+}
+
+fn make(name: String) -> Trace {
+    return Trace.new(name)
+}
+
+fn conditional(flag: bool) {
+    let t = Trace.new("conditional")
+    if flag {
+        consume(t)
+    }
+    println("  end of conditional({flag})")
+}
+
+fn early_return(stop: bool) -> i32 {
+    let _a = Trace.new("a")
+    let _b = Trace.new("b")
+    if stop {
+        return 1
+    }
+    let _c = Trace.new("c")
+    return 2
+}
+
+fn loops() {
+    var t = Trace.new("loop-0")
+    for i in 1..3 {
+        consume(t)
+        t = Trace.new("loop-{i}")
+    }
+    var count = 0
+    while true {
+        let _inner = Trace.new("inner-{count}")
+        count += 1
+        if count == 2 {
+            break
+        }
+    }
+}
+
+fn main() {
+    println("scope:")
+    {
+        let _scoped = Trace.new("scoped")
+    }
+    let first = Trace.new("first")
+    let second = Trace.new("second")
+    println("move:")
+    let moved = first
+    consume(moved)
+    println("borrow: {read(second)}")
+    println("inout:")
+    var r = Trace.new("before")
+    rename(&r, "after")
+    println("  renamed to {r.name}")
+    println("reassign:")
+    var _v = Trace.new("old")
+    _v = Trace.new("new")
+    println("conditional:")
+    conditional(true)
+    conditional(false)
+    println("early return:")
+    println("  -> {early_return(true)}")
+    println("  -> {early_return(false)}")
+    println("loops:")
+    loops()
+    println("temporaries:")
+    println("  read temp: {read(make("temp"))}")
+    println("option:")
+    var o: Option[Trace] = Some(Trace.new("boxed"))
+    let taken = o.take()
+    println("  taken is_some={taken.is_some()} remaining is_none={o.is_none()}")
+    println("swap and replace:")
+    var p = Trace.new("p")
+    var q = Trace.new("q")
+    mem.swap(&p, &q)
+    println("  p={p.name} q={q.name}")
+    let old = mem.replace(&p, Trace.new("p2"))
+    println("  old={old.name} p={p.name}")
+    mem.drop(old)
+    println("vec of traces:")
+    var list: Vec[Trace] = Vec.new()
+    list.push(Trace.new("v1"))
+    list.push(Trace.new("v2"))
+    list.push(Trace.new("v3"))
+    let removed = list.remove(1)
+    println("  removed {removed.name}, len {list.len()}")
+    println("match move:")
+    let maybe: Option[Trace] = Some(Trace.new("matched"))
+    match move maybe {
+        Some(t) => println("  got {t.name}")
+        None => println("  nothing")
+    }
+    println("end of main")
+}

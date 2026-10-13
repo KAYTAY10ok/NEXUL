@@ -1,0 +1,10 @@
+fn consume(owned s: String) {
+}
+
+fn main() {
+    let s = "x".clone()
+    if s.len() > 0 {
+        consume(s)
+    }
+    println(s)
+}

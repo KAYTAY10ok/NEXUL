@@ -1,0 +1,4 @@
+// Helper module for tests/ui (not a test itself).
+pub struct Shape {
+    pub sides: u32
+}

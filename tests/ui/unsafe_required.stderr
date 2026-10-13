@@ -1,0 +1,28 @@
+error[E0501]: `Ptr.read` requires an `unsafe` block
+ --> unsafe_required.nx:8:13
+  |
+8 |     let v = p.read()
+  |             ^^^^^^^^ unsafe operation
+  |
+  = note: the compiler cannot check this operation for memory safety
+  = help: wrap it in `unsafe { ... }` after checking that it is correct
+
+error[E0501]: calling the external function `abs` requires an `unsafe` block
+ --> unsafe_required.nx:9:13
+  |
+9 |     let a = abs(-1)
+  |             ^^^^^^^ unsafe operation
+  |
+  = note: the compiler cannot check this operation for memory safety
+  = help: wrap it in `unsafe { ... }` after checking that it is correct
+
+error[E0501]: calling the unsafe function `danger` requires an `unsafe` block
+  --> unsafe_required.nx:10:5
+   |
+10 |     danger()
+   |     ^^^^^^^^ unsafe operation
+   |
+   = note: the compiler cannot check this operation for memory safety
+   = help: wrap it in `unsafe { ... }` after checking that it is correct
+
+error: could not compile due to 3 errors

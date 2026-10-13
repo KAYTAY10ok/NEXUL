@@ -1,0 +1,12 @@
+error[E0420]: cannot assign to `o` while `o` is borrowed
+ --> exclusivity_match.nx:5:13
+  |
+3 |     match o {
+  |           - `o` is borrowed by this pattern match until its end
+4 |         Some(s) => {
+5 |             o = None
+  |             ^ assign to here
+  |
+  = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error: could not compile due to 1 error

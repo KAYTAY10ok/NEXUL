@@ -1,0 +1,13 @@
+struct Point {
+    x: f64
+    y: f64
+}
+
+fn main() {
+    let a = Point(1.0, 2.0)
+    let b = Point(y: 2.0, x: 1.0)
+    let c = Point(x: 1.0)
+    let d = Point(x: 1.0, y: 2.0, z: 3.0)
+    let e = Point
+    println("{a.x}")
+}

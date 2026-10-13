@@ -1,0 +1,19 @@
+error[E0403]: cannot move out of `s`, which is borrowed
+ --> move_out_of_borrowed.nx:2:12
+  |
+2 |     return s
+  |            ^ `String` is a resource and only a borrowed view is available here
+  |
+  = help: take ownership with `owned s: ...`, or copy the value
+  = help: use `.clone()` to make a copy
+
+error[E0403]: cannot move out of `w`, which is borrowed
+ --> move_out_of_borrowed.nx:7:26
+  |
+7 |         let owned_word = w
+  |                          ^ `String` is a resource and only a borrowed view is available here
+  |
+  = note: `w` is a read-only view into another value (a `for` element or a pattern binding)
+  = help: use `.clone()` to make a copy
+
+error: could not compile due to 2 errors

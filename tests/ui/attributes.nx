@@ -1,0 +1,17 @@
+@inline
+fn f() {
+}
+
+@intrinsic
+fn g()
+
+@test
+fn bad_test(x: i32) {
+}
+
+@link("m")
+fn h() {
+}
+
+fn main() {
+}

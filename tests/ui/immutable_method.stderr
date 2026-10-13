@@ -1,0 +1,21 @@
+error[E0405]: cannot assign to field `n` of `self`: parameter `self` is borrowed read-only
+  --> immutable_method.nx:11:9
+   |
+10 |     fn peek(self) -> i32 {
+   |             ---- declared here
+11 |         self.n = 0
+   |         ^^^^^^ not modifiable
+   |
+   = help: declare the method with `inout self`
+
+error[E0405]: cannot modify `c`: `c` is immutable
+  --> immutable_method.nx:18:5
+   |
+17 |     let c = Counter(n: 0)
+   |         - declared here
+18 |     c.bump()
+   |     ^ not modifiable
+   |
+   = help: declare it with `var c`
+
+error: could not compile due to 2 errors

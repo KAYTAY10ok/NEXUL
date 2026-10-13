@@ -1,0 +1,39 @@
+error[E0202]: cannot find `printn` in this scope
+ --> names_not_found.nx:3:5
+  |
+3 |     printn("{x}")
+  |     ^^^^^^ not found
+  |
+  = help: did you mean `println`?
+
+error[E0202]: cannot find `undefined_value` in this scope
+ --> names_not_found.nx:4:13
+  |
+4 |     let y = undefined_value
+  |             ^^^^^^^^^^^^^^^ not found
+
+error[E0202]: cannot find `Strng` in this scope
+ --> names_not_found.nx:5:13
+  |
+5 |     let z = Strng.new()
+  |             ^^^^^ not found
+  |
+  = help: did you mean `String`?
+
+error[E0202]: cannot find `nil` in this scope
+ --> names_not_found.nx:6:13
+  |
+6 |     let n = nil
+  |             ^^^ not found
+  |
+  = help: NEXUL has no null value; use `Option[T]` and `None`
+
+error[E0202]: cannot find `math` in this scope
+ --> names_not_found.nx:7:13
+  |
+7 |     let p = math.PI
+  |             ^^^^ not found
+  |
+  = help: add `import std.math` at the top of the file
+
+error: could not compile due to 5 errors

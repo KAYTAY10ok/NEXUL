@@ -1,0 +1,21 @@
+fn parse(s: String) -> Result[i32, String] {
+    return Ok(1)
+}
+
+fn returns_unit() {
+    let x = parse("1")?
+}
+
+fn other_error() -> Result[i32, i32] {
+    let x = parse("1")?
+    return Ok(x)
+}
+
+fn not_option() -> Option[i32] {
+    let n = 5?
+    let x = parse("1")?
+    return Some(1)
+}
+
+fn main() {
+}

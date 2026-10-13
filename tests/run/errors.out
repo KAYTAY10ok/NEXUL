@@ -1,0 +1,12 @@
+3x4 -> area 12
+10 x 20 -> area 200
+3x -> error: invalid height: ``
+ax4 -> error: invalid width: `a`
+5 -> error: expected WIDTHxHEIGHT, got `5`
+0x9 -> error: dimensions must be positive
+99 0
+true false true
+-1 1 e
+true default
+x
+fine

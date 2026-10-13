@@ -1,0 +1,9 @@
+fn main() {
+    var x: i32
+    if true {
+        x = 1
+    }
+    println("{x}")
+    var y: i32
+    println("{y}")
+}

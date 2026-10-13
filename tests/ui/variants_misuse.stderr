@@ -1,0 +1,37 @@
+error[E0306]: variant `Shape.Circle` needs 1 value(s)
+ --> variants_misuse.nx:7:13
+  |
+7 |     let a = Shape.Circle
+  |             ^^^^^^^^^^^^ missing values
+  |
+  = help: write `Circle(...)`
+
+error[E0306]: variant `Shape.Empty` has no values
+ --> variants_misuse.nx:8:13
+  |
+8 |     let b = Shape.Empty(1.0)
+  |             ^^^^^^^^^^^^^^^^ remove the parentheses
+  |
+  = help: write `Empty`
+
+error[E0304]: variant `Circle` takes 1 value(s) but 2 were given
+ --> variants_misuse.nx:9:13
+  |
+9 |     let c = Shape.Circle(1.0, 2.0)
+  |             ^^^^^^^^^^^^^^^^^^^^^^ wrong number of values
+
+error[E0306]: `Shape` is an enum: build one of its variants
+  --> variants_misuse.nx:10:13
+   |
+10 |     let d = Shape(1.0)
+   |             ^^^^^^^^^^ not a structure
+   |
+   = help: for example `Shape.Circle(...)`
+
+error[E0202]: `Shape` has no variant or associated function `Square`
+  --> variants_misuse.nx:11:19
+   |
+11 |     let e = Shape.Square(1.0)
+   |                   ^^^^^^ not found
+
+error: could not compile due to 5 errors

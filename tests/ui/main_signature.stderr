@@ -1,0 +1,9 @@
+error[E0230]: `main` must be declared `fn main()`
+ --> main_signature.nx:1:4
+  |
+1 | fn main(x: i32) -> i32 {
+  |    ^^^^ invalid signature
+  |
+  = help: use `std.system.args()` for arguments and `std.system.exit(code)` for the exit code
+
+error: could not compile due to 1 error

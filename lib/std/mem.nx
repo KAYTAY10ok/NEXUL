@@ -1,0 +1,49 @@
+/// Memory utilities (spec chapter 09).
+///
+/// The `unsafe` functions give raw access to memory: the caller is responsible for
+/// passing valid pointers and sizes.
+
+/// Size in bytes of a value of type `T`.
+@intrinsic
+pub fn size_of[T]() -> usize
+
+/// Alignment in bytes of type `T`.
+@intrinsic
+pub fn align_of[T]() -> usize
+
+/// Allocates `size` bytes on the heap (never returns null; panics if out of memory).
+@intrinsic
+pub unsafe fn alloc(size: usize) -> Ptr[u8]
+
+/// Resizes an allocation made by `alloc`.
+@intrinsic
+pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8]
+
+/// Frees an allocation made by `alloc` or `realloc`.
+@intrinsic
+pub unsafe fn free(p: Ptr[u8])
+
+/// Copies `count` values from `src` to `dst` (the regions may overlap). The values
+/// are copied bit for bit: ownership is duplicated, not transferred.
+@intrinsic
+pub unsafe fn copy[T](src: Ptr[T], dst: Ptr[T], count: usize)
+
+/// Destroys the value pointed to by `p`, without freeing its memory.
+@intrinsic
+pub unsafe fn drop_in_place[T](p: Ptr[T])
+
+/// Takes ownership of a value without destroying it (its resources are leaked).
+@intrinsic
+pub fn forget[T](owned value: T)
+
+/// Exchanges two values.
+@intrinsic
+pub fn swap[T](inout a: T, inout b: T)
+
+/// Replaces `dest` by `value` and returns the previous value.
+@intrinsic
+pub fn replace[T](inout dest: T, owned value: T) -> T
+
+/// Destroys a value now instead of at the end of its scope.
+pub fn drop[T](owned value: T) {
+}

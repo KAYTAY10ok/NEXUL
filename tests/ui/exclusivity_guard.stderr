@@ -1,0 +1,11 @@
+error[E0420]: cannot modify `v` while `v` is borrowed
+  --> exclusivity_guard.nx:10:26
+   |
+ 9 |     match v[0] {
+   |           ---- `v` is borrowed by this pattern match until its end
+10 |         Some(_) if grow(&v) => println("never")
+   |                          ^ modify here
+   |
+   = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error: could not compile due to 1 error

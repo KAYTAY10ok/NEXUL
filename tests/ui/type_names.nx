@@ -1,0 +1,11 @@
+struct Vec2 {
+    x: f64
+}
+
+fn main() {
+    let a: int = 5
+    let b: Vec3 = Vec2(x: 1.0)
+    let c: Vec[i32, i32] = Vec.new()
+    let d: Option = None
+    let e: Vec<i32> = Vec.new()
+}

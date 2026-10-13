@@ -1,0 +1,15 @@
+fn f(self) {
+}
+
+struct S {
+    x: i32
+}
+
+impl S {
+    fn m(x: i32, self) {
+    }
+}
+
+fn main() {
+    let a = self
+}

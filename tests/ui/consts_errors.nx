@@ -1,0 +1,14 @@
+const A: i32 = 2147483647 + 1
+const B: u8 = 256
+const C: i32 = D
+const D: i32 = C
+const E: i32 = f()
+const F: i32 = 1 / 0
+const G: [i32; 2] = 1
+
+fn f() -> i32 {
+    return 1
+}
+
+fn main() {
+}

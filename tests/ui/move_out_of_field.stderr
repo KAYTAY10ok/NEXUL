@@ -1,0 +1,28 @@
+error[E0403]: cannot move field `name` of `p` out of its place
+ --> move_out_of_field.nx:6:12
+  |
+6 |     return p.name
+  |            ^^^^^^ `String` is a resource: moving it would leave a hole
+  |
+  = note: only a whole variable can be moved; a field or an element stays where it is
+  = help: use `.clone()` to make a copy
+
+error[E0403]: cannot move an element of `v` out of its place
+  --> move_out_of_field.nx:12:17
+   |
+12 |     let first = v[0]
+   |                 ^^^^ `String` is a resource: moving it would leave a hole
+   |
+   = note: only a whole variable can be moved; a field or an element stays where it is
+   = help: use `.clone()` to make a copy
+
+error[E0403]: cannot move field `name` of `p` out of its place
+  --> move_out_of_field.nx:14:13
+   |
+14 |     let n = p.name
+   |             ^^^^^^ `String` is a resource: moving it would leave a hole
+   |
+   = note: only a whole variable can be moved; a field or an element stays where it is
+   = help: use `.clone()` to make a copy
+
+error: could not compile due to 3 errors

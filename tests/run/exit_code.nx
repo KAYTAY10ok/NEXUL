@@ -1,0 +1,6 @@
+import std.system
+
+fn main() {
+    println("exiting with 3")
+    system.exit(3)
+}

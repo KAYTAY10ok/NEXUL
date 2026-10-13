@@ -1,0 +1,52 @@
+error[E0350]: a value of type `P` cannot be formatted
+ --> formatting.nx:7:15
+  |
+7 |     println("{p}")
+  |               ^ not formattable
+  |
+  = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
+  = help: format its fields individually, or write a method that returns a `String`
+
+error[E0350]: a value of type `P` cannot be formatted
+ --> formatting.nx:8:13
+  |
+8 |     println(p)
+  |             ^ not formattable
+  |
+  = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
+  = help: format its fields individually, or write a method that returns a `String`
+
+error[E0351]: invalid format for `f64`: `x`, `X`, `o` and `b` apply to integers
+ --> formatting.nx:9:19
+  |
+9 |     println("{1.5:x} {true:.2} {"s":e} {'c':+}")
+  |                   ^ incompatible specification
+
+error[E0351]: invalid format for `bool`: precision applies to floats and strings
+ --> formatting.nx:9:28
+  |
+9 |     println("{1.5:x} {true:.2} {"s":e} {'c':+}")
+  |                            ^^ incompatible specification
+
+error[E0351]: invalid format for `String`: `e` applies to floats
+ --> formatting.nx:9:37
+  |
+9 |     println("{1.5:x} {true:.2} {"s":e} {'c':+}")
+  |                                     ^ incompatible specification
+
+error[E0351]: invalid format for `char`: `+` and `0` apply to numbers
+ --> formatting.nx:9:45
+  |
+9 |     println("{1.5:x} {true:.2} {"s":e} {'c':+}")
+  |                                             ^ incompatible specification
+
+error[E0350]: a value of type `Vec[i32]` cannot be formatted
+  --> formatting.nx:11:15
+   |
+11 |     println("{v}")
+   |               ^ not formattable
+   |
+   = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
+   = help: format its fields individually, or write a method that returns a `String`
+
+error: could not compile due to 7 errors

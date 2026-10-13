@@ -1,0 +1,37 @@
+error[E0322]: cannot convert `String` to `i32` with `as`
+ --> invalid_casts.nx:2:13
+  |
+2 |     let a = "12" as i32
+  |             ^^^^^^^^^^^ invalid conversion
+  |
+  = help: to read a number from a string, use `s.parse_int()` or `s.parse_float()`
+
+error[E0322]: cannot convert `i32` to `bool` with `as`
+ --> invalid_casts.nx:3:13
+  |
+3 |     let b = 5 as bool
+  |             ^^^^^^^^^ invalid conversion
+  |
+  = help: compare instead: `x != 0`
+
+error[E0322]: cannot convert `f64` to `char` with `as`
+ --> invalid_casts.nx:4:13
+  |
+4 |     let c = 3.5 as char
+  |             ^^^^^^^^^^^ invalid conversion
+
+error[E0322]: cannot convert `i32` to `String` with `as`
+ --> invalid_casts.nx:5:13
+  |
+5 |     let d = 1 as String
+  |             ^^^^^^^^^^^ invalid conversion
+  |
+  = help: to build a string, use `value.to_string()` or interpolation `"{value}"`
+
+error[E0301]: literal out of range for `u8`
+ --> invalid_casts.nx:6:13
+  |
+6 |     let e = 300 as u8
+  |             ^^^^^^^^^ the range of `u8` is 0..=255
+
+error: could not compile due to 5 errors

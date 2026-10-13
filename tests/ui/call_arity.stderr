@@ -1,0 +1,33 @@
+error[E0304]: `two` takes 2 arguments but 1 was given
+ --> call_arity.nx:6:13
+  |
+6 |     let x = two(1)
+  |             ^^^^^^ wrong number of arguments
+  |
+  = note: signature: two(a: i32, b: i32)
+
+error[E0304]: `two` takes 2 arguments but 3 were given
+ --> call_arity.nx:7:13
+  |
+7 |     let y = two(1, 2, 3)
+  |             ^^^^^^^^^^^^ wrong number of arguments
+  |
+  = note: signature: two(a: i32, b: i32)
+
+error[E0305]: named arguments are only used to build structures
+ --> call_arity.nx:8:17
+  |
+8 |     let z = two(a: 1, b: 2)
+  |                 ^ unexpected label
+  |
+  = help: remove `a:`
+
+error[E0305]: named arguments are only used to build structures
+ --> call_arity.nx:8:23
+  |
+8 |     let z = two(a: 1, b: 2)
+  |                       ^ unexpected label
+  |
+  = help: remove `b:`
+
+error: could not compile due to 4 errors

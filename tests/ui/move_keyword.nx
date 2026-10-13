@@ -1,0 +1,6 @@
+fn main() {
+    let v: Vec[i32] = Vec.new()
+    let w = move v
+    let x = move w.len()
+    println("{x}")
+}

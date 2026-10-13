@@ -1,0 +1,9 @@
+size 3
+c b a 
+top 20 size 1
+5 text 2.5
+9
+nested 7
+some = 2
+sizes: 1 8 8 10
+unit vec len 0

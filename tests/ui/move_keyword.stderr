@@ -1,0 +1,9 @@
+error[E0406]: `move` can only take a whole variable that owns its value
+ --> move_keyword.nx:4:18
+  |
+4 |     let x = move w.len()
+  |                  ^^^^^^^ not an owned variable
+  |
+  = note: moving a part of a value would leave the rest half-initialized
+
+error: could not compile due to 1 error

@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "compiler/nxc_syntax",
+    "compiler/nxc_sema",
+    "compiler/nxc_nir",
+    "compiler/nxc_codegen_c",
+    "compiler/nxc",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/nexul-lang/nexul"
+
+[profile.release]
+debug = false
+lto = "thin"

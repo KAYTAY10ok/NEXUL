@@ -1,0 +1,182 @@
+# 03 — Types
+
+NEXUL est **statiquement typé**. Chaque expression a un type connu à la compilation.
+Les signatures (paramètres, type de retour, champs, constantes) sont **toujours annotées** ;
+l'inférence ne s'applique qu'à l'intérieur des corps de fonctions. Ainsi une signature se
+lit sans consulter son implémentation, et la compilation séparée reste possible.
+
+## 3.1 Types primitifs
+
+| Type | Représentation | Valeurs |
+|---|---|---|
+| `i8` `i16` `i32` `i64` | complément à deux, 8/16/32/64 bits | −2ⁿ⁻¹ … 2ⁿ⁻¹−1 |
+| `u8` `u16` `u32` `u64` | binaire non signé | 0 … 2ⁿ−1 |
+| `isize` `usize` | taille d'un pointeur de la cible | idem selon la largeur |
+| `f32` `f64` | IEEE 754 binary32 / binary64 | y compris ±inf et NaN |
+| `bool` | 1 octet, 0 ou 1 | `true`, `false` |
+| `char` | 32 bits | valeur scalaire Unicode (U+0000–U+10FFFF hors U+D800–U+DFFF) |
+| `()` | 0 octet utile | l'unique valeur `()` (« unité ») |
+| `Never` | aucune | type des expressions qui ne terminent pas (`return`, `panic(...)`) |
+
+Il n'existe **pas de valeur nulle** : l'absence de valeur s'exprime par `Option[T]`.
+
+Constantes associées : `MIN`, `MAX` et `BITS` pour chaque entier (`i32.MIN`, `u8.MAX`) ;
+`INFINITY`, `NEG_INFINITY`, `NAN`, `EPSILON`, `MAX`, `MIN` et `MIN_POSITIVE` pour `f32` et
+`f64` ; `char.MAX`.
+
+## 3.2 Types composés
+
+| Forme | Exemple | Description |
+|---|---|---|
+| Tuple | `(i32, String)` | produit anonyme ; accès `t.0`, `t.1` ; `(T,)` pour un 1-uplet |
+| Tableau | `[u8; 16]` | `N` éléments contigus, `N` constante entière ≥ 0 connue à la compilation |
+| Structure | `struct Point { x: f64, y: f64 }` | produit nommé |
+| Énumération | `enum Forme { Cercle(f64), Vide }` | somme étiquetée (union discriminée) |
+| Fonction | `fn(i32, inout String) -> bool` | pointeur vers une fonction nommée (sans capture en 0.1) |
+| Pointeur brut | `Ptr[T]` | adresse non vérifiée, utilisable seulement en `unsafe` (§05, §08) |
+
+### Structures
+
+```nexul
+struct Personne {
+    pub nom: String
+    pub age: u32
+    identifiant: u64        // privé au module
+}
+
+let p = Personne(nom: "Ada", age: 36, identifiant: 1)
+```
+
+La construction utilise la syntaxe d'appel avec **tous les champs nommés, dans l'ordre de
+déclaration** (E0310 sinon). Cette contrainte rend l'ordre d'évaluation évident et la
+lecture uniforme. Les champs sont privés au module par défaut ; un champ `pub` est
+accessible partout où le type l'est. Une structure dont un champ n'est pas visible ne
+peut pas être construite hors de son module (on fournit alors une fonction de construction).
+
+### Énumérations
+
+```nexul
+enum Forme {
+    Cercle(f64)
+    Rectangle(f64, f64)
+    Vide
+}
+
+let f = Forme.Rectangle(3.0, 4.0)
+```
+
+Les variantes portent zéro ou plusieurs valeurs positionnelles. Les variantes sont
+toujours publiques si l'énumération l'est.
+
+### Stockage indirect (`indirect`)
+
+Un type récursif aurait une taille infinie. Le modificateur `indirect` place la valeur
+dans un stockage alloué sur le tas, **de façon transparente** : on lit, construit et filtre
+la valeur exactement comme si elle était stockée directement.
+
+```nexul
+enum Arbre {
+    Feuille(i64)
+    indirect Noeud(Arbre, Arbre)
+}
+
+struct Maillon {
+    valeur: i32
+    indirect suivant: Option[Maillon]
+}
+```
+
+Un type récursif sans `indirect` sur le chemin de récursion est rejeté (E0311) avec une
+suggestion indiquant où placer `indirect`. Un type contenant du stockage indirect est un
+type *ressource* (§05) : sa destruction libère le stockage.
+
+## 3.3 Génériques
+
+```nexul
+struct Paire[A, B] {
+    pub premier: A
+    pub second: B
+}
+
+fn echanger[A, B](owned p: Paire[A, B]) -> Paire[B, A] {
+    return Paire(premier: p.second, second: p.premier)
+}
+```
+
+- Fonctions, structures et énumérations peuvent avoir des paramètres de type.
+- Un bloc `impl Paire { ... }` voit automatiquement les paramètres `A` et `B` du type.
+- Les arguments de type sont **inférés** aux sites d'utilisation ; on peut les donner
+  explicitement avec des crochets : `Vec[i32].new()`, `taille_de[u64]()`.
+- Implémentation par **monomorphisation** : chaque instanciation produit du code
+  spécialisé, sans indirection à l'exécution.
+- En 0.1, les paramètres de type ne portent **pas de contraintes** : dans un corps
+  générique, une valeur de type `T` peut être déplacée, passée, stockée et détruite, mais
+  pas comparée ni additionnée. *(Hors 0.1 : traits et contraintes `[T: Ord]`, qui
+  ajouteront ces opérations sans changer la syntaxe existante.)*
+- Dans un corps générique, `T` est traité comme un type *ressource* (non copiable),
+  ce qui garantit que le corps est valide pour **toute** instanciation.
+
+## 3.4 Alias de types
+
+`type Metres = f64` introduit un second nom pour un type existant. Ce n'est **pas** un
+nouveau type : `Metres` et `f64` sont interchangeables. *(Hors 0.1 : types distincts.)*
+
+## 3.5 Inférence
+
+À l'intérieur d'un corps de fonction, le compilateur résout les types par **unification**
+(variante de Hindley-Milner restreinte aux corps, sans généralisation locale) :
+
+- `let x = 5` : le type de `x` est déterminé par **l'ensemble du corps**. Si rien ne le
+  contraint, un littéral entier est de type `i32` et un littéral flottant de type `f64`.
+- `let v = Vec.new()` puis `v.push(1u8)`... : le paramètre de `Vec` est déduit de
+  l'usage ultérieur.
+- Si un type ne peut pas être déterminé (par exemple `let v = Vec.new()` jamais utilisé),
+  c'est une erreur E0320 « annotation de type nécessaire », avec l'endroit où l'ajouter.
+- L'appel d'une méthode exige que le type du receveur soit connu à cet endroit
+  (dans l'ordre du texte) ; sinon E0320.
+
+## 3.6 Conversions
+
+**Aucune conversion implicite** entre types numériques, ni entre `bool` et entiers.
+`let x: i64 = y` avec `y: i32` est une erreur (E0302) qui suggère `y as i64`.
+
+Seule coercition implicite : une expression de type `Never` est acceptée partout.
+
+L'opérateur `as` réalise les conversions explicites suivantes :
+
+| De → Vers | Sémantique |
+|---|---|
+| entier → entier | **vérifiée** : panique si la valeur n'est pas représentable dans le type cible |
+| entier → flottant | arrondi au plus proche (pair en cas d'égalité) |
+| flottant → entier | troncature vers zéro ; **panique** si NaN ou hors de l'intervalle du type cible |
+| `f32` ↔ `f64` | IEEE 754 (arrondi au plus proche) |
+| `bool` → entier | `false` → 0, `true` → 1 |
+| `char` → entier | valeur scalaire ; vérifiée comme entier → entier |
+| entier → `char` | vérifiée : panique si la valeur n'est pas une valeur scalaire Unicode |
+| `Ptr[T]` → `Ptr[U]` | réinterprétation (en contexte `unsafe` uniquement) |
+
+Une conversion dont le résultat est connu à la compilation est vérifiée à la compilation
+(`300 as u8` est l'erreur E0301). Pour tronquer volontairement, on masque d'abord :
+`(x & 0xFF) as u8`.
+
+## 3.7 Types copiables et types ressources
+
+Chaque type appartient à exactement une catégorie, déterminée **structurellement** :
+
+- **Copiable (trivial)** : primitifs, `Ptr[T]`, types `fn`, et tout tuple, tableau,
+  structure ou énumération dont tous les composants sont copiables, qui n'a pas de
+  méthode `drop` et ne contient pas de stockage `indirect`.
+- **Ressource** : tous les autres (`String`, `Vec[T]`, types avec `drop`, types avec
+  `indirect`, et les paramètres de type dans un corps générique).
+
+Une valeur copiable est dupliquée bit à bit quand on la réutilise ; une ressource est
+**déplacée**. Les règles complètes sont au chapitre 05.
+
+## 3.8 Disposition mémoire
+
+En 0.1, la disposition des structures, tuples et énumérations n'est **pas spécifiée**
+(le compilateur peut la choisir et la changer). Les tableaux sont contigus, sans
+remplissage entre éléments autre que celui imposé par l'alignement du type d'élément.
+*(Hors 0.1 : `@repr("C")` pour garantir la disposition C, `@align(n)`, `@packed`.)*
+Seuls les types primitifs et `Ptr[T]` ont une représentation garantie à la frontière C
+(§08).

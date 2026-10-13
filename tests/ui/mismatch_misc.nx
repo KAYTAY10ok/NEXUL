@@ -1,0 +1,7 @@
+fn main() {
+    let s: String = 'c'
+    let o: Option[i32] = 5
+    let flag: bool = 1
+    let n: i32 = "12"
+    println("{s} {o.is_some()} {flag} {n}")
+}

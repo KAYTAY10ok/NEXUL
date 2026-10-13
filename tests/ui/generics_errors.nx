@@ -1,0 +1,13 @@
+fn id[T](owned x: T) -> T {
+    return x
+}
+
+fn add[T](a: T, b: T) -> T {
+    return a + b
+}
+
+fn main() {
+    let f = id
+    let g = id[i32, i32](1)
+    let v: Vec = Vec.new()
+}

@@ -1,0 +1,8 @@
+import std.nonexistent
+import std.io.{read_lin, flush}
+import std.string.{rt_decode}
+import modules_missing.thing
+
+fn main() {
+    flush()
+}

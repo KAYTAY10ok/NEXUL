@@ -1,0 +1,9 @@
+error[E0320]: cannot infer a type here
+ --> inference_needed.nx:2:17
+  |
+2 |     let v = Vec.new()
+  |                 ^^^ type unknown
+  |
+  = help: add a type annotation, for example `let v: Vec[i32] = Vec.new()`
+
+error: could not compile due to 1 error

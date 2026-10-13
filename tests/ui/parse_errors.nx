@@ -1,0 +1,14 @@
+fn main() {
+    let a = 1 < 2 < 3
+    let b =
+    let c = {1}
+    let d = _
+    let e: Vec<i32> = Vec.new()
+}
+
+let global = 5
+
+import std.io
+
+fn f() -> {
+}

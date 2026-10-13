@@ -1,0 +1,23 @@
+error[E0402]: use of moved value `s`
+ --> move_use_after_move.nx:7:13
+  |
+6 |     let t = s
+  |             - value moved here
+7 |     println(s)
+  |             ^ value used here after move
+  |
+  = note: `s` has type `String`, which owns resources and is moved rather than copied
+  = help: use `s.clone()` where the value is moved to keep using `s`
+
+error[E0402]: use of moved value `t`
+ --> move_use_after_move.nx:9:13
+  |
+8 |     consume(t)
+  |             - value moved here
+9 |     println(t)
+  |             ^ value used here after move
+  |
+  = note: `t` has type `String`, which owns resources and is moved rather than copied
+  = help: use `t.clone()` where the value is moved to keep using `t`
+
+error: could not compile due to 2 errors

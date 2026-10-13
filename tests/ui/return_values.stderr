@@ -1,0 +1,15 @@
+error[E0302]: this function does not return a value
+ --> return_values.nx:2:12
+  |
+2 |     return 5
+  |            ^ unexpected value of type `{integer}`
+  |
+  = help: declare the return type with `-> Type`
+
+error[E0302]: `return` needs a value of type `i32`
+ --> return_values.nx:6:5
+  |
+6 |     return
+  |     ^^^^^^ missing value
+
+error: could not compile due to 2 errors

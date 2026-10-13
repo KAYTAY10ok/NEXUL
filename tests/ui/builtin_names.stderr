@@ -1,0 +1,7 @@
+error[E0213]: `i32` is a built-in type name and cannot be redefined
+ --> builtin_names.nx:1:8
+  |
+1 | struct i32 {
+  |        ^^^ reserved name
+
+error: could not compile due to 1 error

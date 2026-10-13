@@ -1,0 +1,33 @@
+error[E0221]: module `std.nonexistent` not found
+ --> imports_errors.nx:1:1
+  |
+1 | import std.nonexistent
+  | ^^^^^^^^^^^^^^^^^^^^^^ no such module in the standard library
+  |
+  = note: available: std.string, std.vec, std.mem, std.io, std.system, std.time, std.math
+
+error[E0222]: module `std.io` has no item `read_lin`
+ --> imports_errors.nx:2:16
+  |
+2 | import std.io.{read_lin, flush}
+  |                ^^^^^^^^ not found
+  |
+  = help: did you mean `read_line`?
+
+error[E0222]: `rt_decode` is private to module `std.string`
+ --> imports_errors.nx:3:20
+  |
+3 | import std.string.{rt_decode}
+  |                    ^^^^^^^^^ private item
+  |
+  = help: mark it `pub` in `std.string` to export it
+
+error[E0221]: module `modules_missing.thing` not found
+ --> imports_errors.nx:4:1
+  |
+4 | import modules_missing.thing
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ cannot find this module
+  |
+  = help: expected a file `modules_missing/thing.nx` next to the main file
+
+error: could not compile due to 4 errors

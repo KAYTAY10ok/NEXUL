@@ -1,0 +1,21 @@
+error[E0420]: cannot modify `v` while `v` is borrowed
+ --> exclusivity_loop.nx:5:9
+  |
+4 |     for x in v {
+  |              - `v` is borrowed by this `for` loop until its end
+5 |         v.push(x)
+  |         ^ modify here
+  |
+  = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot assign to `names` while `names` is borrowed
+ --> exclusivity_loop.nx:9:9
+  |
+8 |     for n in names {
+  |              ----- `names` is borrowed by this `for` loop until its end
+9 |         names = Vec.new()
+  |         ^^^^^ assign to here
+  |
+  = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error: could not compile due to 2 errors

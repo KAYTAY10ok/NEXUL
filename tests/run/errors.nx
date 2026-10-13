@@ -1,0 +1,56 @@
+// Spec chapter 07: Option, Result and the `?` operator.
+struct Config {
+    width: i64
+    height: i64
+}
+
+fn parse_number(text: String, what: String) -> Result[i64, String] {
+    match text.trim().parse_int() {
+        Some(n) => return Ok(n)
+        None => return Err("invalid {what}: `{text}`")
+    }
+}
+
+fn parse_config(text: String) -> Result[Config, String] {
+    let parts = text.split("x")
+    if parts.len() != 2 {
+        return Err("expected WIDTHxHEIGHT, got `{text}`")
+    }
+    let width = parse_number(parts[0], "width")?
+    let height = parse_number(parts[1], "height")?
+    if width <= 0 or height <= 0 {
+        return Err("dimensions must be positive")
+    }
+    return Ok(Config(width: width, height: height))
+}
+
+fn area(text: String) -> Result[i64, String] {
+    let c = parse_config(text)?
+    return Ok(c.width * c.height)
+}
+
+fn first_char_code(text: String) -> Option[u32] {
+    let c = text.chars().pop()?
+    return Some(c as u32)
+}
+
+fn main() {
+    for input in ["3x4", "10 x 20", "3x", "ax4", "5", "0x9"] {
+        match area(input) {
+            Ok(a) => println("{input} -> area {a}")
+            Err(e) => println("{input} -> error: {e}")
+        }
+    }
+    println("{first_char_code("abc").unwrap_or(0)} {first_char_code("").unwrap_or(0)}")
+
+    let ok: Result[i32, String] = Ok(1)
+    let err: Result[i32, String] = Err("bad")
+    println("{ok.is_ok()} {ok.is_err()} {err.is_err()}")
+    println("{err.unwrap_or(-1)} {ok.unwrap()} {Result[i32, String].Err("e").err().unwrap()}")
+    let maybe: Option[String] = None
+    println("{maybe.is_none()} {maybe.unwrap_or("default")}")
+    let some = Some("x")
+    println("{some.expect("must exist")}")
+    let converted = Result[String, i32].Ok("fine").ok()
+    println("{converted.unwrap()}")
+}

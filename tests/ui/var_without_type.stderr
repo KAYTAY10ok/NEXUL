@@ -1,0 +1,9 @@
+error[E0321]: variable `x` needs a type or an initial value
+ --> var_without_type.nx:2:9
+  |
+2 |     var x
+  |         ^ type unknown
+  |
+  = help: write `var x: Type` or `var x = value`
+
+error: could not compile due to 1 error

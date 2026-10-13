@@ -1,0 +1,31 @@
+error[E0303]: operator `+` cannot be applied to `T`
+ --> generics_errors.nx:6:12
+  |
+6 |     return a + b
+  |            ^^^^^ unsupported operation
+  |
+  = note: operations on generic types will come with traits (NEXUL 0.2)
+
+error[E0316]: generic function `id` cannot be used as a value
+  --> generics_errors.nx:10:13
+   |
+10 |     let f = id
+   |             ^^ call it instead
+   |
+   = note: function values of generic functions are not supported in NEXUL 0.1
+
+error[E0315]: `id` takes 1 generic argument(s)
+  --> generics_errors.nx:11:13
+   |
+11 |     let g = id[i32, i32](1)
+   |             ^^^^^^^^^^^^^^^ 2 given
+
+error[E0315]: `Vec` takes 1 generic argument
+  --> generics_errors.nx:12:12
+   |
+12 |     let v: Vec = Vec.new()
+   |            ^^^ 0 given
+   |
+   = help: write `Vec[T]`
+
+error: could not compile due to 4 errors

@@ -1,0 +1,57 @@
+error[E0307]: `origin` is an associated function, not a method
+  --> methods_fields.nx:17:15
+   |
+17 |     let a = p.origin()
+   |               ^^^^^^ no `self` parameter
+   |
+   = help: call it as `Point.origin(...)`
+
+error[E0307]: `norm` is a method: call it on a value
+  --> methods_fields.nx:18:13
+   |
+18 |     let b = Point.norm(p)
+   |             ^^^^^^^^^^^^^ not an associated function of `Point`
+   |
+   = help: write `value.norm(...)`
+
+error[E0308]: no method named `nrom` on type `Point`
+  --> methods_fields.nx:19:15
+   |
+19 |     let c = p.nrom()
+   |               ^^^^ method not found
+   |
+   = help: did you mean `norm`?
+
+error[E0309]: `Point` has no field named `y`
+  --> methods_fields.nx:20:15
+   |
+20 |     let d = p.y
+   |               ^ unknown field
+   |
+   = help: did you mean `x`?
+
+error[E0309]: `norm` is a method of `Point`, not a field
+  --> methods_fields.nx:21:15
+   |
+21 |     let e = p.norm
+   |               ^^^^ method, not a field
+   |
+   = help: add parentheses to call it: `.norm(...)`
+
+error[E0309]: tuple fields are numbered
+  --> methods_fields.nx:22:20
+   |
+22 |     let f = (1, 2).x
+   |                    ^ use `.0`, `.1`, ...
+   |
+   = note: the type is `({integer}, {integer})`
+
+error[E0308]: no method named `sqrt` on type `{integer}`
+  --> methods_fields.nx:23:15
+   |
+23 |     let g = 5.sqrt()
+   |               ^^^^ method not found
+   |
+   = help: this is a float method: convert first, `(x as f64).sqrt()`
+
+error: could not compile due to 7 errors

@@ -1,0 +1,5 @@
+fn main() {
+    let x = if true { 1 }
+    let y: i32 = if false { 2 }
+    let z = if true { 1 } else { "one" }
+}

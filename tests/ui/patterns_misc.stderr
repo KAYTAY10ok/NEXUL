@@ -1,0 +1,62 @@
+error[E0345]: variant `A` has 2 value(s) but the pattern has 1
+  --> patterns_misc.nx:14:9
+   |
+14 |         A(x) => println("{x}")
+   |         ^^^^ wrong number of sub-patterns
+
+error[E0345]: variant `B` has 0 value(s) but the pattern has 1
+  --> patterns_misc.nx:15:9
+   |
+15 |         B(y) => println("{y}")
+   |         ^^^^ wrong number of sub-patterns
+
+error[E0344]: `a` is bound twice in the same pattern
+  --> patterns_misc.nx:19:14
+   |
+19 |         A(a, a) => println("{a}")
+   |              ^ second binding
+   |           - first binding
+
+error[E0341]: alternatives in a pattern cannot bind variables
+  --> patterns_misc.nx:23:13
+   |
+23 |         1 | x => println("{x}")
+   |             ^ `x` would be bound here
+   |
+   = help: use one arm per alternative, or `_`
+
+error[E0342]: pattern does not mention field `y`
+  --> patterns_misc.nx:27:9
+   |
+27 |         S(x: 1) => println("one")
+   |         ^^^^^^^ incomplete struct pattern
+   |
+   = help: add the missing fields, or `..` to ignore them
+
+error[E0309]: `S` has no field named `z`
+  --> patterns_misc.nx:28:17
+   |
+28 |         S(x: _, z: 3) => println("z")
+   |                 ^ unknown field
+
+error[E0346]: this range pattern is empty
+  --> patterns_misc.nx:32:9
+   |
+32 |         9..=1 => println("empty")
+   |         ^^^^^ matches no value
+
+error[E0343]: the pattern of a `let` must always match
+  --> patterns_misc.nx:35:9
+   |
+35 |     let Some(v) = Some(1)
+   |         ^^^^^^^ `None` is not covered
+   |
+   = help: use `if let ... = value { ... }` or `match` to handle the other cases
+
+error[E0347]: a range loop binds a single variable
+  --> patterns_misc.nx:36:9
+   |
+36 |     for (a, b) in 0..3 {
+   |         ^^^^^^ expected a name or `_`
+
+error: could not compile due to 9 errors

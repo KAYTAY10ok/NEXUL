@@ -1,0 +1,42 @@
+// Spec §3.2: function values.
+fn double(x: i32) -> i32 {
+    return x * 2
+}
+
+fn square(x: i32) -> i32 {
+    return x * x
+}
+
+fn apply_twice(f: fn(i32) -> i32, x: i32) -> i32 {
+    return f(f(x))
+}
+
+fn increment(inout x: i32) {
+    x += 1
+}
+
+fn run(f: fn(inout i32), inout target: i32) {
+    f(&target)
+}
+
+struct Op {
+    name: String
+    func: fn(i32) -> i32
+}
+
+fn main() {
+    println("{apply_twice(double, 3)} {apply_twice(square, 3)}")
+    let ops = [Op(name: "double", func: double), Op(name: "square", func: square)]
+    for op in ops {
+        let f = op.func
+        println("{op.name}(5) = {f(5)} = {(op.func)(5)}")
+    }
+    var n = 10
+    run(increment, &n)
+    println("{n}")
+    var chosen: fn(i32) -> i32 = double
+    if n > 5 {
+        chosen = square
+    }
+    println("{chosen(4)}")
+}

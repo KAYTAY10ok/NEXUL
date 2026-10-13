@@ -1,0 +1,20 @@
+[package]
+name = "nxc"
+description = "The NEXUL compiler driver"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "nxc"
+path = "src/main.rs"
+
+[lib]
+name = "nxc_driver"
+path = "src/lib.rs"
+
+[dependencies]
+nxc_syntax = { path = "../nxc_syntax" }
+nxc_sema = { path = "../nxc_sema" }
+nxc_nir = { path = "../nxc_nir" }
+nxc_codegen_c = { path = "../nxc_codegen_c" }

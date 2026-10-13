@@ -1,0 +1,38 @@
+error[E0201]: field `x` is declared twice
+ --> duplicates.nx:3:5
+  |
+3 |     x: i32
+  |     ^ duplicate field
+
+error[E0201]: variant `One` is declared twice
+ --> duplicates.nx:8:5
+  |
+8 |     One
+  |     ^^^ duplicate variant
+
+error[E0201]: parameter `a` is declared twice
+  --> duplicates.nx:11:14
+   |
+11 | fn f(a: i32, a: i32) {
+   |              ^ duplicate parameter
+
+error[E0201]: the name `f` is defined twice in this module
+  --> duplicates.nx:14:4
+   |
+11 | fn f(a: i32, a: i32) {
+   |    - first definition
+...
+14 | fn f() {
+   |    ^ redefined here
+
+error[E0201]: `v` is already declared in this scope
+  --> duplicates.nx:19:9
+   |
+18 |     let v = 1
+   |         - first declaration
+19 |     let v = 2
+   |         ^ redeclared here
+   |
+   = help: choose another name, or assign to the existing variable
+
+error: could not compile due to 5 errors

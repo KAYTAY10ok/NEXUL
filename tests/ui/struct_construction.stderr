@@ -1,0 +1,41 @@
+error[E0310]: structure fields must be named
+ --> struct_construction.nx:7:19
+  |
+7 |     let a = Point(1.0, 2.0)
+  |                   ^^^ missing field name
+  |
+  = help: write `Point(x: ..., y: ...)`
+
+error[E0310]: fields must be given in declaration order
+ --> struct_construction.nx:8:19
+  |
+8 |     let b = Point(y: 2.0, x: 1.0)
+  |                   ^ `y` given out of order
+  |
+  = note: declaration order: x, y
+
+error[E0310]: missing field `y`
+ --> struct_construction.nx:9:13
+  |
+9 |     let c = Point(x: 1.0)
+  |             ^^^^^^^^^^^^^ `Point` has 2 field(s)
+  |
+  = note: every field must be given, in order: x, y
+
+error[E0309]: `Point` has no field named `z`
+  --> struct_construction.nx:10:35
+   |
+10 |     let d = Point(x: 1.0, y: 2.0, z: 3.0)
+   |                                   ^ unknown field
+   |
+   = help: did you mean `x`?
+
+error[E0314]: `Point` is a type, not a value
+  --> struct_construction.nx:11:13
+   |
+11 |     let e = Point
+   |             ^^^^^ not a value
+   |
+   = help: to build a value, write `Point(x: ..., y: ...)`
+
+error: could not compile due to 5 errors

@@ -1,0 +1,10 @@
+error[E0402]: use of moved value `s`
+ --> move_in_loop.nx:7:17
+  |
+7 |         consume(s)
+  |                 ^ value moved here, in a previous iteration of the loop
+  |
+  = note: `s` has type `String`, which owns resources and is moved rather than copied
+  = help: assign a new value before the next iteration, or move a copy
+
+error: could not compile due to 1 error

@@ -1,0 +1,15 @@
+fn main() {
+    let n = 3
+    match n {
+        _ => println("any")
+        1 => println("one")
+    }
+    match Some(1) {
+        Some(_) => println("some")
+        None => println("none")
+        Some(2) => println("two")
+    }
+    match n {
+        Green => println("binding {Green}")
+    }
+}

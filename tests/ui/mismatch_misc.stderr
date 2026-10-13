@@ -1,0 +1,29 @@
+error[E0302]: mismatched types
+ --> mismatch_misc.nx:2:21
+  |
+2 |     let s: String = 'c'
+  |                     ^^^ expected `String`, found `char`
+  |
+  = help: a `char` is not a `String`; use `c.to_string()` or double quotes
+
+error[E0302]: mismatched types
+ --> mismatch_misc.nx:3:26
+  |
+3 |     let o: Option[i32] = 5
+  |                          ^ expected `Option[i32]`, found `{integer}`
+  |
+  = help: wrap the value in `Some(...)`
+
+error[E0302]: mismatched types
+ --> mismatch_misc.nx:4:22
+  |
+4 |     let flag: bool = 1
+  |                      ^ expected `bool`, found `{integer}`
+
+error[E0302]: mismatched types
+ --> mismatch_misc.nx:5:18
+  |
+5 |     let n: i32 = "12"
+  |                  ^^^^ expected `i32`, found `String`
+
+error: could not compile due to 4 errors

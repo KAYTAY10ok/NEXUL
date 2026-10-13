@@ -1,0 +1,15 @@
+error[E0101]: expected end of line, found `let`
+ --> statements_on_one_line.nx:2:15
+  |
+2 |     let a = 1 let b = 2
+  |               ^^^ unexpected token
+  |
+  = help: put each statement on its own line, or separate them with `;`
+
+error[E0102]: expected an expression, found end of line
+ --> statements_on_one_line.nx:3:14
+  |
+3 |     let c = a
+  |              ^ expected an expression here
+
+error: could not compile due to 2 errors

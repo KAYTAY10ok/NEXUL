@@ -1,0 +1,35 @@
+module modules.geometry.shapes
+
+import std.math
+
+/// A circle of radius `r`.
+pub struct Circle {
+    pub r: f64
+}
+
+pub struct Square {
+    pub side: f64
+    secret: i32
+}
+
+impl Square {
+    pub fn new(side: f64) -> Square {
+        return Square(side: side, secret: 42)
+    }
+
+    pub fn area(self) -> f64 {
+        return self.side * self.side
+    }
+}
+
+impl Circle {
+    pub fn area(self) -> f64 {
+        return math.PI * self.r * self.r
+    }
+}
+
+pub const UNIT: f64 = 1.0
+
+pub fn describe(c: Circle) -> String {
+    return "circle of radius {c.r}"
+}

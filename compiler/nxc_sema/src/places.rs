@@ -1,0 +1,524 @@
+//! Place rules of the memory model (spec chapter 05), checked on the THIR:
+//! mutability (E0405, E0410), moves out of places (E0403) and the law of
+//! exclusivity (E0420). Initialization and use-after-move are checked on the NIR.
+
+use crate::defs::Program;
+use crate::thir::{self, Block, Body, CallArg, Callee, Expr, ExprKind as T, LocalKind, Pat, PatKind, StmtKind as S};
+use nxc_syntax::ast::Convention;
+use nxc_syntax::{DiagSink, Diagnostic, Span};
+
+#[derive(Clone, Debug, PartialEq)]
+enum Proj {
+    Field(u32),
+    Index,
+}
+
+#[derive(Clone, Debug)]
+struct PlacePath {
+    root: thir::LocalId,
+    projs: Vec<Proj>,
+}
+
+fn place_path(e: &Expr) -> Option<PlacePath> {
+    match &e.kind {
+        T::Local(l) => Some(PlacePath { root: *l, projs: vec![] }),
+        T::Field(b, i) => {
+            let mut p = place_path(b)?;
+            p.projs.push(Proj::Field(*i));
+            Some(p)
+        }
+        T::Index(b, _) | T::IndexFn { base: b, .. } => {
+            let mut p = place_path(b)?;
+            p.projs.push(Proj::Index);
+            Some(p)
+        }
+        _ => None,
+    }
+}
+
+/// Two places overlap if one is a prefix of the other; indexed accesses to the same
+/// collection always overlap (indices are not compared).
+fn overlaps(a: &PlacePath, b: &PlacePath) -> bool {
+    if a.root != b.root {
+        return false;
+    }
+    for (x, y) in a.projs.iter().zip(b.projs.iter()) {
+        if let (Proj::Field(i), Proj::Field(j)) = (x, y) {
+            if i != j {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+struct Frozen {
+    path: PlacePath,
+    span: Span,
+    why: &'static str,
+    /// Borrowed for writing: even reads through other paths are forbidden.
+    exclusive: bool,
+}
+
+struct Cx<'a> {
+    p: &'a Program,
+    body: &'a Body,
+    diags: &'a DiagSink,
+    frozen: Vec<Frozen>,
+}
+
+pub fn check_program(prog: &Program, diags: &DiagSink) {
+    let mut ids: Vec<_> = prog.bodies.keys().copied().collect();
+    ids.sort();
+    for id in ids {
+        let body = &prog.bodies[&id];
+        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new() };
+        cx.block(&body.block);
+    }
+}
+
+impl<'a> Cx<'a> {
+    fn local_name(&self, l: thir::LocalId) -> &str {
+        &self.body.locals[l as usize].name
+    }
+
+    fn describe(&self, e: &Expr) -> String {
+        match &e.kind {
+            T::Local(l) => format!("`{}`", self.local_name(*l)),
+            T::Field(b, i) => {
+                let bt = self.p.tcx.as_adt(b.ty);
+                match bt {
+                    Some((id, _)) if !self.p.adt(id).is_enum() => format!("field `{}` of {}", self.p.adt(id).fields()[*i as usize].name, self.describe(b)),
+                    _ => format!("element {} of {}", i, self.describe(b)),
+                }
+            }
+            T::Index(b, _) | T::IndexFn { base: b, .. } => format!("an element of {}", self.describe(b)),
+            _ => "this value".into(),
+        }
+    }
+
+    /// A write to a place (assignment, `inout`, move): checks mutability and freezing.
+    fn write(&self, e: &Expr, span: Span, action: &str, check_mut: bool) {
+        let Some(path) = place_path(e) else { return };
+        for f in self.frozen.iter().rev() {
+            if overlaps(&f.path, &path) {
+                let root = self.local_name(path.root);
+                self.diags.emit(
+                    Diagnostic::error("E0420", format!("cannot {} {} while `{}` is borrowed", action, self.describe(e), root))
+                        .primary(span, format!("{} here", action))
+                        .secondary(f.span, format!("`{}` is borrowed by this {} until its end", root, f.why))
+                        .note("a value cannot change while it is being read (law of exclusivity, spec §5.4)"),
+                );
+                return;
+            }
+        }
+        if !check_mut {
+            return;
+        }
+        let decl = &self.body.locals[path.root as usize];
+        if decl.is_mutable() || decl.kind == LocalKind::Hidden {
+            return;
+        }
+        let (msg, help) = match decl.kind {
+            LocalKind::Let => (format!("cannot {} {}: `{}` is immutable", action, self.describe(e), decl.name), Some(format!("declare it with `var {}`", decl.name))),
+            LocalKind::Param(Convention::Borrow) => (
+                format!("cannot {} {}: parameter `{}` is borrowed read-only", action, self.describe(e), decl.name),
+                Some(if decl.name == "self" { "declare the method with `inout self`".to_string() } else { format!("declare the parameter `inout {}: ...` (callers then pass `&{}`)", decl.name, decl.name) }),
+            ),
+            LocalKind::Ref => (format!("cannot {} {}: `{}` is a read-only view of the value being iterated or matched", action, self.describe(e), decl.name), None),
+            _ => (format!("cannot {} {}", action, self.describe(e)), None),
+        };
+        let mut d = Diagnostic::error("E0405", msg).primary(span, "not modifiable").secondary(decl.span, "declared here");
+        if let Some(h) = help {
+            d = d.help(h);
+        }
+        self.diags.emit(d);
+    }
+
+    /// An expression in an owned position: a resource stored in a place must be a
+    /// whole owned variable to be moved (E0403).
+    fn consume(&self, e: &Expr) {
+        match &e.kind {
+            T::Block(b) => {
+                if let Some(t) = &b.tail {
+                    self.consume(t);
+                }
+                return;
+            }
+            T::If { then, else_, .. } | T::IfLet { then, else_, .. } => {
+                if let Some(t) = &then.tail {
+                    self.consume(t);
+                }
+                if let Some(x) = else_ {
+                    self.consume(x);
+                }
+                return;
+            }
+            T::Match { arms, .. } => {
+                for a in arms {
+                    self.consume(&a.body);
+                }
+                return;
+            }
+            _ => {}
+        }
+        if !e.is_place() || self.p.is_copy(e.ty) {
+            return;
+        }
+        let tname = self.p.ty_str(e.ty);
+        let clone_help = if self.p.is_string(e.ty) { Some("use `.clone()` to make a copy".to_string()) } else { None };
+        match &e.kind {
+            T::Local(l) => {
+                let decl = &self.body.locals[*l as usize];
+                if decl.is_ref() {
+                    let mut d = Diagnostic::error("E0403", format!("cannot move out of `{}`, which is borrowed", decl.name))
+                        .primary(e.span, format!("`{}` is a resource and only a borrowed view is available here", tname));
+                    d = match decl.kind {
+                        LocalKind::Param(_) => d.help(format!("take ownership with `owned {}: ...`, or copy the value", decl.name)),
+                        _ => d.note(format!("`{}` is a read-only view into another value (a `for` element or a pattern binding)", decl.name)),
+                    };
+                    if let Some(h) = clone_help {
+                        d = d.help(h);
+                    }
+                    self.diags.emit(d);
+                } else {
+                    self.write(e, e.span, "move", false);
+                }
+            }
+            _ => {
+                let mut d = Diagnostic::error("E0403", format!("cannot move {} out of its place", self.describe(e)))
+                    .primary(e.span, format!("`{}` is a resource: moving it would leave a hole", tname))
+                    .note("only a whole variable can be moved; a field or an element stays where it is");
+                if let Some(h) = clone_help {
+                    d = d.help(h);
+                }
+                if let Some(opt) = self.p.lang.option {
+                    if self.p.tcx.as_adt(e.ty).map(|(id, _)| id) == Some(opt) {
+                        d = d.help("use `.take()` to move the value out and leave `None`");
+                    }
+                }
+                self.diags.emit(d);
+            }
+        }
+    }
+
+    fn block(&mut self, b: &Block) {
+        for s in &b.stmts {
+            match &s.kind {
+                S::Let { pat, init } => {
+                    self.expr(init);
+                    self.consume(init);
+                    self.check_destructure(pat);
+                }
+                S::Var { init, .. } => {
+                    if let Some(e) = init {
+                        self.expr(e);
+                        self.consume(e);
+                    }
+                }
+                S::Assign { place, value } => {
+                    self.expr_place_subexprs(place);
+                    self.expr(value);
+                    self.consume(value);
+                    self.write(place, place.span, "assign to", true);
+                }
+                S::CompoundAssign { place, value, .. } => {
+                    self.expr_place_subexprs(place);
+                    self.expr(value);
+                    self.write(place, place.span, "modify", true);
+                }
+                S::Expr(e) => self.expr(e),
+                S::While { cond, body, .. } => {
+                    self.expr(cond);
+                    self.block(body);
+                }
+                S::ForRange { start, end, body, .. } => {
+                    self.expr(start);
+                    self.expr(end);
+                    self.block(body);
+                }
+                S::ForEach { iter, body, mutable, .. } => {
+                    self.expr(iter);
+                    if *mutable {
+                        self.write(iter, iter.span, "modify", true);
+                    }
+                    let pushed = match place_path(iter) {
+                        Some(path) => {
+                            self.frozen.push(Frozen { path, span: iter.span, why: "`for` loop", exclusive: *mutable });
+                            true
+                        }
+                        None => false,
+                    };
+                    self.block(body);
+                    if pushed {
+                        self.frozen.pop();
+                    }
+                }
+            }
+        }
+        if let Some(t) = &b.tail {
+            self.expr(t);
+        }
+    }
+
+    fn place_subexprs(&mut self, e: &Expr) {
+        match &e.kind {
+            T::Field(b, _) => self.place_subexprs(b),
+            T::Index(b, i) | T::IndexFn { base: b, index: i, .. } => {
+                self.place_subexprs(b);
+                self.expr(i);
+            }
+            _ => {}
+        }
+    }
+
+    /// For an assignment target, only the index expressions are evaluated.
+    fn expr_place_subexprs(&mut self, e: &Expr) {
+        match &e.kind {
+            T::Field(b, _) => self.expr_place_subexprs(b),
+            T::Index(b, i) | T::IndexFn { base: b, index: i, .. } => {
+                self.expr_place_subexprs(b);
+                self.expr(i);
+            }
+            _ => {}
+        }
+    }
+
+    /// A pattern that takes ownership of parts of a value whose type defines `drop`
+    /// would prevent its destructor from running (E0431).
+    fn check_destructure(&self, p: &Pat) {
+        let moves_resource = |q: &Pat| {
+            let mut bs = Vec::new();
+            q.bindings(&mut bs);
+            bs.iter().any(|&l| !self.p.is_copy(self.body.locals[l as usize].ty))
+        };
+        match &p.kind {
+            PatKind::Struct { adt, fields, .. } | PatKind::Variant { adt, fields, .. } => {
+                let a = self.p.adt(*adt);
+                if a.drop_fn.is_some() && fields.iter().any(|f| moves_resource(f)) {
+                    self.diags.emit(
+                        Diagnostic::error("E0431", format!("`{}` defines `drop` and cannot be taken apart", a.name))
+                            .primary(p.span, "this pattern moves parts out of the value")
+                            .note("the destructor must run on the whole value")
+                            .help("bind the whole value, or copy the parts you need"),
+                    );
+                    return;
+                }
+                fields.iter().for_each(|f| self.check_destructure(f));
+            }
+            PatKind::Tuple(ps) | PatKind::Or(ps) => ps.iter().for_each(|f| self.check_destructure(f)),
+            _ => {}
+        }
+    }
+
+    fn has_ref_binding(&self, p: &Pat) -> bool {
+        let mut v = Vec::new();
+        p.bindings(&mut v);
+        v.iter().any(|&l| {
+            let d = &self.body.locals[l as usize];
+            d.kind == LocalKind::Ref && !self.p.is_copy(d.ty)
+        })
+    }
+
+    fn with_frozen<F: FnOnce(&mut Self)>(&mut self, scrutinee: &Expr, pat: &Pat, mutable: bool, f: F) {
+        // A view exists only while bindings hold it: an arm without bindings (`None => x = ...`)
+        // may modify the matched place.
+        let has_bindings = {
+            let mut v = Vec::new();
+            pat.bindings(&mut v);
+            !v.is_empty()
+        };
+        let path = if (mutable && has_bindings) || self.has_ref_binding(pat) { place_path(scrutinee) } else { None };
+        let pushed = match path {
+            Some(path) => {
+                self.frozen.push(Frozen { path, span: scrutinee.span, why: "pattern match", exclusive: mutable });
+                true
+            }
+            None => false,
+        };
+        f(self);
+        if pushed {
+            self.frozen.pop();
+        }
+    }
+
+    /// `method_call`: the first argument is the receiver of a method; a temporary
+    /// receiver may be modified (it is destroyed after the statement).
+    fn call_args(&mut self, args: &[CallArg], span: Span, method_call: bool) {
+        for (i, a) in args.iter().enumerate() {
+            self.expr(&a.expr);
+            match a.conv {
+                Convention::Owned => self.consume(&a.expr),
+                Convention::Inout if i == 0 && method_call && !a.expr.is_place() => {}
+                Convention::Inout => {
+                    if !a.expr.is_place() {
+                        if !matches!(a.expr.kind, T::Error) {
+                            self.diags.emit(
+                                Diagnostic::error("E0410", "an `inout` argument must be a variable, field or element")
+                                    .primary(a.expr.span, "temporary value")
+                                    .note("the function modifies this argument; a temporary would be lost"),
+                            );
+                        }
+                    } else {
+                        self.write(&a.expr, a.expr.span, "modify", true);
+                    }
+                }
+                Convention::Borrow => {}
+            }
+        }
+        // Law of exclusivity between the arguments of one call.
+        let places: Vec<(usize, PlacePath)> = args
+            .iter()
+            .enumerate()
+            .filter(|(_, a)| a.conv != Convention::Owned)
+            .filter_map(|(i, a)| place_path(&a.expr).map(|p| (i, p)))
+            .collect();
+        for (i, pi) in &places {
+            if args[*i].conv != Convention::Inout {
+                continue;
+            }
+            for (j, pj) in &places {
+                if i == j || !overlaps(pi, pj) {
+                    continue;
+                }
+                if args[*j].conv == Convention::Inout && j < i {
+                    continue; // reported once for the pair
+                }
+                self.diags.emit(
+                    Diagnostic::error("E0420", format!("{} is passed twice to the same call, once as `inout`", self.describe(&args[*i].expr)))
+                        .primary(args[*j].expr.span, "accessed here")
+                        .secondary(args[*i].expr.span, "modified here (`inout`)")
+                        .secondary(span, "during this call")
+                        .note("a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)")
+                        .help(if matches!(pi.projs.last(), Some(Proj::Index)) { "to exchange two elements, use `v.swap(i, j)`" } else { "copy one of the values into a variable first" }),
+                );
+            }
+        }
+    }
+
+    /// A read of a place: forbidden while the place is borrowed for writing.
+    fn read(&self, e: &Expr) {
+        let Some(path) = place_path(e) else { return };
+        for f in self.frozen.iter().rev() {
+            if f.exclusive && overlaps(&f.path, &path) {
+                let root = self.local_name(path.root);
+                self.diags.emit(
+                    Diagnostic::error("E0420", format!("cannot use {} while `{}` is borrowed for modification", self.describe(e), root))
+                        .primary(e.span, "used here")
+                        .secondary(f.span, format!("`{}` is modified through the bindings of this {} until its end", root, f.why))
+                        .help("use the bindings instead, or finish the modification first")
+                        .note("a value cannot be read while it is being modified elsewhere (law of exclusivity, spec §5.4)"),
+                );
+                return;
+            }
+        }
+    }
+
+    fn expr(&mut self, e: &Expr) {
+        if e.is_place() {
+            // Check the whole place once, then only the index expressions inside it.
+            self.read(e);
+            self.place_subexprs(e);
+            return;
+        }
+        match &e.kind {
+            T::Lit(_) | T::Local(_) | T::Const(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
+            T::Unary(_, x) | T::Field(x, _) | T::Cast(x) | T::Try(x, _) => self.expr(x),
+            T::ArrayRepeat(x, _) => {
+                self.expr(x);
+            }
+            T::Move(x) => {
+                self.write(x, e.span, "move", false);
+            }
+            T::Binary(_, a, b) | T::Index(a, b) => {
+                self.expr(a);
+                self.expr(b);
+            }
+            T::IndexFn { base, index, .. } => {
+                self.expr(base);
+                self.expr(index);
+            }
+            T::Call { callee, args } => {
+                if let Callee::Indirect(f) = callee {
+                    self.expr(f);
+                }
+                let method_call = matches!(callee, Callee::Fn(f, _) if self.p.func(*f).has_self);
+                self.call_args(args, e.span, method_call);
+            }
+            T::Adt { fields: xs, .. } | T::Tuple(xs) | T::Array(xs) => {
+                for x in xs {
+                    self.expr(x);
+                    self.consume(x);
+                }
+            }
+            T::If { cond, then, else_ } => {
+                self.expr(cond);
+                self.block(then);
+                if let Some(x) = else_ {
+                    self.expr(x);
+                }
+            }
+            T::IfLet { pat, scrutinee, then, else_, mutable } => {
+                self.expr(scrutinee);
+                if *mutable {
+                    self.write(scrutinee, scrutinee.span, "modify", true);
+                } else if !scrutinee.is_place() {
+                    self.consume(scrutinee);
+                    self.check_destructure(pat);
+                }
+                self.with_frozen(scrutinee, pat, *mutable, |cx| cx.block(then));
+                if let Some(x) = else_ {
+                    self.expr(x);
+                }
+            }
+            T::Match { scrutinee, arms, mutable } => {
+                self.expr(scrutinee);
+                if *mutable {
+                    self.write(scrutinee, scrutinee.span, "modify", true);
+                }
+                if !scrutinee.is_place() {
+                    for a in arms {
+                        self.check_destructure(&a.pat);
+                    }
+                }
+                for a in arms {
+                    // A guard runs before the next arms are tested through the same
+                    // place: it must never modify the matched value.
+                    if let Some(g) = &a.guard {
+                        let pushed = match place_path(scrutinee) {
+                            Some(path) => {
+                                self.frozen.push(Frozen { path, span: scrutinee.span, why: "pattern match", exclusive: *mutable });
+                                true
+                            }
+                            None => false,
+                        };
+                        self.expr(g);
+                        if pushed {
+                            self.frozen.pop();
+                        }
+                    }
+                    self.with_frozen(scrutinee, &a.pat, *mutable, |cx| cx.expr(&a.body));
+                }
+            }
+            T::Block(b) => self.block(b),
+            T::Return(x) => {
+                if let Some(x) = x {
+                    self.expr(x);
+                    self.consume(x);
+                }
+            }
+            T::Interp(parts) => {
+                for p in parts {
+                    if let thir::InterpPart::Value(x, _) = p {
+                        self.expr(x);
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn pat_is_binding_free(p: &Pat) -> bool {
+    !matches!(p.kind, PatKind::Binding(_))
+}

@@ -1,0 +1,36 @@
+enum Color {
+    Red
+    Green
+    Blue
+}
+
+fn main() {
+    let c = Color.Red
+    match c {
+        Red => println("red")
+        Green => println("green")
+    }
+    let b = true
+    match b {
+        true => println("yes")
+    }
+    let n = 3
+    match n {
+        0 => println("zero")
+        1..=9 => println("digit")
+    }
+    let o: Option[Option[i32]] = None
+    match o {
+        Some(Some(_)) => println("a")
+        None => println("b")
+    }
+    let t = (true, false)
+    match t {
+        (true, _) => println("c")
+        (false, true) => println("d")
+    }
+    match n {
+        x if x > 0 => println("positive")
+        _ if n < 0 => println("negative")
+    }
+}

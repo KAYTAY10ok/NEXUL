@@ -1,0 +1,24 @@
+error[E0330]: `if` without `else` cannot produce a value
+ --> if_without_else.nx:2:13
+  |
+2 |     let x = if true { 1 }
+  |             ^^^^^^^^^^^^^ this `if` gives a value of type `{integer}` only when the condition is true
+  |
+  = help: add an `else` branch
+
+error[E0330]: `if` without `else` cannot produce a value
+ --> if_without_else.nx:3:18
+  |
+3 |     let y: i32 = if false { 2 }
+  |                  ^^^^^^^^^^^^^^ this `if` gives a value of type `i32` only when the condition is true
+  |
+  = help: add an `else` branch
+
+error[E0302]: branches have different types
+ --> if_without_else.nx:4:34
+  |
+4 |     let z = if true { 1 } else { "one" }
+  |                                  ^^^^^ this branch is `String`
+  |                       - the first branch is `{integer}`
+
+error: could not compile due to 3 errors

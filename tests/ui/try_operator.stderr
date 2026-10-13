@@ -1,0 +1,34 @@
+error[E0361]: `?` can only be used in a function that returns `Result[..., E]`
+ --> try_operator.nx:6:13
+  |
+6 |     let x = parse("1")?
+  |             ^^^^^^^^^^^ cannot propagate from here
+  |
+  = note: this function returns `()`
+  = help: handle the value with `match` or `if let` instead
+
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_operator.nx:10:13
+   |
+10 |     let x = parse("1")?
+   |             ^^^^^^^^^^^ error type `String`
+   |
+   = note: the function returns errors of type `i32`
+   = note: NEXUL 0.1 does not convert error types automatically
+
+error[E0360]: the `?` operator applies to `Option` and `Result`, not `{integer}`
+  --> try_operator.nx:15:13
+   |
+15 |     let n = 5?
+   |             ^^ cannot use `?` here
+
+error[E0361]: `?` can only be used in a function that returns `Result[..., E]`
+  --> try_operator.nx:16:13
+   |
+16 |     let x = parse("1")?
+   |             ^^^^^^^^^^^ cannot propagate from here
+   |
+   = note: this function returns `Option[i32]`
+   = help: handle the value with `match` or `if let` instead
+
+error: could not compile due to 4 errors

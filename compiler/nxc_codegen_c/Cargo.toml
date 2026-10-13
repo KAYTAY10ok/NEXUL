@@ -1,0 +1,11 @@
+[package]
+name = "nxc_codegen_c"
+description = "NEXUL compiler: monomorphization and portable C11 backend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nxc_syntax = { path = "../nxc_syntax" }
+nxc_sema = { path = "../nxc_sema" }
+nxc_nir = { path = "../nxc_nir" }

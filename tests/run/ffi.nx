@@ -1,0 +1,19 @@
+// Spec chapter 08: calling C functions.
+extern "C" fn abs(x: i32) -> i32
+extern "C" fn strlen(s: Ptr[u8]) -> usize
+extern "C" fn sqrt(x: f64) -> f64
+
+fn main() {
+    let a = unsafe { abs(-42) }
+    let text = "hello"
+    let n = unsafe { strlen(text.as_ptr()) }
+    let r = unsafe { sqrt(2.0) }
+    println("{a} {n} {r}")
+    var buffer = [0 as u8; 4]
+    unsafe {
+        let p = Ptr[u8].null()
+        println("null: {p.is_null()}")
+    }
+    buffer[0] = 7
+    println("{buffer[0]}")
+}

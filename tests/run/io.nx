@@ -1,0 +1,44 @@
+// Spec §09: standard input, arguments, environment, files.
+import std.io
+import std.system
+
+fn main() {
+    var total: i64 = 0
+    var lines = 0
+    while true {
+        match io.read_line() {
+            Some(line) => {
+                lines += 1
+                match line.trim().parse_int() {
+                    Some(n) => total += n
+                    None => println("ignored: [{line}]")
+                }
+            }
+            None => break
+        }
+    }
+    println("{lines} lines, total {total}")
+
+    let args = system.args()
+    println("{args.len()} args, second = {args[1]}")
+    println("PATH set: {system.env("PATH").is_some()}, missing: {system.env("NEXUL_DOES_NOT_EXIST").is_none()}")
+
+    let path = "nexul_io_test.txt"
+    match io.write_file(path, "line 1\nligne 2 é\n") {
+        Ok(_) => println("written")
+        Err(e) => println("error: {e}")
+    }
+    let _ = io.append_file(path, "line 3\n")
+    match io.read_file(path) {
+        Ok(text) => {
+            let all = text.lines()
+            println("{all.len()} lines, second = {all[1]}")
+        }
+        Err(e) => println("error: {e}")
+    }
+    match io.read_file("this/file/does/not/exist.txt") {
+        Ok(_) => println("unexpected")
+        Err(e) => println("expected error: {e}")
+    }
+    let _ = io.write_file(path, "")
+}

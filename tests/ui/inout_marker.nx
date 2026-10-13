@@ -1,0 +1,16 @@
+fn increment(inout x: i32) {
+    x += 1
+}
+
+fn show(x: i32) {
+    println("{x}")
+}
+
+fn main() {
+    var a = 1
+    increment(a)
+    show(&a)
+    let b = 2
+    increment(&b)
+    increment(&(a + 1))
+}

@@ -1,0 +1,416 @@
+/// UTF-8 text (spec chapter 09).
+///
+/// Invariant: the bytes of a `String` are always valid UTF-8.
+/// Representation: `cap == 0` means the bytes are not owned (a string literal or the
+/// empty string); they are copied to the heap on the first modification.
+
+import std.mem
+
+@lang("string")
+pub struct String {
+    data: Ptr[u8]
+    len: usize
+    cap: usize
+}
+
+@intrinsic
+unsafe fn rt_decode(s: String, inout pos: usize) -> char
+
+@intrinsic
+unsafe fn rt_parse_float(s: String, inout out: f64) -> bool
+
+impl String {
+    /// An empty string (no allocation).
+    pub fn new() -> String {
+        return ""
+    }
+
+    /// An empty string able to hold `capacity` bytes without reallocating.
+    pub fn with_capacity(capacity: usize) -> String {
+        var s = String.new()
+        s.reserve(capacity)
+        return s
+    }
+
+    /// Length in bytes.
+    pub fn len(self) -> usize {
+        return self.len
+    }
+
+    /// Number of bytes that fit without reallocating.
+    pub fn capacity(self) -> usize {
+        return self.cap
+    }
+
+    pub fn is_empty(self) -> bool {
+        return self.len == 0
+    }
+
+    /// Address of the bytes (always followed by a zero byte for literals).
+    pub fn as_ptr(self) -> Ptr[u8] {
+        return self.data
+    }
+
+    /// Makes room for `extra` more bytes.
+    pub fn reserve(inout self, extra: usize) {
+        let need = self.len + extra
+        if self.cap != 0 and need <= self.cap {
+            return
+        }
+        var cap: usize = if self.cap == 0 { 16 } else { self.cap * 2 }
+        if cap < need {
+            cap = need
+        }
+        unsafe {
+            if self.cap == 0 {
+                let p = mem.alloc(cap)
+                mem.copy(self.data, p, self.len)
+                self.data = p
+            } else {
+                self.data = mem.realloc(self.data, cap)
+            }
+        }
+        self.cap = cap
+    }
+
+    fn push_byte(inout self, b: u8) {
+        self.reserve(1)
+        unsafe {
+            self.data.offset(self.len).write(b)
+        }
+        self.len += 1
+    }
+
+    /// Appends a character.
+    pub fn push(inout self, c: char) {
+        let v = c as u32
+        if v < 0x80 {
+            self.push_byte(v as u8)
+        } else if v < 0x800 {
+            self.push_byte((0xC0 | (v >> 6)) as u8)
+            self.push_byte((0x80 | (v & 0x3F)) as u8)
+        } else if v < 0x10000 {
+            self.push_byte((0xE0 | (v >> 12)) as u8)
+            self.push_byte((0x80 | ((v >> 6) & 0x3F)) as u8)
+            self.push_byte((0x80 | (v & 0x3F)) as u8)
+        } else {
+            self.push_byte((0xF0 | (v >> 18)) as u8)
+            self.push_byte((0x80 | ((v >> 12) & 0x3F)) as u8)
+            self.push_byte((0x80 | ((v >> 6) & 0x3F)) as u8)
+            self.push_byte((0x80 | (v & 0x3F)) as u8)
+        }
+    }
+
+    /// Appends a string.
+    pub fn push_str(inout self, s: String) {
+        let n = s.len
+        self.reserve(n)
+        unsafe {
+            mem.copy(s.data, self.data.offset(self.len), n)
+        }
+        self.len += n
+    }
+
+    /// An independent copy of the string.
+    pub fn clone(self) -> String {
+        if self.cap == 0 {
+            // Literal bytes are immutable and never freed: they can be shared.
+            return String(data: self.data, len: self.len, cap: 0)
+        }
+        var s = String.with_capacity(self.len)
+        s.push_str(self)
+        return s
+    }
+
+    /// Removes all the characters.
+    pub fn clear(inout self) {
+        self.len = 0
+    }
+
+    /// The byte at `index`.
+    @track_caller
+    pub fn byte_at(self, index: usize) -> u8 {
+        if index >= self.len {
+            panic("byte index {index} is out of bounds of a string of length {self.len}")
+        }
+        unsafe {
+            return self.data.offset(index).read()
+        }
+    }
+
+    fn is_char_boundary(self, index: usize) -> bool {
+        if index == 0 or index == self.len {
+            return true
+        }
+        if index > self.len {
+            return false
+        }
+        return (self.byte_at(index) & 0xC0) != 0x80
+    }
+
+    /// The bytes `start..end` as a new string.
+    @track_caller
+    pub fn substring(self, start: usize, end: usize) -> String {
+        if start > end or end > self.len {
+            panic("substring {start}..{end} is out of bounds of a string of length {self.len}")
+        }
+        if not self.is_char_boundary(start) or not self.is_char_boundary(end) {
+            panic("substring {start}..{end} does not fall on character boundaries")
+        }
+        if start == end {
+            return String.new()
+        }
+        var s = String.with_capacity(end - start)
+        unsafe {
+            mem.copy(self.data.offset(start), s.data, end - start)
+        }
+        s.len = end - start
+        return s
+    }
+
+    /// Number of characters.
+    pub fn char_count(self) -> usize {
+        var n: usize = 0
+        for _ in self {
+            n += 1
+        }
+        return n
+    }
+
+    /// The characters of the string.
+    pub fn chars(self) -> Vec[char] {
+        var v: Vec[char] = Vec.new()
+        for c in self {
+            v.push(c)
+        }
+        return v
+    }
+
+    /// The bytes of the string.
+    pub fn bytes(self) -> Vec[u8] {
+        var v: Vec[u8] = Vec.with_capacity(self.len)
+        for i in 0..self.len {
+            v.push(self.byte_at(i))
+        }
+        return v
+    }
+
+    fn matches_at(self, index: usize, pattern: String) -> bool {
+        if index + pattern.len > self.len {
+            return false
+        }
+        for j in 0..pattern.len {
+            if self.byte_at(index + j) != pattern.byte_at(j) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// Byte position of the first occurrence of `needle`.
+    pub fn find(self, needle: String) -> Option[usize] {
+        if needle.len > self.len {
+            return None
+        }
+        var i: usize = 0
+        while i + needle.len <= self.len {
+            if self.matches_at(i, needle) {
+                return Some(i)
+            }
+            i += 1
+        }
+        return None
+    }
+
+    pub fn contains(self, needle: String) -> bool {
+        return self.find(needle).is_some()
+    }
+
+    pub fn starts_with(self, prefix: String) -> bool {
+        return self.matches_at(0, prefix)
+    }
+
+    pub fn ends_with(self, suffix: String) -> bool {
+        if suffix.len > self.len {
+            return false
+        }
+        return self.matches_at(self.len - suffix.len, suffix)
+    }
+
+    /// The string without leading and trailing whitespace.
+    pub fn trim(self) -> String {
+        var start = self.len
+        var pos: usize = 0
+        while pos < self.len {
+            let before = pos
+            let c = unsafe { rt_decode(self, &pos) }
+            if not c.is_whitespace() {
+                start = before
+                break
+            }
+        }
+        var end = start
+        var p = start
+        while p < self.len {
+            let c = unsafe { rt_decode(self, &p) }
+            if not c.is_whitespace() {
+                end = p
+            }
+        }
+        return self.substring(start, end)
+    }
+
+    /// ASCII letters converted to upper case.
+    pub fn to_uppercase(self) -> String {
+        var s = String.with_capacity(self.len)
+        for c in self {
+            s.push(c.to_ascii_uppercase())
+        }
+        return s
+    }
+
+    /// ASCII letters converted to lower case.
+    pub fn to_lowercase(self) -> String {
+        var s = String.with_capacity(self.len)
+        for c in self {
+            s.push(c.to_ascii_lowercase())
+        }
+        return s
+    }
+
+    /// The parts separated by `separator`.
+    pub fn split(self, separator: String) -> Vec[String] {
+        var parts: Vec[String] = Vec.new()
+        if separator.len == 0 {
+            for c in self {
+                parts.push(c.to_string())
+            }
+            return parts
+        }
+        var start: usize = 0
+        var i: usize = 0
+        while i + separator.len <= self.len {
+            if self.matches_at(i, separator) {
+                parts.push(self.substring(start, i))
+                i += separator.len
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        parts.push(self.substring(start, self.len))
+        return parts
+    }
+
+    /// The lines of the string, without their terminators (`\n` or `\r\n`).
+    pub fn lines(self) -> Vec[String] {
+        var out: Vec[String] = Vec.new()
+        var start: usize = 0
+        for i in 0..self.len {
+            if self.byte_at(i) == '\n' as u8 {
+                var end = i
+                if end > start and self.byte_at(end - 1) == '\r' as u8 {
+                    end -= 1
+                }
+                out.push(self.substring(start, end))
+                start = i + 1
+            }
+        }
+        if start < self.len {
+            var end = self.len
+            if self.byte_at(end - 1) == '\r' as u8 {
+                end -= 1
+            }
+            out.push(self.substring(start, end))
+        }
+        return out
+    }
+
+    /// A copy where every occurrence of `from` is replaced by `to`.
+    pub fn replace(self, from: String, to: String) -> String {
+        if from.len == 0 {
+            return self.clone()
+        }
+        var out = String.with_capacity(self.len)
+        var start: usize = 0
+        var i: usize = 0
+        while i + from.len <= self.len {
+            if self.matches_at(i, from) {
+                out.push_str(self.substring(start, i))
+                out.push_str(to)
+                i += from.len
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        out.push_str(self.substring(start, self.len))
+        return out
+    }
+
+    /// The string repeated `count` times.
+    pub fn repeat(self, count: usize) -> String {
+        var out = String.with_capacity(self.len * count)
+        for _ in 0..count {
+            out.push_str(self)
+        }
+        return out
+    }
+
+    /// Reads a decimal integer (optional sign, digits only).
+    pub fn parse_int(self) -> Option[i64] {
+        if self.len == 0 {
+            return None
+        }
+        var i: usize = 0
+        var negative = false
+        let first = self.byte_at(0)
+        if first == '-' as u8 {
+            negative = true
+            i = 1
+        } else if first == '+' as u8 {
+            i = 1
+        }
+        if i == self.len {
+            return None
+        }
+        // Accumulate negatively so that `i64.MIN` can be represented.
+        var value: i64 = 0
+        while i < self.len {
+            let b = self.byte_at(i)
+            if b < '0' as u8 or b > '9' as u8 {
+                return None
+            }
+            let digit = (b - '0' as u8) as i64
+            if value < (i64.MIN + digit) / 10 {
+                return None
+            }
+            value = value * 10 - digit
+            i += 1
+        }
+        if negative {
+            return Some(value)
+        }
+        if value == i64.MIN {
+            return None
+        }
+        return Some(-value)
+    }
+
+    /// Reads a floating-point number (`1.5`, `-2e10`, `inf`, `NaN`).
+    pub fn parse_float(self) -> Option[f64] {
+        var out: f64 = 0.0
+        if unsafe { rt_parse_float(self, &out) } {
+            return Some(out)
+        }
+        return None
+    }
+
+    fn drop(inout self) {
+        if self.cap > 0 {
+            unsafe {
+                mem.free(self.data)
+            }
+        }
+    }
+}

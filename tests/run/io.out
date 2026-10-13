@@ -1,0 +1,8 @@
+ignored: [abc]
+ignored: []
+5 lines, total 25
+2 args, second = first-argument
+PATH set: true, missing: true
+written
+3 lines, second = ligne 2 é
+expected error: cannot read file: this/file/does/not/exist.txt

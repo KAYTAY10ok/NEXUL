@@ -1,0 +1,5 @@
+fn main() {
+    let f = 1e40
+    let n = f as i64
+    println("{n}")
+}

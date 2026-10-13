@@ -1,0 +1,54 @@
+error[E0104]: comparison operators cannot be chained
+ --> parse_errors.nx:2:19
+  |
+2 |     let a = 1 < 2 < 3
+  |                   ^ second comparison `<`
+  |               - first comparison
+  |
+  = help: split the comparison with `and`: `a < b and b < c`
+
+error[E0102]: expected an expression, found end of line
+ --> parse_errors.nx:3:12
+  |
+3 |     let b =
+  |            ^ expected an expression here
+
+error[E0105]: `_` cannot be used as a value
+ --> parse_errors.nx:5:13
+  |
+5 |     let d = _
+  |             ^ `_` is only allowed in patterns
+  |
+  = help: to ignore a value, write `let _ = expression`
+
+error[E0106]: generic arguments are written with square brackets
+ --> parse_errors.nx:6:15
+  |
+6 |     let e: Vec<i32> = Vec.new()
+  |               ^ unexpected `<`
+  |
+  = help: write `Vec[...]`
+
+error[E0108]: expected an item, found `let`
+ --> parse_errors.nx:9:1
+  |
+9 | let global = 5
+  | ^^^ unexpected here
+  |
+  = help: variables can only be declared inside functions; use `const` for a module-level constant
+
+error[E0107]: imports must come before all other items
+  --> parse_errors.nx:11:1
+   |
+11 | import std.io
+   | ^^^^^^^^^^^^^ this import comes after an item
+   |
+   = help: move this import to the top of the file
+
+error[E0106]: expected a type, found `{`
+  --> parse_errors.nx:13:11
+   |
+13 | fn f() -> {
+   |           ^ expected a type
+
+error: could not compile due to 7 errors

@@ -1,0 +1,15 @@
+fn main() {
+    var o: Option[String] = Some("x")
+    match o {
+        Some(s) => {
+            o = None
+            println(s)
+        }
+        None => {}
+    }
+    var n: Option[i32] = Some(1)
+    match n {
+        Some(k) => n = Some(k + 1)
+        None => {}
+    }
+}

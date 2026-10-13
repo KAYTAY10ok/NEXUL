@@ -1,0 +1,66 @@
+// Spec §09: Vec operations.
+fn show(v: Vec[i32]) -> String {
+    var s = "["
+    for i in 0..v.len() {
+        if i > 0 {
+            s += ", "
+        }
+        s += v[i].to_string()
+    }
+    return s + "]"
+}
+
+fn main() {
+    var v: Vec[i32] = Vec.with_capacity(2)
+    println("{v.len()} {v.capacity()} {v.is_empty()}")
+    for i in 0..6 {
+        v.push(i * 10)
+    }
+    println("{show(v)} cap>=6: {v.capacity() >= 6}")
+    v.insert(0, -1)
+    v.insert(7, 99)
+    println(show(v))
+    println("removed {v.remove(1)} -> {show(v)}")
+    v.swap(0, v.len() - 1)
+    println(show(v))
+    v[2] += 1000
+    v[3] = v[2] * 2
+    println(show(v))
+    match v.pop() {
+        Some(x) => println("popped {x}")
+        None => println("empty")
+    }
+    v.truncate(3)
+    println(show(v))
+    v.clear()
+    println("{show(v)} {v.is_empty()} {v.pop().is_none()}")
+
+    var grid: Vec[Vec[String]] = Vec.new()
+    for row in 0..3 {
+        var line: Vec[String] = Vec.new()
+        for col in 0..row + 1 {
+            line.push("{row}{col}")
+        }
+        grid.push(line)
+    }
+    for line in grid {
+        var text = String.new()
+        for cell in line {
+            text += cell + " "
+        }
+        println(text.trim())
+    }
+    grid[2][1] = "X"
+    grid[0].push("new")
+    println("{grid[2][1]} {grid[0][1]} {grid[0].len()}")
+
+    var words = "the quick brown fox".split(" ")
+    var longest = String.new()
+    for w in words {
+        if w.len() > longest.len() {
+            longest = w.clone()
+        }
+    }
+    words.swap(0, 3)
+    println("{longest} {words[0]} {words.len()}")
+}

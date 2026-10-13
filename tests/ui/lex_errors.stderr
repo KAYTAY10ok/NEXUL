@@ -1,0 +1,67 @@
+error[E0006]: a numeric literal cannot end with `_`
+ --> lex_errors.nx:2:14
+  |
+2 |     let a = 1_
+  |              ^ remove this `_`
+
+error[E0016]: missing digits after the radix prefix
+ --> lex_errors.nx:3:13
+  |
+3 |     let b = 0x
+  |             ^^ expected digits
+
+error[E0016]: invalid suffix `u8` on numeric literal
+ --> lex_errors.nx:4:15
+  |
+4 |     let c = 10u8
+  |               ^^ unexpected suffix
+  |
+  = help: NEXUL has no literal suffixes; write a type annotation or `as u8`
+
+error[E0015]: character literal contains more than one character
+ --> lex_errors.nx:5:13
+  |
+5 |     let e = 'ab'
+  |             ^^^^ more than one character
+  |
+  = help: use double quotes for a string: `"..."`
+
+error[E0007]: unknown escape sequence
+ --> lex_errors.nx:6:14
+  |
+6 |     let f = "\q"
+  |              ^^ unknown escape
+
+error[E0014]: empty interpolation in string
+ --> lex_errors.nx:7:14
+  |
+7 |     let g = "{}"
+  |              ^^ expected an expression between the braces
+  |
+  = help: write `\{` for a literal brace
+
+error[E0010]: `async` is a reserved keyword
+ --> lex_errors.nx:8:9
+  |
+8 |     let async = 1
+  |         ^^^^^ reserved for a future version of NEXUL
+  |
+  = help: choose another name, for example `async_`
+
+error[E0017]: unexpected character `!`
+ --> lex_errors.nx:9:16
+  |
+9 |     let h = if !true { 1 } else { 2 }
+  |                ^ not an operator in NEXUL
+  |
+  = help: logical negation is written `not`, and inequality is written `!=`
+
+error[E0008]: unterminated string literal
+  --> lex_errors.nx:10:13
+   |
+10 |     let d = "unterminated
+   |             ^^^^^^^^^^^^^ string not closed on this line
+   |
+   = help: strings cannot span lines in NEXUL 0.1; use `\n` for a line break
+
+error: could not compile due to 9 errors

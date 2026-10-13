@@ -1,0 +1,6 @@
+/// Time measurement (spec chapter 09).
+
+/// Nanoseconds elapsed since an arbitrary fixed point; never goes backwards.
+/// Use the difference between two calls to measure a duration.
+@intrinsic
+pub fn monotonic_ns() -> u64

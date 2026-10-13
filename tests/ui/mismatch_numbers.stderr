@@ -1,0 +1,33 @@
+error[E0302]: mismatched types
+ --> mismatch_numbers.nx:7:18
+  |
+7 |     let b: i64 = a
+  |                  ^ expected `i64`, found `i32`
+  |
+  = help: NEXUL never converts numbers implicitly; write `... as i64`
+
+error[E0302]: mismatched types
+ --> mismatch_numbers.nx:8:18
+  |
+8 |     let c = half(a)
+  |                  ^ expected `f64`, found `i32`
+  |
+  = help: NEXUL never converts numbers implicitly; write `... as f64`
+
+error[E0302]: mismatched operand types for `+`
+ --> mismatch_numbers.nx:9:13
+  |
+9 |     let d = a + 1.5
+  |             ^^^^^^^ `i32` + `{float}`
+  |             - `i32`
+  |                 --- `{float}`
+  |
+  = help: convert one operand explicitly, for example `... as i32`
+
+error[E0301]: 16777217 cannot be represented exactly as `f32`
+  --> mismatch_numbers.nx:10:18
+   |
+10 |     let e: f32 = 16777217
+   |                  ^^^^^^^^ inexact literal
+
+error: could not compile due to 4 errors

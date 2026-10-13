@@ -1,0 +1,176 @@
+/// A growable array stored on the heap (spec chapter 09).
+
+import std.mem
+
+/// Reports an out-of-bounds index (kept out of line so that indexing stays small).
+@intrinsic
+fn rt_index_fail(index: usize, len: usize) -> Never
+
+@lang("vec")
+pub struct Vec[T] {
+    data: Ptr[T]
+    len: usize
+    cap: usize
+}
+
+impl Vec {
+    /// An empty vector (no allocation).
+    pub fn new() -> Vec[T] {
+        return Vec(data: Ptr.null(), len: 0, cap: 0)
+    }
+
+    /// An empty vector able to hold `capacity` elements without reallocating.
+    pub fn with_capacity(capacity: usize) -> Vec[T] {
+        var v: Vec[T] = Vec.new()
+        v.reserve(capacity)
+        return v
+    }
+
+    /// Number of elements.
+    pub fn len(self) -> usize {
+        return self.len
+    }
+
+    /// Number of elements that fit without reallocating.
+    pub fn capacity(self) -> usize {
+        return self.cap
+    }
+
+    pub fn is_empty(self) -> bool {
+        return self.len == 0
+    }
+
+    /// Makes room for `extra` more elements (capacity grows geometrically).
+    pub fn reserve(inout self, extra: usize) {
+        let need = self.len + extra
+        if need <= self.cap {
+            return
+        }
+        var cap: usize = if self.cap == 0 { 4 } else { self.cap * 2 }
+        if cap < need {
+            cap = need
+        }
+        let size = cap * mem.size_of[T]()
+        unsafe {
+            if self.cap == 0 {
+                self.data = mem.alloc(size).cast[T]()
+            } else {
+                self.data = mem.realloc(self.data.cast[u8](), size).cast[T]()
+            }
+        }
+        self.cap = cap
+    }
+
+    /// Appends an element.
+    pub fn push(inout self, owned value: T) {
+        if self.len == self.cap {
+            self.reserve(1)
+        }
+        unsafe {
+            self.data.offset(self.len).write(value)
+        }
+        self.len += 1
+    }
+
+    /// Removes and returns the last element.
+    pub fn pop(inout self) -> Option[T] {
+        if self.len == 0 {
+            return None
+        }
+        self.len -= 1
+        unsafe {
+            return Some(self.data.offset(self.len).read())
+        }
+    }
+
+    /// Inserts an element at `index`, shifting the following ones.
+    @track_caller
+    pub fn insert(inout self, index: usize, owned value: T) {
+        if index > self.len {
+            panic("insertion index {index} is out of bounds of a vector of length {self.len}")
+        }
+        if self.len == self.cap {
+            self.reserve(1)
+        }
+        unsafe {
+            let p = self.data.offset(index)
+            mem.copy(p, p.offset(1), self.len - index)
+            p.write(value)
+        }
+        self.len += 1
+    }
+
+    /// Removes and returns the element at `index`, shifting the following ones.
+    @track_caller
+    pub fn remove(inout self, index: usize) -> T {
+        if index >= self.len {
+            panic("removal index {index} is out of bounds of a vector of length {self.len}")
+        }
+        unsafe {
+            let p = self.data.offset(index)
+            let value = p.read()
+            mem.copy(p.offset(1), p, self.len - index - 1)
+            self.len -= 1
+            return value
+        }
+    }
+
+    /// Exchanges the elements at `i` and `j`.
+    @track_caller
+    pub fn swap(inout self, i: usize, j: usize) {
+        if i >= self.len or j >= self.len {
+            panic("swap index out of bounds: the length is {self.len} but the indices are {i} and {j}")
+        }
+        if i == j {
+            return
+        }
+        unsafe {
+            let a = self.data.offset(i)
+            let b = self.data.offset(j)
+            let tmp = a.read()
+            a.write(b.read())
+            b.write(tmp)
+        }
+    }
+
+    /// Removes every element.
+    pub fn clear(inout self) {
+        self.truncate(0)
+    }
+
+    /// Keeps the first `length` elements and destroys the others, by increasing index
+    /// (spec §5.5).
+    pub fn truncate(inout self, length: usize) {
+        if length >= self.len {
+            return
+        }
+        let old = self.len
+        self.len = length
+        for i in length..old {
+            unsafe {
+                mem.drop_in_place(self.data.offset(i))
+            }
+        }
+    }
+
+    /// Address of element `index` (used by `v[index]`).
+    @index
+    @track_caller
+    fn at(self, index: usize) -> Ptr[T] {
+        if index >= self.len {
+            rt_index_fail(index, self.len)
+        }
+        unsafe {
+            return self.data.offset(index)
+        }
+    }
+
+    fn drop(inout self) {
+        self.truncate(0)
+        if self.cap > 0 {
+            unsafe {
+                mem.free(self.data.cast[u8]())
+            }
+        }
+    }
+}

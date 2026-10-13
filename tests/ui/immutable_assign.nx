@@ -1,0 +1,23 @@
+struct Counter {
+    n: i32
+}
+
+fn bump(c: Counter) {
+    c.n += 1
+}
+
+fn reset(value: i32) {
+    value = 0
+}
+
+fn main() {
+    let x = 1
+    x = 2
+    let c = Counter(n: 0)
+    c.n = 5
+    for item in [1, 2] {
+        item = 3
+    }
+    bump(c)
+    reset(1)
+}

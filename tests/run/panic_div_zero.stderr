@@ -1,0 +1,2 @@
+panic: attempt to divide by zero
+  --> panic_div_zero.nx:2:12

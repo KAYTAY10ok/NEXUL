@@ -1,0 +1,140 @@
+// Spec §3.2, §3.3: structures, enumerations, indirect storage, tuples, arrays.
+struct Person {
+    name: String
+    age: u32
+}
+
+impl Person {
+    fn greet(self) -> String {
+        return "{self.name} ({self.age})"
+    }
+
+    fn birthday(inout self) {
+        self.age += 1
+    }
+}
+
+enum Tree {
+    Leaf(i64)
+    indirect Node(Tree, Tree)
+}
+
+impl Tree {
+    fn sum(self) -> i64 {
+        return match self {
+            Leaf(v) => v
+            Node(l, r) => l.sum() + r.sum()
+        }
+    }
+
+    fn depth(self) -> u32 {
+        return match self {
+            Leaf(_) => 1
+            Node(l, r) => 1 + l.depth().max(r.depth())
+        }
+    }
+}
+
+struct Node {
+    value: i32
+    indirect next: Option[Node]
+}
+
+fn list_sum(n: Node) -> i32 {
+    var total = n.value
+    if let Some(next) = n.next {
+        total += list_sum(next)
+    }
+    return total
+}
+
+enum Direction {
+    North
+    East
+    South
+    West
+}
+
+impl Direction {
+    fn turn_right(self) -> Direction {
+        return match self {
+            North => Direction.East
+            East => Direction.South
+            South => Direction.West
+            West => Direction.North
+        }
+    }
+
+    fn name(self) -> String {
+        return match self {
+            North => "N"
+            East => "E"
+            South => "S"
+            West => "W"
+        }
+    }
+}
+
+struct Pair[A, B] {
+    first: A
+    second: B
+}
+
+impl Pair {
+    fn swap(owned self) -> Pair[B, A] {
+        let Pair(first: a, second: b) = move self
+        return Pair(first: b, second: a)
+    }
+}
+
+type Grid = [[u8; 3]; 2]
+
+fn main() {
+    var p = Person(name: "Ada", age: 36)
+    p.birthday()
+    println(p.greet())
+
+    let tree = Tree.Node(Tree.Leaf(1), Tree.Node(Tree.Leaf(2), Tree.Leaf(3)))
+    println("sum = {tree.sum()}, depth = {tree.depth()}")
+
+    let list = Node(value: 1, next: Some(Node(value: 2, next: Some(Node(value: 3, next: None)))))
+    println("list sum = {list_sum(list)}")
+
+    var d = Direction.North
+    for _ in 0..5 {
+        print("{d.name()} ")
+        d = d.turn_right()
+    }
+    println()
+    println("{Direction.North == Direction.North} {Direction.North != Direction.South}")
+
+    let pair = Pair(first: 1, second: "one")
+    let swapped = pair.swap()
+    println("{swapped.first} {swapped.second}")
+
+    let t = (1, "two", 3.0)
+    println("first: {t.0}")
+    let (a, b, c) = t
+    println("{a} {b} {c}")
+
+    var grid: Grid = [[0; 3]; 2]
+    grid[1][2] = 7
+    grid[0][0] = 1
+    var s: u32 = 0
+    for row in grid {
+        for cell in row {
+            s += cell as u32
+        }
+    }
+    println("grid sum = {s}, corner = {grid[1][2]}")
+
+    let names = ["x", "y", "z"]
+    var joined = String.new()
+    for n in names {
+        joined.push_str(n)
+    }
+    println(joined)
+
+    let nested = Pair(first: Pair(first: 'a', second: true), second: [1, 2, 3])
+    println("{nested.first.first} {nested.first.second} {nested.second[2]}")
+}

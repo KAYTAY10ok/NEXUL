@@ -1,0 +1,50 @@
+error[E0340]: non-exhaustive match: `Blue` is not covered
+ --> non_exhaustive.nx:9:11
+  |
+9 |     match c {
+  |           ^ the value may be `Blue`
+  |
+  = help: add an arm for `Blue`, or `_ => ...`
+
+error[E0340]: non-exhaustive match: `false` is not covered
+  --> non_exhaustive.nx:14:11
+   |
+14 |     match b {
+   |           ^ the value may be `false`
+   |
+   = help: add an arm for `false`, or `_ => ...`
+
+error[E0340]: non-exhaustive match: `_` is not covered
+  --> non_exhaustive.nx:18:11
+   |
+18 |     match n {
+   |           ^ the value may be `_`
+   |
+   = help: add an arm `_ => ...` to handle the remaining values
+
+error[E0340]: non-exhaustive match: `Some(None)` is not covered
+  --> non_exhaustive.nx:23:11
+   |
+23 |     match o {
+   |           ^ the value may be `Some(None)`
+   |
+   = help: add an arm for `Some(None)`, or `_ => ...`
+
+error[E0340]: non-exhaustive match: `(false, false)` is not covered
+  --> non_exhaustive.nx:28:11
+   |
+28 |     match t {
+   |           ^ the value may be `(false, false)`
+   |
+   = help: add an arm for `(false, false)`, or `_ => ...`
+
+error[E0340]: non-exhaustive match: `_` is not covered
+  --> non_exhaustive.nx:32:11
+   |
+32 |     match n {
+   |           ^ the value may be `_`
+   |
+   = note: arms with an `if` guard do not count towards exhaustiveness
+   = help: add an arm `_ => ...` to handle the remaining values
+
+error: could not compile due to 6 errors

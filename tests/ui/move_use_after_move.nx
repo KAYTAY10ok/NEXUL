@@ -1,0 +1,10 @@
+fn consume(owned s: String) {
+}
+
+fn main() {
+    let s = "text".clone()
+    let t = s
+    println(s)
+    consume(t)
+    println(t)
+}

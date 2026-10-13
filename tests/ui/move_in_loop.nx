@@ -1,0 +1,9 @@
+fn consume(owned s: String) {
+}
+
+fn main() {
+    let s = "x".clone()
+    for _ in 0..3 {
+        consume(s)
+    }
+}

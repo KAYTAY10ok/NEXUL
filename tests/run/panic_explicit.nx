@@ -1,0 +1,10 @@
+fn check(n: i32) {
+    if n > 2 {
+        panic("value too large: {n}")
+    }
+}
+
+fn main() {
+    check(1)
+    check(5)
+}

@@ -1,0 +1,25 @@
+error[E0502]: unsupported ABI `"Rust"`
+ --> ffi_errors.nx:1:8
+  |
+1 | extern "Rust" fn f(x: i32)
+  |        ^^^^^^ unknown ABI
+  |
+  = note: NEXUL 0.1 supports only `extern "C"`
+
+error[E0503]: type `String` cannot cross the C boundary
+ --> ffi_errors.nx:2:20
+  |
+2 | extern "C" fn g(s: String) -> Vec[i32]
+  |                    ^^^^^^ not FFI-safe
+  |
+  = note: allowed: integers, floats, `bool`, `char` and `Ptr[T]` (see spec §8.2)
+
+error[E0503]: type `Vec[i32]` cannot cross the C boundary
+ --> ffi_errors.nx:2:31
+  |
+2 | extern "C" fn g(s: String) -> Vec[i32]
+  |                               ^^^^^^^^ not FFI-safe
+  |
+  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `()`
+
+error: could not compile due to 3 errors

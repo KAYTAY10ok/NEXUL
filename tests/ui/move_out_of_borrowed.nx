@@ -1,0 +1,11 @@
+fn keep(s: String) -> String {
+    return s
+}
+
+fn main() {
+    for w in "a b".split(" ") {
+        let owned_word = w
+        println(owned_word)
+    }
+    println(keep("x"))
+}

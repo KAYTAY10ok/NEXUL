@@ -1,0 +1,7 @@
+/target
+*.exe
+*.pdb
+*.o
+*.obj
+/.nxc-cache
+nexul_io_test.txt

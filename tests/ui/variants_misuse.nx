@@ -1,0 +1,12 @@
+enum Shape {
+    Circle(f64)
+    Empty
+}
+
+fn main() {
+    let a = Shape.Circle
+    let b = Shape.Empty(1.0)
+    let c = Shape.Circle(1.0, 2.0)
+    let d = Shape(1.0)
+    let e = Shape.Square(1.0)
+}

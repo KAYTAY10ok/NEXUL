@@ -1,0 +1,47 @@
+error[E0303]: operator `+` cannot be applied to `bool`
+ --> bad_operators.nx:6:13
+  |
+6 |     let a = true + false
+  |             ^^^^^^^^^^^^ unsupported operation
+
+error[E0303]: unary `-` cannot be applied to `u32`
+ --> bad_operators.nx:8:13
+  |
+8 |     let b = -u
+  |             ^^ unsupported operation
+  |
+  = note: unsigned integers cannot be negated
+
+error[E0303]: operator `+%` cannot be applied to `f64`
+ --> bad_operators.nx:9:13
+  |
+9 |     let c = 1.5 +% 2.0
+  |             ^^^^^^^^^^ unsupported operation
+  |
+  = note: wrapping arithmetic only exists for integers
+
+error[E0303]: operator `==` cannot be applied to `P`
+  --> bad_operators.nx:10:13
+   |
+10 |     let d = P(x: 1) == P(x: 1)
+   |             ^^^^^^^^^^^^^^^^^^ unsupported operation
+   |
+   = help: compare the fields, or use `match`
+
+error[E0303]: unary `~` cannot be applied to `bool`
+  --> bad_operators.nx:11:13
+   |
+11 |     let e = ~true
+   |             ^^^^^ unsupported operation
+   |
+   = help: use `not` for booleans
+
+error[E0303]: operator `&` cannot be applied to `bool`
+  --> bad_operators.nx:12:13
+   |
+12 |     let f = true & false
+   |             ^^^^^^^^^^^^ unsupported operation
+   |
+   = help: use `and` for booleans
+
+error: could not compile due to 6 errors

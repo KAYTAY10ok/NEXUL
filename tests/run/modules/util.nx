@@ -1,0 +1,17 @@
+import modules.geometry.shapes.{Circle}
+
+pub enum Color {
+    Red
+    Green
+}
+
+pub fn unit_circle() -> Circle {
+    return Circle(r: 1.0)
+}
+
+pub fn color_name(c: Color) -> String {
+    return match c {
+        Red => "red"
+        Green => "green"
+    }
+}

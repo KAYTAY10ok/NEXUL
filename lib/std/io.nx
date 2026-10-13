@@ -1,0 +1,53 @@
+/// Standard input/output and files (spec chapter 09).
+
+@intrinsic
+unsafe fn rt_read_line(inout out: String) -> bool
+
+@intrinsic
+unsafe fn rt_read_file(path: String, inout out: String) -> i32
+
+@intrinsic
+unsafe fn rt_write_file(path: String, content: String, append: bool) -> bool
+
+/// Flushes the standard output.
+@intrinsic
+pub fn flush()
+
+/// Reads one line from the standard input, without its line terminator.
+/// Returns `None` at the end of the input.
+pub fn read_line() -> Option[String] {
+    var line = String.new()
+    if unsafe { rt_read_line(&line) } {
+        return Some(line)
+    }
+    return None
+}
+
+/// Reads a whole UTF-8 text file.
+pub fn read_file(path: String) -> Result[String, String] {
+    var content = String.new()
+    let code = unsafe { rt_read_file(path, &content) }
+    if code == 0 {
+        return Ok(content)
+    }
+    if code == 2 {
+        return Err("file is not valid UTF-8: {path}")
+    }
+    return Err("cannot read file: {path}")
+}
+
+/// Creates or replaces a file with `content`.
+pub fn write_file(path: String, content: String) -> Result[(), String] {
+    if unsafe { rt_write_file(path, content, false) } {
+        return Ok(())
+    }
+    return Err("cannot write file: {path}")
+}
+
+/// Appends `content` at the end of a file (created if needed).
+pub fn append_file(path: String, content: String) -> Result[(), String] {
+    if unsafe { rt_write_file(path, content, true) } {
+        return Ok(())
+    }
+    return Err("cannot write file: {path}")
+}

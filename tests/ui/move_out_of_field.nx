@@ -1,0 +1,16 @@
+struct Person {
+    name: String
+}
+
+fn take_name(p: Person) -> String {
+    return p.name
+}
+
+fn main() {
+    var v: Vec[String] = Vec.new()
+    v.push("a")
+    let first = v[0]
+    let p = Person(name: "x")
+    let n = p.name
+    println("{first} {n} {take_name(p)}")
+}

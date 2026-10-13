@@ -1,0 +1,5 @@
+extern "Rust" fn f(x: i32)
+extern "C" fn g(s: String) -> Vec[i32]
+
+fn main() {
+}

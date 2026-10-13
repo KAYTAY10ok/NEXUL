@@ -1,0 +1,41 @@
+error[E0202]: cannot find type `int`
+ --> type_names.nx:6:12
+  |
+6 |     let a: int = 5
+  |            ^^^ not found in this scope
+  |
+  = help: NEXUL spells this type `i32`
+
+error[E0202]: cannot find type `Vec3`
+ --> type_names.nx:7:12
+  |
+7 |     let b: Vec3 = Vec2(x: 1.0)
+  |            ^^^^ not found in this scope
+  |
+  = help: did you mean `Vec2`?
+
+error[E0315]: `Vec` takes 1 generic argument
+ --> type_names.nx:8:12
+  |
+8 |     let c: Vec[i32, i32] = Vec.new()
+  |            ^^^^^^^^^^^^^ 2 given
+  |
+  = help: write `Vec[T]`
+
+error[E0315]: `Option` takes 1 generic argument
+ --> type_names.nx:9:12
+  |
+9 |     let d: Option = None
+  |            ^^^^^^ 0 given
+  |
+  = help: write `Option[T]`
+
+error[E0106]: generic arguments are written with square brackets
+  --> type_names.nx:10:15
+   |
+10 |     let e: Vec<i32> = Vec.new()
+   |               ^ unexpected `<`
+   |
+   = help: write `Vec[...]`
+
+error: could not compile due to 5 errors

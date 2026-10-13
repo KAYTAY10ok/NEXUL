@@ -1,0 +1,44 @@
+warning[W0004]: unused import `math`
+ --> warnings.nx:2:12
+  |
+2 | import std.math
+  |            ^^^^ imported but never used
+  |
+  = help: remove this import
+
+warning[W0001]: unused variable `unused`
+ --> warnings.nx:9:9
+  |
+9 |     let unused = 5
+  |         ^^^^^^ never read
+  |
+  = help: if this is intentional, name it `_unused`
+
+warning[W0003]: variable `never_mutated` is never modified
+  --> warnings.nx:10:9
+   |
+10 |     var never_mutated = 3
+   |         ^^^^^^^^^^^^^ declared with `var`
+   |
+   = help: declare it with `let`
+
+warning[W0005]: this `Result` is ignored: it may contain an error
+  --> warnings.nx:12:5
+   |
+12 |     compute()
+   |     ^^^^^^^^^ unused `Result`
+   |
+   = help: handle it with `match`, `?` or `unwrap()`, or ignore it explicitly with `let _ = ...`
+
+warning[W0008]: useless conversion: the value is already `i32`
+  --> warnings.nx:14:16
+   |
+14 |     let same = 5 as i32
+   |                ^^^^^^^^ remove `as`
+
+warning[W0006]: unreachable code
+  --> warnings.nx:19:9
+   |
+19 |         println("never")
+   |         ^^^^^^^^^^^^^^^^ this code is never executed
+

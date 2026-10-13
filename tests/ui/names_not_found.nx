@@ -1,0 +1,8 @@
+fn main() {
+    let x = 1
+    printn("{x}")
+    let y = undefined_value
+    let z = Strng.new()
+    let n = nil
+    let p = math.PI
+}

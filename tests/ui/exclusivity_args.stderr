@@ -1,0 +1,34 @@
+error[E0420]: `x` is passed twice to the same call, once as `inout`
+  --> exclusivity_args.nx:12:22
+   |
+12 |     swap_values(&x, &x)
+   |                      ^ accessed here
+   |     ------------------- during this call
+   |                  - modified here (`inout`)
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: `v` is passed twice to the same call, once as `inout`
+  --> exclusivity_args.nx:14:16
+   |
+14 |     append(&v, v)
+   |                ^ accessed here
+   |     ------------- during this call
+   |             - modified here (`inout`)
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: an element of `v` is passed twice to the same call, once as `inout`
+  --> exclusivity_args.nx:15:25
+   |
+15 |     swap_values(&v[0], &v[1])
+   |                         ^^^^ accessed here
+   |     ------------------------- during this call
+   |                  ---- modified here (`inout`)
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: to exchange two elements, use `v.swap(i, j)`
+
+error: could not compile due to 3 errors

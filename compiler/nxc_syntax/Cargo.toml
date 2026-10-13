@@ -1,0 +1,8 @@
+[package]
+name = "nxc_syntax"
+description = "NEXUL compiler: sources, diagnostics, lexer, parser and AST"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]

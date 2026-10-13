@@ -1,0 +1,83 @@
+scope:
+  create scoped
+  drop scoped
+  create first
+  create second
+move:
+  consume first
+  drop first
+borrow: second
+inout:
+  create before
+  renamed to after
+reassign:
+  create old
+  create new
+  drop old
+conditional:
+  create conditional
+  consume conditional
+  drop conditional
+  end of conditional(true)
+  create conditional
+  end of conditional(false)
+  drop conditional
+early return:
+  create a
+  create b
+  drop b
+  drop a
+  -> 1
+  create a
+  create b
+  create c
+  drop c
+  drop b
+  drop a
+  -> 2
+loops:
+  create loop-0
+  consume loop-0
+  drop loop-0
+  create loop-1
+  consume loop-1
+  drop loop-1
+  create loop-2
+  create inner-0
+  drop inner-0
+  create inner-1
+  drop inner-1
+  drop loop-2
+temporaries:
+  create temp
+  read temp: temp
+  drop temp
+option:
+  create boxed
+  taken is_some=true remaining is_none=true
+swap and replace:
+  create p
+  create q
+  p=q q=p
+  create p2
+  old=q p=p2
+  drop q
+vec of traces:
+  create v1
+  create v2
+  create v3
+  removed v2, len 2
+match move:
+  create matched
+  got matched
+  drop matched
+end of main
+  drop v2
+  drop v1
+  drop v3
+  drop p
+  drop p2
+  drop boxed
+  drop new
+  drop after
+  drop second

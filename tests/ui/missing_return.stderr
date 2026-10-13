@@ -1,0 +1,23 @@
+error[E0331]: function `f` may finish without returning a value
+ --> missing_return.nx:5:1
+  |
+1 | fn f(x: i32) -> i32 {
+  |                 --- return type declared here
+...
+5 | }
+  | ^ execution can reach the end of the function, which returns `i32`
+  |
+  = note: NEXUL has no implicit return: end every path with `return value`
+
+error[E0331]: function `g` may finish without returning a value
+ --> missing_return.nx:9:1
+  |
+7 | fn g() -> String {
+  |           ------ return type declared here
+8 |     let s = "x"
+9 | }
+  | ^ execution can reach the end of the function, which returns `String`
+  |
+  = note: NEXUL has no implicit return: end every path with `return value`
+
+error: could not compile due to 2 errors

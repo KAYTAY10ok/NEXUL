@@ -1,0 +1,11 @@
+fn main() {
+    var v: Vec[i32] = Vec.new()
+    v.push(1)
+    for x in v {
+        v.push(x)
+    }
+    var names: Vec[String] = Vec.new()
+    for n in names {
+        names = Vec.new()
+    }
+}

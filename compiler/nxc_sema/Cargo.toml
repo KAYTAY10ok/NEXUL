@@ -1,0 +1,9 @@
+[package]
+name = "nxc_sema"
+description = "NEXUL compiler: name resolution, type checking and typed tree"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nxc_syntax = { path = "../nxc_syntax" }

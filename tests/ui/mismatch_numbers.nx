@@ -1,0 +1,12 @@
+fn half(x: f64) -> f64 {
+    return x / 2.0
+}
+
+fn main() {
+    let a: i32 = 5
+    let b: i64 = a
+    let c = half(a)
+    let d = a + 1.5
+    let e: f32 = 16777217
+    println("{b} {c} {d} {e}")
+}

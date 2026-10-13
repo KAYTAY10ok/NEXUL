@@ -1,0 +1,7 @@
+fn main() {
+    var v: Vec[i32] = Vec.new()
+    v.push(1)
+    println("before")
+    let i = v.len() + 2
+    println("{v[i]}")
+}

@@ -1,0 +1,2 @@
+panic: value out of range in `as` conversion
+  --> panic_cast.nx:3:13

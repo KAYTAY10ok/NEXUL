@@ -1,0 +1,5 @@
+sorted: 20 30 35 40 45 50 60 65 70 80
+height: 4
+contains 45: true, contains 99: false
+doubled min/max: 40 160
+scaled total: 140

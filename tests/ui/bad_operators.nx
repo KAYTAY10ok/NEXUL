@@ -1,0 +1,14 @@
+struct P {
+    x: i32
+}
+
+fn main() {
+    let a = true + false
+    let u: u32 = 5
+    let b = -u
+    let c = 1.5 +% 2.0
+    let d = P(x: 1) == P(x: 1)
+    let e = ~true
+    let f = true & false
+    println("{a} {b} {c} {d} {e} {f}")
+}

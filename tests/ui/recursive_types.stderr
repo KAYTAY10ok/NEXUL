@@ -1,0 +1,25 @@
+error[E0311]: recursive type `List` has infinite size
+ --> recursive_types.nx:1:6
+  |
+1 | enum List {
+  |      ^^^^ `List` contains itself through its variant `Cons`
+  |
+  = help: mark the variant `indirect`, for example `indirect Cons`
+
+error[E0311]: recursive type `Node` has infinite size
+ --> recursive_types.nx:6:8
+  |
+6 | struct Node {
+  |        ^^^^ `Node` contains itself through its field `next`
+  |
+  = help: mark the field `indirect`, for example `indirect next`
+
+error[E0312]: enum `Empty` has no variants
+  --> recursive_types.nx:10:6
+   |
+10 | enum Empty {
+   |      ^^^^^ an enum needs at least one variant
+   |
+   = help: a type without values is spelled `Never`
+
+error: could not compile due to 3 errors

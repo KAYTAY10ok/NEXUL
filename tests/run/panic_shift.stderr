@@ -1,0 +1,2 @@
+panic: attempt to shift left with overflow
+  --> panic_shift.nx:3:15

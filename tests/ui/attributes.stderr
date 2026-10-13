@@ -1,0 +1,25 @@
+error[E0232]: unknown attribute `@inline`
+ --> attributes.nx:1:2
+  |
+1 | @inline
+  |  ^^^^^^ unknown attribute
+
+error[E0231]: the attribute `@intrinsic` is reserved for the standard library
+ --> attributes.nx:5:1
+  |
+5 | @intrinsic
+  | ^^^^^^^^^^ not allowed here
+
+error[E0233]: a `@test` function must be a free function without parameters, generics or return value
+ --> attributes.nx:9:4
+  |
+9 | fn bad_test(x: i32) {
+  |    ^^^^^^^^ invalid test function
+
+error[E0232]: the attribute `@link` cannot be applied to this item
+  --> attributes.nx:12:1
+   |
+12 | @link("m")
+   | ^^^^^^^^^^ misplaced attribute
+
+error: could not compile due to 4 errors

@@ -1,0 +1,12 @@
+fn main() {
+    let s = "hello"
+    let c = s[0]
+    let n = 5
+    for i in n {
+    }
+    let x = n[0]
+    let v: Vec[i32] = Vec.new()
+    let y = v[1, 2]
+    let z = v["a"]
+    n(3)
+}

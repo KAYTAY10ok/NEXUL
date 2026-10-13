@@ -1,0 +1,25 @@
+error[E0207]: `break` outside of a loop
+ --> loops_labels.nx:2:5
+  |
+2 |     break
+  |     ^^^^^ `break` can only be used inside `while` or `for`
+
+error[E0207]: `continue` outside of a loop
+ --> loops_labels.nx:3:5
+  |
+3 |     continue
+  |     ^^^^^^^^ `continue` can only be used inside `while` or `for`
+
+error[E0207]: no enclosing loop labeled `inner`
+ --> loops_labels.nx:5:15
+  |
+5 |         break inner
+  |               ^^^^^ unknown label
+
+error[E0207]: label `a` is already used by an enclosing loop
+ --> loops_labels.nx:8:9
+  |
+8 |         a: while false {
+  |         ^ duplicate label
+
+error: could not compile due to 4 errors

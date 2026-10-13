@@ -1,0 +1,23 @@
+error[E0203]: `self` parameter outside of an `impl` block
+ --> self_misuse.nx:1:6
+  |
+1 | fn f(self) {
+  |      ^^^^ no type to be a method of
+  |
+  = help: methods are declared inside `impl Type { ... }`
+
+error[E0203]: `self` must be the first parameter
+ --> self_misuse.nx:9:18
+  |
+9 |     fn m(x: i32, self) {
+  |                  ^^^^ misplaced `self`
+
+error[E0203]: `self` is only available in methods
+  --> self_misuse.nx:14:13
+   |
+14 |     let a = self
+   |             ^^^^ no `self` here
+   |
+   = help: declare the function with a `self` parameter inside `impl`
+
+error: could not compile due to 3 errors

@@ -1,0 +1,22 @@
+import std.io
+import std.math
+
+fn compute() -> Result[i32, String] {
+    return Ok(1)
+}
+
+fn main() {
+    let unused = 5
+    var never_mutated = 3
+    println("{never_mutated}")
+    compute()
+    let _ = compute()
+    let same = 5 as i32
+    println("{same}")
+    let flag = true
+    if flag {
+        return
+        println("never")
+    }
+    io.flush()
+}

@@ -1,0 +1,192 @@
+// Une calculatrice : analyse lexicale, analyse syntaxique récursive et évaluation.
+// Exécution : nxc run examples/calculatrice.nx
+
+enum Token {
+    Number(f64)
+    Plus
+    Minus
+    Star
+    Slash
+    Caret
+    LParen
+    RParen
+}
+
+enum Expr {
+    Num(f64)
+    indirect Neg(Expr)
+    indirect Binary(char, Expr, Expr)
+}
+
+fn tokenize(text: String) -> Result[Vec[Token], String] {
+    var tokens: Vec[Token] = Vec.new()
+    let chars = text.chars()
+    var i: usize = 0
+    while i < chars.len() {
+        let c = chars[i]
+        if c.is_whitespace() {
+            i += 1
+            continue
+        }
+        if c.is_ascii_digit() or c == '.' {
+            var literal = String.new()
+            while i < chars.len() and (chars[i].is_ascii_digit() or chars[i] == '.') {
+                literal.push(chars[i])
+                i += 1
+            }
+            match literal.parse_float() {
+                Some(v) => tokens.push(Token.Number(v))
+                None => return Err("invalid number `{literal}`")
+            }
+            continue
+        }
+        let token = match c {
+            '+' => Token.Plus
+            '-' => Token.Minus
+            '*' => Token.Star
+            '/' => Token.Slash
+            '^' => Token.Caret
+            '(' => Token.LParen
+            ')' => Token.RParen
+            _ => return Err("unexpected character `{c}` at position {i}")
+        }
+        tokens.push(token)
+        i += 1
+    }
+    return Ok(tokens)
+}
+
+struct Parser {
+    tokens: Vec[Token]
+    pos: usize
+}
+
+impl Parser {
+    fn peek_is(self, wanted: Token) -> bool {
+        if self.pos >= self.tokens.len() {
+            return false
+        }
+        return match (self.tokens[self.pos], wanted) {
+            (Plus, Plus) | (Minus, Minus) | (Star, Star) | (Slash, Slash) => true
+            (Caret, Caret) | (LParen, LParen) | (RParen, RParen) => true
+            _ => false
+        }
+    }
+
+    // expression = term (('+' | '-') term)*
+    fn expression(inout self) -> Result[Expr, String] {
+        var left = self.term()?
+        while true {
+            if self.peek_is(Token.Plus) {
+                self.pos += 1
+                let right = self.term()?
+                left = Expr.Binary('+', left, right)
+            } else if self.peek_is(Token.Minus) {
+                self.pos += 1
+                let right = self.term()?
+                left = Expr.Binary('-', left, right)
+            } else {
+                return Ok(left)
+            }
+        }
+    }
+
+    // term = power (('*' | '/') power)*
+    fn term(inout self) -> Result[Expr, String] {
+        var left = self.power()?
+        while true {
+            if self.peek_is(Token.Star) {
+                self.pos += 1
+                let right = self.power()?
+                left = Expr.Binary('*', left, right)
+            } else if self.peek_is(Token.Slash) {
+                self.pos += 1
+                let right = self.power()?
+                left = Expr.Binary('/', left, right)
+            } else {
+                return Ok(left)
+            }
+        }
+    }
+
+    // power = unary ('^' power)?
+    fn power(inout self) -> Result[Expr, String] {
+        let base = self.unary()?
+        if self.peek_is(Token.Caret) {
+            self.pos += 1
+            let exponent = self.power()?
+            return Ok(Expr.Binary('^', base, exponent))
+        }
+        return Ok(base)
+    }
+
+    // unary = '-' unary | primary
+    fn unary(inout self) -> Result[Expr, String] {
+        if self.peek_is(Token.Minus) {
+            self.pos += 1
+            let inner = self.unary()?
+            return Ok(Expr.Neg(inner))
+        }
+        return self.primary()
+    }
+
+    fn primary(inout self) -> Result[Expr, String] {
+        if self.pos >= self.tokens.len() {
+            return Err("unexpected end of expression")
+        }
+        if self.peek_is(Token.LParen) {
+            self.pos += 1
+            let inner = self.expression()?
+            if not self.peek_is(Token.RParen) {
+                return Err("missing `)`")
+            }
+            self.pos += 1
+            return Ok(inner)
+        }
+        match self.tokens[self.pos] {
+            Number(v) => {
+                self.pos += 1
+                return Ok(Expr.Num(v))
+            }
+            _ => return Err("expected a number at token {self.pos}")
+        }
+    }
+}
+
+fn evaluate(e: Expr) -> Result[f64, String] {
+    match e {
+        Num(v) => return Ok(v)
+        Neg(inner) => return Ok(-evaluate(inner)?)
+        Binary(op, l, r) => {
+            let a = evaluate(l)?
+            let b = evaluate(r)?
+            return match op {
+                '+' => Ok(a + b)
+                '-' => Ok(a - b)
+                '*' => Ok(a * b)
+                '/' => if b == 0.0 { Err("division by zero") } else { Ok(a / b) }
+                _ => Ok(a.powf(b))
+            }
+        }
+    }
+}
+
+fn calculate(text: String) -> Result[f64, String] {
+    let tokens = tokenize(text)?
+    var parser = Parser(tokens: tokens, pos: 0)
+    let tree = parser.expression()?
+    if parser.pos != parser.tokens.len() {
+        return Err("unexpected token after the expression")
+    }
+    return evaluate(tree)
+}
+
+fn main() {
+    let inputs = ["1 + 2 * 3", "(1 + 2) * 3", "2 ^ 3 ^ 2", "-4 + 10 / 4", "1 / 0", "2 * (3 + 4", "7 % 2", "3.5 * 2"]
+    for input in inputs {
+        match calculate(input) {
+            Ok(v) => println("{input:<12} = {v}")
+            Err(e) => println("{input:<12} : error: {e}")
+        }
+    }
+}

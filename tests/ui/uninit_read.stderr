@@ -1,0 +1,22 @@
+error[E0401]: `x` is used before being initialized
+ --> uninit_read.nx:6:15
+  |
+2 |     var x: i32
+  |         - declared here without a value
+...
+6 |     println("{x}")
+  |               ^ value read here
+  |
+  = help: assign a value on every path before reading it
+
+error[E0401]: `y` is used before being initialized
+ --> uninit_read.nx:8:15
+  |
+7 |     var y: i32
+  |         - declared here without a value
+8 |     println("{y}")
+  |               ^ value read here
+  |
+  = help: assign a value on every path before reading it
+
+error: could not compile due to 2 errors

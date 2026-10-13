@@ -1,0 +1,26 @@
+// Spec §3.1, §4.2, §4.11: floating point.
+fn main() {
+    let x = 2.0
+    let y: f32 = 1.5
+    println("{x} {y} {x * 3.0} {10.0 / 4.0} {7.5 % 2.0}")
+    println("{0.1 + 0.2} {1.0 / 3.0} {100.0} {1e16} {1e17} {1.5e-5} {123456.789}")
+    println("{x.sqrt()} {(-1.5).abs()} {2.7.floor()} {2.2.ceil()} {2.5.round()} {-2.7.trunc()}")
+    println("{x.powf(10.0)} {(0.0).cos()} {0.0.exp()} {math_e_ln()} {8.0.log2()} {1000.0.log10()}")
+    println("{3.0.min(1.0)} {3.0.max(1.0)} {3.0.hypot(4.0)}")
+    let zero = 0.0
+    let inf = 1.0 / zero
+    let nan = zero / zero
+    println("{inf} {-inf} {nan} {nan == nan} {nan.is_nan()} {inf.is_infinite()} {x.is_finite()}")
+    println("{f64.MAX} {f64.EPSILON} {f32.MAX}")
+    println("{3.14159:.2} {2.0:.0} {1234.5:e} {0.00012:.3e} {1.0:+} {3.5:>8} {3.5:<8}|")
+    let n = 3
+    let area = 2 * 3.0 * 1.5
+    println("{area} {n as f64 / 2.0} {(7 as f32) / 2.0}")
+    let third: f32 = 1.0 / 3.0
+    println("{third} {third as f64}")
+    println("{-0.0} {0.0 == -0.0}")
+}
+
+fn math_e_ln() -> f64 {
+    return 1.0.exp().ln()
+}

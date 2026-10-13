@@ -1,0 +1,26 @@
+error[E0224]: cannot add methods to the built-in type `i32`
+ --> impl_errors.nx:3:6
+  |
+3 | impl i32 {
+  |      ^^^ built-in type
+  |
+  = note: the methods of built-in types are provided by the language
+  = help: write a free function instead, for example `fn double(x: i32) -> i32`
+
+error[E0224]: `impl Shape` must be in the module that declares `Shape`
+ --> impl_errors.nx:9:1
+  |
+9 | impl othermod.Shape {
+  | ^^^^^^^^^^^^^^^^^^^^^ impl outside of the type's module
+ --> support/othermod.nx:2:12
+  |
+2 | pub struct Shape {
+  |            ----- type declared here
+
+error[E0202]: cannot find type `Missing`
+  --> impl_errors.nx:14:6
+   |
+14 | impl Missing {
+   |      ^^^^^^^ not found
+
+error: could not compile due to 3 errors

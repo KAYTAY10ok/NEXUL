@@ -1,0 +1,47 @@
+// Crible d'Ératosthène, avec mesure du temps d'exécution.
+// Exécution : nxc run examples/premiers.nx --release
+
+import std.time
+
+fn sieve(limit: usize) -> Vec[usize] {
+    var is_prime: Vec[bool] = Vec.with_capacity(limit + 1)
+    for _ in 0..=limit {
+        is_prime.push(true)
+    }
+    is_prime[0] = false
+    if limit >= 1 {
+        is_prime[1] = false
+    }
+    var i: usize = 2
+    while i * i <= limit {
+        if is_prime[i] {
+            var multiple = i * i
+            while multiple <= limit {
+                is_prime[multiple] = false
+                multiple += i
+            }
+        }
+        i += 1
+    }
+    var primes: Vec[usize] = Vec.new()
+    for n in 0..=limit {
+        if is_prime[n] {
+            primes.push(n)
+        }
+    }
+    return primes
+}
+
+fn main() {
+    let start = time.monotonic_ns()
+    let primes = sieve(10_000_000)
+    let elapsed_ms = (time.monotonic_ns() - start) as f64 / 1_000_000.0
+    println("{primes.len()} prime numbers below 10 million")
+    println("the largest is {primes[primes.len() - 1]}")
+    var first = String.new()
+    for k in 0..10 {
+        first += "{primes[k]} "
+    }
+    println("first ten: {first.trim()}")
+    eprintln("computed in {elapsed_ms:.1} ms")
+}

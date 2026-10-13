@@ -1,0 +1,16 @@
+fn swap_values(inout a: i32, inout b: i32) {
+    let t = a
+    a = b
+    b = t
+}
+
+fn append(inout dst: Vec[i32], src: Vec[i32]) {
+}
+
+fn main() {
+    var x = 1
+    swap_values(&x, &x)
+    var v: Vec[i32] = Vec.new()
+    append(&v, v)
+    swap_values(&v[0], &v[1])
+}

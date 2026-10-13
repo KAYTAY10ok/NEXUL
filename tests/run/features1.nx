@@ -1,0 +1,99 @@
+struct Point {
+    x: f64
+    y: f64
+}
+
+impl Point {
+    fn origine() -> Point {
+        return Point(x: 0.0, y: 0.0)
+    }
+
+    fn norme(self) -> f64 {
+        return (self.x * self.x + self.y * self.y).sqrt()
+    }
+
+    fn translater(inout self, dx: f64, dy: f64) {
+        self.x += dx
+        self.y += dy
+    }
+}
+
+enum Forme {
+    Cercle(f64)
+    Rectangle(f64, f64)
+    Vide
+}
+
+fn aire(f: Forme) -> f64 {
+    return match f {
+        Cercle(r) => 3.14159 * r * r
+        Rectangle(l, h) => l * h
+        Vide => 0.0
+    }
+}
+
+fn somme(v: Vec[i64]) -> i64 {
+    var total: i64 = 0
+    for x in v {
+        total += x
+    }
+    return total
+}
+
+fn plus_grand[T](owned a: T, owned b: T, premier: bool) -> T {
+    if premier {
+        return a
+    }
+    return b
+}
+
+fn main() {
+    var p = Point.origine()
+    p.translater(3.0, 4.0)
+    println("norme = {p.norme()}")
+
+    let formes = [Forme.Cercle(1.0), Forme.Rectangle(2.0, 3.0), Forme.Vide]
+    for f in formes {
+        println("aire = {aire(f):.2}")
+    }
+
+    var v: Vec[i64] = Vec.new()
+    for i in 1..=10 {
+        v.push(i * i)
+    }
+    println("somme des carrés = {somme(v)}, len = {v.len()}")
+    v[0] = 100
+    println("v[0] = {v[0]}, dernier = {v[v.len() - 1]}")
+
+    var mots: Vec[String] = Vec.new()
+    mots.push("un")
+    mots.push("deux".to_uppercase())
+    mots.push("trois")
+    var phrase = String.new()
+    for m in mots {
+        phrase.push_str(m)
+        phrase.push(' ')
+    }
+    println("phrase = [{phrase.trim()}]")
+
+    let s = plus_grand("gauche", "droite", false)
+    println("choisi : {s}")
+    let n = plus_grand(1, 2, true)
+    println("n = {n}")
+
+    match "a,b,,c".split(",").len() {
+        4 => println("split ok")
+        k => println("split ko {k}")
+    }
+
+    let opt: Option[i32] = Some(42)
+    if let Some(x) = opt {
+        println("x = {x}")
+    }
+    let r: Result[i32, String] = Err("oups")
+    match r {
+        Ok(v) => println("ok {v}")
+        Err(e) => println("erreur : {e}")
+    }
+    println("{1.0} {0.1} {1e300} {-2.5e-7} {255:x} {7:>4}| {3.14159:.3}")
+}

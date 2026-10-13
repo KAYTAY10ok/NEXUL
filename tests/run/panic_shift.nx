@@ -1,0 +1,4 @@
+fn main() {
+    let n: u32 = 40
+    println("{1 << n}")
+}

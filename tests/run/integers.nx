@@ -1,0 +1,43 @@
+// Spec §3.1, §4.2, §4.3, §3.6: integer types, arithmetic, conversions.
+fn main() {
+    let a: i8 = -128
+    let b: u8 = 255
+    let c: i16 = 32767
+    let d: u16 = 65535
+    let e: i32 = i32.MIN
+    let f: u32 = u32.MAX
+    let g: i64 = i64.MAX
+    let h: u64 = u64.MAX
+    let i: isize = -1
+    let j: usize = 42
+    println("{a} {b} {c} {d}")
+    println("{e} {f}")
+    println("{g} {h} {i} {j}")
+    println("{i8.MIN} {i8.MAX} {u64.MAX} {i32.BITS}")
+
+    // Arithmetic and precedence.
+    println("{7 / 2} {-7 / 2} {7 % 3} {-7 % 3} {2 + 3 * 4} {(2 + 3) * 4}")
+    // Wrapping arithmetic is explicit.
+    let big: u8 = 250
+    println("{big +% 10} {(0 as u8) -% 1} {(100 as i8) *% 3}")
+    // Bitwise operators bind tighter than comparisons.
+    let flags = 0b1010
+    println("{flags & 0b0010 == 0b0010} {flags | 1} {flags ^ 0xF} {~flags}")
+    println("{1 << 10} {-16 >> 2} {255 as u8 >> 4}")
+    println("{0xFF:x} {255:X} {8:o} {5:b} {42:08} {-42:+} {42:+} {7:>5}|{7:<5}|{7:^5}|")
+    // Methods.
+    println("{(-5).abs()} {3.min(9)} {3.max(9)} {2.pow(10)} {(10 as u64).pow(19)}")
+    let n: i32 = 1234
+    let s = n.to_string()
+    println("{s} {s.len()}")
+    // Conversions are checked.
+    let x: i64 = 300
+    println("{x as i32} {(x - 100) as u8} {65 as char} {'A' as u32} {true as i32} {3.99 as i32} {-3.99 as i32}")
+    println("{(1 as i64) << 40}")
+    var counter: u32 = 0
+    for _ in 0..1000 {
+        counter += 1
+    }
+    counter -= 1
+    println("{counter}")
+}

@@ -1,0 +1,5 @@
+fn main() {
+    let v = Vec.new()
+    let w = Vec.new()
+    println("{w.len()}")
+}

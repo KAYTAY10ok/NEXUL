@@ -1,0 +1,26 @@
+// Spec §3.2, §4.5: constants evaluated at compile time.
+const SIZE: usize = 4
+const DOUBLE: usize = SIZE * 2
+const LIMIT: i32 = i32.MAX - 1
+const RATIO: f64 = 1.0 / 4.0
+const GREETING: String = "hello"
+const MASK: u8 = 0xF0 | 0x0F
+const NEG: i64 = -(1 << 40)
+const FLAG: bool = SIZE > 2 and not false
+
+type Buffer = [u8; DOUBLE]
+
+fn main() {
+    var b: Buffer = [1; DOUBLE]
+    b[DOUBLE - 1] = 9
+    var sum: u32 = 0
+    for x in b {
+        sum += x as u32
+    }
+    println("{SIZE} {DOUBLE} {LIMIT} {RATIO} {GREETING} {MASK} {NEG} {FLAG} {sum}")
+    let code: usize = 4
+    match code {
+        SIZE => println("matched the constant SIZE")
+        _ => println("other")
+    }
+}

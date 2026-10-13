@@ -1,0 +1,12 @@
+pub struct S {
+    pub len: usize
+}
+
+impl S {
+    pub fn len(self) -> usize {
+        return self.len
+    }
+}
+
+fn main() {
+}

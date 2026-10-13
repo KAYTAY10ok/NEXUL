@@ -1,0 +1,25 @@
+struct Guard {
+    name: String
+}
+
+impl Guard {
+    fn drop(inout self) {
+        println("drop {self.name}")
+    }
+}
+
+struct Bad {
+    x: i32
+}
+
+impl Bad {
+    fn drop(self) {
+    }
+}
+
+fn main() {
+    var g = Guard(name: "g")
+    g.drop()
+    let Guard(name: n) = Guard(name: "h")
+    println(n)
+}

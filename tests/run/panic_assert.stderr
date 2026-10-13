@@ -1,0 +1,2 @@
+panic: assertion failed: x * 2 == 5
+  --> panic_assert.nx:4:5

@@ -1,0 +1,20 @@
+warning[W0002]: unreachable pattern
+ --> unreachable_patterns.nx:5:9
+  |
+5 |         1 => println("one")
+  |         ^ earlier arms already match every value of this pattern
+
+warning[W0002]: unreachable pattern
+  --> unreachable_patterns.nx:10:9
+   |
+10 |         Some(2) => println("two")
+   |         ^^^^^^^ earlier arms already match every value of this pattern
+
+warning[W0007]: `Green` is a new variable that matches anything
+  --> unreachable_patterns.nx:13:9
+   |
+13 |         Green => println("binding {Green}")
+   |         ^^^^^ this is a binding, not a variant
+   |
+   = help: variant names must exist in the matched type; check the spelling, or use a lowercase name for a binding
+

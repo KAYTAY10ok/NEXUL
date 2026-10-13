@@ -1,0 +1,245 @@
+//! The NEXUL conformance suite (spec §10.4).
+//!
+//! - `tests/run/NAME.nx`: compiled and executed with the leak check enabled; stdout is
+//!   compared with `NAME.out`; `NAME.exit` (optional) holds the expected exit code and
+//!   `NAME.stderr` (optional) the expected standard error (for panics).
+//! - `tests/ui/NAME.nx`: rejected (or warned about) by the compiler; the rendered
+//!   diagnostics are compared with `NAME.stderr`.
+//!
+//! Set `NEXUL_BLESS=1` to (re)write the expectation files from the current results.
+
+use nxc_driver::{c_compile, compile_file, BuildOptions, Mode};
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+fn root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("..")
+}
+
+fn bless() -> bool {
+    std::env::var_os("NEXUL_BLESS").is_some()
+}
+
+fn normalize(s: &str) -> String {
+    s.replace("\r\n", "\n")
+}
+
+fn files(dir: &str) -> Vec<PathBuf> {
+    let mut v: Vec<PathBuf> = std::fs::read_dir(root().join(dir))
+        .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.extension().map_or(false, |x| x == "nx")).collect())
+        .unwrap_or_default();
+    if let Ok(filter) = std::env::var("NEXUL_TEST_FILTER") {
+        v.retain(|p| p.to_string_lossy().contains(&filter));
+    }
+    v.sort();
+    v
+}
+
+fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &str) {
+    if bless() {
+        if actual.is_empty() && !path.exists() {
+            return;
+        }
+        std::fs::write(path, actual).unwrap();
+        return;
+    }
+    let expected = std::fs::read_to_string(path).map(|s| normalize(&s)).unwrap_or_default();
+    if expected != actual {
+        failures.push(format!(
+            "{}: {} differs\n--- expected ---\n{}\n--- actual ---\n{}",
+            path.display(),
+            what,
+            expected,
+            actual
+        ));
+    }
+}
+
+fn run_one(nx: &Path) -> Vec<String> {
+    let mut failures = Vec::new();
+    let c = compile_file(nx, Mode::Program, false);
+    if c.errors > 0 {
+        return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
+    }
+    let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
+    let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+    if let Err(e) = c_compile(c.c_source.as_ref().unwrap(), &c.links, &exe, &BuildOptions { release: false, target: None }) {
+        return vec![format!("{}: C compilation failed\n{}", nx.display(), e)];
+    }
+    let stdin_path = nx.with_extension("in");
+    let mut cmd = Command::new(&exe);
+    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    if stdin_path.exists() {
+        cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
+    }
+    let out = cmd.output().expect("run test program");
+    let _ = std::fs::remove_file(&exe);
+    let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+    let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
+    let code = out.status.code().unwrap_or(-1);
+    check_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout");
+    let exit_path = nx.with_extension("exit");
+    let expected_code: i32 = std::fs::read_to_string(&exit_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+    if bless() {
+        if code != 0 {
+            std::fs::write(&exit_path, format!("{}\n", code)).unwrap();
+        } else {
+            let _ = std::fs::remove_file(&exit_path);
+        }
+    } else if code != expected_code {
+        failures.push(format!("{}: exit code {} (expected {})\nstderr:\n{}", nx.display(), code, expected_code, stderr));
+    }
+    let err_path = nx.with_extension("stderr");
+    if bless() {
+        if !stderr.is_empty() {
+            std::fs::write(&err_path, &stderr).unwrap();
+        } else {
+            let _ = std::fs::remove_file(&err_path);
+        }
+    } else if err_path.exists() || !stderr.is_empty() {
+        check_expect(&err_path, &stderr, &mut failures, "stderr");
+    }
+    if !c.diagnostics.is_empty() {
+        failures.push(format!("{}: unexpected warnings\n{}", nx.display(), c.diagnostics));
+    }
+    failures
+}
+
+fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<String> {
+    let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
+    let chunks: Vec<Vec<PathBuf>> = (0..n).map(|i| paths.iter().skip(i).step_by(n).cloned().collect()).collect();
+    let results: Vec<Vec<String>> = std::thread::scope(|s| {
+        let handles: Vec<_> = chunks.iter().map(|chunk| s.spawn(|| chunk.iter().flat_map(|p| f(p)).collect::<Vec<String>>())).collect();
+        handles.into_iter().map(|h| h.join().unwrap()).collect()
+    });
+    results.into_iter().flatten().collect()
+}
+
+#[test]
+fn run_programs() {
+    let paths = files("tests/run");
+    assert!(!paths.is_empty(), "no tests found");
+    let failures = parallel(&paths, run_one);
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+#[test]
+fn ui_diagnostics() {
+    let paths = files("tests/ui");
+    let failures = parallel(&paths, |nx| {
+        let mut f = Vec::new();
+        let c = compile_file(nx, Mode::Check, false);
+        let actual = normalize(&c.diagnostics);
+        if actual.is_empty() {
+            f.push(format!("{}: expected diagnostics, got none", nx.display()));
+        }
+        check_expect(&nx.with_extension("stderr"), &actual, &mut f, "diagnostics");
+        f
+    });
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+#[test]
+fn examples_compile_cleanly() {
+    let paths = files("examples");
+    let failures = parallel(&paths, |nx| {
+        let c = compile_file(nx, Mode::Program, false);
+        if c.errors > 0 || c.warnings > 0 {
+            vec![format!("{}:\n{}", nx.display(), c.diagnostics)]
+        } else {
+            vec![]
+        }
+    });
+    if !failures.is_empty() {
+        panic!("{}", failures.join("\n\n"));
+    }
+}
+
+/// Every complete example (a ```nexul block with `fn main`) of the documentation compiles
+/// without any diagnostic; a block marked `// erreur E0xxx` must be rejected with that code.
+#[test]
+fn documentation_examples_compile() {
+    let mut docs = vec![root().join("README.md"), root().join("docs").join("guide.md")];
+    for e in std::fs::read_dir(root().join("docs").join("spec")).unwrap() {
+        let p = e.unwrap().path();
+        if p.extension().map_or(false, |x| x == "md") {
+            docs.push(p);
+        }
+    }
+    docs.sort();
+    let mut failures = Vec::new();
+    let mut checked = 0;
+    for doc in docs {
+        let text = normalize(&std::fs::read_to_string(&doc).unwrap());
+        let mut rest = text.as_str();
+        while let Some(start) = rest.find("```nexul\n") {
+            let body_start = start + "```nexul\n".len();
+            let Some(len) = rest[body_start..].find("```") else { break };
+            let block = &rest[body_start..body_start + len];
+            rest = &rest[body_start + len + 3..];
+            if !block.contains("fn main") {
+                continue;
+            }
+            checked += 1;
+            let line = text[..text.len() - rest.len()].lines().count();
+            let name = format!("{}:{}", doc.file_name().unwrap().to_string_lossy(), line);
+            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, Mode::Check, false);
+            match block.find("// erreur E") {
+                Some(i) => {
+                    let code = &block[i + "// erreur ".len()..i + "// erreur ".len() + 5];
+                    if !c.diagnostics.contains(&format!("error[{}]", code)) {
+                        failures.push(format!("{}: expected error {}, got:\n{}", name, code, c.diagnostics));
+                    }
+                }
+                None => {
+                    if !c.diagnostics.is_empty() {
+                        failures.push(format!("{}: the example does not compile cleanly:\n{}", name, c.diagnostics));
+                    }
+                }
+            }
+        }
+    }
+    assert!(checked >= 10, "only {} documentation examples found", checked);
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+#[test]
+fn every_code_is_explained() {
+    // Every diagnostic code emitted by the compiler sources has an explanation.
+    let mut missing = Vec::new();
+    for dir in ["compiler/nxc_syntax/src", "compiler/nxc_sema/src", "compiler/nxc_sema/src/check", "compiler/nxc_nir/src", "compiler/nxc/src"] {
+        for e in std::fs::read_dir(root().join(dir)).unwrap() {
+            let p = e.unwrap().path();
+            if p.extension().map_or(true, |x| x != "rs") || p.file_name().unwrap() == "codes.rs" {
+                continue;
+            }
+            let text = std::fs::read_to_string(&p).unwrap();
+            for (i, _) in text.match_indices("\"E0") .chain(text.match_indices("\"W0")) {
+                let code = &text[i + 1..i + 6];
+                if code.chars().skip(1).all(|c| c.is_ascii_digit()) && nxc_driver::codes::explain(code).is_none() && !missing.contains(&code.to_string()) {
+                    missing.push(code.to_string());
+                }
+            }
+        }
+    }
+    assert!(missing.is_empty(), "codes without explanation: {:?}", missing);
+}
+
+/// `docs/spec/diagnostics.md` is generated from the compiler's table of codes.
+#[test]
+fn diagnostics_catalogue_is_up_to_date() {
+    let path = root().join("docs").join("spec").join("diagnostics.md");
+    let expected = nxc_driver::codes::catalogue_markdown();
+    if bless() {
+        std::fs::write(&path, &expected).unwrap();
+        return;
+    }
+    let actual = normalize(&std::fs::read_to_string(&path).unwrap_or_default());
+    assert!(actual == expected, "docs/spec/diagnostics.md is out of date: run the suite with NEXUL_BLESS=1");
+}

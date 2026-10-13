@@ -1,0 +1,10 @@
+[package]
+name = "nxc_nir"
+description = "NEXUL compiler: NIR intermediate representation and ownership analysis"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+nxc_syntax = { path = "../nxc_syntax" }
+nxc_sema = { path = "../nxc_sema" }

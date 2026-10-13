@@ -1,0 +1,35 @@
+error[E0411]: an `inout` argument must be marked with `&`
+  --> inout_marker.nx:11:15
+   |
+11 |     increment(a)
+   |               ^ add `&` before this argument
+   |
+   = note: `increment` may modify this argument
+
+error[E0412]: `&` is only used for `inout` arguments
+  --> inout_marker.nx:12:10
+   |
+12 |     show(&a)
+   |          ^ remove this `&`
+   |
+   = note: this parameter is not `inout`: it only reads the value
+
+error[E0405]: cannot modify `b`: `b` is immutable
+  --> inout_marker.nx:14:16
+   |
+13 |     let b = 2
+   |         - declared here
+14 |     increment(&b)
+   |                ^ not modifiable
+   |
+   = help: declare it with `var b`
+
+error[E0410]: an `inout` argument must be a variable, field or element
+  --> inout_marker.nx:15:17
+   |
+15 |     increment(&(a + 1))
+   |                 ^^^^^ temporary value
+   |
+   = note: the function modifies this argument; a temporary would be lost
+
+error: could not compile due to 4 errors

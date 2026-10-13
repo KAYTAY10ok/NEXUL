@@ -1,0 +1,5 @@
+fn main() {
+    let big: i32 = 300
+    let b = big as u8
+    println("{b}")
+}

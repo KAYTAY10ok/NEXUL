@@ -1,0 +1,8 @@
+fn divide(a: i64, b: i64) -> i64 {
+    return a / b
+}
+
+fn main() {
+    println("{divide(7, 2)}")
+    println("{divide(1, 0)}")
+}

@@ -1,0 +1,11 @@
+fn main() {
+    break
+    continue
+    outer: while true {
+        break inner
+    }
+    a: while false {
+        a: while false {
+        }
+    }
+}

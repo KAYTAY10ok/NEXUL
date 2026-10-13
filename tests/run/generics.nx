@@ -1,0 +1,86 @@
+// Spec §3.3: generics and inference.
+import std.mem
+
+struct Stack[T] {
+    items: Vec[T]
+}
+
+impl Stack {
+    fn new() -> Stack[T] {
+        return Stack(items: Vec.new())
+    }
+
+    fn push(inout self, owned item: T) {
+        self.items.push(item)
+    }
+
+    fn pop(inout self) -> Option[T] {
+        return self.items.pop()
+    }
+
+    fn size(self) -> usize {
+        return self.items.len()
+    }
+}
+
+fn identity[T](owned x: T) -> T {
+    return x
+}
+
+fn first_or[T](v: Vec[T], owned fallback: T, take_first: bool) -> T {
+    if take_first and v.len() > 0 {
+        return fallback
+    }
+    return fallback
+}
+
+fn wrap[T](owned x: T) -> Option[T] {
+    return Some(x)
+}
+
+fn count_some[T](v: Vec[Option[T]]) -> usize {
+    var n: usize = 0
+    for item in v {
+        if item.is_some() {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn main() {
+    var s: Stack[String] = Stack.new()
+    s.push("a")
+    s.push("b")
+    s.push("c")
+    println("size {s.size()}")
+    while true {
+        match s.pop() {
+            Some(x) => print("{x} ")
+            None => break
+        }
+    }
+    println()
+
+    var ints = Stack.new()
+    ints.push(10)
+    ints.push(20)
+    println("top {ints.pop().unwrap()} size {ints.size()}")
+
+    println("{identity(5)} {identity("text")} {identity(2.5)}")
+    let v = Vec[i32].new()
+    println("{first_or(v, 9, true)}")
+    let w = wrap(wrap(7))
+    match w {
+        Some(Some(x)) => println("nested {x}")
+        _ => println("other")
+    }
+    var opts: Vec[Option[String]] = Vec.new()
+    opts.push(Some("x"))
+    opts.push(None)
+    opts.push(Some("y"))
+    println("some = {count_some(opts)}")
+    println("sizes: {mem.size_of[u8]()} {mem.size_of[i64]()} {mem.size_of[(u8, u32)]()} {mem.size_of[[u16; 5]]()}")
+    let unit_vec: Vec[()] = Vec.new()
+    println("unit vec len {unit_vec.len()}")
+}

@@ -1,0 +1,12 @@
+fn f() {
+    return 5
+}
+
+fn g() -> i32 {
+    return
+}
+
+fn main() {
+    f()
+    let _ = g()
+}

@@ -1,0 +1,21 @@
+// L'exemple du README.
+struct Article {
+    nom: String
+    prix: f64
+    quantite: u32
+}
+
+fn total(stock: Vec[Article]) -> f64 {
+    var somme = 0.0
+    for a in stock {
+        somme += a.prix * a.quantite as f64
+    }
+    return somme
+}
+
+fn main() {
+    var stock: Vec[Article] = Vec.new()
+    stock.push(Article(nom: "clavier", prix: 49.90, quantite: 3))
+    stock.push(Article(nom: "écran", prix: 189.0, quantite: 1))
+    println("Valeur du stock : {total(stock):.2} €")
+}

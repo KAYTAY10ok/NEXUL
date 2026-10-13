@@ -1,0 +1,35 @@
+error[E0301]: literal out of range for `u8`
+ --> literal_ranges.nx:2:17
+  |
+2 |     let a: u8 = 256
+  |                 ^^^ the range of `u8` is 0..=255
+
+error[E0301]: literal out of range for `i8`
+ --> literal_ranges.nx:3:17
+  |
+3 |     let b: i8 = -129
+  |                 ^^^^ the range of `i8` is -128..=127
+
+error[E0301]: literal out of range for `u32`
+ --> literal_ranges.nx:4:18
+  |
+4 |     let c: u32 = -1
+  |                  ^^ the range of `u32` is 0..=4294967295
+  |
+  = note: `u32` cannot hold negative values
+
+error[E0301]: literal out of range for `i64`
+ --> literal_ranges.nx:5:18
+  |
+5 |     let d: i64 = 9223372036854775808
+  |                  ^^^^^^^^^^^^^^^^^^^ the range of `i64` is -9223372036854775808..=9223372036854775807
+  |
+  = help: use `u64` for values above `i64.MAX`
+
+error[E0301]: literal out of range for `u8`
+ --> literal_ranges.nx:7:9
+  |
+7 |         300 => {}
+  |         ^^^ the range of `u8` is 0..=255
+
+error: could not compile due to 5 errors

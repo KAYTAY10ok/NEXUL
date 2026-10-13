@@ -1,0 +1,24 @@
+struct Point {
+    x: f64
+}
+
+impl Point {
+    fn origin() -> Point {
+        return Point(x: 0.0)
+    }
+
+    fn norm(self) -> f64 {
+        return self.x
+    }
+}
+
+fn main() {
+    let p = Point.origin()
+    let a = p.origin()
+    let b = Point.norm(p)
+    let c = p.nrom()
+    let d = p.y
+    let e = p.norm
+    let f = (1, 2).x
+    let g = 5.sqrt()
+}

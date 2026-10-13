@@ -1,0 +1,18 @@
+// Spec chapter 06: modules, imports, visibility.
+import modules.geometry.shapes
+import modules.geometry.shapes.{Square, UNIT as ONE}
+import modules.util as u
+
+fn main() {
+    let c = shapes.Circle(r: 2.0)
+    println("{c.area():.4}")
+    println(shapes.describe(c))
+    let sq = Square.new(3.0)
+    println("{sq.area()} {sq.side} {ONE}")
+    let unit = u.unit_circle()
+    println("{unit.r} {u.color_name(u.Color.Green)}")
+    match u.Color.Red {
+        Red => println("matched red")
+        Green => println("matched green")
+    }
+}

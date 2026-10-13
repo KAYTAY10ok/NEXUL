@@ -1,0 +1,49 @@
+error[E0405]: cannot modify field `n` of `c`: parameter `c` is borrowed read-only
+ --> immutable_assign.nx:6:5
+  |
+5 | fn bump(c: Counter) {
+  |         - declared here
+6 |     c.n += 1
+  |     ^^^ not modifiable
+  |
+  = help: declare the parameter `inout c: ...` (callers then pass `&c`)
+
+error[E0405]: cannot assign to `value`: parameter `value` is borrowed read-only
+  --> immutable_assign.nx:10:5
+   |
+ 9 | fn reset(value: i32) {
+   |          ----- declared here
+10 |     value = 0
+   |     ^^^^^ not modifiable
+   |
+   = help: declare the parameter `inout value: ...` (callers then pass `&value`)
+
+error[E0405]: cannot assign to `x`: `x` is immutable
+  --> immutable_assign.nx:15:5
+   |
+14 |     let x = 1
+   |         - declared here
+15 |     x = 2
+   |     ^ not modifiable
+   |
+   = help: declare it with `var x`
+
+error[E0405]: cannot assign to field `n` of `c`: `c` is immutable
+  --> immutable_assign.nx:17:5
+   |
+16 |     let c = Counter(n: 0)
+   |         - declared here
+17 |     c.n = 5
+   |     ^^^ not modifiable
+   |
+   = help: declare it with `var c`
+
+error[E0405]: cannot assign to `item`: `item` is a read-only view of the value being iterated or matched
+  --> immutable_assign.nx:19:9
+   |
+18 |     for item in [1, 2] {
+   |         ---- declared here
+19 |         item = 3
+   |         ^^^^ not modifiable
+
+error: could not compile due to 5 errors

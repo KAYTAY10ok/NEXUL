@@ -1,0 +1,50 @@
+error[E0420]: cannot use `o` while `o` is borrowed for modification
+ --> mutable_views.nx:5:23
+  |
+3 |     match &o {
+  |            - `o` is modified through the bindings of this pattern match until its end
+4 |         Some(s) => {
+5 |             println("{o.is_some()}")
+  |                       ^ used here
+  |
+  = note: a value cannot be read while it is being modified elsewhere (law of exclusivity, spec §5.4)
+  = help: use the bindings instead, or finish the modification first
+
+error[E0405]: cannot modify `fixed`: `fixed` is immutable
+  --> mutable_views.nx:11:23
+   |
+10 |     let fixed: Option[i32] = Some(1)
+   |         ----- declared here
+11 |     if let Some(x) = &fixed {
+   |                       ^^^^^ not modifiable
+   |
+   = help: declare it with `var fixed`
+
+error[E0420]: cannot use `v` while `v` is borrowed for modification
+  --> mutable_views.nx:16:19
+   |
+15 |     for e in &v {
+   |               - `v` is modified through the bindings of this `for` loop until its end
+16 |         println("{v.len()}")
+   |                   ^ used here
+   |
+   = note: a value cannot be read while it is being modified elsewhere (law of exclusivity, spec §5.4)
+   = help: use the bindings instead, or finish the modification first
+
+error[E0318]: the characters of a `String` cannot be modified in place
+  --> mutable_views.nx:19:15
+   |
+19 |     for c in &"abc" {
+   |               ^^^^^ iterated with `&`
+   |
+   = help: build a new string, for example with `to_uppercase()` or a loop pushing characters
+
+error[E0410]: only a variable, field or element can be matched with `&`
+  --> mutable_views.nx:21:23
+   |
+21 |     if let Some(y) = &Some(3) {
+   |                       ^^^^^^^ temporary value
+   |
+   = note: `&` gives the bindings write access to an existing place
+
+error: could not compile due to 5 errors

@@ -1,0 +1,40 @@
+error[E0317]: cannot index into a value of type `String`
+ --> indexing_iteration.nx:3:13
+  |
+3 |     let c = s[0]
+  |             ^^^^ not indexable
+  |
+  = note: strings are UTF-8: a character may span several bytes
+  = help: use `s.byte_at(i)` for a byte, or `for c in s` / `s.chars()` for characters
+
+error[E0318]: cannot iterate over a value of type `{integer}`
+ --> indexing_iteration.nx:5:14
+  |
+5 |     for i in n {
+  |              ^ not iterable
+
+error[E0317]: cannot index into a value of type `{integer}`
+ --> indexing_iteration.nx:7:13
+  |
+7 |     let x = n[0]
+  |             ^^^^ not indexable
+
+error[E0317]: indexing takes exactly one index
+ --> indexing_iteration.nx:9:13
+  |
+9 |     let y = v[1, 2]
+  |             ^^^^^^^ 2 indices given
+
+error[E0302]: an index must be an integer
+  --> indexing_iteration.nx:10:15
+   |
+10 |     let z = v["a"]
+   |               ^^^ found `String`
+
+error[E0319]: a value of type `{integer}` cannot be called
+  --> indexing_iteration.nx:11:5
+   |
+11 |     n(3)
+   |     ^ not a function
+
+error: could not compile due to 6 errors

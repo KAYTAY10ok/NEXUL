@@ -1,0 +1,9 @@
+error[E0101]: the convention `inout` goes before the parameter name
+ --> param_convention_position.nx:1:9
+  |
+1 | fn f(x: inout i32) {
+  |         ^^^^^ misplaced convention
+  |
+  = help: write `inout x: Type`
+
+error: could not compile due to 1 error

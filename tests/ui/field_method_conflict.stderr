@@ -1,0 +1,9 @@
+error[E0212]: `S` has both a field and a method named `len`
+ --> field_method_conflict.nx:6:12
+  |
+6 |     pub fn len(self) -> usize {
+  |            ^^^ method declared here
+  |
+  = help: rename the method or the field
+
+error: could not compile due to 1 error
