@@ -459,15 +459,18 @@ fn api(req: &Request, st: &Arc<State>) -> Response {
                 if bytes.len() > 8 * 1024 * 1024 {
                     return Err(Response::error(413, "fichier trop volumineux pour l'éditeur (8 Mo maximum)"));
                 }
-                if bytes.iter().take(8000).any(|&b| b == 0) {
-                    return Err(Response::error(400, "fichier binaire"));
-                }
-                Response::new(200, "text/plain; charset=utf-8", bytes)
+                // The text in UTF-8; its encoding on disk is kept for saving.
+                let (text, encoding) = workspace::decode_text(&bytes).ok_or_else(|| Response::error(400, "fichier binaire"))?;
+                let mut r = Response::new(200, "text/plain; charset=utf-8", text);
+                r.headers.push(("X-Nexul-Encoding".into(), encoding.into()));
+                r
             }
+            // Saving in the encoding of the file (`encoding`, UTF-8 by default).
             ("POST", "file") => {
-                workspace::save(&root_of(st)?, &req.q("path"), &req.body).map_err(fs_error)?;
+                let (bytes, encoding) = workspace::encode_text(&req.body_text(), &req.q("encoding"));
+                workspace::save(&root_of(st)?, &req.q("path"), &bytes).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
-                Response::json("{}".into())
+                Response::json(format!("{{\"encoding\":{}}}", json_str(encoding)))
             }
             ("POST", "new") => {
                 let kind = if req.q("kind") == "dir" { workspace::Kind::Dir } else { workspace::Kind::File };

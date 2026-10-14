@@ -162,6 +162,12 @@ const api = {
     return out;
   },
   get(path) { return this.req('GET', path); },
+  /* A text file: its content and its encoding on disk. */
+  async file(path) {
+    const r = await fetch('/api/file?' + qs({ path }), { headers: { 'X-Nexul-Token': window.NX_TOKEN }, cache: 'no-store' });
+    if (!r.ok) { let m = r.statusText; try { m = (await r.json()).error || m; } catch (e) { /* not JSON */ } throw new Error(m); }
+    return { text: await r.text(), encoding: r.headers.get('X-Nexul-Encoding') || 'utf-8' };
+  },
   post(path, body) { return this.req('POST', path, body === undefined ? '' : body); },
 };
 
@@ -1307,12 +1313,13 @@ async function openFile(path, opts = {}) {
     if (IMAGE_EXT.has(extOf(path))) {
       doc = { path, name: baseName(path), el: imageView(path) };
     } else {
-      let text;
-      try { text = await api.get('file?' + qs({ path })); } catch (e) { toast(`${baseName(path)} : ${e.message}`, 'error'); return null; }
+      let file;
+      try { file = await api.file(path); } catch (e) { toast(`${baseName(path)} : ${e.message}`, 'error'); return null; }
+      const text = file.text;
       doc = S.docs.find((d) => d.path === path);
       if (!doc) {
         const ed = new Editor({ path, lang: langOf(path), text }, editorHooks);
-        doc = { path, name: baseName(path), ed, el: ed.el };
+        doc = { path, name: baseName(path), ed, el: ed.el, encoding: file.encoding };
         ed.setDiagnostics(S.fileDiags.get(path) || []);
       }
     }
@@ -1400,7 +1407,12 @@ async function saveDoc(doc, manual) {
   const value = ed.value;
   if (!manual && value === ed.savedValue) return true;
   try {
-    await api.post('file?' + qs({ path: doc.path }), ed.getText());
+    const r = await api.post('file?' + qs({ path: doc.path, encoding: doc.encoding || 'utf-8' }), ed.getText());
+    if (r.encoding && r.encoding !== (doc.encoding || 'utf-8')) {
+      if (doc.encoding === 'windows-1252') toast(`${doc.name} contient des caractères que l'encodage Windows 1252 ne connaît pas : il a été enregistré en UTF-8.`, 'info', 6000);
+      doc.encoding = r.encoding;
+      updateStatus();
+    }
   } catch (e) {
     toast(`Enregistrement de ${doc.name} impossible : ${e.message}`, 'error');
     return false;
@@ -1409,6 +1421,19 @@ async function saveDoc(doc, manual) {
   updateDirty(doc);
   if (extOf(doc.path) === 'nx' && settings.checkOnSave) scheduleCheck(doc.path, 120);
   return true;
+}
+
+const ENCODING_NAMES = { 'utf-8': 'UTF-8', 'utf-8-bom': 'UTF-8 avec BOM', 'utf-16le': 'UTF-16 LE', 'utf-16be': 'UTF-16 BE', 'windows-1252': 'Windows 1252' };
+
+async function convertToUtf8(doc) {
+  if (!doc || !doc.ed || (doc.encoding || 'utf-8') === 'utf-8') return;
+  const ok = await confirmBox('Encodage', `Enregistrer « ${doc.name} » en UTF-8 (actuellement ${ENCODING_NAMES[doc.encoding] || doc.encoding}) ?`, 'Convertir');
+  if (!ok) return;
+  const before = doc.encoding;
+  doc.encoding = 'utf-8';
+  if (!(await saveDoc(doc, true))) { doc.encoding = before; return; }
+  updateStatus();
+  toast(`${doc.name} est maintenant en UTF-8.`, 'success', 2500);
 }
 
 async function saveAll() {
@@ -2418,7 +2443,7 @@ function buildStatusBar() {
     h('div', { class: 'sb-spacer' }),
     item('sb-cursor', '', 'Aller à la ligne (Ctrl+G)', () => run('gotoLine')),
     item('sb-indent', '', "Taille de l'indentation", () => { settings.tabSize = settings.tabSize === 4 ? 2 : 4; saveSettings(); applySettings(); toast(`Indentation : ${settings.tabSize} espaces.`, 'success', 1800); }),
-    item('sb-enc', '', 'Encodage'),
+    item('sb-enc', '', 'Encodage', () => convertToUtf8(S.active)),
     item('sb-eol', '', 'Fins de ligne'),
     item('sb-lang', '', 'Langage du fichier'),
     item('sb-live', '', 'Aperçu web en direct (Alt+L)', () => run('togglePreview')),
@@ -2448,7 +2473,9 @@ function updateStatus() {
   for (const id of ['sb-indent', 'sb-enc', 'sb-eol', 'sb-lang']) $('#' + id).style.display = ed ? '' : 'none';
   if (ed) {
     $('#sb-indent').textContent = `Espaces : ${settings.tabSize}`;
-    $('#sb-enc').textContent = 'UTF-8';
+    const enc = (S.active && S.active.encoding) || 'utf-8';
+    $('#sb-enc').textContent = ENCODING_NAMES[enc] || enc;
+    $('#sb-enc').title = enc === 'utf-8' ? 'Encodage du fichier' : 'Encodage du fichier — cliquer pour le convertir en UTF-8';
     $('#sb-eol').textContent = ed.eol === '\r\n' ? 'CRLF' : 'LF';
     $('#sb-lang').innerHTML = (LANGS[ed.lang] || LANGS.text).name;
   }
@@ -2579,7 +2606,7 @@ async function externalChanges(paths, noTree) {
     if (!d.ed || d.ed.isDirty()) continue;
     if (paths && !paths.includes(d.path)) continue;
     let text;
-    try { text = await api.get('file?' + qs({ path: d.path })); } catch (e) {
+    try { const f = await api.file(d.path); text = f.text; d.encoding = f.encoding; } catch (e) {
       if (!S.files.includes(d.path) && !d.missingWarned) {
         d.missingWarned = true;
         toast(`« ${d.name} » a été supprimé ou déplacé en dehors de Studio : il reste ouvert et sera recréé si vous l'enregistrez.`, 'info', 6000);

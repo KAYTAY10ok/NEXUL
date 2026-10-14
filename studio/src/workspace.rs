@@ -311,6 +311,75 @@ pub fn import(root: &Path, dir: &str, sub: &str, content: &[u8]) -> FsResult<Str
     Ok(rel_of(root, &p))
 }
 
+/// The encodings of text files that Studio reads and writes back unchanged.
+pub const ENCODINGS: &[&str] = &["utf-8", "utf-8-bom", "utf-16le", "utf-16be", "windows-1252"];
+
+/// The characters 0x80–0x9F of Windows-1252 (the others are those of Latin-1).
+const CP1252_HIGH: [char; 32] = [
+    '€', '\u{81}', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\u{8D}', 'Ž', '\u{8F}', '\u{90}', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ',
+    '\u{9D}', 'ž', 'Ÿ',
+];
+
+/// The text of a file and its encoding: UTF-8 (with or without BOM), UTF-16 (with BOM),
+/// else Windows-1252. `None` for a binary file.
+pub fn decode_text(bytes: &[u8]) -> Option<(String, &'static str)> {
+    if let Some(rest) = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
+        return Some((String::from_utf8_lossy(rest).into_owned(), "utf-8-bom"));
+    }
+    let utf16 = |rest: &[u8], le: bool| -> String {
+        let units: Vec<u16> = rest.chunks_exact(2).map(|c| if le { u16::from_le_bytes([c[0], c[1]]) } else { u16::from_be_bytes([c[0], c[1]]) }).collect();
+        String::from_utf16_lossy(&units)
+    };
+    if let Some(rest) = bytes.strip_prefix(&[0xFF, 0xFE]) {
+        return Some((utf16(rest, true), "utf-16le"));
+    }
+    if let Some(rest) = bytes.strip_prefix(&[0xFE, 0xFF]) {
+        return Some((utf16(rest, false), "utf-16be"));
+    }
+    if bytes.iter().take(8000).any(|&b| b == 0) {
+        return None;
+    }
+    match std::str::from_utf8(bytes) {
+        Ok(s) => Some((s.to_string(), "utf-8")),
+        Err(_) => Some((bytes.iter().map(|&b| if (0x80..0xA0).contains(&b) { CP1252_HIGH[(b - 0x80) as usize] } else { b as char }).collect(), "windows-1252")),
+    }
+}
+
+/// The bytes of `text` in `encoding`. A character that Windows-1252 cannot hold makes the
+/// file UTF-8: the encoding really used is returned.
+pub fn encode_text(text: &str, encoding: &str) -> (Vec<u8>, &'static str) {
+    match encoding {
+        "utf-8-bom" => {
+            let mut v = vec![0xEF, 0xBB, 0xBF];
+            v.extend_from_slice(text.as_bytes());
+            (v, "utf-8-bom")
+        }
+        "utf-16le" | "utf-16be" => {
+            let le = encoding == "utf-16le";
+            let mut v = if le { vec![0xFF, 0xFE] } else { vec![0xFE, 0xFF] };
+            for u in text.encode_utf16() {
+                v.extend_from_slice(&if le { u.to_le_bytes() } else { u.to_be_bytes() });
+            }
+            (v, if le { "utf-16le" } else { "utf-16be" })
+        }
+        "windows-1252" => {
+            let mut v = Vec::with_capacity(text.len());
+            for c in text.chars() {
+                let b = match c as u32 {
+                    n @ (0..=0x7F | 0xA0..=0xFF) => Some(n as u8),
+                    _ => CP1252_HIGH.iter().position(|&h| h == c).map(|i| 0x80 + i as u8),
+                };
+                match b {
+                    Some(b) => v.push(b),
+                    None => return (text.as_bytes().to_vec(), "utf-8"),
+                }
+            }
+            (v, "windows-1252")
+        }
+        _ => (text.as_bytes().to_vec(), "utf-8"),
+    }
+}
+
 /// Sends a file or folder of the workspace to the recycle bin.
 pub fn trash(root: &Path, rel: &str) -> FsResult<()> {
     let p = resolve(root, rel)?;
@@ -493,6 +562,24 @@ mod tests {
         assert!(import(r, "", "../evil.txt", b"").is_err());
         create(r, "e/a.nx.bak", Kind::File, b"").unwrap();
         assert_eq!(move_into(r, &["d/x.nx".into()], "missing").unwrap_err().status, 404);
+    }
+
+    #[test]
+    fn encodings() {
+        let text = "Ça coûte 5 € — “bien”\r\n";
+        for enc in ENCODINGS {
+            let (bytes, used) = encode_text(text, enc);
+            assert_eq!(&used, enc);
+            let (back, found) = decode_text(&bytes).unwrap();
+            assert_eq!(back, text, "{}", enc);
+            assert_eq!(&found, enc);
+        }
+        // Windows-1252 cannot hold an emoji: the file becomes UTF-8.
+        let (bytes, used) = encode_text("😀 é", "windows-1252");
+        assert_eq!(used, "utf-8");
+        assert_eq!(decode_text(&bytes).unwrap(), ("😀 é".to_string(), "utf-8"));
+        assert_eq!(decode_text(b"\x00\x01binary"), None);
+        assert_eq!(decode_text(&[0x63, 0x61, 0x66, 0xE9]).unwrap(), ("café".to_string(), "windows-1252"));
     }
 
     #[test]
