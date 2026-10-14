@@ -75,10 +75,15 @@ Vérifications :
 
 ## 4. Problèmes restants (non corrigés en phase 1)
 
-- L'arbre complet du dossier (jusqu'à 20 000 entrées) est renvoyé à chaque
-  actualisation, interrogée toutes les 4 s ; l'aperçu web parcourt le dossier toutes les
-  700 ms. Il faut une **surveillance du système de fichiers** (`ReadDirectoryChangesW`),
-  prévue dans l'application native.
+- ~~L'arbre complet du dossier était renvoyé toutes les 4 s et l'aperçu web parcourait
+  le dossier toutes les 700 ms~~ : **corrigé** (commit `034e8c9`) par une surveillance
+  du dossier (`ReadDirectoryChangesW`, `studio/src/watch.rs`) ; l'interface ne relit
+  l'arbre et les fichiers ouverts que lorsqu'ils changent (moins d'une seconde).
+- Les fichiers qui ne sont pas en UTF-8 (Windows-1252, UTF-16) ne sont pas détectés :
+  ils s'affichent avec des caractères de remplacement et seraient abîmés à
+  l'enregistrement.
+- Un fichier modifié sur le disque alors qu'il a des modifications non enregistrées dans
+  Studio est écrasé à l'enregistrement, sans avertissement de conflit.
 - Sélection simple dans l'explorateur (pas de sélection multiple).
 - Un seul curseur dans l'éditeur ; pas de sélection en colonne.
 - Les gros fichiers (> 8 Mo) sont refusés par l'éditeur.
