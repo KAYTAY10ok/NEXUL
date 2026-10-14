@@ -15,15 +15,20 @@ fn system() -> String {
     return "wasi"
 }
 
-@cfg("!windows", "!linux", "!wasi")
+@cfg("bare")
+fn system() -> String {
+    return "bare"
+}
+
+@cfg("!windows", "!linux", "!wasi", "!bare")
 fn system() -> String {
     return "other"
 }
 
-@cfg("windows|linux|wasi")
+@cfg("windows|linux|wasi|bare")
 const KNOWN: bool = true
 
-@cfg("!windows", "!linux", "!wasi")
+@cfg("!windows", "!linux", "!wasi", "!bare")
 const KNOWN: bool = false
 
 struct Counter {

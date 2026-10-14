@@ -2,13 +2,15 @@
 //! unification (spec §3.5).
 
 mod call;
+mod closure;
 mod expr;
 mod finalize;
 mod pat;
 mod stmt;
+mod traits;
 
 use crate::collect::TypeScope;
-use crate::defs::{FnId, FnKind, ModId, Program};
+use crate::defs::{Bound, FnDef, FnId, FnKind, ModId, ParamDef, Program, TraitId};
 use crate::thir::{self, LocalDecl, LocalId, LocalKind};
 use crate::ty::{Ty, TyKind};
 use nxc_syntax::ast::{self, BinOp, UnOp};
@@ -63,6 +65,26 @@ pub(crate) enum Deferred {
     SignedInt { ty: Ty, span: Span },
     UnusedResult { ty: Ty, span: Span },
     Copyable { ty: Ty, span: Span, what: &'static str },
+    /// A type argument must implement a trait (bound of the called function).
+    Bound { ty: Ty, trait_id: TraitId, span: Span, what: String },
+    /// An anonymous function cannot be stored in a generic type.
+    NoClosure { ty: Ty, span: Span },
+}
+
+/// An anonymous function found in the body, compiled as a separate function.
+pub(crate) struct PendingClosure {
+    pub fn_id: FnId,
+    pub params: Vec<(LocalId, ast::Convention)>,
+    pub captures: Vec<(LocalId, bool)>,
+    pub block: thir::Block,
+    pub ret_ty: Ty,
+    pub span: Span,
+}
+
+/// The variables an anonymous function being checked uses from outside.
+pub(crate) struct ClosureFrame {
+    pub first_local: LocalId,
+    pub captures: Vec<(LocalId, bool)>,
 }
 
 pub(crate) struct LoopCtx {
@@ -92,6 +114,12 @@ pub struct FnCtxt<'a> {
     pub(crate) next_loop: u32,
     pub(crate) vars: Vec<InferVar>,
     pub(crate) deferred: Vec<Deferred>,
+    /// Trait bounds on the generic parameters of the function.
+    pub(crate) bounds: Vec<Bound>,
+    pub(crate) closures: Vec<PendingClosure>,
+    pub(crate) closure_frames: Vec<ClosureFrame>,
+    /// The id the next anonymous function will receive.
+    pub(crate) next_fn_id: u32,
 }
 
 impl<'a> FnCtxt<'a> {
@@ -111,6 +139,10 @@ impl<'a> FnCtxt<'a> {
             next_loop: 0,
             vars: Vec::new(),
             deferred: Vec::new(),
+            bounds: Vec::new(),
+            closures: Vec::new(),
+            closure_frames: Vec::new(),
+            next_fn_id: p.fns.len() as u32,
         }
     }
 
@@ -183,7 +215,7 @@ impl<'a> FnCtxt<'a> {
             TyKind::Infer(m) | TyKind::IntVar(m) | TyKind::FloatVar(m) => *m == n,
             TyKind::Adt(_, a) | TyKind::Tuple(a) => a.iter().any(|&x| self.occurs(n, x)),
             TyKind::Array(e, _) | TyKind::Ptr(e) => self.occurs(n, *e),
-            TyKind::Fn(ps, r) => ps.iter().any(|&(_, x)| self.occurs(n, x)) || self.occurs(n, *r),
+            TyKind::Fn(ps, r) | TyKind::Closure(ps, r) => ps.iter().any(|&(_, x)| self.occurs(n, x)) || self.occurs(n, *r),
             _ => false,
         }
     }
@@ -263,7 +295,7 @@ impl<'a> FnCtxt<'a> {
             (Tuple(xa), Tuple(ya)) => xa.len() == ya.len() && xa.clone().iter().zip(ya.clone().iter()).all(|(&p, &q)| self.unify_inner(p, q)),
             (Array(x, n), Array(y, m)) => n == m && self.unify_inner(*x, *y),
             (Ptr(x), Ptr(y)) => self.unify_inner(*x, *y),
-            (Fn(xp, xr), Fn(yp, yr)) => {
+            (Fn(xp, xr), Fn(yp, yr)) | (Closure(xp, xr), Closure(yp, yr)) => {
                 xp.len() == yp.len()
                     && xp.iter().zip(yp.iter()).all(|(p, q)| p.0 == q.0)
                     && xp.clone().iter().zip(yp.clone().iter()).all(|(p, q)| self.unify_inner(p.1, q.1))
@@ -285,7 +317,7 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             TyKind::Array(e, _) | TyKind::Ptr(e) => self.absorb_error(*e),
-            TyKind::Fn(ps, r) => {
+            TyKind::Fn(ps, r) | TyKind::Closure(ps, r) => {
                 for &(_, x) in ps.iter() {
                     self.absorb_error(x);
                 }
@@ -299,11 +331,38 @@ impl<'a> FnCtxt<'a> {
         self.p.ty_str_with(self.resolve(t), &self.generics)
     }
 
-    /// Final coercion of an expression to an expected type (spec §3.6): only `Never`
-    /// converts implicitly.
-    pub(crate) fn coerce(&mut self, e: &thir::Expr, expected: Ty) {
-        if self.tcx().is_never(self.shallow(e.ty)) {
+    /// Final coercion of an expression to an expected type (spec §3.6): `Never`
+    /// converts implicitly, a value to `dyn Trait` when its type implements the trait,
+    /// and a function to a parameter accepting anonymous functions.
+    pub(crate) fn coerce(&mut self, e: &mut thir::Expr, expected: Ty) {
+        let tcx = self.tcx();
+        let found = self.shallow(e.ty);
+        if tcx.is_never(found) {
             return;
+        }
+        let exp = self.shallow(expected);
+        match (&*tcx.kind(exp), &*tcx.kind(found)) {
+            (TyKind::Dyn(tr), k) if !matches!(k, TyKind::Dyn(_) | TyKind::Infer(_) | TyKind::Error) => {
+                let tr = *tr;
+                self.check_dyn_compatible(tr, e.span);
+                let what = format!("to be used as `dyn {}`", self.p.traits[tr.idx()].name);
+                self.deferred.push(Deferred::Bound { ty: found, trait_id: tr, span: e.span, what });
+                let inner = std::mem::replace(e, self.error_expr(e.span));
+                *e = self.mk(thir::ExprKind::ToDyn(Box::new(inner)), exp, e.span);
+                return;
+            }
+            (TyKind::Closure(cp, cr), TyKind::Fn(fp, fr)) => {
+                let thin = tcx.mk(TyKind::Fn(cp.clone(), *cr));
+                let _ = (fp, fr);
+                if !self.unify(found, thin) {
+                    self.mismatch(e.span, expected, e.ty);
+                    return;
+                }
+                let inner = std::mem::replace(e, self.error_expr(e.span));
+                *e = self.mk(thir::ExprKind::FnToClosure(Box::new(inner)), exp, e.span);
+                return;
+            }
+            _ => {}
         }
         if !self.unify(e.ty, expected) {
             self.mismatch(e.span, expected, e.ty);
@@ -347,6 +406,10 @@ impl<'a> FnCtxt<'a> {
             next_loop: 0,
             vars: self.vars.clone(),
             deferred: Vec::new(),
+            bounds: Vec::new(),
+            closures: Vec::new(),
+            closure_frames: Vec::new(),
+            next_fn_id: 0,
         };
         copy.unify(a, b)
     }
@@ -393,12 +456,27 @@ impl<'a> FnCtxt<'a> {
 
     pub(crate) fn mark_read(&mut self, l: LocalId) {
         self.uses[l as usize].read = true;
+        self.note_capture(l, false);
     }
 
     /// Records that the place rooted at `e` is modified.
     pub(crate) fn mark_mutated(&mut self, e: &thir::Expr) {
         if let Some(r) = e.place_root() {
             self.uses[r as usize].mutated = true;
+            self.note_capture(r, true);
+        }
+    }
+
+    /// A local declared outside the anonymous functions being checked is captured by
+    /// each of them.
+    fn note_capture(&mut self, l: LocalId, mutated: bool) {
+        for f in self.closure_frames.iter_mut() {
+            if l < f.first_local {
+                match f.captures.iter_mut().find(|(c, _)| *c == l) {
+                    Some(c) => c.1 |= mutated,
+                    None => f.captures.push((l, mutated)),
+                }
+            }
         }
     }
 
@@ -429,25 +507,34 @@ impl<'a> FnCtxt<'a> {
 /// Type-checks every function body and constant of the program.
 pub fn check_program(prog: &mut Program, diags: &DiagSink) {
     let mut bodies = Vec::new();
+    let mut new_fns: Vec<FnDef> = Vec::new();
     for i in 0..prog.fns.len() {
         let id = FnId(i as u32);
         let f = &prog.fns[i];
         let FnKind::User(decl) = &f.kind else { continue };
         let Some(block) = &decl.body else { continue };
         let decl = decl.clone();
-        let body = check_fn(prog, id, &decl, block, diags);
+        let first_new = (prog.fns.len() + new_fns.len()) as u32;
+        let (body, closures) = check_fn(prog, id, &decl, block, diags, first_new);
+        for (def, b) in closures {
+            bodies.push((b.fn_id, b));
+            new_fns.push(def);
+        }
         bodies.push((id, body));
     }
+    prog.fns.extend(new_fns);
     for (id, b) in bodies {
         prog.bodies.insert(id, b);
     }
 }
 
-fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, diags: &DiagSink) -> thir::Body {
+fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, diags: &DiagSink, first_new: u32) -> (thir::Body, Vec<(FnDef, thir::Body)>) {
     let f = prog.func(id);
     let mut cx = FnCtxt::new(prog, diags, f.module);
     cx.generics = f.generics.clone();
-    cx.self_ty = f.owner.map(|a| prog.tcx.adt(a, (0..f.n_owner_generics as u32).map(|i| prog.tcx.param(i)).collect()));
+    cx.self_ty = f.self_ty;
+    cx.bounds = f.bounds.clone();
+    cx.next_fn_id = first_new;
     cx.ret_ty = f.ret;
     if f.is_unsafe {
         cx.unsafe_depth = 1;
@@ -479,5 +566,47 @@ fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, di
     }
     let mut body = thir::Body { fn_id: id, locals: Vec::new(), params, block: body_block, ret_ty, span: decl.span };
     cx.finish(&mut body);
-    body
+    // Anonymous functions become functions of their own, sharing the locals table.
+    let mut out = Vec::new();
+    for (k, c) in std::mem::take(&mut cx.closures).into_iter().enumerate() {
+        let mut locals = body.locals.clone();
+        let mut params = Vec::new();
+        let mut defs = Vec::new();
+        for &(l, mutated) in &c.captures {
+            let conv = if mutated { ast::Convention::Inout } else { ast::Convention::Borrow };
+            locals[l as usize].kind = LocalKind::Param(conv);
+            params.push(l);
+            defs.push(ParamDef { name: locals[l as usize].name.clone(), conv: ast::Convention::Inout, ty: locals[l as usize].ty, span: locals[l as usize].span });
+        }
+        for &(l, conv) in &c.params {
+            params.push(l);
+            defs.push(ParamDef { name: locals[l as usize].name.clone(), conv, ty: locals[l as usize].ty, span: locals[l as usize].span });
+        }
+        let ret = cx.resolve(c.ret_ty);
+        let def = FnDef {
+            name: format!("{}.closure{}", decl.name.name, k + 1),
+            module: f.module,
+            span: c.span,
+            is_pub: false,
+            owner: f.owner,
+            generics: f.generics.clone(),
+            n_owner_generics: f.n_owner_generics,
+            params: defs,
+            has_self: false,
+            ret,
+            is_unsafe: false,
+            kind: FnKind::Closure { n_captures: c.captures.len() },
+            is_test: false,
+            track_caller: false,
+            export: None,
+            hints: vec![],
+            self_ty: f.self_ty,
+            bounds: f.bounds.clone(),
+            abi_params: None,
+            trait_id: None,
+        };
+        let b = thir::Body { fn_id: c.fn_id, locals, params, block: c.block, ret_ty: ret, span: c.span };
+        out.push((def, b));
+    }
+    (body, out)
 }

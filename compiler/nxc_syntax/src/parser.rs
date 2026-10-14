@@ -234,6 +234,7 @@ impl<'a> Parser<'a> {
                             | TokenKind::Struct
                             | TokenKind::Enum
                             | TokenKind::Impl
+                            | TokenKind::Trait
                             | TokenKind::Const
                             | TokenKind::Static
                             | TokenKind::Type
@@ -397,6 +398,7 @@ impl<'a> Parser<'a> {
             TokenKind::Struct if !in_impl => ItemKind::Struct(self.struct_decl()?),
             TokenKind::Enum if !in_impl => ItemKind::Enum(self.enum_decl()?),
             TokenKind::Impl if !in_impl => ItemKind::Impl(self.impl_decl()?),
+            TokenKind::Trait if !in_impl => ItemKind::Trait(self.trait_decl()?),
             TokenKind::Const if !in_impl => ItemKind::Const(self.const_decl()?),
             TokenKind::Static if !in_impl => ItemKind::Static(self.static_decl()?),
             TokenKind::Type if !in_impl => ItemKind::TypeAlias(self.type_alias()?),
@@ -409,7 +411,7 @@ impl<'a> Parser<'a> {
                 if !in_impl && matches!(self.peek(), TokenKind::Let | TokenKind::Var) {
                     d = d.help("variables can only be declared inside functions; use `const` for a module-level constant");
                 } else if !in_impl {
-                    d = d.note("a module contains `fn`, `struct`, `enum`, `impl`, `const`, `static`, `type` and `extern` declarations");
+                    d = d.note("a module contains `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `static`, `type` and `extern` declarations");
                 }
                 self.error_here(d);
                 return Err(());
@@ -435,6 +437,56 @@ impl<'a> Parser<'a> {
         Ok(v)
     }
 
+    /// `[T, U: Trait + Other]`: names and inline bounds.
+    fn generics_with_bounds(&mut self) -> PResult<(Vec<Ident>, Vec<BoundDecl>)> {
+        let mut names = Vec::new();
+        let mut bounds = Vec::new();
+        if self.eat(&TokenKind::LBracket) {
+            loop {
+                if self.eat(&TokenKind::RBracket) {
+                    break;
+                }
+                let name = self.ident("a type parameter name")?;
+                if self.eat(&TokenKind::Colon) {
+                    let traits = self.bound_list()?;
+                    bounds.push(BoundDecl { param: name.clone(), traits });
+                }
+                names.push(name);
+                if !self.eat(&TokenKind::Comma) {
+                    self.expect(TokenKind::RBracket, "`,` or `]`")?;
+                    break;
+                }
+            }
+        }
+        Ok((names, bounds))
+    }
+
+    /// `Trait + Other + module.Third`
+    fn bound_list(&mut self) -> PResult<Vec<TypeExpr>> {
+        let mut traits = vec![self.type_expr()?];
+        while self.eat(&TokenKind::Plus) {
+            traits.push(self.type_expr()?);
+        }
+        Ok(traits)
+    }
+
+    /// `where T: Trait, U: Other + Third`
+    fn where_clause(&mut self, bounds: &mut Vec<BoundDecl>) -> PResult<()> {
+        if !self.eat(&TokenKind::Where) {
+            return Ok(());
+        }
+        loop {
+            let param = self.ident("a type parameter name")?;
+            self.expect(TokenKind::Colon, "`:` and the traits it implements")?;
+            let traits = self.bound_list()?;
+            bounds.push(BoundDecl { param, traits });
+            if !self.eat(&TokenKind::Comma) {
+                break;
+            }
+        }
+        Ok(())
+    }
+
     fn convention(&mut self) -> Convention {
         if self.eat(&TokenKind::Inout) {
             Convention::Inout
@@ -450,7 +502,7 @@ impl<'a> Parser<'a> {
         let is_unsafe = self.eat(&TokenKind::Unsafe);
         self.expect(TokenKind::Fn, "`fn`")?;
         let name = self.ident("a function name")?;
-        let generics = self.generics()?;
+        let (generics, mut bounds) = self.generics_with_bounds()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut params = Vec::new();
         loop {
@@ -484,8 +536,9 @@ impl<'a> Parser<'a> {
             }
         }
         let ret = if self.eat(&TokenKind::Arrow) { Some(self.type_expr()?) } else { None };
+        self.where_clause(&mut bounds)?;
         let body = if self.is(&TokenKind::LBrace) { Some(self.block()?) } else { None };
-        Ok(FnDecl { name, generics, params, ret, body, is_unsafe, span: start.to(self.prev_span()) })
+        Ok(FnDecl { name, generics, bounds, params, ret, body, is_unsafe, span: start.to(self.prev_span()) })
     }
 
     /// Parses `{ elem sep elem sep ... }` where sep is `,` or a newline.
@@ -585,7 +638,39 @@ impl<'a> Parser<'a> {
 
     fn impl_decl(&mut self) -> PResult<ImplDecl> {
         self.bump(); // impl
-        let ty = self.type_expr()?;
+        let first = self.type_expr()?;
+        let (trait_, ty, bounds) = if self.eat(&TokenKind::For) {
+            // `impl Trait for Type` or `impl Trait for Type[A: Bound, B]`
+            let tstart = self.span();
+            let mut segments = vec![self.ident("a type name")?];
+            while self.eat(&TokenKind::Dot) {
+                segments.push(self.ident("a type name")?);
+            }
+            let mut args = Vec::new();
+            let mut bounds = Vec::new();
+            if self.eat(&TokenKind::LBracket) {
+                loop {
+                    if self.eat(&TokenKind::RBracket) {
+                        break;
+                    }
+                    let aspan = self.span();
+                    let name = self.ident("a type parameter name")?;
+                    if self.eat(&TokenKind::Colon) {
+                        let traits = self.bound_list()?;
+                        bounds.push(BoundDecl { param: name.clone(), traits });
+                    }
+                    args.push(TypeExpr { kind: TypeExprKind::Path { segments: vec![name], args: vec![] }, span: aspan.to(self.prev_span()) });
+                    if !self.eat(&TokenKind::Comma) {
+                        self.expect(TokenKind::RBracket, "`,` or `]`")?;
+                        break;
+                    }
+                }
+            }
+            let ty = TypeExpr { kind: TypeExprKind::Path { segments, args }, span: tstart.to(self.prev_span()) };
+            (Some(first), ty, bounds)
+        } else {
+            (None, first, Vec::new())
+        };
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         self.skip_newlines();
         let mut items = Vec::new();
@@ -607,7 +692,35 @@ impl<'a> Parser<'a> {
                 Err(()) => self.recover_stmt(),
             }
         }
-        Ok(ImplDecl { ty, items })
+        Ok(ImplDecl { ty, trait_, bounds, items })
+    }
+
+    fn trait_decl(&mut self) -> PResult<TraitDecl> {
+        self.bump(); // trait
+        let name = self.ident("a trait name")?;
+        let supertraits = if self.eat(&TokenKind::Colon) { self.bound_list()? } else { Vec::new() };
+        let open = self.expect(TokenKind::LBrace, "`{`")?;
+        self.skip_newlines();
+        let mut items = Vec::new();
+        loop {
+            if self.eat(&TokenKind::RBrace) {
+                break;
+            }
+            if self.at_eof() {
+                self.unclosed(open);
+                return Err(());
+            }
+            match self.item(true) {
+                Ok(it) => {
+                    items.push(it);
+                    if self.expect_terminator(&TokenKind::RBrace).is_err() {
+                        self.recover_stmt();
+                    }
+                }
+                Err(()) => self.recover_stmt(),
+            }
+        }
+        Ok(TraitDecl { name, supertraits, items })
     }
 
     fn const_decl(&mut self) -> PResult<ConstDecl> {
@@ -754,6 +867,11 @@ impl<'a> Parser<'a> {
                 self.bump();
                 TypeExprKind::SelfType
             }
+            TokenKind::Dyn => {
+                self.bump();
+                let t = self.type_expr()?;
+                TypeExprKind::Dyn(Box::new(t))
+            }
             TokenKind::Ident(_) => {
                 let mut segments = vec![self.ident("a type name")?];
                 while self.is(&TokenKind::Dot) {
@@ -890,7 +1008,25 @@ impl<'a> Parser<'a> {
     }
 
     fn while_stmt(&mut self, label: Option<Ident>) -> PResult<StmtKind> {
-        self.bump(); // while
+        let start = self.bump().span; // while
+        if self.eat(&TokenKind::Let) {
+            // `while let P = e { body }` is `while true { if let P = e { body } else { break } }`.
+            let pat = self.pattern()?;
+            self.expect(TokenKind::Eq, "`=`")?;
+            let mutable = self.eat(&TokenKind::Amp);
+            let e = self.expr()?;
+            let body = self.block()?;
+            let span = start.to(body.span);
+            let brk = Expr { kind: ExprKind::Break(None), span };
+            let else_block = Block { stmts: vec![Stmt { kind: StmtKind::Expr(brk), span }], span };
+            let if_let = Expr {
+                kind: ExprKind::If { cond: Cond::Let(Box::new(pat), Box::new(e), mutable), then: body, else_: Some(Box::new(Expr { kind: ExprKind::Block(else_block), span })) },
+                span,
+            };
+            let outer = Block { stmts: vec![Stmt { kind: StmtKind::Expr(if_let), span }], span };
+            let cond = Expr { kind: ExprKind::Lit(Lit::Bool(true)), span: start };
+            return Ok(StmtKind::While { label, cond, body: outer });
+        }
         let cond = self.expr()?;
         let body = self.block()?;
         Ok(StmtKind::While { label, cond, body })
@@ -1200,6 +1336,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::If => self.if_expr(),
             TokenKind::Match => self.match_expr(),
+            TokenKind::Fn => self.closure_expr(),
             TokenKind::Return => {
                 self.bump();
                 let ends = matches!(
@@ -1255,6 +1392,37 @@ impl<'a> Parser<'a> {
                 Err(())
             }
         }
+    }
+
+    /// `fn(a, b: T) -> R { ... }` or `fn(a) => expr`
+    fn closure_expr(&mut self) -> PResult<Expr> {
+        let start = self.bump().span; // fn
+        self.expect(TokenKind::LParen, "`(` and the parameters of the anonymous function")?;
+        let mut params = Vec::new();
+        loop {
+            if self.eat(&TokenKind::RParen) {
+                break;
+            }
+            let conv = self.convention();
+            let name = self.ident("a parameter name")?;
+            let ty = if self.eat(&TokenKind::Colon) { Some(self.type_expr()?) } else { None };
+            params.push(ClosureParam { conv, name, ty });
+            if !self.eat(&TokenKind::Comma) {
+                self.expect(TokenKind::RParen, "`,` or `)`")?;
+                break;
+            }
+        }
+        let ret = if self.eat(&TokenKind::Arrow) { Some(self.type_expr()?) } else { None };
+        let body = if self.eat(&TokenKind::FatArrow) {
+            ClosureBody::Expr(self.expr()?)
+        } else if self.is(&TokenKind::LBrace) {
+            ClosureBody::Block(self.block()?)
+        } else {
+            self.expected("`{` or `=>` and the body of the anonymous function");
+            return Err(());
+        };
+        let span = start.to(self.prev_span());
+        Ok(Expr { kind: ExprKind::Closure(Box::new(ClosureExpr { params, ret, body })), span })
     }
 
     fn if_expr(&mut self) -> PResult<Expr> {

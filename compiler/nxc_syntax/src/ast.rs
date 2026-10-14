@@ -57,6 +57,7 @@ pub enum ItemKind {
     TypeAlias(TypeAliasDecl),
     ExternFn(ExternFnDecl),
     Static(StaticDecl),
+    Trait(TraitDecl),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -90,10 +91,19 @@ pub struct Param {
     pub span: Span,
 }
 
+/// Trait bounds on a type parameter: `T: Ord + Display` (inline or in `where`).
+#[derive(Clone, Debug)]
+pub struct BoundDecl {
+    pub param: Ident,
+    pub traits: Vec<TypeExpr>,
+}
+
 #[derive(Clone, Debug)]
 pub struct FnDecl {
     pub name: Ident,
     pub generics: Vec<Ident>,
+    /// Bounds written `[T: Trait]` or `where T: Trait`.
+    pub bounds: Vec<BoundDecl>,
     pub params: Vec<Param>,
     pub ret: Option<TypeExpr>,
     pub body: Option<Block>,
@@ -132,9 +142,21 @@ pub struct EnumDecl {
     pub variants: Vec<VariantDecl>,
 }
 
+/// `impl Type { ... }` or `impl Trait for Type { ... }`; for a generic type, the
+/// parameters may be listed with bounds: `impl Display for Pair[A: Display, B: Display]`.
 #[derive(Clone, Debug)]
 pub struct ImplDecl {
     pub ty: TypeExpr,
+    pub trait_: Option<TypeExpr>,
+    pub bounds: Vec<BoundDecl>,
+    pub items: Vec<Item>,
+}
+
+/// `trait Name: Super1 + Super2 { fn method(self) -> T  fn with_default(self) { ... } }`
+#[derive(Clone, Debug)]
+pub struct TraitDecl {
+    pub name: Ident,
+    pub supertraits: Vec<TypeExpr>,
     pub items: Vec<Item>,
 }
 
@@ -188,6 +210,8 @@ pub enum TypeExprKind {
     Unit,
     Tuple(Vec<TypeExpr>),
     Fn(Vec<(Convention, TypeExpr)>, Option<Box<TypeExpr>>),
+    /// `dyn Trait`: a value of any type implementing the trait (dynamic dispatch).
+    Dyn(Box<TypeExpr>),
     Error,
 }
 
@@ -395,7 +419,30 @@ pub enum ExprKind {
     Unsafe(Block),
     /// A type written where an expression was parsed (generic argument such as `fn(i32)`).
     Type(TypeExpr),
+    /// `fn(x, y: i32) -> T { ... }` or `fn(x) => expr`: an anonymous function that may
+    /// use the variables around it (spec §4.12).
+    Closure(Box<ClosureExpr>),
     Error,
+}
+
+#[derive(Clone, Debug)]
+pub struct ClosureParam {
+    pub conv: Convention,
+    pub name: Ident,
+    pub ty: Option<TypeExpr>,
+}
+
+#[derive(Clone, Debug)]
+pub enum ClosureBody {
+    Block(Block),
+    Expr(Expr),
+}
+
+#[derive(Clone, Debug)]
+pub struct ClosureExpr {
+    pub params: Vec<ClosureParam>,
+    pub ret: Option<TypeExpr>,
+    pub body: ClosureBody,
 }
 
 // ---------------------------------------------------------------------------

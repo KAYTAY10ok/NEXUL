@@ -1,0 +1,74 @@
+// Un programme pour microcontrôleur Cortex-M4 (carte MPS2-AN386), sans système
+// d'exploitation : il écrit sur le port série en pilotant directement les registres
+// du matériel, et compte les interruptions du minuteur SysTick.
+//
+// Compiler et lancer dans l'émulateur QEMU :
+//
+//   nxc build examples/microcontroleur.nx --target thumbv7em-none -o clignotant.elf
+//   qemu-system-arm -machine mps2-an386 -nographic -semihosting-config enable=on,target=native -kernel clignotant.elf
+
+import std.mem
+
+// Registres du port série UART0 (CMSDK APB UART).
+const UART0_DATA: usize = 0x4000_4000
+const UART0_CTRL: usize = 0x4000_4008
+const UART0_BAUDDIV: usize = 0x4000_4010
+
+// Registres du minuteur SysTick (cœur Cortex-M).
+const SYST_CSR: usize = 0xE000_E010
+const SYST_RVR: usize = 0xE000_E014
+const SYST_CVR: usize = 0xE000_E018
+
+/// Nombre d'interruptions SysTick reçues (modifié par le gestionnaire d'interruption).
+static var TICKS: u32 = 0
+
+unsafe fn write_reg(addr: usize, value: u32) {
+    mem.write_volatile(Ptr[u32].from_addr(addr), value)
+}
+
+/// Envoie un texte octet par octet sur le port série.
+fn uart_send(text: String) {
+    unsafe {
+        let p = text.as_ptr()
+        for i in 0..text.len() {
+            write_reg(UART0_DATA, p.offset(i).read() as u32)
+        }
+    }
+}
+
+fn ticks() -> u32 {
+    return unsafe { mem.read_volatile(mem.addr_of(&TICKS)) }
+}
+
+/// Appelé par le matériel à chaque période du minuteur (table des vecteurs).
+@export("SysTick_Handler")
+fn on_systick() {
+    unsafe {
+        TICKS += 1
+    }
+}
+
+fn main() {
+    unsafe {
+        // Port série : émission activée.
+        write_reg(UART0_BAUDDIV, 16)
+        write_reg(UART0_CTRL, 1)
+        // Minuteur : une interruption toutes les 2 500 000 périodes d'horloge (0,1 s à 25 MHz).
+        write_reg(SYST_RVR, 2_500_000 - 1)
+        write_reg(SYST_CVR, 0)
+        write_reg(SYST_CSR, 0b111)
+    }
+    uart_send("UART : bonjour depuis NEXUL\n")
+    var last: u32 = 0
+    while last < 5 {
+        let now = ticks()
+        if now != last {
+            last = now
+            println("tic {last}")
+        }
+    }
+    unsafe {
+        write_reg(SYST_CSR, 0)
+    }
+    println("5 interruptions reçues")
+}

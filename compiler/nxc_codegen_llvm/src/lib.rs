@@ -992,7 +992,13 @@ start:
                 );
             }
             _ => {
-                self.module_asm.push(".section .vectors, \"ax\"\n.globl nx_vector_entry\nnx_vector_entry:\n  la sp, __stack_top\n  call nx_start_c\n1:\n  j 1b\n.text\n".to_string());
+                // With the F/D extensions, the floating-point unit stays off until
+                // `mstatus.FS` is set.
+                let fpu = if self.opts.target.hard_float64 { "  li t0, 0x2000\n  csrs mstatus, t0\n" } else { "" };
+                self.module_asm.push(format!(
+                    ".section .vectors, \"ax\"\n.globl nx_vector_entry\nnx_vector_entry:\n  la sp, __stack_top\n{}  call nx_start_c\n1:\n  j 1b\n.text\n",
+                    fpu
+                ));
             }
         }
     }

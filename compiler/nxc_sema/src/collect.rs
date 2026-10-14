@@ -23,6 +23,15 @@ struct PendingImpl {
     span: Span,
 }
 
+/// What a function signature is resolved inside of: an `impl` block or a `trait`.
+pub(crate) struct SigOwner {
+    pub adt: Option<AdtId>,
+    pub generics: Vec<String>,
+    pub self_ty: Option<Ty>,
+    pub bounds: Vec<Bound>,
+    pub trait_id: Option<TraitId>,
+}
+
 pub fn collect(prog: &mut Program, diags: &DiagSink) {
     let mut impls: Vec<PendingImpl> = Vec::new();
     let mut pending_fns: Vec<(FnId, Rc<ast::FnDecl>, Vec<ast::Attr>)> = Vec::new();
@@ -30,6 +39,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
     let mut pending_enums: Vec<(AdtId, ast::EnumDecl)> = Vec::new();
     let mut pending_aliases: Vec<(AliasId, ast::TypeAliasDecl)> = Vec::new();
     let mut pending_externs: Vec<(FnId, ast::ExternFnDecl, Vec<ast::Attr>)> = Vec::new();
+    let mut pending_traits: Vec<(TraitId, ast::TraitDecl)> = Vec::new();
 
     // Phase 1: declare names.
     for m in 0..prog.modules.len() {
@@ -46,6 +56,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 ItemKind::TypeAlias(t) => Some(t.name.clone()),
                 ItemKind::ExternFn(e) => Some(e.name.clone()),
                 ItemKind::Static(st) => Some(st.name.clone()),
+                ItemKind::Trait(t) => Some(t.name.clone()),
                 ItemKind::Impl(_) => None,
             };
             let lang_text = item.attrs.iter().find(|a| a.name.name == "lang").and_then(|a| match a.args.first() {
@@ -91,6 +102,10 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         track_caller: false,
                         export: None,
                         hints: vec![],
+                        self_ty: None,
+                        bounds: vec![],
+                        abi_params: None,
+                        trait_id: None,
                     });
                     pending_externs.push((id, e, item.attrs.clone()));
                     ItemRef::Fn(id)
@@ -155,6 +170,15 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         ast: Rc::new(st),
                     });
                     ItemRef::Static(id)
+                }
+                ItemKind::Trait(t) => {
+                    let id = TraitId(prog.traits.len() as u32);
+                    prog.traits.push(TraitDef { name: t.name.name.clone(), module: mid, span: t.name.span, is_pub: item.is_pub, supertraits: vec![], methods: vec![] });
+                    if let Some(name) = lang_name(&item.attrs) {
+                        prog.lang_traits.insert(name, id);
+                    }
+                    pending_traits.push((id, t));
+                    ItemRef::Trait(id)
                 }
                 ItemKind::TypeAlias(t) => {
                     let id = AliasId(prog.aliases.len() as u32);
@@ -265,12 +289,20 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
         let ty = resolve_type(prog, &scope, &ast.ty, diags);
         prog.consts[c].ty = ty;
     }
+    for (id, decl) in &pending_traits {
+        collect_trait(prog, *id, decl, diags);
+    }
     for (id, decl, attrs) in &pending_fns {
         resolve_fn_sig(prog, *id, decl, attrs, None, diags);
     }
     for imp in impls {
-        collect_impl(prog, imp, diags);
+        if imp.decl.trait_.is_some() {
+            collect_trait_impl(prog, imp, diags);
+        } else {
+            collect_impl(prog, imp, diags);
+        }
     }
+    check_impls(prog, diags);
     // Static variables, once every destructor is known (a type with `drop` is a resource).
     for st in 0..prog.statics.len() {
         let module = prog.statics[st].module;
@@ -313,6 +345,10 @@ fn new_fn_def(f: &Rc<ast::FnDecl>, module: ModId, is_pub: bool, owner: Option<Ad
         track_caller: attrs.iter().any(|a| a.name.name == "track_caller"),
         export: export_name(attrs, &f.name.name),
         hints: attrs.iter().filter(|a| matches!(a.name.name.as_str(), "cold" | "inline" | "no_builtins")).map(|a| a.name.name.clone()).collect(),
+        self_ty: None,
+        bounds: vec![],
+        abi_params: None,
+        trait_id: None,
     }
 }
 
@@ -367,7 +403,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
         let ok_target = match (name, &item.kind) {
             ("test", ItemKind::Fn(_)) => true,
             ("link", ItemKind::ExternFn(_)) => true,
-            ("lang", ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Fn(_)) => true,
+            ("lang", ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Fn(_) | ItemKind::Trait(_)) => true,
             ("intrinsic", ItemKind::Fn(_)) => true,
             ("index", ItemKind::Fn(_)) => true,
             ("track_caller", ItemKind::Fn(_)) => true,
@@ -473,6 +509,7 @@ pub fn item_is_pub(prog: &Program, item: ItemRef) -> bool {
         ItemRef::Alias(a) => prog.aliases[a.idx()].is_pub,
         ItemRef::Variant(a, _) => prog.adts[a.idx()].is_pub,
         ItemRef::Static(st) => prog.statics[st.idx()].is_pub,
+        ItemRef::Trait(t) => prog.traits[t.idx()].is_pub,
     }
 }
 
@@ -550,6 +587,10 @@ pub fn resolve_type(prog: &Program, scope: &TypeScope, t: &TypeExpr, diags: &Dia
             };
             tcx.mk(TyKind::Fn(ps, r))
         }
+        TypeExprKind::Dyn(inner) => match resolve_trait_ref(prog, scope.module, inner, diags) {
+            Some(tr) => tcx.mk(TyKind::Dyn(tr)),
+            None => tcx.error,
+        },
         TypeExprKind::Path { segments, args } => {
             let arg_tys: Vec<Ty> = args.iter().map(|a| resolve_type(prog, scope, a, diags)).collect();
             if segments.len() == 1 {
@@ -685,6 +726,14 @@ fn item_as_type(prog: &Program, item: ItemRef, args: &[Ty], span: Span, name: &s
             diags.emit(Diagnostic::error("E0314", format!("expected a type, found module `{}`", name)).primary(span, "not a type"));
             tcx.error
         }
+        ItemRef::Trait(_) => {
+            diags.emit(
+                Diagnostic::error("E0314", format!("expected a type, found trait `{}`", name))
+                    .primary(span, "a trait is not a type")
+                    .help(format!("for a value of any type implementing it, write `dyn {}`; in a generic function, write `[T: {}]`", name, name)),
+            );
+            tcx.error
+        }
         _ => {
             diags.emit(Diagnostic::error("E0314", format!("expected a type, found `{}`", name)).primary(span, "not a type"));
             tcx.error
@@ -745,10 +794,10 @@ fn resolve_extern(prog: &mut Program, id: FnId, decl: &ast::ExternFnDecl, diags:
     f.ret = ret;
 }
 
-/// Resolves a function signature. `owner` is the impl target, if any.
-fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast::Attr], owner: Option<(AdtId, Vec<String>)>, diags: &DiagSink) {
+/// Resolves a function signature. `owner` is the impl block or trait, if any.
+fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast::Attr], owner: Option<SigOwner>, diags: &DiagSink) {
     let module = prog.fns[id.idx()].module;
-    let mut generics: Vec<String> = owner.as_ref().map(|(_, g)| g.clone()).unwrap_or_default();
+    let mut generics: Vec<String> = owner.as_ref().map(|o| o.generics.clone()).unwrap_or_default();
     let n_owner = generics.len();
     for g in &decl.generics {
         if generics.contains(&g.name) {
@@ -757,14 +806,33 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
         generics.push(g.name.clone());
     }
     check_generic_names(&decl.generics, diags);
-    let self_ty = owner.as_ref().map(|(a, g)| prog.tcx.adt(*a, (0..g.len() as u32).map(|i| prog.tcx.param(i)).collect()));
+    let self_ty = owner.as_ref().and_then(|o| o.self_ty);
     let scope = TypeScope { module, generics: &generics, self_ty };
+    let mut bounds: Vec<Bound> = owner.as_ref().map(|o| o.bounds.clone()).unwrap_or_default();
+    for b in &decl.bounds {
+        let Some(i) = generics.iter().position(|g| *g == b.param.name) else {
+            diags.emit(
+                Diagnostic::error("E0240", format!("`{}` is not a type parameter of this function", b.param.name))
+                    .primary(b.param.span, "unknown type parameter")
+                    .help("bounds apply to the type parameters declared in `[...]`"),
+            );
+            continue;
+        };
+        for t in &b.traits {
+            if let Some(tr) = resolve_trait_ref(prog, module, t, diags) {
+                let bound = Bound { param: i as u32, trait_id: tr };
+                if !bounds.contains(&bound) {
+                    bounds.push(bound);
+                }
+            }
+        }
+    }
     let mut params = Vec::new();
     let mut has_self = false;
     for (i, p) in decl.params.iter().enumerate() {
         match &p.kind {
             ParamKind::SelfParam => {
-                if owner.is_none() {
+                if self_ty.is_none() {
                     diags.emit(
                         Diagnostic::error("E0203", "`self` parameter outside of an `impl` block")
                             .primary(p.span, "no type to be a method of")
@@ -783,7 +851,15 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
                 if params.iter().any(|q: &ParamDef| q.name == name.name) {
                     diags.emit(Diagnostic::error("E0201", format!("parameter `{}` is declared twice", name.name)).primary(name.span, "duplicate parameter"));
                 }
-                let t = resolve_type(prog, &scope, ty, diags);
+                let mut t = resolve_type(prog, &scope, ty, diags);
+                // A borrowed parameter of function type accepts anonymous functions
+                // using their caller's variables (spec §4.12); exported functions keep
+                // plain C function pointers.
+                if p.conv == Convention::Borrow && prog.fns[id.idx()].export.is_none() {
+                    if let TyKind::Fn(ps, r) = &*prog.tcx.kind(t) {
+                        t = prog.tcx.mk(TyKind::Closure(ps.clone(), *r));
+                    }
+                }
                 params.push(ParamDef { name: name.name.clone(), conv: p.conv, ty: t, span: name.span });
             }
         }
@@ -805,14 +881,14 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
         diags.emit(Diagnostic::error("E0103", "an `@intrinsic` function cannot have a body").primary(decl.name.span, "unexpected body"));
     }
     let is_test = attrs.iter().any(|a| a.name.name == "test");
-    if is_test && (!params.is_empty() || !generics.is_empty() || ret != prog.tcx.unit || owner.is_some()) {
+    if is_test && (!params.is_empty() || !generics.is_empty() || ret != prog.tcx.unit || self_ty.is_some()) {
         diags.emit(
             Diagnostic::error("E0233", "a `@test` function must be a free function without parameters, generics or return value")
                 .primary(decl.name.span, "invalid test function"),
         );
     }
     if let Some(sym) = &prog.fns[id.idx()].export {
-        if !generics.is_empty() || owner.is_some() {
+        if !generics.is_empty() || self_ty.is_some() {
             diags.emit(
                 Diagnostic::error("E0504", "an `@export` function must be a free function without generic parameters")
                     .primary(decl.name.span, "cannot be exported"),
@@ -837,12 +913,268 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
             );
         }
     }
+    if prog.tcx.has_closure(ret) {
+        diags.emit(
+            Diagnostic::error("E0248", "a function cannot return an anonymous function")
+                .primary(decl.ret.as_ref().map(|r| r.span).unwrap_or(decl.name.span), "closure type")
+                .note("anonymous functions only live during the call that receives them"),
+        );
+    }
     let f = &mut prog.fns[id.idx()];
     f.generics = generics;
     f.n_owner_generics = n_owner;
     f.params = params;
     f.has_self = has_self;
     f.ret = ret;
+    f.self_ty = self_ty;
+    f.bounds = bounds;
+    f.trait_id = owner.as_ref().and_then(|o| o.trait_id);
+}
+
+/// Resolves a trait name (`Display`, `module.Trait`).
+pub fn resolve_trait_ref(prog: &Program, module: ModId, t: &TypeExpr, diags: &DiagSink) -> Option<TraitId> {
+    let TypeExprKind::Path { segments, args } = &t.kind else {
+        diags.emit(Diagnostic::error("E0240", "expected a trait name").primary(t.span, "not a trait"));
+        return None;
+    };
+    if !args.is_empty() {
+        diags.emit(Diagnostic::error("E0240", "traits take no generic arguments").primary(t.span, "remove `[...]`"));
+    }
+    let mut item = match lookup_item(prog, module, &segments[0].name) {
+        Some(it) => it,
+        None => {
+            let mut d = Diagnostic::error("E0240", format!("cannot find trait `{}`", segments[0].name)).primary(segments[0].span, "not found in this scope");
+            let cands: Vec<String> = prog.traits.iter().map(|t| t.name.clone()).collect();
+            if let Some(s) = best_match(&segments[0].name, cands.iter().map(|s| s.as_str())) {
+                d = d.help(format!("did you mean `{}`?", s));
+            }
+            diags.emit(d);
+            return None;
+        }
+    };
+    for seg in &segments[1..] {
+        match item {
+            ItemRef::Module(m) => item = lookup_in_module(prog, module, m, &seg.name, seg.span, diags)?,
+            _ => {
+                diags.emit(Diagnostic::error("E0240", format!("`{}` is not a module", seg.name)).primary(seg.span, "expected a module"));
+                return None;
+            }
+        }
+    }
+    match item {
+        ItemRef::Trait(tr) => Some(tr),
+        _ => {
+            diags.emit(Diagnostic::error("E0240", format!("`{}` is not a trait", segments.last().unwrap().name)).primary(t.span, "expected a trait"));
+            None
+        }
+    }
+}
+
+/// `trait Name: Super { ... }`: supertraits and method declarations.
+fn collect_trait(prog: &mut Program, id: TraitId, decl: &ast::TraitDecl, diags: &DiagSink) {
+    let module = prog.traits[id.idx()].module;
+    let is_pub = prog.traits[id.idx()].is_pub;
+    let mut supers = Vec::new();
+    for s in &decl.supertraits {
+        if let Some(tr) = resolve_trait_ref(prog, module, s, diags) {
+            if tr == id {
+                diags.emit(Diagnostic::error("E0240", format!("trait `{}` cannot be its own supertrait", decl.name.name)).primary(s.span, "cyclic trait"));
+            } else if !supers.contains(&tr) {
+                supers.push(tr);
+            }
+        }
+    }
+    prog.traits[id.idx()].supertraits = supers;
+    let self_ty = prog.tcx.param(0);
+    for item in &decl.items {
+        let ItemKind::Fn(f) = &item.kind else { continue };
+        if prog.traits[id.idx()].method(&f.name.name).is_some() {
+            diags.emit(Diagnostic::error("E0201", format!("trait `{}` already declares `{}`", decl.name.name, f.name.name)).primary(f.name.span, "duplicate method"));
+            continue;
+        }
+        let f = Rc::new(f.clone());
+        let owner = || SigOwner { adt: None, generics: vec!["Self".to_string()], self_ty: Some(self_ty), bounds: vec![Bound { param: 0, trait_id: id }], trait_id: Some(id) };
+        let decl_id = FnId(prog.fns.len() as u32);
+        let mut def = new_fn_def(&f, module, is_pub, None, &item.attrs);
+        def.kind = FnKind::TraitDecl(id);
+        prog.fns.push(def);
+        resolve_fn_sig(prog, decl_id, &f, &item.attrs, Some(owner()), diags);
+        let default = if f.body.is_some() {
+            let did = FnId(prog.fns.len() as u32);
+            prog.fns.push(new_fn_def(&f, module, is_pub, None, &item.attrs));
+            resolve_fn_sig(prog, did, &f, &item.attrs, Some(owner()), diags);
+            Some(did)
+        } else {
+            None
+        };
+        prog.traits[id.idx()].methods.push(TraitMethod { name: f.name.name.clone(), decl: decl_id, default });
+    }
+}
+
+/// `impl Trait for Type { ... }`
+fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
+    let trait_expr = imp.decl.trait_.clone().unwrap();
+    let Some(tr) = resolve_trait_ref(prog, imp.module, &trait_expr, diags) else { return };
+    let TypeExprKind::Path { segments, args } = &imp.decl.ty.kind else { return };
+    // The implementing type: a primitive type or a struct/enum, generic parameters
+    // listed (optionally) with their bounds.
+    let head_name = segments.last().unwrap();
+    let (adt, generics, self_ty) = if segments.len() == 1 && primitive_type(prog, &head_name.name).is_some() {
+        (None, Vec::new(), primitive_type(prog, &head_name.name).unwrap())
+    } else {
+        let scope = TypeScope { module: imp.module, generics: &[], self_ty: None };
+        let bare = TypeExpr { kind: TypeExprKind::Path { segments: segments.clone(), args: vec![] }, span: imp.decl.ty.span };
+        let quiet = DiagSink::new();
+        let ty = resolve_type(prog, &scope, &bare, &quiet);
+        let Some((a, _)) = prog.tcx.as_adt(ty) else {
+            let errs = quiet.take_sorted();
+            if errs.is_empty() || errs.iter().all(|d| d.code == "E0315") {
+                diags.emit(
+                    Diagnostic::error("E0224", "a trait can be implemented for a struct, an enum or a primitive type")
+                        .primary(imp.decl.ty.span, "not a struct, enum or primitive type"),
+                );
+            } else {
+                for d in errs {
+                    diags.emit(d);
+                }
+            }
+            return;
+        };
+        let adt_generics = prog.adts[a.idx()].generics.clone();
+        let generics: Vec<String> = if args.is_empty() {
+            adt_generics.clone()
+        } else {
+            if args.len() != adt_generics.len() {
+                diags.emit(
+                    Diagnostic::error("E0315", format!("`{}` takes {} generic argument(s)", prog.adts[a.idx()].name, adt_generics.len()))
+                        .primary(imp.decl.ty.span, format!("{} given", args.len())),
+                );
+                return;
+            }
+            args.iter()
+                .map(|t| match &t.kind {
+                    TypeExprKind::Path { segments, .. } => segments[0].name.clone(),
+                    _ => "_".to_string(),
+                })
+                .collect()
+        };
+        let self_ty = prog.tcx.adt(a, (0..generics.len() as u32).map(|i| prog.tcx.param(i)).collect());
+        (Some(a), generics, self_ty)
+    };
+    let tdef_module = prog.traits[tr.idx()].module;
+    let type_module = adt.map(|a| prog.adts[a.idx()].module);
+    if imp.module != tdef_module && Some(imp.module) != type_module {
+        diags.emit(
+            Diagnostic::error("E0247", format!("`impl {} for {}` must be in the module of the trait or of the type", prog.traits[tr.idx()].name, prog.ty_str(self_ty)))
+                .primary(imp.span, "implementation in an unrelated module")
+                .note("this rule guarantees that a type implements a trait at most once in a program"),
+        );
+        return;
+    }
+    if prog.find_impl(tr, self_ty).is_some() {
+        diags.emit(
+            Diagnostic::error("E0243", format!("`{}` is implemented twice for `{}`", prog.traits[tr.idx()].name, prog.ty_str_with(self_ty, &generics)))
+                .primary(imp.span, "second implementation"),
+        );
+        return;
+    }
+    let mut bounds = Vec::new();
+    for b in &imp.decl.bounds {
+        let Some(i) = generics.iter().position(|g| *g == b.param.name) else { continue };
+        for t in &b.traits {
+            if let Some(btr) = resolve_trait_ref(prog, imp.module, t, diags) {
+                bounds.push(Bound { param: i as u32, trait_id: btr });
+            }
+        }
+    }
+    let impl_id = ImplId(prog.impls.len() as u32);
+    prog.impls.push(ImplDef { trait_id: tr, module: imp.module, span: imp.span, self_ty, generics: generics.clone(), bounds: bounds.clone(), methods: HashMap::new() });
+    let tname = prog.traits[tr.idx()].name.clone();
+    let k = generics.len() as u32;
+    for item in imp.decl.items {
+        let ItemKind::Fn(f) = item.kind else { continue };
+        check_attrs(&ast::Item { attrs: item.attrs.clone(), is_pub: item.is_pub, kind: ItemKind::Fn(f.clone()), span: item.span }, prog.modules[imp.module.idx()].is_std, diags);
+        let Some(decl_fn) = prog.traits[tr.idx()].method(&f.name.name).map(|m| m.decl) else {
+            let mut d = Diagnostic::error("E0241", format!("`{}` is not a method of trait `{}`", f.name.name, tname)).primary(f.name.span, "not declared by the trait");
+            let cands: Vec<String> = prog.traits[tr.idx()].methods.iter().map(|m| m.name.clone()).collect();
+            if let Some(s) = best_match(&f.name.name, cands.iter().map(|s| s.as_str())) {
+                d = d.help(format!("did you mean `{}`?", s));
+            }
+            diags.emit(d);
+            continue;
+        };
+        if prog.impls[impl_id.idx()].methods.contains_key(&f.name.name) {
+            diags.emit(Diagnostic::error("E0201", format!("`{}` is implemented twice", f.name.name)).primary(f.name.span, "duplicate method"));
+            continue;
+        }
+        let f = Rc::new(f);
+        let id = FnId(prog.fns.len() as u32);
+        prog.fns.push(new_fn_def(&f, imp.module, true, adt, &item.attrs));
+        let owner = SigOwner { adt, generics: generics.clone(), self_ty: Some(self_ty), bounds: bounds.clone(), trait_id: Some(tr) };
+        resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);
+        // The signature must be the trait's, with `Self` replaced by the type.
+        let (dparams, dret, dgen, dself): (Vec<(Convention, Ty)>, Ty, usize, bool) = {
+            let d = prog.func(decl_fn);
+            (d.params.iter().map(|p| (p.conv, p.ty)).collect(), d.ret, d.generics.len() - 1, d.has_self)
+        };
+        let mut subst = vec![self_ty];
+        subst.extend((0..dgen as u32).map(|i| prog.tcx.param(k + i)));
+        let fd = prog.func(id);
+        let same = fd.has_self == dself
+            && fd.generics.len() - fd.n_owner_generics == dgen
+            && fd.params.len() == dparams.len()
+            && fd.params.iter().zip(dparams.iter()).all(|(p, (c, t))| p.conv == *c && p.ty == prog.tcx.subst(*t, &subst))
+            && fd.ret == prog.tcx.subst(dret, &subst);
+        if !same {
+            let names: Vec<String> = std::iter::once("Self".to_string()).chain((0..dgen).map(|i| format!("T{}", i))).collect();
+            let d = prog.func(decl_fn);
+            let sig: Vec<String> = d
+                .params
+                .iter()
+                .map(|p| {
+                    let t = if p.name == "self" { "self".to_string() } else { format!("{}: {}", p.name, prog.ty_str_with(p.ty, &names)) };
+                    if p.conv == Convention::Borrow { t } else { format!("{} {}", p.conv.keyword(), t) }
+                })
+                .collect();
+            let ret = if d.ret == prog.tcx.unit { String::new() } else { format!(" -> {}", prog.ty_str_with(d.ret, &names)) };
+            diags.emit(
+                Diagnostic::error("E0241", format!("`{}` does not match its declaration in trait `{}`", f.name.name, tname))
+                    .primary(f.name.span, "different signature")
+                    .secondary(d.span, "declared here")
+                    .note(format!("expected `fn {}({}){}` with `Self` = `{}`", f.name.name, sig.join(", "), ret, prog.ty_str_with(self_ty, &generics))),
+            );
+        }
+        let abi: Vec<Ty> = prog.func(decl_fn).params.iter().map(|p| p.ty).collect();
+        if abi.len() == prog.func(id).params.len() {
+            prog.fns[id.idx()].abi_params = Some(abi);
+        }
+        prog.impls[impl_id.idx()].methods.insert(f.name.name.clone(), id);
+    }
+}
+
+/// Every trait method without a default must be implemented, and the supertraits
+/// must be implemented for the same type.
+fn check_impls(prog: &Program, diags: &DiagSink) {
+    for imp in &prog.impls {
+        let tdef = &prog.traits[imp.trait_id.idx()];
+        let missing: Vec<&str> = tdef.methods.iter().filter(|m| m.default.is_none() && !imp.methods.contains_key(&m.name)).map(|m| m.name.as_str()).collect();
+        if !missing.is_empty() {
+            diags.emit(
+                Diagnostic::error("E0242", format!("missing method{} of trait `{}`: {}", if missing.len() == 1 { "" } else { "s" }, tdef.name, missing.iter().map(|m| format!("`{}`", m)).collect::<Vec<_>>().join(", ")))
+                    .primary(imp.span, format!("`{}` is not fully implemented", tdef.name))
+                    .help("add the missing functions to this `impl` block"),
+            );
+        }
+        for &s in &tdef.supertraits {
+            if prog.find_impl(s, imp.self_ty).is_none() {
+                diags.emit(
+                    Diagnostic::error("E0244", format!("`{}` requires `{}`, which `{}` does not implement", tdef.name, prog.traits[s.idx()].name, prog.ty_str_with(imp.self_ty, &imp.generics)))
+                        .primary(imp.span, format!("`{}` is a supertrait of `{}`", prog.traits[s.idx()].name, tdef.name))
+                        .help(format!("add `impl {} for {}`", prog.traits[s.idx()].name, prog.ty_str_with(imp.self_ty, &imp.generics))),
+                );
+            }
+        }
+    }
 }
 
 fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
@@ -919,7 +1251,9 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         let f = Rc::new(f);
         let id = FnId(prog.fns.len() as u32);
         prog.fns.push(new_fn_def(&f, imp.module, item.is_pub, Some(adt_id), &item.attrs));
-        resolve_fn_sig(prog, id, &f, &item.attrs, Some((adt_id, owner_generics.clone())), diags);
+        let self_ty = prog.tcx.adt(adt_id, (0..owner_generics.len() as u32).map(|i| prog.tcx.param(i)).collect());
+        let owner = SigOwner { adt: Some(adt_id), generics: owner_generics.clone(), self_ty: Some(self_ty), bounds: vec![], trait_id: None };
+        resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);
         let name = f.name.name.clone();
         let adt = &prog.adts[adt_id.idx()];
         if adt.methods.contains_key(&name) {

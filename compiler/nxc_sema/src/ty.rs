@@ -1,6 +1,6 @@
 //! Types: interned representation, display and substitution.
 
-use crate::defs::AdtId;
+use crate::defs::{AdtId, TraitId};
 use nxc_syntax::ast::Convention;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -107,6 +107,11 @@ pub enum TyKind {
     Array(Ty, u64),
     Ptr(Ty),
     Fn(Vec<(Convention, Ty)>, Ty),
+    /// A function parameter that accepts anonymous functions using the variables of
+    /// their caller (code and environment); it cannot be stored or returned.
+    Closure(Vec<(Convention, Ty)>, Ty),
+    /// `dyn Trait`: a value of any type implementing the trait, on the heap.
+    Dyn(TraitId),
     /// Generic parameter number `n` of the current definition.
     Param(u32),
     /// Inference variable (only meaningful inside the function being checked).
@@ -280,7 +285,17 @@ impl TyCtx {
             TyKind::Infer(_) | TyKind::IntVar(_) | TyKind::FloatVar(_) => true,
             TyKind::Adt(_, a) | TyKind::Tuple(a) => a.iter().any(|&t| self.has_infer(t)),
             TyKind::Array(e, _) | TyKind::Ptr(e) => self.has_infer(*e),
-            TyKind::Fn(p, r) => p.iter().any(|&(_, t)| self.has_infer(t)) || self.has_infer(*r),
+            TyKind::Fn(p, r) | TyKind::Closure(p, r) => p.iter().any(|&(_, t)| self.has_infer(t)) || self.has_infer(*r),
+            _ => false,
+        }
+    }
+
+    /// Does the type mention a closure type?
+    pub fn has_closure(&self, t: Ty) -> bool {
+        match &*self.kind(t) {
+            TyKind::Closure(..) => true,
+            TyKind::Adt(_, a) | TyKind::Tuple(a) => a.iter().any(|&t| self.has_closure(t)),
+            TyKind::Array(e, _) | TyKind::Ptr(e) => self.has_closure(*e),
             _ => false,
         }
     }
@@ -291,7 +306,7 @@ impl TyCtx {
             TyKind::Param(_) => true,
             TyKind::Adt(_, a) | TyKind::Tuple(a) => a.iter().any(|&t| self.has_param(t)),
             TyKind::Array(e, _) | TyKind::Ptr(e) => self.has_param(*e),
-            TyKind::Fn(p, r) => p.iter().any(|&(_, t)| self.has_param(t)) || self.has_param(*r),
+            TyKind::Fn(p, r) | TyKind::Closure(p, r) => p.iter().any(|&(_, t)| self.has_param(t)) || self.has_param(*r),
             _ => false,
         }
     }
@@ -301,7 +316,7 @@ impl TyCtx {
             TyKind::Error => true,
             TyKind::Adt(_, a) | TyKind::Tuple(a) => a.iter().any(|&t| self.has_error(t)),
             TyKind::Array(e, _) | TyKind::Ptr(e) => self.has_error(*e),
-            TyKind::Fn(p, r) => p.iter().any(|&(_, t)| self.has_error(t)) || self.has_error(*r),
+            TyKind::Fn(p, r) | TyKind::Closure(p, r) => p.iter().any(|&(_, t)| self.has_error(t)) || self.has_error(*r),
             _ => false,
         }
     }
@@ -360,6 +375,11 @@ impl TyCtx {
                 let p2: Vec<(Convention, Ty)> = p.iter().map(|&(c, x)| (c, self.map(x, f))).collect();
                 let r2 = self.map(*r, f);
                 self.mk(TyKind::Fn(p2, r2))
+            }
+            TyKind::Closure(p, r) => {
+                let p2: Vec<(Convention, Ty)> = p.iter().map(|&(c, x)| (c, self.map(x, f))).collect();
+                let r2 = self.map(*r, f);
+                self.mk(TyKind::Closure(p2, r2))
             }
             _ => t,
         }

@@ -51,11 +51,14 @@ pub enum TokenKind {
     SelfType,
     Static,
     Struct,
+    Trait,
     True,
     Type,
     Unsafe,
     Var,
+    Where,
     While,
+    Dyn,
 
     // Operators.
     Plus,
@@ -190,19 +193,21 @@ pub fn keyword(s: &str) -> Option<TokenKind> {
         "Self" => SelfType,
         "static" => Static,
         "struct" => Struct,
+        "trait" => Trait,
         "true" => True,
         "type" => Type,
         "unsafe" => Unsafe,
         "var" => Var,
+        "where" => Where,
         "while" => While,
+        "dyn" => Dyn,
         _ => return None,
     })
 }
 
 /// Keywords reserved for future versions of the language.
 pub const RESERVED: &[&str] = &[
-    "async", "await", "class", "defer", "dyn", "interface", "loop", "macro", "ref", "trait", "try",
-    "union", "where", "yield",
+    "async", "await", "class", "defer", "interface", "loop", "macro", "ref", "try", "union", "yield",
 ];
 
 impl TokenKind {
@@ -289,11 +294,14 @@ impl fmt::Display for TokenKind {
             SelfType => "Self",
             Static => "static",
             Struct => "struct",
+            Trait => "trait",
             True => "true",
             Type => "type",
             Unsafe => "unsafe",
             Var => "var",
+            Where => "where",
             While => "while",
+            Dyn => "dyn",
             Plus => "+",
             Minus => "-",
             Star => "*",

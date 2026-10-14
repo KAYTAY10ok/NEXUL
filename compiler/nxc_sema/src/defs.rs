@@ -26,6 +26,8 @@ id_type!(FnId);
 id_type!(ConstId);
 id_type!(AliasId);
 id_type!(StaticId);
+id_type!(TraitId);
+id_type!(ImplId);
 
 /// Functions provided by the compiler itself (spec §4.10).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -77,6 +79,7 @@ pub enum ItemRef {
     Variant(AdtId, u32),
     Builtin(Builtin),
     Static(StaticId),
+    Trait(TraitId),
 }
 
 pub struct ImportEntry {
@@ -198,6 +201,54 @@ pub enum FnKind {
     User(Rc<ast::FnDecl>),
     Extern { abi: String, link: Option<String> },
     Intrinsic(String),
+    /// A method declared by a trait: each call is resolved to the implementation for
+    /// the type `Self` (first generic argument) during code generation.
+    TraitDecl(TraitId),
+    /// An anonymous function; its first `n_captures` parameters are the variables it
+    /// uses from its caller, received through the environment pointer.
+    Closure { n_captures: usize },
+}
+
+/// `T: Trait` on generic parameter number `param`.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Bound {
+    pub param: u32,
+    pub trait_id: TraitId,
+}
+
+pub struct TraitMethod {
+    pub name: String,
+    /// The declaration (`FnKind::TraitDecl`), called by generic and `dyn` code.
+    pub decl: FnId,
+    /// The default implementation, if the trait gives a body.
+    pub default: Option<FnId>,
+}
+
+pub struct TraitDef {
+    pub name: String,
+    pub module: ModId,
+    pub span: Span,
+    pub is_pub: bool,
+    pub supertraits: Vec<TraitId>,
+    pub methods: Vec<TraitMethod>,
+}
+
+impl TraitDef {
+    pub fn method(&self, name: &str) -> Option<&TraitMethod> {
+        self.methods.iter().find(|m| m.name == name)
+    }
+}
+
+/// `impl Trait for Type`.
+pub struct ImplDef {
+    pub trait_id: TraitId,
+    pub module: ModId,
+    pub span: Span,
+    /// The implementing type, written with the impl's generic parameters.
+    pub self_ty: Ty,
+    pub generics: Vec<String>,
+    pub bounds: Vec<Bound>,
+    pub methods: HashMap<String, FnId>,
 }
 
 pub struct FnDef {
@@ -223,6 +274,16 @@ pub struct FnDef {
     pub export: Option<String>,
     /// Code generation hints: `cold`, `inline`, `no_builtins`.
     pub hints: Vec<String>,
+    /// The type of `self` / `Self` inside the function (methods of `impl` and `trait`).
+    pub self_ty: Option<Ty>,
+    /// Trait bounds on the generic parameters.
+    pub bounds: Vec<Bound>,
+    /// For a method implementing a trait method: the parameter types of the trait
+    /// declaration, which decide how arguments are passed (same convention for every
+    /// implementation, so that generic and `dyn` calls can reach any of them).
+    pub abi_params: Option<Vec<Ty>>,
+    /// The trait implemented (impl methods) or declaring the function.
+    pub trait_id: Option<TraitId>,
 }
 
 impl FnDef {
@@ -238,9 +299,30 @@ impl FnDef {
     }
 
     pub fn qualified_name(&self, p: &Program) -> String {
-        match self.owner {
-            Some(a) => format!("{}.{}", p.adts[a.idx()].name, self.name),
-            None => self.name.clone(),
+        match (self.owner, self.self_ty, self.trait_id) {
+            (Some(a), _, _) => format!("{}.{}", p.adts[a.idx()].name, self.name),
+            (None, Some(t), _) if !matches!(&*p.tcx.kind(t), TyKind::Param(_)) => format!("{}.{}", p.ty_str(t), self.name),
+            (None, _, Some(tr)) => format!("{}.{}", p.traits[tr.idx()].name, self.name),
+            _ => self.name.clone(),
+        }
+    }
+
+    /// The parameter type deciding how argument `i` is passed.
+    pub fn abi_param_ty(&self, i: usize) -> Ty {
+        match &self.abi_params {
+            Some(v) => v[i],
+            None => self.params[i].ty,
+        }
+    }
+
+    pub fn is_trait_decl(&self) -> bool {
+        matches!(self.kind, FnKind::TraitDecl(_))
+    }
+
+    pub fn closure_captures(&self) -> usize {
+        match self.kind {
+            FnKind::Closure { n_captures } => n_captures,
+            _ => 0,
         }
     }
 }
@@ -308,6 +390,10 @@ pub struct Program {
     pub aliases: Vec<AliasDef>,
     pub statics: Vec<StaticDef>,
     pub static_values: HashMap<StaticId, StaticValue>,
+    pub traits: Vec<TraitDef>,
+    pub impls: Vec<ImplDef>,
+    /// Traits known to the compiler (`@lang("eq")`, `@lang("display")`...).
+    pub lang_traits: HashMap<String, TraitId>,
     pub lang: LangItems,
     /// Functions of the runtime used by the code generator (`@lang("name")` on a
     /// function of the standard library).
@@ -335,6 +421,9 @@ impl Program {
             aliases: Vec::new(),
             statics: Vec::new(),
             static_values: HashMap::new(),
+            traits: Vec::new(),
+            impls: Vec::new(),
+            lang_traits: HashMap::new(),
             lang: LangItems::default(),
             lang_fns: HashMap::new(),
             lang_adts: HashMap::new(),
@@ -427,6 +516,11 @@ impl Program {
                     format!("fn({}) -> {}", a.join(", "), self.ty_str_with(*ret, names))
                 }
             }
+            TyKind::Closure(params, ret) => {
+                let f = tcx.mk(TyKind::Fn(params.clone(), *ret));
+                self.ty_str_with(f, names)
+            }
+            TyKind::Dyn(tr) => format!("dyn {}", self.traits[tr.idx()].name),
             TyKind::Param(i) => names.get(*i as usize).cloned().unwrap_or_else(|| format!("T{}", i)),
             TyKind::Infer(_) => "_".into(),
             TyKind::IntVar(_) => "{integer}".into(),
@@ -447,7 +541,7 @@ impl Program {
             TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit | TyKind::Never => true,
             TyKind::Ptr(_) | TyKind::Fn(..) => true,
             TyKind::IntVar(_) | TyKind::FloatVar(_) | TyKind::Error => true,
-            TyKind::Param(_) | TyKind::Infer(_) => false,
+            TyKind::Param(_) | TyKind::Infer(_) | TyKind::Closure(..) | TyKind::Dyn(_) => false,
             TyKind::Tuple(elems) => elems.iter().all(|&e| self.is_copy_rec(e, visiting)),
             TyKind::Array(e, _) => self.is_copy_rec(*e, visiting),
             TyKind::Adt(id, args) => {
@@ -476,7 +570,83 @@ impl Program {
 
     /// Does dropping a value of this (fully concrete) type do anything?
     pub fn needs_drop(&self, t: Ty) -> bool {
+        if matches!(&*self.tcx.kind(t), TyKind::Closure(..)) {
+            return false;
+        }
         !self.is_copy(t)
+    }
+
+    /// The trait and its supertraits, transitively (each once, the trait first).
+    pub fn trait_closure(&self, t: TraitId) -> Vec<TraitId> {
+        let mut out = vec![t];
+        let mut i = 0;
+        while i < out.len() {
+            for &s in &self.traits[out[i].idx()].supertraits {
+                if !out.contains(&s) {
+                    out.push(s);
+                }
+            }
+            i += 1;
+        }
+        out
+    }
+
+    /// A trait known to the compiler.
+    pub fn lang_trait(&self, name: &str) -> Option<TraitId> {
+        self.lang_traits.get(name).copied()
+    }
+
+    /// The implementation of `trait_id` for a concrete type head: the impl and the type
+    /// arguments of its generic parameters. Bounds of the impl are not checked here.
+    pub fn find_impl(&self, trait_id: TraitId, ty: Ty) -> Option<(ImplId, Vec<Ty>)> {
+        for (i, imp) in self.impls.iter().enumerate() {
+            if imp.trait_id != trait_id {
+                continue;
+            }
+            match (&*self.tcx.kind(imp.self_ty), &*self.tcx.kind(ty)) {
+                (TyKind::Adt(a, _), TyKind::Adt(b, args)) if a == b => return Some((ImplId(i as u32), args.clone())),
+                _ if imp.self_ty == ty => return Some((ImplId(i as u32), vec![])),
+                _ => {}
+            }
+        }
+        None
+    }
+
+    /// Does the concrete type `ty` implement `trait_id`? (generic parameters must have
+    /// been substituted; `dyn` types implement their trait and its supertraits)
+    pub fn implements_concrete(&self, ty: Ty, trait_id: TraitId) -> bool {
+        if let TyKind::Dyn(d) = &*self.tcx.kind(ty) {
+            return self.trait_closure(*d).contains(&trait_id);
+        }
+        match self.find_impl(trait_id, ty) {
+            Some((imp, args)) => self.impls[imp.idx()].bounds.iter().all(|b| self.implements_concrete(args[b.param as usize], b.trait_id)),
+            None => false,
+        }
+    }
+
+    /// Resolves a call of a trait method declaration for a concrete `Self` (`targs[0]`):
+    /// the implementing function and its type arguments. `None` for `dyn` receivers
+    /// (dynamic dispatch).
+    pub fn resolve_trait_method(&self, decl: FnId, targs: &[Ty]) -> Option<(FnId, Vec<Ty>)> {
+        let fd = self.func(decl);
+        let FnKind::TraitDecl(tr) = fd.kind else { return Some((decl, targs.to_vec())) };
+        let self_ty = targs[0];
+        if matches!(&*self.tcx.kind(self_ty), TyKind::Dyn(_)) {
+            return None;
+        }
+        let tdef = &self.traits[tr.idx()];
+        let m = tdef.method(&fd.name)?;
+        match self.find_impl(tr, self_ty) {
+            Some((imp, impl_args)) => match self.impls[imp.idx()].methods.get(&fd.name) {
+                Some(&f) => {
+                    let mut a = impl_args;
+                    a.extend_from_slice(&targs[1..]);
+                    Some((f, a))
+                }
+                None => m.default.map(|d| (d, targs.to_vec())),
+            },
+            None => None,
+        }
     }
 }
 

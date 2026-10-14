@@ -93,7 +93,7 @@ const TARGETS: &[(&str, &str, Os, Arch, u32, &str, &str, bool, bool)] = &[
     ("thumbv7em-none", "thumbv7em-none-eabihf", Os::None, Arch::Arm, 32, "cortex-m4", "+vfp4d16sp,+thumb-mode", false, false),
     ("thumbv7m-none", "thumbv7m-none-eabi", Os::None, Arch::Arm, 32, "cortex-m3", "+soft-float,+thumb-mode", false, false),
     ("riscv32-none", "riscv32-unknown-none-elf", Os::None, Arch::Riscv32, 32, "generic-rv32", "+m,+a,+c", false, false),
-    ("aarch64-none", "aarch64-unknown-none", Os::None, Arch::Aarch64, 64, "cortex-a53", "+neon", true, true),
+    ("aarch64-none", "aarch64-unknown-none", Os::None, Arch::Aarch64, 64, "cortex-a53", "+neon,+strict-align", true, true),
     ("riscv64-none", "riscv64-unknown-none-elf", Os::None, Arch::Riscv64, 64, "generic-rv64", "+m,+a,+f,+d,+c", true, true),
 ];
 

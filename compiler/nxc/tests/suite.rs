@@ -145,8 +145,8 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
 }
 
 /// Runs a bare-metal executable in QEMU (`NEXUL_QEMU` names its directory), with
-/// semihosting for the console, the command line and the exit code. The console mixes
-/// the standard output and the errors.
+/// semihosting for the console, the command line and the exit code. A program still
+/// running after 60 seconds is stopped.
 fn run_qemu(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::Output {
     use nxc_driver::Arch;
     let (system, machine): (&str, &[&str]) = match target.arch {
@@ -174,7 +174,32 @@ fn run_qemu(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::
         Some(i) => std::process::Stdio::from(std::fs::File::open(i).unwrap()),
         None => std::process::Stdio::null(),
     });
-    cmd.output().expect("run QEMU (set NEXUL_QEMU to its directory)")
+    cmd.stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().expect("run QEMU (set NEXUL_QEMU to its directory)");
+    let mut out_pipe = child.stdout.take().unwrap();
+    let mut err_pipe = child.stderr.take().unwrap();
+    let out_reader = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut out_pipe, &mut v);
+        v
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut v = Vec::new();
+        let _ = std::io::Read::read_to_end(&mut err_pipe, &mut v);
+        v
+    });
+    let start = std::time::Instant::now();
+    let status = loop {
+        if let Some(st) = child.try_wait().unwrap() {
+            break st;
+        }
+        if start.elapsed() > std::time::Duration::from_secs(60) {
+            let _ = child.kill();
+            break child.wait().unwrap();
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+    std::process::Output { status, stdout: out_reader.join().unwrap(), stderr: err_reader.join().unwrap() }
 }
 
 /// The programs of `tests/run` on other targets: `NEXUL_TEST_TARGETS=x86_64-linux,wasm32-wasi`.
@@ -207,13 +232,8 @@ fn run_programs_cross() {
             let mut f = Vec::new();
             let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
             let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
-            let mut expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
-            let mut expected_err = std::fs::read_to_string(nx.with_extension("stderr")).map(|s| normalize(&s)).unwrap_or_default();
-            if target.os == nxc_driver::Os::None {
-                // One console for both streams.
-                expected.push_str(&expected_err);
-                expected_err.clear();
-            }
+            let expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
+            let expected_err = std::fs::read_to_string(nx.with_extension("stderr")).map(|s| normalize(&s)).unwrap_or_default();
             if stdout != expected {
                 f.push(format!("[{}] {}: stdout differs\n--- expected ---\n{}\n--- actual ---\n{}", target.name, nx.display(), expected, stdout));
             }

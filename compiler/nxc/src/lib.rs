@@ -379,6 +379,9 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
         let key = cache_key(&[
             env!("CARGO_PKG_VERSION"),
             &opts.target.name,
+            &opts.target.llvm_triple,
+            &opts.target.cpu,
+            &opts.target.features,
             &opts.level().to_string(),
             if opts.debug_info { "g" } else { "" },
             &format!("{:?}", opts.kind),
