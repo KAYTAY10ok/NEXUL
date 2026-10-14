@@ -1,0 +1,10 @@
+{
+  "id": "todo",
+  "name": "Liste des TODO",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Recherche les commentaires TODO et FIXME dans les fichiers NEXUL du dossier et crée un fichier TODO.md.",
+  "author": "NEXUL",
+  "main": "main.js",
+  "permissions": ["commands", "workspace.read", "workspace.write", "notifications"]
+}

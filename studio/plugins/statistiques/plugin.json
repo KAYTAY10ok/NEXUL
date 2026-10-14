@@ -1,0 +1,10 @@
+{
+  "id": "statistiques",
+  "name": "Statistiques du fichier",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Affiche dans la barre d'état le nombre de lignes et de fonctions du fichier ouvert.",
+  "author": "NEXUL",
+  "main": "main.js",
+  "permissions": ["editor.read", "statusbar"]
+}

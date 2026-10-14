@@ -236,6 +236,9 @@ class Editor {
     ta.addEventListener('mouseup', sel);
     ta.addEventListener('focus', sel);
     ta.addEventListener('mousedown', () => this.closeCompletion());
+    ta.addEventListener('mouseup', (e) => {
+      if ((e.ctrlKey || e.metaKey) && this.hooks.definition && ta.selectionStart === ta.selectionEnd) this.hooks.definition(this);
+    });
     this.onSelChange = () => { if (document.activeElement === ta) this.onSelect(); };
     document.addEventListener('selectionchange', this.onSelChange);
     ta.addEventListener('blur', () => {
@@ -252,6 +255,11 @@ class Editor {
     this.gutter.addEventListener('mousedown', (e) => {
       e.preventDefault();
       const l = this.lineAtY(e.clientY);
+      // The left margin of the gutter toggles a breakpoint.
+      if (this.hooks.toggleBreakpoint && e.clientX - this.gutter.getBoundingClientRect().left < 18 && l < this.lines.length) {
+        this.hooks.toggleBreakpoint(this, l);
+        return;
+      }
       const a = this.starts[l], b = l + 1 < this.lines.length ? this.starts[l + 1] : a + this.lines[l].length;
       ta.focus({ preventScroll: true });
       ta.setSelectionRange(a, b);
@@ -589,14 +597,17 @@ class Editor {
       this.textEl.innerHTML = html;
       this.textEl.style.transform = `translateY(${first * lh}px)`;
     }
-    const gkey = tkey + ':' + cl;
+    const bps = this.breakpoints || new Set();
+    const gkey = tkey + ':' + cl + ':' + [...bps].join(',') + ':' + this.debugLine;
     if (gkey !== this.gkey) {
       this.gkey = gkey;
       let g = '';
       for (let i = first; i <= last; i++) {
         const marks = this.diagLines.get(i);
         const mark = marks ? `<span class="gmark ${marks.some((m) => m.err) ? 'err' : 'warn'}"></span>` : '';
-        g += `<div class="gl${i === cl ? ' active' : ''}">${i + 1}${mark}</div>`;
+        const bp = bps.has(i) ? '<span class="gbp"></span>' : '';
+        const cur = i === this.debugLine ? '<span class="gdbg"></span>' : '';
+        g += `<div class="gl${i === cl ? ' active' : ''}">${bp}${cur}${i + 1}${mark}</div>`;
       }
       this.gutterInner.innerHTML = g;
     }
@@ -605,6 +616,9 @@ class Editor {
     const ss = ta.selectionStart, se = ta.selectionEnd;
     let d = '';
     if (ss === se) d += `<div class="deco deco-line" style="top:${cl * lh}px;height:${lh}px"></div>`;
+    if (this.debugLine !== undefined && this.debugLine !== null && this.debugLine >= first && this.debugLine <= last) {
+      d += `<div class="deco deco-debug" style="top:${this.debugLine * lh}px;height:${lh}px"></div>`;
+    }
     if (this.lang !== 'text' && this.lang !== 'md') d += this.indentGuides(first, last);
     d += this.findDecos(first, last);
     if (ss === se && document.activeElement === ta) {
@@ -1034,6 +1048,9 @@ class Editor {
       return stop();
     }
     if (k === 'F3') { this.findNext(e.shiftKey ? -1 : 1); return stop(); }
+    if (k === 'F12' && !ctrl && this.hooks.definition) { if (e.shiftKey) this.hooks.references(this); else this.hooks.definition(this); return stop(); }
+    if (k === 'F2' && !ctrl && !e.shiftKey && this.hooks.rename) { this.hooks.rename(this); return stop(); }
+    if ((k === 'F' || k === 'f') && e.shiftKey && e.altKey && !ctrl && this.hooks.format) { this.hooks.format(this); return stop(); }
     if (k === 'Tab' && !ctrl && !e.altKey) { this.onTab(e.shiftKey); return stop(); }
     if (k === 'Enter' && !ctrl && !e.altKey) { this.onEnter(); return stop(); }
     if (k === 'Backspace' && !ctrl && !e.altKey && !e.shiftKey) { if (this.onBackspace()) stop(); return; }
@@ -1745,9 +1762,31 @@ class Editor {
     return { from: pos - prefix.length, line, prefix, items };
   }
 
-  openCompletion(manual) {
+  /* 1-based position of the caret for the compiler (columns count code points). */
+  caretPosition() {
+    const pos = this.ta.selectionStart;
+    const line = this.lineOf(pos);
+    const t = this.lines[line];
+    return { line: line + 1, col: [...t.slice(0, pos - this.starts[line])].length + 1 };
+  }
+
+  openCompletion(manual, extra) {
     const ctx = this.completionContext(manual);
     if (!ctx) return this.closeCompletion();
+    if (extra) ctx.items = extra.concat(ctx.items);
+    // The compiler's suggestions (types, members) arrive a little later.
+    if (!extra && this.lang === 'nexul' && this.hooks.complete) {
+      const at = ctx.from, version = this.version;
+      const before = this.lines[ctx.line].slice(0, at - this.starts[ctx.line]);
+      if (manual || ctx.prefix.length >= 1 || before.endsWith('.')) {
+        this.hooks.complete(this).then((items) => {
+          if (!items || !items.length || this.version !== version || this.ta.selectionStart < at) return;
+          const cur = this.completionContext(true);
+          if (!cur || cur.from !== at) return;
+          this.openCompletion(true, items);
+        }).catch(() => {});
+      }
+    }
     const p = ctx.prefix.toLowerCase();
     const seen = new Set();
     let list = [];
@@ -1783,6 +1822,7 @@ class Editor {
       document.body.appendChild(el);
       this.cmpEl = el;
     }
+    this.cmpEl.title = '';
     this.cmpEl.innerHTML = c.items.map((x, i) => {
       const [kc, kl] = KIND_BADGE[x.it.kind] || KIND_BADGE.var;
       return `<div class="cmp-item${i === c.index ? ' active' : ''}" data-i="${i}"><span class="cmp-kind ${kc}">${kl}</span>` +
@@ -1859,7 +1899,26 @@ class Editor {
       k++;
     }
     const hit = vx < 0 ? null : this.diagAt(line, k);
-    if (!hit) return this.hideHoverSoon();
+    if (!hit) {
+      if (this.lang === 'nexul' && this.hooks.hoverInfo && vx >= 0 && k < t.length && /[\w]/.test(t[k])) {
+        const key = line + ':' + k + ':' + this.version;
+        let s = k;
+        while (s > 0 && /[\w]/.test(t[s - 1])) s--;
+        const wkey = line + ':' + s + ':' + this.version;
+        if (this.infoKey === wkey && this.tipEl) { clearTimeout(this.hideTimer); return; }
+        this.hideHoverSoon();
+        const y = r.top + (line + 1) * lh - this.ta.scrollTop;
+        this.hoverTimer = setTimeout(() => {
+          const col = [...t.slice(0, k)].length + 1;
+          this.hooks.hoverInfo(this, line + 1, col).then((info) => {
+            if (!info || !info.code || key.split(':')[2] !== String(this.version)) return;
+            this.showInfo(info, e.clientX, y, wkey);
+          }).catch(() => {});
+        }, 450);
+        return;
+      }
+      return this.hideHoverSoon();
+    }
     if (this.hoverDiag === hit.d && this.tipEl) { clearTimeout(this.hideTimer); return; }
     this.hoverTimer = setTimeout(() => this.showHover(hit.d, e.clientX, r.top + (line + 1) * lh - this.ta.scrollTop), 300);
   }
@@ -1891,6 +1950,27 @@ class Editor {
     this.hoverDiag = d;
   }
 
+  /* A tooltip with a code line (signature, type) and its documentation. */
+  showInfo(info, x, y, key) {
+    this.hideHover();
+    const tip = document.createElement('div');
+    tip.className = 'hover-tip info-tip';
+    let html = `<pre class="tip-code-block">${escHtml(info.code)}</pre>`;
+    if (info.doc && info.doc !== 'variable' && info.doc !== 'parameter') html += `<div class="tip-doc">${fmtMsg(info.doc).replace(/\n/g, '<br>')}</div>`;
+    else if (info.doc) html += `<div class="tip-note">${info.doc === 'parameter' ? 'paramètre' : 'variable locale'}</div>`;
+    tip.innerHTML = html;
+    document.body.appendChild(tip);
+    const w = tip.offsetWidth, h = tip.offsetHeight;
+    let top = y + 4;
+    if (top + h > innerHeight - 8) top = y - Editor.metrics.lh - h - 6;
+    tip.style.left = clamp(x - 24, 8, innerWidth - w - 8) + 'px';
+    tip.style.top = Math.max(8, top) + 'px';
+    tip.addEventListener('mouseenter', () => clearTimeout(this.hideTimer));
+    tip.addEventListener('mouseleave', () => this.hideHoverSoon());
+    this.tipEl = tip;
+    this.infoKey = key;
+  }
+
   hideHoverSoon() {
     clearTimeout(this.hoverTimer);
     clearTimeout(this.hideTimer);
@@ -1901,5 +1981,6 @@ class Editor {
     clearTimeout(this.hideTimer);
     if (this.tipEl) { this.tipEl.remove(); this.tipEl = null; }
     this.hoverDiag = null;
+    this.infoKey = null;
   }
 }

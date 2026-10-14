@@ -1,0 +1,10 @@
+{
+  "id": "horodatage",
+  "name": "Horodatage",
+  "version": "1.0.0",
+  "apiVersion": "1",
+  "description": "Insère la date et l'heure à l'emplacement du curseur.",
+  "author": "NEXUL",
+  "main": "main.js",
+  "permissions": ["commands", "editor.write"]
+}

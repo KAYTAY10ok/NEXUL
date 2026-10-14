@@ -863,8 +863,31 @@ pub fn completion(path: &Path, text: &str, line: usize, col: usize) -> String {
         let dot = ps - 1;
         let rs = receiver_start(text, dot);
         let receiver = text[rs..dot].to_string();
-        // Analyze the text without `.prefix`: the receiver becomes a complete expression.
-        let edited = format!("{}{}", &text[..dot], &text[off.min(text.len())..]);
+        // Analyze the text without the member being written (`.name(args)`): the receiver
+        // becomes a complete expression.
+        let mut tail = off.min(b.len());
+        while tail < b.len() && is_ident(b[tail] as char) {
+            tail += 1;
+        }
+        if tail < b.len() && b[tail] == b'(' {
+            let mut depth = 0;
+            while tail < b.len() {
+                match b[tail] {
+                    b'(' => depth += 1,
+                    b')' => {
+                        depth -= 1;
+                        if depth == 0 {
+                            tail += 1;
+                            break;
+                        }
+                    }
+                    b'\n' => break,
+                    _ => {}
+                }
+                tail += 1;
+            }
+        }
+        let edited = format!("{}{}", &text[..dot], &text[tail..]);
         let Some(a) = analyze(path, Some(edited)) else { return "[]".into() };
         return items_json(member_items(&a, rs as u32, dot as u32, &receiver));
     }
@@ -880,7 +903,7 @@ fn member_items(a: &Analysis, start: u32, end: u32, receiver: &str) -> Vec<Item>
     for body in a.user_bodies() {
         let mut visit = |n: Node| {
             if let Node::Expr(e) = n {
-                if e.span.file == a.file && e.span.hi == end && e.span.lo >= start && e.span.len() < best_len.min(u32::MAX) && e.span.lo == start {
+                if e.span.file == a.file && e.span.hi == end && e.span.lo >= start && e.span.len() <= best_len && e.span.lo == start {
                     best_len = e.span.len();
                     found = Some(e.ty);
                 }

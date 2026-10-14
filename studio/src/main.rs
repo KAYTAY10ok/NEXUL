@@ -11,6 +11,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod debug;
 mod http;
 mod runner;
 
@@ -29,6 +30,8 @@ const STYLE_CSS: &str = include_str!("../ui/style.css");
 const LANGS_JS: &str = include_str!("../ui/langs.js");
 const EDITOR_JS: &str = include_str!("../ui/editor.js");
 const APP_JS: &str = include_str!("../ui/app.js");
+const IDE_JS: &str = include_str!("../ui/ide.js");
+const PLUGINS_JS: &str = include_str!("../ui/plugins.js");
 
 /// Directories never shown nor searched.
 const IGNORED: &[&str] = &[".git", "target", "node_modules", ".nxc-cache", ".vs", ".idea", "__pycache__"];
@@ -42,6 +45,9 @@ struct State {
     last_ping: Mutex<Option<Instant>>,
     runs: Mutex<Runs>,
     tmp_counter: AtomicU64,
+    debugger: Mutex<Option<debug::Debugger>>,
+    /// A file to open at start (given on the command line), relative to `root`.
+    start_file: Mutex<Option<String>>,
 }
 
 fn random_token() -> String {
@@ -63,9 +69,16 @@ fn config_dir() -> PathBuf {
     dir
 }
 
-/// Finds the NEXUL compiler.
+/// Finds the NEXUL compiler: next to the Studio (installation), then the environment
+/// and a development checkout.
 fn find_nxc() -> Option<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("nxc.exe"));
+            candidates.push(dir.join("bin").join("nxc.exe"));
+        }
+    }
     if let Some(p) = std::env::var_os("NEXUL_NXC") {
         candidates.push(PathBuf::from(p));
     }
@@ -101,7 +114,35 @@ fn main() {
         last_ping: Mutex::new(None),
         runs: Mutex::new(Runs::default()),
         tmp_counter: AtomicU64::new(0),
+        debugger: Mutex::new(None),
+        start_file: Mutex::new(None),
     });
+    // `NEXUL Studio.exe <folder>` or `<file>`: open it (file association of `.nx`).
+    if let Some(arg) = args.iter().skip(1).find(|a| !a.starts_with("--") && a.parse::<u16>().is_err()) {
+        let p = PathBuf::from(arg);
+        let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
+        if p.is_dir() {
+            *state.root.lock().unwrap() = Some(p);
+        } else if p.is_file() {
+            if let (Some(dir), Some(name)) = (p.parent(), p.file_name()) {
+                // The project of the file (nexul.toml), else its folder.
+                let mut root = dir.to_path_buf();
+                let mut probe = dir.to_path_buf();
+                loop {
+                    if probe.join("nexul.toml").is_file() {
+                        root = probe.clone();
+                        break;
+                    }
+                    if !probe.pop() {
+                        break;
+                    }
+                }
+                let rel = p.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| name.to_string_lossy().to_string());
+                *state.root.lock().unwrap() = Some(root);
+                *state.start_file.lock().unwrap() = Some(rel);
+            }
+        }
+    }
     let url = format!("http://127.0.0.1:{}/?t={}", port, state.token);
 
     // Watchdog: the server stops a little after the window is closed (or if the window
@@ -228,6 +269,8 @@ fn route(req: &Request, st: &State) -> Response {
         "/static/langs.js" => Response::new(200, "text/javascript; charset=utf-8", ui_file("langs.js", LANGS_JS)),
         "/static/editor.js" => Response::new(200, "text/javascript; charset=utf-8", ui_file("editor.js", EDITOR_JS)),
         "/static/app.js" => Response::new(200, "text/javascript; charset=utf-8", ui_file("app.js", APP_JS)),
+        "/static/ide.js" => Response::new(200, "text/javascript; charset=utf-8", ui_file("ide.js", IDE_JS)),
+        "/static/plugins.js" => Response::new(200, "text/javascript; charset=utf-8", ui_file("plugins.js", PLUGINS_JS)),
         "/live-reload" => Response::text(200, &st.live_version.load(Ordering::SeqCst).to_string()),
         "/favicon.ico" => Response::new(200, "image/x-icon", FAVICON),
         _ if path.starts_with("/live/") || path == "/live" => live(req, st),
@@ -319,13 +362,14 @@ fn state_json(st: &State) -> String {
         None => "[]".into(),
     };
     format!(
-        "{{\"root\":{},\"rootName\":{},\"nxc\":{},\"port\":{},\"tree\":{},\"sep\":{}}}",
+        "{{\"root\":{},\"rootName\":{},\"nxc\":{},\"port\":{},\"tree\":{},\"sep\":{},\"startFile\":{}}}",
         root.as_ref().map(|r| json_str(&r.to_string_lossy())).unwrap_or_else(|| "null".into()),
         root.as_ref().and_then(|r| r.file_name()).map(|n| json_str(&n.to_string_lossy())).unwrap_or_else(|| "null".into()),
         nxc.as_ref().map(|r| json_str(&r.to_string_lossy())).unwrap_or_else(|| "null".into()),
         st.port,
         tree,
-        json_str(std::path::MAIN_SEPARATOR_STR)
+        json_str(std::path::MAIN_SEPARATOR_STR),
+        st.start_file.lock().unwrap().take().map(|f| json_str(&f)).unwrap_or_else(|| "null".into())
     )
 }
 
@@ -478,6 +522,53 @@ fn api(req: &Request, st: &State) -> Response {
             ("POST", "run/kill") => {
                 let id: u32 = req.q("id").parse().unwrap_or(0);
                 st.runs.lock().unwrap().kill(id);
+                Response::json("{}".into())
+            }
+            // Editor services of the compiler (`nxc ide`), on the text being edited.
+            ("POST", "ide") => ide(st, req)?,
+            ("GET", "std-source") => {
+                let nxc = st.nxc.lock().unwrap().clone().ok_or_else(|| Response::error(400, "compilateur nxc introuvable"))?;
+                let module = req.q("module");
+                if !module.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_') {
+                    return Err(Response::error(400, "module invalide"));
+                }
+                let out = command(&nxc, &["ide".into(), "std-source".into(), module], &std::env::temp_dir()).output().map_err(|e| Response::error(500, &e.to_string()))?;
+                Response::new(200, "text/plain; charset=utf-8", out.stdout)
+            }
+            ("GET", "pkg") => pkg_list(st)?,
+            ("POST", "pkg") => pkg_command(st, req)?,
+            ("POST", "debug/launch") => debug_launch(st, req)?,
+            ("POST", "debug/send") => {
+                let mut dbg = st.debugger.lock().unwrap();
+                let d = dbg.as_mut().ok_or_else(|| Response::error(400, "aucune session de débogage"))?;
+                d.send(&req.body_text()).map_err(|e| Response::error(500, &e.to_string()))?;
+                Response::json("{}".into())
+            }
+            ("GET", "debug/poll") => {
+                let from: usize = req.q("from").parse().unwrap_or(0);
+                let dbg = st.debugger.lock().unwrap();
+                match dbg.as_ref() {
+                    Some(d) => {
+                        let msgs = d.messages.lock().unwrap();
+                        let chunk: Vec<&str> = msgs.iter().skip(from).map(|s| s.as_str()).collect();
+                        let done = *d.done.lock().unwrap();
+                        Response::json(format!("{{\"next\":{},\"done\":{},\"messages\":[{}]}}", msgs.len(), done, chunk.join(",")))
+                    }
+                    None => Response::json("{\"next\":0,\"done\":true,\"messages\":[]}".into()),
+                }
+            }
+            ("POST", "debug/stop") => {
+                if let Some(mut d) = st.debugger.lock().unwrap().take() {
+                    d.stop();
+                }
+                Response::json("{}".into())
+            }
+            ("GET", "plugins") => plugins_list()?,
+            ("GET", "plugin-file") => plugin_file(&req.q("id"), &req.q("file"))?,
+            ("POST", "plugins/open-folder") => {
+                let dir = config_dir().join("plugins");
+                let _ = std::fs::create_dir_all(&dir);
+                let _ = std::process::Command::new("explorer").arg(&dir).spawn();
                 Response::json("{}".into())
             }
             ("GET", "explain") => {
@@ -654,12 +745,19 @@ fn start_run(st: &State, rel: &str, kind: &str, args: &str) -> Result<Response, 
     let mut steps = Vec::new();
     let mut cleanup = Vec::new();
     match kind {
-        "test" => steps.push(Step {
-            banner: format!("\u{1b}[36m▶ nxc test {}\u{1b}[0m\n", name),
-            cmd: command(&nxc, &["test".into(), file], &dir),
-            interactive: false,
-            report: None,
-        }),
+        "test" => {
+            let mut argv = vec!["test".to_string(), file];
+            let filter = args.trim();
+            if !filter.is_empty() {
+                argv.push(filter.to_string());
+            }
+            steps.push(Step {
+                banner: format!("\u{1b}[36m▶ nxc test {}{}\u{1b}[0m\n", name, if filter.is_empty() { String::new() } else { format!(" {}", filter) }),
+                cmd: command(&nxc, &argv, &dir),
+                interactive: false,
+                report: None,
+            })
+        }
         "build" => {
             let stem = p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "programme".into());
             let out = dir.join(format!("{}.exe", stem));
@@ -686,6 +784,205 @@ fn start_run(st: &State, rel: &str, kind: &str, args: &str) -> Result<Response, 
     }
     let id = st.runs.lock().unwrap().start(steps, cleanup);
     Ok(Response::json(format!("{{\"id\":{}}}", id)))
+}
+
+// ---------------------------------------------------------------------------
+// Editor services, packages, debugging, plugins
+
+/// Runs a command with `input` on its standard input; returns its standard output.
+fn run_with_input(mut cmd: std::process::Command, input: &[u8]) -> Result<Vec<u8>, Response> {
+    use std::io::Write;
+    use std::process::Stdio;
+    cmd.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = cmd.spawn().map_err(|e| Response::error(500, &format!("impossible de lancer nxc : {}", e)))?;
+    if let Some(mut si) = child.stdin.take() {
+        let data = input.to_vec();
+        std::thread::spawn(move || {
+            let _ = si.write_all(&data);
+        });
+    }
+    let out = child.wait_with_output().map_err(|e| Response::error(500, &e.to_string()))?;
+    Ok(out.stdout)
+}
+
+const IDE_REQUESTS: &[&str] = &["hover", "definition", "completion", "references", "rename", "symbols", "tests", "format"];
+
+/// `nxc ide <req> <file> <line> <col> [name] --stdin`, the body being the editor's text.
+fn ide(st: &State, req: &Request) -> Result<Response, Response> {
+    let nxc = st.nxc.lock().unwrap().clone().ok_or_else(|| Response::error(400, "compilateur nxc introuvable"))?;
+    let kind = req.q("req");
+    if !IDE_REQUESTS.contains(&kind.as_str()) {
+        return Err(Response::error(400, "requête inconnue"));
+    }
+    let p = resolve(st, &req.q("path"))?;
+    let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let mut argv = vec!["ide".to_string(), kind.clone(), p.to_string_lossy().to_string()];
+    for k in ["line", "col"] {
+        let v = req.q(k);
+        argv.push(if v.chars().all(|c| c.is_ascii_digit()) && !v.is_empty() { v } else { "1".into() });
+    }
+    if kind == "rename" {
+        let name = req.q("name");
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(Response::error(400, "nom invalide"));
+        }
+        argv.push(name);
+    }
+    argv.push("--stdin".into());
+    let out = run_with_input(command(&nxc, &argv, &dir), &req.body)?;
+    if kind == "format" {
+        return Ok(Response::new(200, "text/plain; charset=utf-8", out));
+    }
+    let text = String::from_utf8_lossy(&out).trim().to_string();
+    Ok(Response::json(if text.is_empty() { "null".into() } else { text }))
+}
+
+fn nxpm_path(st: &State) -> Option<PathBuf> {
+    let nxc = st.nxc.lock().unwrap().clone()?;
+    let p = nxc.with_file_name("nxpm.exe");
+    if p.is_file() {
+        Some(p)
+    } else {
+        None
+    }
+}
+
+/// The project (`nexul.toml`) of the open folder and its dependencies.
+fn pkg_list(st: &State) -> Result<Response, Response> {
+    let root = st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "aucun dossier ouvert"))?;
+    if !root.join("nexul.toml").is_file() {
+        return Ok(Response::json("{\"project\":null}".into()));
+    }
+    let nxpm = nxpm_path(st).ok_or_else(|| Response::error(400, "nxpm introuvable à côté de nxc"))?;
+    let out = command(&nxpm, &["list".into(), "--json".into()], &root).output().map_err(|e| Response::error(500, &e.to_string()))?;
+    let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    if !text.starts_with('{') {
+        return Err(Response::error(500, String::from_utf8_lossy(&out.stderr).trim()));
+    }
+    Ok(Response::json(text))
+}
+
+/// A package command, run in the terminal: init, add, remove, install, update, verify.
+fn pkg_command(st: &State, req: &Request) -> Result<Response, Response> {
+    let root = st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "aucun dossier ouvert"))?;
+    let nxpm = nxpm_path(st).ok_or_else(|| Response::error(400, "nxpm introuvable à côté de nxc"))?;
+    let cmd = req.q("cmd");
+    let mut argv = vec![cmd.clone()];
+    let safe = |s: &str| !s.is_empty() && !s.starts_with('-') && !s.contains('\n');
+    match cmd.as_str() {
+        "init" | "install" | "update" | "verify" => {}
+        "remove" => argv.push(req.q("name")),
+        "add" => {
+            argv.push(req.q("name"));
+            if !req.q("path").is_empty() {
+                argv.push("--path".into());
+                argv.push(req.q("path"));
+            } else {
+                argv.push("--git".into());
+                argv.push(req.q("git"));
+                for k in ["tag", "rev", "branch"] {
+                    if !req.q(k).is_empty() {
+                        argv.push(format!("--{}", k));
+                        argv.push(req.q(k));
+                    }
+                }
+            }
+        }
+        _ => return Err(Response::error(400, "commande inconnue")),
+    }
+    if !argv.iter().skip(1).all(|a| a.starts_with("--") || safe(a)) {
+        return Err(Response::error(400, "paramètres invalides"));
+    }
+    let banner = format!("\u{1b}[36m▶ nxpm {}\u{1b}[0m\n", argv.join(" "));
+    let id = st.runs.lock().unwrap().start(vec![Step { banner, cmd: command(&nxpm, &argv, &root), interactive: false, report: None }], vec![]);
+    Ok(Response::json(format!("{{\"id\":{}}}", id)))
+}
+
+/// Builds the program with debugging information and starts `lldb-dap`. The interface
+/// then sends `initialize`, `launch` and the breakpoints.
+fn debug_launch(st: &State, req: &Request) -> Result<Response, Response> {
+    let nxc = st.nxc.lock().unwrap().clone().ok_or_else(|| Response::error(400, "compilateur nxc introuvable"))?;
+    let adapter = debug::find_adapter(Some(&nxc)).ok_or_else(|| Response::error(400, "lldb-dap introuvable : installez le composant « Débogueur » de NEXUL"))?;
+    let p = resolve(st, &req.q("path"))?;
+    let dir = p.parent().map(|d| d.to_path_buf()).unwrap_or_default();
+    let stem = p.file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "programme".into());
+    let out_dir = std::env::temp_dir().join("nexul-studio-debug");
+    let _ = std::fs::create_dir_all(&out_dir);
+    let exe = out_dir.join(format!("{}.exe", stem));
+    let out = command(&nxc, &["build".into(), p.to_string_lossy().to_string(), "-o".into(), exe.to_string_lossy().to_string()], &dir)
+        .output()
+        .map_err(|e| Response::error(500, &e.to_string()))?;
+    if !out.status.success() {
+        let msg = String::from_utf8_lossy(&out.stderr).to_string();
+        return Ok(Response::json(format!("{{\"error\":{}}}", json_str(&msg))));
+    }
+    if let Some(mut old) = st.debugger.lock().unwrap().take() {
+        old.stop();
+    }
+    let d = debug::Debugger::start(&adapter).map_err(|e| Response::error(500, &format!("lldb-dap : {}", e)))?;
+    *st.debugger.lock().unwrap() = Some(d);
+    let root = st.root.lock().unwrap().clone().unwrap_or_default();
+    Ok(Response::json(format!(
+        "{{\"program\":{},\"cwd\":{},\"root\":{},\"sep\":{}}}",
+        json_str(&exe.to_string_lossy()),
+        json_str(&dir.to_string_lossy()),
+        json_str(&root.to_string_lossy()),
+        json_str(std::path::MAIN_SEPARATOR_STR)
+    )))
+}
+
+/// Plugins: `%APPDATA%\NEXUL Studio\plugins\<id>` and the ones installed with the Studio
+/// (`plugins\<id>` next to it). Each holds `plugin.json` and its script.
+fn plugin_dirs() -> Vec<(PathBuf, bool)> {
+    let mut v = Vec::new();
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(d) = exe.parent() {
+            v.push((d.join("plugins"), true));
+        }
+    }
+    v.push((Path::new(env!("CARGO_MANIFEST_DIR")).join("plugins"), true));
+    v.push((config_dir().join("plugins"), false));
+    v
+}
+
+fn valid_plugin_id(id: &str) -> bool {
+    !id.is_empty() && id.len() < 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.') && !id.starts_with('.')
+}
+
+fn plugins_list() -> Result<Response, Response> {
+    let mut items = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for (dir, builtin) in plugin_dirs() {
+        let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+        let mut entries: Vec<_> = rd.flatten().collect();
+        entries.sort_by_key(|e| e.file_name());
+        for e in entries {
+            let id = e.file_name().to_string_lossy().to_string();
+            if !valid_plugin_id(&id) || !seen.insert(id.clone()) {
+                continue;
+            }
+            let Ok(manifest) = std::fs::read_to_string(e.path().join("plugin.json")) else { continue };
+            if !manifest.trim_start().starts_with('{') {
+                continue;
+            }
+            items.push(format!("{{\"id\":{},\"builtin\":{},\"manifest\":{}}}", json_str(&id), builtin, manifest.trim()));
+        }
+    }
+    Ok(Response::json(format!("[{}]", items.join(","))))
+}
+
+fn plugin_file(id: &str, file: &str) -> Result<Response, Response> {
+    if !valid_plugin_id(id) || !valid_plugin_id(file) {
+        return Err(Response::error(400, "nom invalide"));
+    }
+    for (dir, _) in plugin_dirs() {
+        let p = dir.join(id).join(file);
+        if p.is_file() {
+            let bytes = std::fs::read(&p).map_err(|e| Response::error(500, &e.to_string()))?;
+            return Ok(Response::new(200, mime(&p.to_string_lossy()), bytes));
+        }
+    }
+    Err(Response::error(404, "fichier introuvable"))
 }
 
 // ---------------------------------------------------------------------------

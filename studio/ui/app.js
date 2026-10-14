@@ -2334,6 +2334,7 @@ function openSettings() {
       setting('Indentation', "Nombre d'espaces par niveau.", seg('tabSize', [[2, '2 espaces'], [4, '4 espaces']])),
       setting('Enregistrement automatique', 'Enregistre les fichiers pendant que vous tapez.', sw('autoSave')),
       setting('Vérifier à l\'enregistrement', 'Analyse les fichiers NEXUL et souligne les erreurs.', sw('checkOnSave')),
+      setting('Mettre en forme à l\'enregistrement', 'Indente et espace le code NEXUL (comme nxc fmt) à chaque Ctrl+S.', sw('formatOnSave')),
       setting('Fermeture automatique', 'Ajoute ) ] } " \' après leur ouverture.', sw('autoClose')),
       setting('Surligner le mot courant', 'Montre les autres occurrences du mot sous le curseur.', sw('wordHighlight')),
       setting('Minimap', 'Vue miniature du fichier à droite.', sw('minimap')),
@@ -2408,6 +2409,8 @@ async function init() {
     try { applyState(await api.post('open-folder', { path: settings.lastRoot })); } catch (e) { /* folder moved */ }
   }
   if (S.root) { rememberRoot(); await restoreSession(); }
+  // A file given on the command line (double click on a .nx file).
+  if (st.startFile && S.root) await openFile(st.startFile);
   renderWelcome();
   updateStatus();
   api.post('ping').catch(() => {});

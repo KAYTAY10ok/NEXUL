@@ -54,8 +54,8 @@ function scanNumber(line, i) {
 
 /* ------------------------------------------------------------------ NEXUL */
 
-const NX_KW = new Set(['and', 'as', 'const', 'enum', 'extern', 'fn', 'impl', 'import', 'in', 'indirect', 'inout', 'let', 'module', 'move', 'not', 'or', 'owned', 'pub', 'struct', 'type', 'unsafe', 'var',
-  'async', 'await', 'class', 'defer', 'dyn', 'interface', 'loop', 'macro', 'ref', 'static', 'trait', 'try', 'union', 'where', 'yield']);
+const NX_KW = new Set(['and', 'as', 'const', 'dyn', 'enum', 'extern', 'fn', 'impl', 'import', 'in', 'indirect', 'inout', 'let', 'module', 'move', 'not', 'or', 'owned', 'pub', 'static', 'struct', 'trait', 'type', 'unsafe', 'var', 'where',
+  'async', 'await', 'class', 'defer', 'interface', 'loop', 'macro', 'ref', 'try', 'yield']);
 const NX_CTL = new Set(['if', 'else', 'match', 'for', 'while', 'return', 'break', 'continue']);
 const NX_TYPES = new Set(['i8', 'i16', 'i32', 'i64', 'isize', 'u8', 'u16', 'u32', 'u64', 'usize', 'f32', 'f64', 'bool', 'char', 'Never', 'Ptr']);
 
@@ -534,6 +534,13 @@ const NX_SNIPPETS = [
   { label: 'struct', detail: 'structure', body: 'struct ${1:Nom} {\n\t$0\n}' },
   { label: 'enum', detail: 'énumération', body: 'enum ${1:Nom} {\n\t$0\n}' },
   { label: 'impl', detail: 'méthodes', body: 'impl ${1:Nom} {\n\t$0\n}' },
+  { label: 'trait', detail: 'trait (interface)', body: 'trait ${1:Nom} {\n\tfn ${2:methode}(self) -> ${3:String}\n}' },
+  { label: 'implfor', detail: 'implémenter un trait', body: 'impl ${1:Trait} for ${2:Type} {\n\t$0\n}' },
+  { label: 'display', detail: 'impl Display', body: 'impl Display for ${1:Type} {\n\tfn to_string(self) -> String {\n\t\treturn "$0"\n\t}\n}' },
+  { label: 'derive', detail: '@derive(...)', body: '@derive(${1:Eq, Clone, Display})' },
+  { label: 'closure', detail: 'fonction anonyme', body: 'fn(${1:x}) => $0' },
+  { label: 'whilelet', detail: 'while let', body: 'while let Some(${1:x}) = ${2:pile.pop()} {\n\t$0\n}' },
+  { label: 'map', detail: 'Map (table de hachage)', body: 'var ${1:table}: Map[${2:String}, ${3:i32}] = Map.new()' },
   { label: 'if', detail: 'condition', body: 'if ${1:condition} {\n\t$0\n}' },
   { label: 'ife', detail: 'si / sinon', body: 'if ${1:condition} {\n\t$0\n} else {\n}' },
   { label: 'iflet', detail: 'if let', body: 'if let Some(${1:x}) = ${2:option} {\n\t$0\n}' },
@@ -548,8 +555,9 @@ const NX_SNIPPETS = [
 
 const NX_WORDS = [
   ...['let', 'var', 'fn', 'return', 'if', 'else', 'match', 'for', 'while', 'in', 'break', 'continue', 'struct', 'enum', 'impl', 'import', 'pub', 'const', 'type',
-    'inout', 'owned', 'move', 'unsafe', 'extern', 'indirect', 'and', 'or', 'not', 'as', 'true', 'false', 'self', 'Self'].map((w) => ({ label: w, kind: 'kw' })),
-  ...['i8', 'i16', 'i32', 'i64', 'isize', 'u8', 'u16', 'u32', 'u64', 'usize', 'f32', 'f64', 'bool', 'char', 'String', 'Vec', 'Option', 'Result', 'Ptr', 'Never']
+    'inout', 'owned', 'move', 'unsafe', 'extern', 'indirect', 'and', 'or', 'not', 'as', 'true', 'false', 'self', 'Self', 'trait', 'dyn', 'where', 'static'].map((w) => ({ label: w, kind: 'kw' })),
+  ...['i8', 'i16', 'i32', 'i64', 'isize', 'u8', 'u16', 'u32', 'u64', 'usize', 'f32', 'f64', 'bool', 'char', 'String', 'Vec', 'Option', 'Result', 'Ptr', 'Never',
+    'Map', 'Set', 'Ordering', 'Eq', 'Ord', 'Clone', 'Display', 'Hash', 'Default']
     .map((w) => ({ label: w, kind: 'type' })),
   ...[['Some', 'Option'], ['None', 'Option'], ['Ok', 'Result'], ['Err', 'Result']].map(([w, d]) => ({ label: w, kind: 'type', detail: d })),
   ...[['println', 'affiche puis passe à la ligne'], ['print', 'affiche'], ['eprintln', 'affiche sur la sortie d\'erreur'], ['panic', 'arrête le programme'],
@@ -563,7 +571,7 @@ const NX_MEMBERS = {
   Option: ['is_some', 'is_none', 'unwrap', 'expect', 'unwrap_or', 'take'],
   Result: ['is_ok', 'is_err', 'unwrap', 'unwrap_err', 'expect', 'unwrap_or', 'ok', 'err'],
   num: ['abs', 'min', 'max', 'pow', 'to_string', 'sqrt', 'floor', 'ceil', 'round', 'trunc', 'sin', 'cos', 'tan', 'exp', 'ln', 'log10', 'log2', 'powf', 'is_nan'],
-  std: ['io', 'system', 'time', 'math', 'mem'],
+  std: ['io', 'system', 'time', 'math', 'mem', 'random', 'collections'],
   io: ['read_line', 'read_file', 'write_file', 'append_file', 'flush'],
   system: ['args', 'exit', 'env'],
   time: ['monotonic_ns'],
