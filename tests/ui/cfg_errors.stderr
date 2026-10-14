@@ -1,0 +1,21 @@
+error[E0234]: unknown `@cfg` condition `windoze`
+ --> cfg_errors.nx:1:6
+  |
+1 | @cfg("windoze")
+  |      ^^^^^^^^^ unknown condition
+  |
+  = help: did you mean `windows`?
+
+error[E0234]: `@cfg` needs a condition
+ --> cfg_errors.nx:5:1
+  |
+5 | @cfg()
+  | ^^^^^^ for example `@cfg("windows")`
+
+error[E0234]: a `@cfg` condition is a string
+ --> cfg_errors.nx:9:6
+  |
+9 | @cfg(1)
+  |      ^ expected a string such as "linux"
+
+error: could not compile due to 3 errors

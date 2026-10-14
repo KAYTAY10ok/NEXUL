@@ -1,0 +1,51 @@
+// Spec §3.9: static variables.
+import std.mem
+
+struct Config {
+    pub level: i32
+    pub verbose: bool
+}
+
+enum Mode {
+    Slow
+    Fast
+}
+
+static LIMIT: i32 = 10 * 3
+static NAMES_COUNT: usize = 3
+static TABLE: [u8; 4] = [1, 2, 3, 4]
+static ORIGIN: (i32, i32) = (0, -5)
+static DEFAULT: Config = Config(level: 2, verbose: false)
+static MODE: Mode = Mode.Fast
+static var COUNTER: u64 = 0
+static var BUFFER: [u8; 8] = [0; 8]
+static var LAST: Ptr[u8] = Ptr.null()
+
+fn tick() -> u64 {
+    unsafe {
+        COUNTER += 1
+        return COUNTER
+    }
+}
+
+fn main() {
+    println("{LIMIT} {NAMES_COUNT} {TABLE[2]} {ORIGIN.1} {DEFAULT.level} {DEFAULT.verbose}")
+    match MODE {
+        Mode.Slow => println("slow")
+        Mode.Fast => println("fast")
+    }
+    var total: u64 = 0
+    for _ in 0..5 {
+        total += tick()
+    }
+    println("ticks: {unsafe { COUNTER }}, total: {total}")
+    unsafe {
+        for i in 0..8 {
+            BUFFER[i] = (i * i) as u8
+        }
+        let p = mem.addr_of(&BUFFER).cast[u8]()
+        LAST = p.offset(7)
+        println("buffer[3] = {BUFFER[3]}, last = {LAST.read()}, sum = {BUFFER[1] + BUFFER[2] + BUFFER[7]}")
+        println("null: {Ptr[u8].null().is_null()}, from_addr: {Ptr[u8].from_addr(LAST.addr()).read()}, sub: {LAST.sub(2).read()}")
+    }
+}

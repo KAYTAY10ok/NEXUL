@@ -1,0 +1,17 @@
+static NAME: String = "x"
+static var COUNT: i32 = 0
+static FIXED: i32 = 1
+static BAD: i32 = compute()
+
+fn compute() -> i32 {
+    return 1
+}
+
+fn main() {
+    let a = COUNT
+    COUNT = 2
+    unsafe {
+        FIXED = 3
+    }
+    let b = FIXED
+}

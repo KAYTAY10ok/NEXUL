@@ -1,0 +1,108 @@
+// Software floating point (std.builtins): every operation on random and special
+// operands, printed as bit patterns. The output on a processor without a floating-point
+// unit (QEMU) must be identical to the output of the same program on the host, whose
+// hardware is IEEE 754 exact. NaN results are printed as "nan" (their payload is not
+// specified).
+
+import std.math
+import std.random
+
+static SPECIALS: [u64; 16] = [
+    0x0000_0000_0000_0000, 0x8000_0000_0000_0000, 0x7FF0_0000_0000_0000, 0xFFF0_0000_0000_0000,
+    0x7FF8_0000_0000_0000, 0x0000_0000_0000_0001, 0x000F_FFFF_FFFF_FFFF, 0x0010_0000_0000_0000,
+    0x7FEF_FFFF_FFFF_FFFF, 0x3FF0_0000_0000_0000, 0xBFF0_0000_0000_0000, 0x3FF0_0000_0000_0001,
+    0x4340_0000_0000_0000, 0x43E0_0000_0000_0000, 0xC3E0_0000_0000_0000, 0x41E0_0000_0000_0000,
+]
+
+fn operand(inout rng: random.Rng, near: u64) -> f64 {
+    let kind = rng.range(0, 10)
+    if kind == 0 {
+        return math.f64_from_bits(SPECIALS[rng.range(0, 16) as usize])
+    }
+    if kind == 1 {
+        // Subnormal or tiny.
+        return math.f64_from_bits(rng.next_u64() & 0x801F_FFFF_FFFF_FFFF)
+    }
+    if kind == 2 {
+        // Close to the other operand (cancellation, ties).
+        return math.f64_from_bits(near +% (rng.next_u64() & 0xFF) -% 0x80)
+    }
+    if kind == 3 {
+        // Small integers.
+        return (rng.range(-1000, 1000)) as f64
+    }
+    if kind == 4 {
+        // Same exponent as the other operand, random significand.
+        return math.f64_from_bits((near & 0xFFF0_0000_0000_0000) | (rng.next_u64() & 0x000F_FFFF_FFFF_FFFF))
+    }
+    // Any bit pattern, mostly finite exponents.
+    let b = rng.next_u64()
+    let e = (b >> 52) & 0x7FF
+    if e == 0x7FF and rng.range(0, 4) != 0 {
+        return math.f64_from_bits(b & 0xBFFF_FFFF_FFFF_FFFF)
+    }
+    return math.f64_from_bits(b)
+}
+
+fn show(x: f64) -> String {
+    if x.is_nan() {
+        return "nan"
+    }
+    return "{x.to_bits()}"
+}
+
+fn show32(x: f32) -> String {
+    if x.is_nan() {
+        return "nan"
+    }
+    return "{x.to_bits()}"
+}
+
+fn flag(b: bool) -> String {
+    return if b { "1" } else { "0" }
+}
+
+fn to_i32(x: f64) -> String {
+    if x.is_nan() or x <= -2147483649.0 or x >= 2147483648.0 {
+        return "-"
+    }
+    return "{x as i32}"
+}
+
+fn to_i64(x: f64) -> String {
+    if x.is_nan() or x < -9223372036854775808.0 or x >= 9223372036854775808.0 {
+        return "-"
+    }
+    return "{x as i64}"
+}
+
+fn to_u64(x: f64) -> String {
+    if x.is_nan() or x <= -1.0 or x >= 18446744073709551616.0 {
+        return "-"
+    }
+    return "{x as u64}"
+}
+
+fn main() {
+    var rng = random.Rng.new(2026)
+    var prev: u64 = 0x3FF0_0000_0000_0000
+    for _ in 0..20000 {
+        let a = operand(&rng, prev)
+        let b = operand(&rng, a.to_bits())
+        prev = b.to_bits()
+        let cmp = "{flag(a < b)}{flag(a <= b)}{flag(a == b)}{flag(a != b)}{flag(a > b)}{flag(a >= b)}"
+        println("{show(a)} {show(b)} {show(a + b)} {show(a - b)} {show(a * b)} {show(a / b)} {show(a.abs().sqrt())} {cmp} {to_i32(a)} {to_i64(b)} {to_u64(a)}")
+        // Single precision.
+        let x = a as f32
+        let y = b as f32
+        let cmp32 = "{flag(x < y)}{flag(x <= y)}{flag(x == y)}{flag(x > y)}"
+        println("{show32(x)} {show32(x + y)} {show32(x - y)} {show32(x * y)} {show32(x / y)} {show32(x.abs().sqrt())} {show(x as f64)} {cmp32}")
+        // Integer to floating point.
+        let i = rng.next_u64()
+        let s = (i >> (rng.range(1, 64) as u64)) as i64
+        let n = if rng.range(0, 2) == 0 { s } else { 0 - (s / 2) }
+        let w = (i & 0xFFFF_FFFF) as u32
+        let v = (((i >> 32) as i64) - 2147483648) as i32
+        println("{show(i as f64)} {show(n as f64)} {show(w as f64)} {show(v as f64)} {show32(i as f32)} {show32(n as f32)} {show32(w as f32)} {show32(v as f32)}")
+    }
+}

@@ -1,0 +1,35 @@
+import std.random
+import std.math
+
+fn main() {
+    var rng = random.Rng.new(12345)
+    var bad = 0
+    for i in 0..100000 {
+        var bits = rng.next_u64()
+        if i % 4 == 1 {
+            // Values of ordinary magnitude.
+            bits = (bits & 0x800F_FFFF_FFFF_FFFF) | ((0x3B0 + bits % 0x0A0) << 52)
+        }
+        let x = math.f64_from_bits(bits)
+        if x.is_nan() or x.is_infinite() {
+            continue
+        }
+        let s = x.to_string()
+        match s.parse_float() {
+            Some(y) => {
+                if y.to_bits() != x.to_bits() {
+                    println("BAD-ROUNDTRIP {bits} {s}")
+                    bad += 1
+                }
+            }
+            None => {
+                println("BAD-PARSE {bits} {s}")
+                bad += 1
+            }
+        }
+        if i % 10 == 0 {
+            println("{bits} {s} {x:.3} {x:.0} {x:e} {x:.4e}")
+        }
+    }
+    eprintln("bad: {bad}")
+}

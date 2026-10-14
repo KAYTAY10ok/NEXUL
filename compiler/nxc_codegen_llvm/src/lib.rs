@@ -214,7 +214,7 @@ pub fn generate(p: &Program, sm: &SourceMap, bodies: &HashMap<FnId, Body>, entry
     g.emit_entry(entry);
     // Exported functions are roots too.
     for (i, f) in p.fns.iter().enumerate() {
-        if f.export.is_some() && matches!(f.kind, FnKind::User(_)) && !p.modules[f.module.idx()].is_std {
+        if f.export.is_some() && matches!(f.kind, FnKind::User(_)) {
             g.instance(FnId(i as u32), vec![]);
         }
     }
@@ -916,13 +916,83 @@ impl<'a> Gen<'a> {
                 let _ = write!(self.fn_defs, "define void @_start() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
             }
             Os::None => {
-                // Bare metal: the reset handler of the vector table calls `nx_reset`.
+                // Bare metal: the startup code prepares the memory, then the program runs.
                 let (init, _) = self.lang_fn("sys_reset");
                 let _ = write!(
                     self.fn_defs,
                     "define void @nx_reset() nounwind noreturn {{\nstart:\n  call void {}()\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
                     init, entry_fn, main_ptr
                 );
+                self.emit_bare_startup();
+            }
+        }
+    }
+
+    /// Startup code of bare-metal targets (spec §7.1): vector table (Cortex-M) or entry
+    /// point, initialized data, zeroed `.bss`, floating-point unit.
+    fn emit_bare_startup(&mut self) {
+        let u = self.usize_ty();
+        for sym in ["__stack_top", "__data_start", "__data_end", "__data_load", "__bss_start", "__bss_end"] {
+            self.declare(&format!("@{} = external global i8", quote_name(sym)));
+        }
+        let mut fpu = String::new();
+        if self.opts.target.arch == Arch::Arm && self.opts.target.features.contains("vfp") {
+            // CPACR (0xE000ED88): full access to the coprocessors 10 and 11 (the FPU).
+            fpu.push_str("  %cpacr = inttoptr i32 3758157192 to ptr\n  %c = load volatile i32, ptr %cpacr\n  %c2 = or i32 %c, 15728640\n  store volatile i32 %c2, ptr %cpacr\n  fence seq_cst\n");
+        }
+        // Copies `.data` from the flash to the RAM and clears `.bss`.
+        let _ = write!(
+            self.fn_defs,
+            "define void @nx_start_c() nounwind noreturn {{
+start:
+{fpu}  %ds = ptrtoint ptr @__data_start to {u}
+  %de = ptrtoint ptr @__data_end to {u}
+  %dn = sub {u} %de, %ds
+  %r1 = call ptr @memcpy(ptr @__data_start, ptr @__data_load, {u} %dn)
+  %bs = ptrtoint ptr @__bss_start to {u}
+  %be = ptrtoint ptr @__bss_end to {u}
+  %bn = sub {u} %be, %bs
+  %r2 = call ptr @memset(ptr @__bss_start, i32 0, {u} %bn)
+  call void @nx_reset()
+  unreachable
+}}
+
+"
+        );
+        let exported: Vec<String> = self.p.fns.iter().filter_map(|f| f.export.clone()).collect();
+        match self.opts.target.arch {
+            Arch::Arm => {
+                // Cortex-M: initial stack pointer, reset handler, the exceptions, then 32
+                // interrupts. A program handles one with `@export("SysTick_Handler")`.
+                let mut names: Vec<String> = ["NMI_Handler", "HardFault_Handler", "MemManage_Handler", "BusFault_Handler", "UsageFault_Handler", "", "", "", "", "SVC_Handler", "DebugMon_Handler", "", "PendSV_Handler", "SysTick_Handler"]
+                    .iter()
+                    .map(|s| s.to_string())
+                    .collect();
+                names.extend((0..32).map(|i| format!("IRQ{}_Handler", i)));
+                let mut entries = vec!["ptr @__stack_top".to_string(), "ptr @nx_vector_entry".to_string()];
+                let mut defaults = String::new();
+                for n in &names {
+                    if n.is_empty() {
+                        entries.push("ptr null".into());
+                        continue;
+                    }
+                    entries.push(format!("ptr @{}", n));
+                    if !exported.contains(n) {
+                        let _ = writeln!(defaults, "define internal void @{}() nounwind {{\nstart:\n  br label %spin\nspin:\n  br label %spin\n}}\n", n);
+                    }
+                }
+                let _ = writeln!(self.globals, "@nx.vectors = internal constant [{} x ptr] [{}], section \".vectors\", align 4", entries.len(), entries.join(", "));
+                let _ = writeln!(self.globals, "@llvm.used = appending global [1 x ptr] [ptr @nx.vectors], section \"llvm.metadata\"");
+                self.fn_defs.push_str(&defaults);
+                self.fn_defs.push_str("define void @nx_vector_entry() nounwind noreturn {\nstart:\n  call void @nx_start_c()\n  unreachable\n}\n\n");
+            }
+            Arch::Aarch64 => {
+                self.module_asm.push(
+                    ".section .vectors, \"ax\"\n.globl nx_vector_entry\nnx_vector_entry:\n  ldr x0, =__stack_top\n  mov sp, x0\n  mov x0, #(3 << 20)\n  msr cpacr_el1, x0\n  isb\n  bl nx_start_c\n1:\n  wfe\n  b 1b\n.ltorg\n.text\n".to_string(),
+                );
+            }
+            _ => {
+                self.module_asm.push(".section .vectors, \"ax\"\n.globl nx_vector_entry\nnx_vector_entry:\n  la sp, __stack_top\n  call nx_start_c\n1:\n  j 1b\n.text\n".to_string());
             }
         }
     }
@@ -1035,6 +1105,9 @@ start:
 "
         );
         let target = self.opts.target.clone();
+        if !target.native_div64 {
+            self.emit_div64_builtins();
+        }
         if target.os == Os::Windows {
             // Floating-point marker expected by MSVC-style objects, and the stack probe
             // called for frames larger than a page.
@@ -1043,6 +1116,89 @@ start:
                 self.module_asm.push(
                     ".text\n.globl __chkstk\n__chkstk:\n  pushq %rcx\n  pushq %rax\n  cmpq $0x1000, %rax\n  leaq 24(%rsp), %rcx\n  jb 2f\n1:\n  subq $0x1000, %rcx\n  orq $0, (%rcx)\n  subq $0x1000, %rax\n  cmpq $0x1000, %rax\n  ja 1b\n2:\n  subq %rax, %rcx\n  orq $0, (%rcx)\n  popq %rax\n  popq %rcx\n  retq\n"
                         .to_string(),
+                );
+            }
+        }
+    }
+
+    /// 64-bit division for 32-bit processors (the functions LLVM calls for `i64 / i64`),
+    /// by shifts and subtractions on 64-bit values that the processor handles natively.
+    fn emit_div64_builtins(&mut self) {
+        self.fn_defs.push_str(
+            "define internal {i64, i64} @nx.udivmod64(i64 %n, i64 %d) nounwind \"no-builtins\" {
+start:
+  br label %loop
+loop:
+  %i = phi i32 [ 63, %start ], [ %i1, %loop ]
+  %q = phi i64 [ 0, %start ], [ %q2, %loop ]
+  %r = phi i64 [ 0, %start ], [ %r2, %loop ]
+  %sh = zext i32 %i to i64
+  %bit = lshr i64 %n, %sh
+  %b1 = and i64 %bit, 1
+  %rs = shl i64 %r, 1
+  %r1 = or i64 %rs, %b1
+  %ge = icmp uge i64 %r1, %d
+  %rsub = sub i64 %r1, %d
+  %qb = shl i64 1, %sh
+  %qor = or i64 %q, %qb
+  %r2 = select i1 %ge, i64 %rsub, i64 %r1
+  %q2 = select i1 %ge, i64 %qor, i64 %q
+  %i1 = sub i32 %i, 1
+  %done = icmp slt i32 %i1, 0
+  br i1 %done, label %end, label %loop
+end:
+  %o0 = insertvalue {i64, i64} undef, i64 %q2, 0
+  %o1 = insertvalue {i64, i64} %o0, i64 %r2, 1
+  ret {i64, i64} %o1
+}
+
+define internal {i64, i64} @nx.sdivmod64(i64 %n, i64 %d) nounwind \"no-builtins\" {
+start:
+  %nn = icmp slt i64 %n, 0
+  %dn = icmp slt i64 %d, 0
+  %na = sub i64 0, %n
+  %da = sub i64 0, %d
+  %un = select i1 %nn, i64 %na, i64 %n
+  %ud = select i1 %dn, i64 %da, i64 %d
+  %u = call {i64, i64} @nx.udivmod64(i64 %un, i64 %ud)
+  %q = extractvalue {i64, i64} %u, 0
+  %r = extractvalue {i64, i64} %u, 1
+  %qs = xor i1 %nn, %dn
+  %qneg = sub i64 0, %q
+  %rneg = sub i64 0, %r
+  %q2 = select i1 %qs, i64 %qneg, i64 %q
+  %r2 = select i1 %nn, i64 %rneg, i64 %r
+  %o0 = insertvalue {i64, i64} undef, i64 %q2, 0
+  %o1 = insertvalue {i64, i64} %o0, i64 %r2, 1
+  ret {i64, i64} %o1
+}
+
+",
+        );
+        if self.opts.target.arch == Arch::Arm {
+            // The ARM run-time ABI returns the quotient in r0:r1 and the remainder in r2:r3.
+            self.fn_defs.push_str(
+                "define {i64, i64} @__aeabi_uldivmod(i64 %n, i64 %d) nounwind \"no-builtins\" {
+start:
+  %r = call {i64, i64} @nx.udivmod64(i64 %n, i64 %d)
+  ret {i64, i64} %r
+}
+
+define {i64, i64} @__aeabi_ldivmod(i64 %n, i64 %d) nounwind \"no-builtins\" {
+start:
+  %r = call {i64, i64} @nx.sdivmod64(i64 %n, i64 %d)
+  ret {i64, i64} %r
+}
+
+",
+            );
+        }
+        {
+            for (name, f, idx) in [("__udivdi3", "udivmod64", 0), ("__umoddi3", "udivmod64", 1), ("__divdi3", "sdivmod64", 0), ("__moddi3", "sdivmod64", 1)] {
+                let _ = write!(
+                    self.fn_defs,
+                    "define i64 @{}(i64 %n, i64 %d) nounwind \"no-builtins\" {{\nstart:\n  %r = call {{i64, i64}} @nx.{}(i64 %n, i64 %d)\n  %v = extractvalue {{i64, i64}} %r, {}\n  ret i64 %v\n}}\n\n",
+                    name, f, idx
                 );
             }
         }

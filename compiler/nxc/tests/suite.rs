@@ -132,6 +132,8 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         c.arg("-e").arg(format!("/mnt/{}{}", drive, &p[2..]));
         c.env("WSLENV", "NEXUL_LEAK_CHECK/u");
         c
+    } else if target.os == nxc_driver::Os::None {
+        return run_qemu(target, exe, stdin);
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
     };
@@ -140,6 +142,39 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         cmd.stdin(std::fs::File::open(i).unwrap());
     }
     cmd.output().expect("run test program")
+}
+
+/// Runs a bare-metal executable in QEMU (`NEXUL_QEMU` names its directory), with
+/// semihosting for the console, the command line and the exit code. The console mixes
+/// the standard output and the errors.
+fn run_qemu(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::Output {
+    use nxc_driver::Arch;
+    let (system, machine): (&str, &[&str]) = match target.arch {
+        Arch::Arm => ("arm", &["-machine", "mps2-an386"]),
+        Arch::Aarch64 => ("aarch64", &["-machine", "virt", "-cpu", "cortex-a53"]),
+        Arch::Riscv32 => ("riscv32", &["-machine", "virt", "-bios", "none"]),
+        _ => ("riscv64", &["-machine", "virt", "-bios", "none"]),
+    };
+    let name = format!("qemu-system-{}{}", system, std::env::consts::EXE_SUFFIX);
+    let mut dirs: Vec<PathBuf> = std::env::var_os("NEXUL_QEMU").map(PathBuf::from).into_iter().collect();
+    if cfg!(windows) {
+        dirs.push(PathBuf::from(r"C:\Program Files\qemu"));
+    }
+    let program = dirs.iter().map(|d| d.join(&name)).find(|p| p.exists()).unwrap_or_else(|| PathBuf::from(&name));
+    let mut cmd = Command::new(program);
+    cmd.args(machine)
+        .args(["-nographic", "-monitor", "none", "-serial", "none"])
+        .arg("-semihosting-config")
+        .arg("enable=on,target=native,chardev=con,arg=program,arg=first-argument")
+        .args(["-chardev", "stdio,id=con,mux=off"])
+        .arg("-kernel")
+        .arg(exe)
+        .current_dir(std::env::temp_dir());
+    cmd.stdin(match stdin {
+        Some(i) => std::process::Stdio::from(std::fs::File::open(i).unwrap()),
+        None => std::process::Stdio::null(),
+    });
+    cmd.output().expect("run QEMU (set NEXUL_QEMU to its directory)")
 }
 
 /// The programs of `tests/run` on other targets: `NEXUL_TEST_TARGETS=x86_64-linux,wasm32-wasi`.
@@ -172,7 +207,13 @@ fn run_programs_cross() {
             let mut f = Vec::new();
             let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
             let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
-            let expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
+            let mut expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
+            let mut expected_err = std::fs::read_to_string(nx.with_extension("stderr")).map(|s| normalize(&s)).unwrap_or_default();
+            if target.os == nxc_driver::Os::None {
+                // One console for both streams.
+                expected.push_str(&expected_err);
+                expected_err.clear();
+            }
             if stdout != expected {
                 f.push(format!("[{}] {}: stdout differs\n--- expected ---\n{}\n--- actual ---\n{}", target.name, nx.display(), expected, stdout));
             }
@@ -181,7 +222,6 @@ fn run_programs_cross() {
             if code != expected_code {
                 f.push(format!("[{}] {}: exit code {} (expected {})\n{}", target.name, nx.display(), code, expected_code, stderr));
             }
-            let expected_err = std::fs::read_to_string(nx.with_extension("stderr")).map(|s| normalize(&s)).unwrap_or_default();
             if stderr != expected_err {
                 f.push(format!("[{}] {}: stderr differs\n--- expected ---\n{}\n--- actual ---\n{}", target.name, nx.display(), expected_err, stderr));
             }
@@ -331,4 +371,47 @@ fn diagnostics_catalogue_is_up_to_date() {
     }
     let actual = normalize(&std::fs::read_to_string(&path).unwrap_or_default());
     assert!(actual == expected, "docs/spec/diagnostics.md is out of date: run the suite with NEXUL_BLESS=1");
+}
+
+/// Floating-point formatting, parsing and mathematical functions written in NEXUL,
+/// compared with Python (see `tests/numerics/README.md`): `NEXUL_TEST_NUMERICS=1`.
+#[test]
+fn numerics_against_python() {
+    if std::env::var_os("NEXUL_TEST_NUMERICS").is_none() {
+        return;
+    }
+    let dir = root().join("tests").join("numerics");
+    let work = std::env::temp_dir().join("nexul-numerics");
+    let _ = std::fs::create_dir_all(&work);
+    let exe_of = |name: &str| -> PathBuf {
+        let mut opts = CompileOptions::new(Mode::Program);
+        opts.release = true;
+        let c = compile_file(&dir.join(format!("{}.nx", name)), &opts);
+        assert!(c.errors == 0 && c.warnings == 0, "{}", c.diagnostics);
+        let exe = work.join(Target::host().exe_name(name));
+        build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), true)).unwrap();
+        exe
+    };
+    let python = |args: &[&std::ffi::OsStr]| {
+        let out = Command::new("python").arg("-I").args(args).output().expect("python is required for NEXUL_TEST_NUMERICS");
+        let text = String::from_utf8_lossy(&out.stdout).to_string();
+        assert!(out.status.success(), "{}{}", text, String::from_utf8_lossy(&out.stderr));
+        text
+    };
+    // Formatting.
+    let out = Command::new(exe_of("format")).output().unwrap();
+    let txt = work.join("format.txt");
+    std::fs::write(&txt, &out.stdout).unwrap();
+    python(&[dir.join("format_verify.py").as_os_str(), txt.as_os_str()]);
+    // Parsing.
+    let (inp, expected, actual) = (work.join("parse_in.txt"), work.join("parse_expected.txt"), work.join("parse_actual.txt"));
+    python(&[dir.join("parse_gen.py").as_os_str(), inp.as_os_str(), expected.as_os_str()]);
+    let out = Command::new(exe_of("parse")).stdin(std::fs::File::open(&inp).unwrap()).output().unwrap();
+    std::fs::write(&actual, &out.stdout).unwrap();
+    python(&[dir.join("parse_compare.py").as_os_str(), inp.as_os_str(), expected.as_os_str(), actual.as_os_str()]);
+    // Mathematical functions.
+    let out = Command::new(exe_of("math")).output().unwrap();
+    let txt = work.join("math.txt");
+    std::fs::write(&txt, &out.stdout).unwrap();
+    python(&[dir.join("math_verify.py").as_os_str(), txt.as_os_str()]);
 }

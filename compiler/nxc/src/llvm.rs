@@ -159,6 +159,8 @@ pub struct CodegenOptions<'a> {
     /// 0 to 3 (`-O0` to `-O3`), or `s`/`z` for size.
     pub opt_level: char,
     pub pic: bool,
+    /// LLVM code model: 0 default, 5 medium (RISC-V `medany`, for code above 2 GiB).
+    pub code_model: i32,
 }
 
 /// Compiles LLVM IR into an object file (or into optimized IR text when `emit_ir`).
@@ -196,7 +198,7 @@ pub fn compile(tc: &Toolchain, ir: &str, out: &Path, opts: &CodegenOptions, emit
                 _ => 2,
             };
             let reloc = if opts.pic { 2 } else { 0 };
-            let tm = (api.LLVMCreateTargetMachine)(target, triple.as_ptr(), cpu.as_ptr(), features.as_ptr(), level, reloc, 0);
+            let tm = (api.LLVMCreateTargetMachine)(target, triple.as_ptr(), cpu.as_ptr(), features.as_ptr(), level, reloc, opts.code_model);
             if tm.is_null() {
                 return Err(format!("cannot create the code generator for `{}`", opts.triple));
             }

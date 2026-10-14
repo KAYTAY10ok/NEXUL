@@ -229,6 +229,10 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
         let segs: Vec<String> = p.split('.').map(|s| s.to_string()).collect();
         load_module(&mut prog, &mut by_path, &mut queue, sm, &segs, None);
     }
+    // Software floating point for processors without a double-precision unit.
+    if !src.cfg.target.hard_float64 {
+        load_module(&mut prog, &mut by_path, &mut queue, sm, &["std".to_string(), "builtins".to_string()], None);
+    }
 
     // Breadth-first traversal of imports. Import resolution to items happens later,
     // once every module's items are collected; here we only record module targets.

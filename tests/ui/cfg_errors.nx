@@ -1,0 +1,14 @@
+@cfg("windoze")
+fn a() {
+}
+
+@cfg()
+fn b() {
+}
+
+@cfg(1)
+fn c() {
+}
+
+fn main() {
+}

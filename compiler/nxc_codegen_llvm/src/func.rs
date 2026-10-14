@@ -1808,6 +1808,20 @@ fail:
                 let r = self.val(cx, "call i32 @llvm.wasm.memory.size.i32(i32 0)");
                 self.store_result(cx, dest, "i32", &r);
             }
+            "semihost" => {
+                let (insn, regs) = match self.opts.target.arch {
+                    Arch::Arm => ("bkpt #0xab", "={r0},{r0},{r1},~{memory}"),
+                    Arch::Aarch64 => ("hlt #0xf000", "={x0},{x0},{x1},~{memory}"),
+                    _ => (".balign 16\\0A.option push\\0A.option norvc\\0Aslli x0, x0, 0x1f\\0Aebreak\\0Asrai x0, x0, 7\\0A.option pop", "={x10},{x10},{x11},~{memory}"),
+                };
+                let r = self.val(cx, format!("call {u} asm sideeffect \"{}\", \"{}\"({u} {}, {u} {})", insn, regs, s(0), s(1), u = u));
+                self.store_result(cx, dest, u, &r);
+            }
+            "heap_start" | "stack_top" => {
+                let g = if name == "heap_start" { "@__heap_start" } else { "@__stack_top" };
+                self.declare(&format!("@{} = external global i8", crate::quote_name(&g[1..])));
+                self.store_result(cx, dest, "ptr", g);
+            }
             "trap" => {
                 self.declare("declare void @llvm.trap()");
                 self.ins(cx, "call void @llvm.trap()");

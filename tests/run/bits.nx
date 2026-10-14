@@ -1,0 +1,12 @@
+// Bit operations of the integer and float types.
+fn main() {
+    let x: u32 = 0b0000_0000_1111_0000_0000_0000_0000_1000
+    println("{x.leading_zeros()} {x.trailing_zeros()} {x.count_ones()}")
+    println("{x.rotate_left(4):08x} {x.rotate_right(4):08x} {x.swap_bytes():08x}")
+    let y: u8 = 0x81
+    println("{y.rotate_left(1)} {y.leading_zeros()} {(0 as u64).leading_zeros()} {(1 as u64).trailing_zeros()}")
+    let z: i64 = -1
+    println("{z.count_ones()} {(i16.MIN).trailing_zeros()}")
+    println("{(1.0).to_bits():x} {(-0.0).to_bits():x} {(1.5 as f32).to_bits():x}")
+    println("{(2.5).copysign(-1.0)} {(-3.0).copysign(1.0)}")
+}

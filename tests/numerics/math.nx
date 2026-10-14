@@ -1,0 +1,16 @@
+import std.random
+
+fn main() {
+    var rng = random.Rng.new(99)
+    for i in 0..40000 {
+        // Arguments spread over many magnitudes.
+        let e = rng.range(-30, 30)
+        var x = (rng.float() * 2.0 - 1.0) * 2.0.powf(e as f64)
+        if i % 50 == 0 {
+            x = (rng.float() - 0.5) * 1.0e22
+        }
+        let y = rng.float() * 8.0 - 2.0
+        let a = x.abs()
+        println("{x.to_bits()} {y.to_bits()} {x.sin().to_bits()} {x.cos().to_bits()} {x.tan().to_bits()} {x.atan().to_bits()} {(x / 1.0e9).asin().to_bits()} {(x / 1.0e9).acos().to_bits()} {(x / 100.0).exp().to_bits()} {a.ln().to_bits()} {a.log2().to_bits()} {a.log10().to_bits()} {a.powf(y).to_bits()} {x.atan2(y).to_bits()} {x.hypot(y).to_bits()} {x.floor().to_bits()} {x.ceil().to_bits()} {x.round().to_bits()} {(x % y).to_bits()}")
+    }
+}

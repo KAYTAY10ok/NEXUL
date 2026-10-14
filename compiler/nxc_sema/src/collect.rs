@@ -265,6 +265,13 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
         let ty = resolve_type(prog, &scope, &ast.ty, diags);
         prog.consts[c].ty = ty;
     }
+    for (id, decl, attrs) in &pending_fns {
+        resolve_fn_sig(prog, *id, decl, attrs, None, diags);
+    }
+    for imp in impls {
+        collect_impl(prog, imp, diags);
+    }
+    // Static variables, once every destructor is known (a type with `drop` is a resource).
     for st in 0..prog.statics.len() {
         let module = prog.statics[st].module;
         let ast = prog.statics[st].ast.clone();
@@ -279,12 +286,6 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
             );
         }
         prog.statics[st].ty = ty;
-    }
-    for (id, decl, attrs) in &pending_fns {
-        resolve_fn_sig(prog, *id, decl, attrs, None, diags);
-    }
-    for imp in impls {
-        collect_impl(prog, imp, diags);
     }
 
     check_recursive_types(prog, diags);

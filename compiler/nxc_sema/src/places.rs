@@ -234,7 +234,10 @@ impl<'a> Cx<'a> {
             match &s.kind {
                 S::Let { pat, init } => {
                     self.expr(init);
-                    self.consume(init);
+                    // `let _ = place` binds nothing: the place is only read.
+                    if !matches!(pat.kind, PatKind::Wild) {
+                        self.consume(init);
+                    }
                     self.check_destructure(pat);
                 }
                 S::Var { init, .. } => {

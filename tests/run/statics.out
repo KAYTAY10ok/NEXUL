@@ -1,0 +1,5 @@
+30 3 3 -5 2 false
+fast
+ticks: 5, total: 15
+buffer[3] = 9, last = 49, sum = 54
+null: true, from_addr: 49, sub: 25

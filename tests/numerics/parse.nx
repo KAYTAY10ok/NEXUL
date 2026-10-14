@@ -1,0 +1,19 @@
+import std.io
+
+fn main() {
+    while true {
+        match io.read_line() {
+            Some(line) => match line.parse_float() {
+                Some(x) => {
+                    if x.is_nan() {
+                        println("NaN")
+                    } else {
+                        println("{x.to_bits()}")
+                    }
+                }
+                None => println("None")
+            }
+            None => break
+        }
+    }
+}

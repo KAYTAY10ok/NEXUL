@@ -9,7 +9,7 @@ pub mod toolchain;
 
 pub use link::OutputKind;
 pub use nxc_codegen_llvm::{Entry, Output};
-pub use nxc_sema::target::{Cfg, Os, Target};
+pub use nxc_sema::target::{Arch, Cfg, Os, Target};
 
 use nxc_sema::defs::{FnId, ItemRef};
 use nxc_sema::ProgramSource;
@@ -341,11 +341,20 @@ fn obj_ext(t: &Target) -> &'static str {
     }
 }
 
+/// RISC-V 64 programs may live above 2 GiB (bare-metal boards): `medany` addressing.
+fn code_model(t: &Target) -> i32 {
+    if t.arch == nxc_sema::target::Arch::Riscv64 {
+        5
+    } else {
+        0
+    }
+}
+
 /// Compiles the generated module to an object file.
 pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(), String> {
     let tc = Toolchain::find();
     let t = &opts.target;
-    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows };
+    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows, code_model: code_model(t) };
     llvm::compile(&tc, &output.ir, obj, &cg, false).map(|_| ())
 }
 
@@ -353,7 +362,7 @@ pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(
 pub fn optimized_ir(output: &Output, opts: &BuildOptions) -> Result<String, String> {
     let tc = Toolchain::find();
     let t = &opts.target;
-    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: false };
+    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: false, code_model: code_model(t) };
     llvm::compile(&tc, &output.ir, Path::new(""), &cg, true).map(|s| s.unwrap_or_default())
 }
 

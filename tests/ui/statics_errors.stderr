@@ -1,0 +1,47 @@
+error[E0374]: a static variable cannot hold a resource of type `String`
+ --> statics_errors.nx:1:14
+  |
+1 | static NAME: String = "x"
+  |              ^^^^^^ not a copyable type
+  |
+  = note: static variables live for the whole program and are never destroyed
+  = help: use a `const` for a constant string, or store the resource in a local variable
+
+error[E0371]: this expression cannot be evaluated at compile time
+ --> statics_errors.nx:4:19
+  |
+4 | static BAD: i32 = compute()
+  |                   ^^^^^^^^^ not a constant expression
+  |
+  = note: constant expressions may use literals, other constants, operators and `as`
+
+error[E0501]: using the mutable static `COUNT` requires an `unsafe` block
+  --> statics_errors.nx:11:13
+   |
+11 |     let a = COUNT
+   |             ^^^^^ unsafe operation
+   |
+   = note: the compiler cannot check this operation for memory safety
+   = help: wrap it in `unsafe { ... }` after checking that it is correct
+
+error[E0501]: using the mutable static `COUNT` requires an `unsafe` block
+  --> statics_errors.nx:12:5
+   |
+12 |     COUNT = 2
+   |     ^^^^^ unsafe operation
+   |
+   = note: the compiler cannot check this operation for memory safety
+   = help: wrap it in `unsafe { ... }` after checking that it is correct
+
+error[E0405]: cannot assign to the immutable static `FIXED`
+  --> statics_errors.nx:14:9
+   |
+ 3 | static FIXED: i32 = 1
+   |        ----- declared here
+...
+14 |         FIXED = 3
+   |         ^^^^^ not modifiable
+   |
+   = help: declare it with `static var FIXED` (its uses then require `unsafe`)
+
+error: could not compile due to 5 errors

@@ -1,0 +1,50 @@
+// Spec §6.8: conditional compilation.
+
+@cfg("windows")
+fn system() -> String {
+    return "windows"
+}
+
+@cfg("linux")
+fn system() -> String {
+    return "linux"
+}
+
+@cfg("wasi")
+fn system() -> String {
+    return "wasi"
+}
+
+@cfg("!windows", "!linux", "!wasi")
+fn system() -> String {
+    return "other"
+}
+
+@cfg("windows|linux|wasi")
+const KNOWN: bool = true
+
+@cfg("!windows", "!linux", "!wasi")
+const KNOWN: bool = false
+
+struct Counter {
+    value: i32
+}
+
+impl Counter {
+    @cfg("debug")
+    fn mode(self) -> String {
+        return "debug"
+    }
+
+    @cfg("release")
+    fn mode(self) -> String {
+        return "release"
+    }
+}
+
+fn main() {
+    let s = system()
+    println("known system: {KNOWN}, consistent: {s.len() > 0}")
+    let c = Counter(value: 1)
+    println("{c.value} {c.mode()}")
+}

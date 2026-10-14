@@ -766,20 +766,51 @@ fn rem_pio2_large(x: f64) -> (i32, f64, f64) {
     let quadrant: i32 = (if prod.bit(point) { 1 } else { 0 }) + (if prod.bit(point + 1) { 2 } else { 0 })
     var frac = prod.clone()
     frac.shr(point - 128)
-    // frac now holds the integer part above bit 128: keep the 128 fraction bits.
-    let f_hi = ((frac.word(3) as u64) << 32) | (frac.word(2) as u64)
-    let f_lo = ((frac.word(1) as u64) << 32) | (frac.word(0) as u64)
-    var f = (f_hi as f64) * pow2(-64) + (f_lo as f64) * pow2(-128)
+    // The 128 fraction bits, as two 64-bit halves.
+    var hi = ((frac.word(3) as u64) << 32) | (frac.word(2) as u64)
+    var lo = ((frac.word(1) as u64) << 32) | (frac.word(0) as u64)
     var n = quadrant
-    if f > 0.5 {
-        f -= 1.0
+    var negative = false
+    if hi >> 63 == 1 {
+        // f >= 1/2: use f - 1 (in the next quadrant), computed exactly in integers.
+        let borrow: u64 = if lo != 0 { 1 } else { 0 }
+        lo = 0 -% lo
+        hi = (0 -% hi) -% borrow
+        negative = true
         n += 1
     }
-    // r = f * π/2 in double-double precision.
-    let fh = clear_low(f)
-    let fl = f - fh
-    let y0 = f * PIO2_1 + f * PIO2_1T
-    let y1 = ((fh * PIO2_1 - y0) + fl * PIO2_1) + f * PIO2_1T
+    // Normalize, then split into an exact 53-bit part and the rest.
+    var lz: i32 = 0
+    if hi == 0 {
+        hi = lo
+        lo = 0
+        lz = 64
+    }
+    let z = hi.leading_zeros()
+    if z > 0 {
+        hi = (hi << (z as u64)) | (lo >> ((64 - z) as u64))
+        lo = lo << (z as u64)
+        lz += z as i32
+    }
+    let a = ((hi >> 11) as f64) * pow2(11 - 64 - lz)
+    let b = ((hi & 0x7FF) as f64) * pow2(-64 - lz) + (lo as f64) * pow2(-128 - lz)
+    // r = (a + b) * π/2 in double-double precision (Dekker's exact product).
+    let split = 134217729.0
+    let ca = split * a
+    let ah = ca - (ca - a)
+    let al = a - ah
+    let cp = split * PIO2_HI
+    let ph = cp - (cp - PIO2_HI)
+    let pl = PIO2_HI - ph
+    let p = a * PIO2_HI
+    var err = ((ah * ph - p) + ah * pl + al * ph) + al * pl
+    err += a * PIO2_LO + b * PIO2_HI
+    var y0 = p + err
+    var y1 = err - (y0 - p)
+    if negative {
+        y0 = -y0
+        y1 = -y1
+    }
     if x < 0.0 {
         return ((4 - n % 4) % 4, -y0, -y1)
     }
