@@ -786,6 +786,7 @@ function applyState(st) {
   const walk = (items) => { for (const it of items) { if (it.dir) walk(it.children || []); else S.files.push(it.path); } };
   walk(S.tree);
   if (rootChanged) {
+    S.changeVersion = undefined;
     S.expanded = new Set(rootState(S.root).expanded || []);
     S.checks.clear();
     S.fileDiags.clear();
@@ -2555,10 +2556,28 @@ function showShortcuts() {
 
 /* ==================================================================== start */
 
-async function externalChanges() {
-  await refreshTree();
+/* Changes reported by the watch of the open folder (made inside or outside of Studio). */
+async function watchChanges() {
+  if (!S.root || S.watching) return;
+  S.watching = true;
+  try {
+    const r = await api.get('changes?' + qs({ since: S.changeVersion || 0 }));
+    const first = S.changeVersion === undefined;
+    if (r.version === S.changeVersion) return;
+    S.changeVersion = r.version;
+    if (first) return;
+    if (!S.inline) await refreshTree();
+    await externalChanges(r.paths, true);
+  } catch (e) { /* server busy */ } finally { S.watching = false; }
+}
+
+/* Open files changed on disk: reloaded if they have no unsaved change. `paths` limits the
+   files to read again (null: all of them). */
+async function externalChanges(paths, noTree) {
+  if (!noTree) await refreshTree();
   for (const d of S.docs) {
     if (!d.ed || d.ed.isDirty()) continue;
+    if (paths && !paths.includes(d.path)) continue;
     let text;
     try { text = await api.get('file?' + qs({ path: d.path })); } catch (e) {
       if (!S.files.includes(d.path) && !d.missingWarned) {
@@ -2601,7 +2620,8 @@ async function init() {
     if (S.root) importDropped(e.dataTransfer, S.active && !S.active.virtual ? dirName(S.active.path) : '');
   });
   setInterval(() => api.post('ping').catch(() => {}), 3000);
-  setInterval(() => { if (document.hasFocus() && S.root && !S.inline) refreshTree(); }, 4000);
+  // The server watches the open folder: the tree and the open files follow its changes.
+  setInterval(watchChanges, 1000);
   addEventListener('focus', () => { if (S.root) externalChanges(); });
 }
 

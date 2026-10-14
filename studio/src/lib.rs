@@ -5,4 +5,5 @@
 
 pub mod debug;
 pub mod runner;
+pub mod watch;
 pub mod workspace;

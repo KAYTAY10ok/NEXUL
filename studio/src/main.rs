@@ -13,7 +13,7 @@
 
 mod http;
 
-use nexul_studio::{debug, runner, workspace};
+use nexul_studio::{debug, runner, watch, workspace};
 
 use http::{json_field, json_str, mime, read_request, write_response, Request, Response};
 use runner::{command, Runs, Step};
@@ -34,7 +34,7 @@ const IDE_JS: &str = include_str!("../ui/ide.js");
 const PLUGINS_JS: &str = include_str!("../ui/plugins.js");
 
 /// Directories never shown nor searched.
-const IGNORED: &[&str] = &[".git", "target", "node_modules", ".nxc-cache", ".vs", ".idea", "__pycache__"];
+const IGNORED: &[&str] = watch::IGNORED;
 
 struct State {
     token: String,
@@ -48,6 +48,10 @@ struct State {
     debugger: Mutex<Option<debug::Debugger>>,
     /// A file to open at start (given on the command line), relative to `root`.
     start_file: Mutex<Option<String>>,
+    /// The watch of the open folder, and the changes it reported: (version, path).
+    watcher: Mutex<Option<watch::Watcher>>,
+    tree_version: AtomicU64,
+    changes: Mutex<Vec<(u64, String)>>,
 }
 
 fn random_token() -> String {
@@ -116,13 +120,16 @@ fn main() {
         tmp_counter: AtomicU64::new(0),
         debugger: Mutex::new(None),
         start_file: Mutex::new(None),
+        watcher: Mutex::new(None),
+        tree_version: AtomicU64::new(1),
+        changes: Mutex::new(Vec::new()),
     });
     // `NEXUL Studio.exe <folder>` or `<file>`: open it (file association of `.nx`).
     if let Some(arg) = args.iter().skip(1).find(|a| !a.starts_with("--") && a.parse::<u16>().is_err()) {
         let p = PathBuf::from(arg);
         let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
         if p.is_dir() {
-            *state.root.lock().unwrap() = Some(p);
+            set_root(&state, Some(p));
         } else if p.is_file() {
             if let (Some(dir), Some(name)) = (p.parent(), p.file_name()) {
                 // The project of the file (nexul.toml), else its folder.
@@ -138,7 +145,7 @@ fn main() {
                     }
                 }
                 let rel = p.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| name.to_string_lossy().to_string());
-                *state.root.lock().unwrap() = Some(root);
+                set_root(&state, Some(root));
                 *state.start_file.lock().unwrap() = Some(rel);
             }
         }
@@ -161,25 +168,6 @@ fn main() {
             }
         });
     }
-    // External file changes also reload the live preview.
-    {
-        let st = state.clone();
-        std::thread::spawn(move || {
-            let mut last = 0u128;
-            loop {
-                std::thread::sleep(Duration::from_millis(700));
-                let root = st.root.lock().unwrap().clone();
-                if let Some(root) = root {
-                    let stamp = newest_mtime(&root, 0);
-                    if last != 0 && stamp != last {
-                        st.live_version.fetch_add(1, Ordering::SeqCst);
-                    }
-                    last = stamp;
-                }
-            }
-        });
-    }
-
     if no_window {
         println!("NEXUL Studio: {}", url);
     } else {
@@ -216,26 +204,33 @@ fn open_window(url: &str) {
     let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
 }
 
-fn newest_mtime(dir: &Path, depth: usize) -> u128 {
-    if depth > 8 {
-        return 0;
+/// Opens a folder (or none): the explorer, the editors and the web preview follow the
+/// changes made to its files, inside or outside of Studio.
+fn set_root(st: &Arc<State>, root: Option<PathBuf>) {
+    *st.watcher.lock().unwrap() = None;
+    st.changes.lock().unwrap().clear();
+    st.tree_version.fetch_add(1, Ordering::SeqCst);
+    if let Some(r) = &root {
+        let weak = Arc::downgrade(st);
+        let w = watch::Watcher::start(r, move |paths| {
+            let Some(st) = weak.upgrade() else { return };
+            let v = st.tree_version.fetch_add(1, Ordering::SeqCst) + 1;
+            st.live_version.fetch_add(1, Ordering::SeqCst);
+            let mut ch = st.changes.lock().unwrap();
+            if paths.is_empty() {
+                ch.push((v, String::new()));
+            }
+            for p in paths {
+                ch.push((v, p));
+            }
+            let n = ch.len();
+            if n > 2000 {
+                ch.drain(..n - 1000);
+            }
+        });
+        *st.watcher.lock().unwrap() = w.ok();
     }
-    let mut best = 0u128;
-    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
-        if IGNORED.contains(&name.as_str()) {
-            continue;
-        }
-        let Ok(md) = e.metadata() else { continue };
-        if md.is_dir() {
-            best = best.max(newest_mtime(&e.path(), depth + 1));
-        } else if let Ok(m) = md.modified() {
-            let t = m.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-            best = best.max(t);
-        }
-    }
-    best
+    *st.root.lock().unwrap() = root;
 }
 
 fn handle(stream: TcpStream, st: Arc<State>) {
@@ -252,7 +247,7 @@ fn host_ok(req: &Request, st: &State) -> bool {
     }
 }
 
-fn route(req: &Request, st: &State) -> Response {
+fn route(req: &Request, st: &Arc<State>) -> Response {
     if !host_ok(req, st) {
         return Response::text(403, "forbidden host");
     }
@@ -380,7 +375,7 @@ fn state_json(st: &State) -> String {
 // ---------------------------------------------------------------------------
 // API
 
-fn api(req: &Request, st: &State) -> Response {
+fn api(req: &Request, st: &Arc<State>) -> Response {
     let route = &req.path[5..];
     let result: Result<Response, Response> = (|| {
         Ok(match (req.method.as_str(), route) {
@@ -389,6 +384,22 @@ fn api(req: &Request, st: &State) -> Response {
                 Response::json("{}".into())
             }
             ("GET", "state") => Response::json(state_json(st)),
+            // What changed in the open folder since `since` (a version given by a
+            // previous call): `paths` is null when everything must be read again.
+            ("GET", "changes") => {
+                let since: u64 = req.q("since").parse().unwrap_or(0);
+                let version = st.tree_version.load(Ordering::SeqCst);
+                let ch = st.changes.lock().unwrap();
+                let complete = ch.first().map(|(v, _)| *v <= since + 1).unwrap_or(true);
+                let mut paths: Vec<&str> = ch.iter().filter(|(v, _)| *v > since).map(|(_, p)| p.as_str()).collect();
+                paths.dedup();
+                let list = if !complete || paths.iter().any(|p| p.is_empty()) {
+                    "null".to_string()
+                } else {
+                    format!("[{}]", paths.iter().map(|p| json_str(p)).collect::<Vec<_>>().join(","))
+                };
+                Response::json(format!("{{\"version\":{},\"paths\":{}}}", version, list))
+            }
             // The interface's settings and sessions, kept in a file so that they do not
             // depend on the port (the browser's storage is per origin).
             ("GET", "kv") => {
@@ -413,7 +424,7 @@ fn api(req: &Request, st: &State) -> Response {
                     return Err(Response::error(400, "ce dossier n'existe pas"));
                 }
                 let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
-                *st.root.lock().unwrap() = Some(p);
+                set_root(st, Some(p));
                 Response::json(state_json(st))
             }
             ("POST", "create-project") => {
@@ -426,11 +437,11 @@ fn api(req: &Request, st: &State) -> Response {
                 }
                 std::fs::create_dir_all(&p).map_err(|e| Response::error(500, &format!("création impossible : {}", e)))?;
                 let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
-                *st.root.lock().unwrap() = Some(p);
+                set_root(st, Some(p));
                 Response::json(state_json(st))
             }
             ("POST", "close-folder") => {
-                *st.root.lock().unwrap() = None;
+                set_root(st, None);
                 Response::json(state_json(st))
             }
             ("POST", "set-nxc") => {
