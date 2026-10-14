@@ -1,44 +1,59 @@
 /// Standard input/output and files (spec chapter 09).
 
-@intrinsic
-unsafe fn rt_read_line(inout out: String) -> bool
-
-@intrinsic
-unsafe fn rt_read_file(path: String, inout out: String) -> i32
-
-@intrinsic
-unsafe fn rt_write_file(path: String, content: String, append: bool) -> bool
+import std.sys
+import std.rt
+import std.string
 
 /// Flushes the standard output.
-@intrinsic
-pub fn flush()
+pub fn flush() {
+    rt.flush()
+}
 
 /// Reads one line from the standard input, without its line terminator.
 /// Returns `None` at the end of the input.
 pub fn read_line() -> Option[String] {
     var line = String.new()
-    if unsafe { rt_read_line(&line) } {
+    if sys.read_line(&line) {
         return Some(line)
     }
     return None
 }
 
+/// Reads a whole file as bytes.
+pub fn read_bytes(path: String) -> Result[Vec[u8], String] {
+    var bytes: Vec[u8] = Vec.new()
+    if not sys.read_file(path, &bytes) {
+        return Err("cannot read file: {path}")
+    }
+    return Ok(bytes)
+}
+
 /// Reads a whole UTF-8 text file.
 pub fn read_file(path: String) -> Result[String, String] {
-    var content = String.new()
-    let code = unsafe { rt_read_file(path, &content) }
-    if code == 0 {
-        return Ok(content)
+    var bytes: Vec[u8] = Vec.new()
+    if not sys.read_file(path, &bytes) {
+        return Err("cannot read file: {path}")
     }
-    if code == 2 {
+    if not unsafe { string.utf8_valid(bytes.as_ptr(), bytes.len()) } {
         return Err("file is not valid UTF-8: {path}")
     }
-    return Err("cannot read file: {path}")
+    unsafe {
+        let (data, len, cap) = bytes.into_raw_parts()
+        return Ok(String.from_raw_parts(data, len, cap))
+    }
 }
 
 /// Creates or replaces a file with `content`.
 pub fn write_file(path: String, content: String) -> Result[(), String] {
-    if unsafe { rt_write_file(path, content, false) } {
+    if sys.write_file(path, content.as_ptr(), content.len(), false) {
+        return Ok(())
+    }
+    return Err("cannot write file: {path}")
+}
+
+/// Creates or replaces a file with raw bytes.
+pub fn write_bytes(path: String, content: Vec[u8]) -> Result[(), String] {
+    if sys.write_file(path, content.as_ptr(), content.len(), false) {
         return Ok(())
     }
     return Err("cannot write file: {path}")
@@ -46,7 +61,7 @@ pub fn write_file(path: String, content: String) -> Result[(), String] {
 
 /// Appends `content` at the end of a file (created if needed).
 pub fn append_file(path: String, content: String) -> Result[(), String] {
-    if unsafe { rt_write_file(path, content, true) } {
+    if sys.write_file(path, content.as_ptr(), content.len(), true) {
         return Ok(())
     }
     return Err("cannot write file: {path}")

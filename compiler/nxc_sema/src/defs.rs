@@ -25,6 +25,7 @@ id_type!(AdtId);
 id_type!(FnId);
 id_type!(ConstId);
 id_type!(AliasId);
+id_type!(StaticId);
 
 /// Functions provided by the compiler itself (spec §4.10).
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -75,6 +76,7 @@ pub enum ItemRef {
     Alias(AliasId),
     Variant(AdtId, u32),
     Builtin(Builtin),
+    Static(StaticId),
 }
 
 pub struct ImportEntry {
@@ -216,6 +218,11 @@ pub struct FnDef {
     pub is_test: bool,
     /// Panics inside report the caller's location (`@track_caller`, std only).
     pub track_caller: bool,
+    /// `@export("symbol")`: the function is visible to other languages under this
+    /// symbol name, with the C calling convention (spec §8.4).
+    pub export: Option<String>,
+    /// Code generation hints: `cold`, `inline`, `no_builtins`.
+    pub hints: Vec<String>,
 }
 
 impl FnDef {
@@ -247,6 +254,31 @@ pub struct ConstDef {
     pub ast: Rc<ast::ConstDecl>,
 }
 
+/// `static` and `static var` items (spec §3.9).
+pub struct StaticDef {
+    pub name: String,
+    pub module: ModId,
+    pub span: Span,
+    pub is_pub: bool,
+    pub mutable: bool,
+    pub ty: Ty,
+    pub ast: Rc<ast::StaticDecl>,
+}
+
+/// The initial value of a static variable, computed at compile time.
+#[derive(Clone, Debug, PartialEq)]
+pub enum StaticValue {
+    Scalar(ConstValue),
+    /// The null pointer.
+    Null,
+    /// Elements of an array, tuple or structure (in field order).
+    Aggregate(Vec<StaticValue>),
+    /// `[value; count]`
+    Repeat(Box<StaticValue>, u64),
+    /// A fieldless enum variant (its index).
+    Variant(u32),
+}
+
 pub struct AliasDef {
     pub name: String,
     pub module: ModId,
@@ -274,7 +306,17 @@ pub struct Program {
     pub fns: Vec<FnDef>,
     pub consts: Vec<ConstDef>,
     pub aliases: Vec<AliasDef>,
+    pub statics: Vec<StaticDef>,
+    pub static_values: HashMap<StaticId, StaticValue>,
     pub lang: LangItems,
+    /// Functions of the runtime used by the code generator (`@lang("name")` on a
+    /// function of the standard library).
+    pub lang_fns: HashMap<String, FnId>,
+    /// Types of the runtime used by the code generator (`@lang("name")` on a struct or
+    /// enum of the standard library other than the prelude types).
+    pub lang_adts: HashMap<String, AdtId>,
+    /// Target and build mode seen by `@cfg`.
+    pub cfg: crate::target::Cfg,
     pub prelude: HashMap<String, ItemRef>,
     pub root: ModId,
     pub main_fn: Option<FnId>,
@@ -291,7 +333,12 @@ impl Program {
             fns: Vec::new(),
             consts: Vec::new(),
             aliases: Vec::new(),
+            statics: Vec::new(),
+            static_values: HashMap::new(),
             lang: LangItems::default(),
+            lang_fns: HashMap::new(),
+            lang_adts: HashMap::new(),
+            cfg: crate::target::Cfg::default(),
             prelude: HashMap::new(),
             root: ModId(0),
             main_fn: None,
@@ -306,6 +353,11 @@ impl Program {
 
     pub fn func(&self, id: FnId) -> &FnDef {
         &self.fns[id.idx()]
+    }
+
+    /// A runtime function of the standard library (`@lang("name")`).
+    pub fn lang_fn(&self, name: &str) -> Option<FnId> {
+        self.lang_fns.get(name).copied()
     }
 
     pub fn is_string(&self, t: Ty) -> bool {

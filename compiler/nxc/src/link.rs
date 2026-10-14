@@ -1,0 +1,350 @@
+//! Linking (spec §10.6) with LLD, the LLVM linker. NEXUL programs do not use a C
+//! library: on Windows the system DLLs are reached through import libraries written by
+//! `nxc` itself; on Linux executables are static and call the kernel directly; WebAssembly
+//! modules import the WASI functions.
+
+use crate::toolchain::Toolchain;
+use nxc_sema::target::{Arch, Os, Target};
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OutputKind {
+    Executable,
+    /// A shared library (`.dll`, `.so`, `.dylib`).
+    SharedLibrary,
+    /// A static library (`.lib`, `.a`).
+    StaticLibrary,
+}
+
+pub struct LinkJob<'a> {
+    pub target: &'a Target,
+    pub objects: Vec<PathBuf>,
+    pub out: PathBuf,
+    pub kind: OutputKind,
+    /// (library, symbol) pairs: DLL imports on Windows.
+    pub imports: &'a [(String, String)],
+    /// Libraries named by `@link` (other targets).
+    pub links: &'a [String],
+    pub exports: &'a [String],
+    pub debug: bool,
+    pub optimize: bool,
+    /// Directory for intermediate files.
+    pub work_dir: PathBuf,
+    /// Additional arguments for the linker (`--link-arg`).
+    pub extra: &'a [String],
+}
+
+fn run(cmd: &mut Command, what: &str) -> Result<(), String> {
+    match cmd.output() {
+        Ok(o) if o.status.success() => Ok(()),
+        Ok(o) => Err(format!("{} failed:\n{}{}", what, String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr))),
+        Err(e) => Err(format!("cannot run {}: {}", what, e)),
+    }
+}
+
+pub fn link(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    if job.kind == OutputKind::StaticLibrary {
+        return write_static_library(&job.objects, &job.out, job.target);
+    }
+    match job.target.os {
+        Os::Windows => link_windows(tc, job),
+        Os::Wasi => link_wasm(tc, job),
+        Os::MacOs => link_macos(tc, job),
+        Os::Linux => link_elf(tc, job),
+        Os::None => link_bare(tc, job),
+    }
+}
+
+fn link_windows(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    let lld = tc.linker("lld-link")?;
+    let machine = if job.target.arch == Arch::Aarch64 { "arm64" } else { "x64" };
+    let mut cmd = Command::new(lld);
+    cmd.arg("/nologo").arg(format!("/machine:{}", machine)).arg("/nodefaultlib").arg("/incremental:no");
+    match job.kind {
+        OutputKind::Executable => {
+            cmd.arg("/subsystem:console").arg("/entry:mainCRTStartup").arg("/stack:8388608");
+        }
+        _ => {
+            cmd.arg("/dll").arg("/noentry");
+            for e in job.exports {
+                cmd.arg(format!("/export:{}", e));
+            }
+        }
+    }
+    cmd.arg(format!("/out:{}", job.out.display()));
+    if job.debug {
+        cmd.arg("/debug:full").arg(format!("/pdb:{}", job.out.with_extension("pdb").display()));
+    } else {
+        cmd.arg("/debug:none").arg("/opt:ref").arg("/opt:icf");
+    }
+    for o in &job.objects {
+        cmd.arg(o);
+    }
+    // One import library per DLL, generated from the declarations of the program.
+    let mut by_dll: BTreeMap<String, Vec<String>> = BTreeMap::new();
+    for (dll, sym) in job.imports {
+        let list = by_dll.entry(dll.to_ascii_lowercase()).or_default();
+        if !list.contains(sym) {
+            list.push(sym.clone());
+        }
+    }
+    for (dll, syms) in &by_dll {
+        let dll_name = if dll.ends_with(".dll") { dll.clone() } else { format!("{}.dll", dll) };
+        let lib = job.work_dir.join(format!("{}.nx-implib.lib", dll_name.trim_end_matches(".dll")));
+        std::fs::write(&lib, import_library(&dll_name, syms, job.target.arch)).map_err(|e| format!("cannot write `{}`: {}", lib.display(), e))?;
+        cmd.arg(&lib);
+    }
+    for l in job.links {
+        if !by_dll.contains_key(&l.to_ascii_lowercase()) {
+            cmd.arg(format!("{}.lib", l));
+        }
+    }
+    cmd.args(job.extra);
+    run(&mut cmd, "the linker (lld-link)")
+}
+
+fn link_elf(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    let lld = tc.linker("ld.lld")?;
+    let mut cmd = Command::new(lld);
+    cmd.arg("-o").arg(&job.out).arg("-z").arg("noexecstack").arg("--gc-sections").arg("--build-id=none");
+    match job.kind {
+        OutputKind::Executable => {
+            cmd.arg("-static").arg("-e").arg("_start");
+        }
+        _ => {
+            cmd.arg("-shared");
+        }
+    }
+    if !job.debug {
+        cmd.arg("--strip-all").arg("-O2");
+    }
+    for o in &job.objects {
+        cmd.arg(o);
+    }
+    for l in job.links {
+        cmd.arg(format!("-l{}", l));
+    }
+    cmd.args(job.extra);
+    run(&mut cmd, "the linker (ld.lld)")
+}
+
+fn link_wasm(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    let lld = tc.linker("wasm-ld")?;
+    let mut cmd = Command::new(lld);
+    cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("-z").arg("stack-size=8388608");
+    match job.kind {
+        OutputKind::Executable => {}
+        _ => {
+            cmd.arg("--no-entry");
+            for e in job.exports {
+                cmd.arg(format!("--export={}", e));
+            }
+        }
+    }
+    if !job.debug {
+        cmd.arg("--strip-all").arg("-O2");
+    }
+    for o in &job.objects {
+        cmd.arg(o);
+    }
+    cmd.args(job.extra);
+    run(&mut cmd, "the linker (wasm-ld)")
+}
+
+fn link_macos(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    let lld = tc.linker("ld64.lld")?;
+    let arch = if job.target.arch == Arch::Aarch64 { "arm64" } else { "x86_64" };
+    // A text stub of the system library lists the functions used: no SDK is needed.
+    let stub = job.work_dir.join("libSystem.nx.tbd");
+    let mut syms: Vec<String> = job.imports.iter().map(|(_, s)| format!("_{}", s)).collect();
+    syms.sort();
+    syms.dedup();
+    let tbd = format!(
+        "--- !tapi-tbd\ntbd-version: 4\ntargets: [ {}-macos ]\ninstall-name: '/usr/lib/libSystem.B.dylib'\nexports:\n  - targets: [ {}-macos ]\n    symbols: [ {} ]\n...\n",
+        arch,
+        arch,
+        syms.join(", ")
+    );
+    std::fs::write(&stub, tbd).map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(lld);
+    cmd.arg("-arch").arg(arch).arg("-platform_version").arg("macos").arg("11.0.0").arg("11.0.0").arg("-o").arg(&job.out);
+    if job.kind == OutputKind::Executable {
+        cmd.arg("-e").arg("_start");
+    } else {
+        cmd.arg("-dylib");
+    }
+    for o in &job.objects {
+        cmd.arg(o);
+    }
+    cmd.arg(&stub);
+    cmd.args(job.extra);
+    run(&mut cmd, "the linker (ld64.lld)")
+}
+
+/// Bare metal: a linker script places the vector table, the code and the data in the
+/// memory of the board.
+fn link_bare(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
+    let lld = tc.linker("ld.lld")?;
+    let script = job.work_dir.join("nexul-bare.ld");
+    std::fs::write(&script, bare_linker_script(job.target)).map_err(|e| e.to_string())?;
+    let mut cmd = Command::new(lld);
+    cmd.arg("-o").arg(&job.out).arg("-T").arg(&script).arg("--gc-sections").arg("-static");
+    for o in &job.objects {
+        cmd.arg(o);
+    }
+    cmd.args(job.extra);
+    run(&mut cmd, "the linker (ld.lld)")
+}
+
+/// Memory map of the reference boards emulated by QEMU (spec §7.1): `mps2-an386`
+/// (Cortex-M4), `virt` (RISC-V and AArch64).
+pub fn bare_linker_script(t: &Target) -> String {
+    let (flash, ram) = match t.arch {
+        Arch::Arm => (("0x00000000", "4M"), ("0x20000000", "4M")),
+        Arch::Riscv32 | Arch::Riscv64 => (("0x80000000", "8M"), ("0x80800000", "56M")),
+        _ => (("0x40000000", "8M"), ("0x40800000", "56M")),
+    };
+    format!(
+        "MEMORY {{
+  FLASH (rx) : ORIGIN = {}, LENGTH = {}
+  RAM (rwx) : ORIGIN = {}, LENGTH = {}
+}}
+ENTRY(nx_vector_entry)
+SECTIONS {{
+  .text : {{
+    KEEP(*(.vectors))
+    *(.text .text.*)
+    *(.rodata .rodata.*)
+  }} > FLASH
+  .data : {{
+    __data_start = .;
+    *(.data .data.* .sdata .sdata.*)
+    __data_end = .;
+  }} > RAM AT> FLASH
+  __data_load = LOADADDR(.data);
+  .bss (NOLOAD) : {{
+    __bss_start = .;
+    *(.bss .bss.* .sbss .sbss.* COMMON)
+    __bss_end = .;
+  }} > RAM
+  . = ALIGN(16);
+  __heap_start = .;
+  __stack_top = ORIGIN(RAM) + LENGTH(RAM);
+  /DISCARD/ : {{ *(.ARM.exidx*) *(.comment) }}
+}}
+",
+        flash.0, flash.1, ram.0, ram.1
+    )
+}
+
+// ---------------------------------------------------------------------------
+// Archives
+
+fn ar_header(name: &str, size: usize) -> Vec<u8> {
+    let h = format!("{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n", name, "0", "0", "0", "644", size);
+    debug_assert_eq!(h.len(), 60);
+    h.into_bytes()
+}
+
+/// An archive with a symbol table: `members` are (name, data, symbols).
+fn write_archive(members: &[(String, Vec<u8>, Vec<String>)]) -> Vec<u8> {
+    // Long member names go to the "//" member.
+    let mut longnames = Vec::new();
+    let mut names = Vec::new();
+    for (n, _, _) in members {
+        if n.len() < 16 {
+            names.push(format!("{}/", n));
+        } else {
+            names.push(format!("/{}", longnames.len()));
+            longnames.extend_from_slice(n.as_bytes());
+            longnames.extend_from_slice(b"/\n");
+        }
+    }
+    let nsyms: usize = members.iter().map(|m| m.2.len()).sum();
+    let strtab: usize = members.iter().flat_map(|m| m.2.iter()).map(|s| s.len() + 1).sum();
+    let symtab_size = 4 + 4 * nsyms + strtab;
+    let pad = |n: usize| n + (n & 1);
+    let mut offset = 8 + 60 + pad(symtab_size);
+    if !longnames.is_empty() {
+        offset += 60 + pad(longnames.len());
+    }
+    let mut offsets = Vec::new();
+    for (_, data, _) in members {
+        offsets.push(offset);
+        offset += 60 + pad(data.len());
+    }
+    let mut out = b"!<arch>\n".to_vec();
+    out.extend(ar_header("/", symtab_size));
+    out.extend((nsyms as u32).to_be_bytes());
+    for (i, m) in members.iter().enumerate() {
+        for _ in &m.2 {
+            out.extend((offsets[i] as u32).to_be_bytes());
+        }
+    }
+    for m in members {
+        for s in &m.2 {
+            out.extend(s.as_bytes());
+            out.push(0);
+        }
+    }
+    if symtab_size % 2 == 1 {
+        out.push(b'\n');
+    }
+    if !longnames.is_empty() {
+        out.extend(ar_header("//", longnames.len()));
+        out.extend(&longnames);
+        if longnames.len() % 2 == 1 {
+            out.push(b'\n');
+        }
+    }
+    for (i, (_, data, _)) in members.iter().enumerate() {
+        out.extend(ar_header(&names[i], data.len()));
+        out.extend(data);
+        if data.len() % 2 == 1 {
+            out.push(b'\n');
+        }
+    }
+    out
+}
+
+/// A Windows import library made of short import objects (one per function): the linker
+/// builds the import tables of the executable from them.
+pub fn import_library(dll: &str, symbols: &[String], arch: Arch) -> Vec<u8> {
+    let machine: u16 = if arch == Arch::Aarch64 { 0xAA64 } else { 0x8664 };
+    let mut members = Vec::new();
+    for s in symbols {
+        let mut data = Vec::new();
+        let size = (s.len() + 1 + dll.len() + 1) as u32;
+        data.extend(0u16.to_le_bytes()); // Sig1: IMAGE_FILE_MACHINE_UNKNOWN
+        data.extend(0xFFFFu16.to_le_bytes()); // Sig2
+        data.extend(0u16.to_le_bytes()); // Version
+        data.extend(machine.to_le_bytes());
+        data.extend(0u32.to_le_bytes()); // TimeDateStamp
+        data.extend(size.to_le_bytes());
+        data.extend(0u16.to_le_bytes()); // Ordinal / hint
+        // Type IMPORT_OBJECT_CODE (0) | NameType IMPORT_OBJECT_NAME (1) << 2
+        data.extend((1u16 << 2).to_le_bytes());
+        data.extend(s.as_bytes());
+        data.push(0);
+        data.extend(dll.as_bytes());
+        data.push(0);
+        members.push((dll.to_string(), data, vec![format!("__imp_{}", s), s.clone()]));
+    }
+    write_archive(&members)
+}
+
+/// A static library (`ar` archive) of object files, readable by every linker.
+fn write_static_library(objects: &[PathBuf], out: &Path, target: &Target) -> Result<(), String> {
+    let _ = target;
+    let mut members = Vec::new();
+    for o in objects {
+        let data = std::fs::read(o).map_err(|e| format!("cannot read `{}`: {}", o.display(), e))?;
+        let name = o.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_else(|| "nexul.o".into());
+        // The symbol table lists every global symbol defined by the object.
+        let syms = crate::objsyms::defined_symbols(&data);
+        members.push((name, data, syms));
+    }
+    std::fs::write(out, write_archive(&members)).map_err(|e| format!("cannot write `{}`: {}", out.display(), e))
+}

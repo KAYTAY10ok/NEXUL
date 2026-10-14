@@ -235,6 +235,7 @@ impl<'a> Parser<'a> {
                             | TokenKind::Enum
                             | TokenKind::Impl
                             | TokenKind::Const
+                            | TokenKind::Static
                             | TokenKind::Type
                             | TokenKind::Extern
                             | TokenKind::Pub
@@ -397,6 +398,7 @@ impl<'a> Parser<'a> {
             TokenKind::Enum if !in_impl => ItemKind::Enum(self.enum_decl()?),
             TokenKind::Impl if !in_impl => ItemKind::Impl(self.impl_decl()?),
             TokenKind::Const if !in_impl => ItemKind::Const(self.const_decl()?),
+            TokenKind::Static if !in_impl => ItemKind::Static(self.static_decl()?),
             TokenKind::Type if !in_impl => ItemKind::TypeAlias(self.type_alias()?),
             TokenKind::Extern if !in_impl => ItemKind::ExternFn(self.extern_fn()?),
             _ => {
@@ -407,7 +409,7 @@ impl<'a> Parser<'a> {
                 if !in_impl && matches!(self.peek(), TokenKind::Let | TokenKind::Var) {
                     d = d.help("variables can only be declared inside functions; use `const` for a module-level constant");
                 } else if !in_impl {
-                    d = d.note("a module contains `fn`, `struct`, `enum`, `impl`, `const`, `type` and `extern` declarations");
+                    d = d.note("a module contains `fn`, `struct`, `enum`, `impl`, `const`, `static`, `type` and `extern` declarations");
                 }
                 self.error_here(d);
                 return Err(());
@@ -616,6 +618,17 @@ impl<'a> Parser<'a> {
         self.expect(TokenKind::Eq, "`=`")?;
         let value = self.expr()?;
         Ok(ConstDecl { name, ty, value })
+    }
+
+    fn static_decl(&mut self) -> PResult<StaticDecl> {
+        self.bump(); // static
+        let mutable = self.eat(&TokenKind::Var);
+        let name = self.ident("a static variable name")?;
+        self.expect(TokenKind::Colon, "`:` and a type (static variables must be annotated)")?;
+        let ty = self.type_expr()?;
+        self.expect(TokenKind::Eq, "`=` and an initial value")?;
+        let value = self.expr()?;
+        Ok(StaticDecl { name, mutable, ty, value })
     }
 
     fn type_alias(&mut self) -> PResult<TypeAliasDecl> {

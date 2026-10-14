@@ -4,12 +4,12 @@ members = [
     "compiler/nxc_syntax",
     "compiler/nxc_sema",
     "compiler/nxc_nir",
-    "compiler/nxc_codegen_c",
+    "compiler/nxc_codegen_llvm",
     "compiler/nxc",
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/nexul-lang/nexul"

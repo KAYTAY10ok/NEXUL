@@ -1,0 +1,279 @@
+/// The NEXUL runtime (spec §5.3): program entry, panics, heap and standard output.
+///
+/// The code generator calls the functions marked `@lang`. Everything here is written in
+/// NEXUL; the operating system is reached only through `std.sys`, so the same runtime
+/// serves Windows, Linux, WebAssembly and bare-metal targets.
+
+import std.sys
+import std.mem
+import std.fmt
+
+/// Position in the source code, attached to panics (`file:line:column`).
+@lang("location")
+pub struct Location {
+    pub file: Ptr[u8]
+    pub file_len: usize
+    pub line: u32
+    pub col: u32
+}
+
+// ---------------------------------------------------------------------------
+// Heap
+
+/// Number of live heap allocations. With the environment variable `NEXUL_LEAK_CHECK`,
+/// a program that ends with live allocations reports them (used by the test suite to
+/// verify that every value is destroyed exactly once).
+static var LIVE_ALLOCATIONS: i64 = 0
+
+@cold
+fn out_of_memory() -> Never {
+    unsafe {
+        flush()
+        write_err("panic: out of memory\n")
+    }
+    sys.exit(101)
+}
+
+/// Allocates `size` bytes (aligned for any type); never returns null.
+@lang("alloc")
+pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+    let p = sys.heap_alloc(if size == 0 { 1 } else { size })
+    if p.is_null() {
+        out_of_memory()
+    }
+    LIVE_ALLOCATIONS += 1
+    return p
+}
+
+/// Resizes an allocation made by `alloc` (or allocates if `p` is null).
+@lang("realloc")
+pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    if p.is_null() {
+        return alloc(size)
+    }
+    let q = sys.heap_realloc(p, if size == 0 { 1 } else { size })
+    if q.is_null() {
+        out_of_memory()
+    }
+    return q
+}
+
+/// Frees an allocation made by `alloc` or `realloc`; does nothing for null.
+@lang("free")
+pub unsafe fn free(p: Ptr[u8]) {
+    if not p.is_null() {
+        LIVE_ALLOCATIONS -= 1
+        sys.heap_free(p)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standard output (buffered) and standard error (unbuffered)
+
+const OUT_CAP: usize = 8192
+static var OUT_BUF: [u8; 8192] = [0; 8192]
+static var OUT_LEN: usize = 0
+/// When standard output is a terminal, every `print` is flushed immediately.
+static var OUT_IS_TERMINAL: bool = false
+
+/// Writes the buffered standard output.
+@lang("flush")
+pub fn flush() {
+    unsafe {
+        if OUT_LEN > 0 {
+            let n = OUT_LEN
+            OUT_LEN = 0
+            let _ = sys.write(1, mem.addr_of(&OUT_BUF).cast[u8](), n)
+        }
+    }
+}
+
+/// Appends bytes to the standard output buffer.
+pub unsafe fn write_out(data: Ptr[u8], len: usize) {
+    if len >= OUT_CAP {
+        flush()
+        let _ = sys.write(1, data, len)
+        return
+    }
+    if OUT_LEN + len > OUT_CAP {
+        flush()
+    }
+    mem.copy(data, mem.addr_of(&OUT_BUF).cast[u8]().offset(OUT_LEN), len)
+    OUT_LEN += len
+}
+
+unsafe fn write_err(text: String) {
+    let _ = sys.write(2, text.as_ptr(), text.len())
+}
+
+/// Writes a number to standard error without allocating (usable when the heap is
+/// exhausted).
+unsafe fn write_err_u64(value: u64) {
+    var digits: [u8; 20] = [0; 20]
+    var n: usize = 0
+    var v = value
+    while true {
+        digits[19 - n] = ('0' as u8) + (v % 10) as u8
+        n += 1
+        v /= 10
+        if v == 0 {
+            break
+        }
+    }
+    let _ = sys.write(2, mem.addr_of(&digits).cast[u8]().offset(20 - n), n)
+}
+
+/// `print`, `println`, `eprint` and `eprintln`.
+@lang("print")
+fn print(text: String, newline: bool, to_stderr: bool) {
+    unsafe {
+        if to_stderr {
+            flush()
+            let _ = sys.write(2, text.as_ptr(), text.len())
+            if newline {
+                write_err("\n")
+            }
+        } else {
+            write_out(text.as_ptr(), text.len())
+            if newline {
+                write_out("\n".as_ptr(), 1)
+            }
+            if OUT_IS_TERMINAL {
+                flush()
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Program entry and exit
+
+/// Called by the platform entry point with the program's `main` function.
+@lang("entry")
+fn entry(main: fn()) {
+    sys.init()
+    unsafe {
+        OUT_IS_TERMINAL = sys.stdout_is_terminal()
+    }
+    main()
+    exit(0)
+}
+
+/// Ends the program: flushes the output, runs the leak check if requested, and exits.
+pub fn exit(code: i32) -> Never {
+    flush()
+    let live = unsafe { LIVE_ALLOCATIONS }
+    if live != 0 and sys.env_is_set("NEXUL_LEAK_CHECK") {
+        unsafe {
+            write_err("leak check: ")
+            if live < 0 {
+                write_err("-")
+                write_err_u64((0 - live) as u64)
+            } else {
+                write_err_u64(live as u64)
+            }
+            write_err(" allocation(s) not freed\n")
+        }
+        sys.exit(if code == 0 { 102 } else { code })
+    }
+    sys.exit(code)
+}
+
+/// For `nxc test`: the index of the test to run (first command-line argument).
+@lang("test_index")
+fn test_index() -> i32 {
+    if sys.arg_count() < 2 {
+        return -1
+    }
+    match sys.arg(1).parse_int() {
+        Some(n) => {
+            if n < 0 or n > 1_000_000 {
+                return -1
+            }
+            return n as i32
+        }
+        None => return -1
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Panics (spec §7.3)
+
+/// Reports a panic and ends the program with exit code 101.
+@lang("panic")
+@cold
+pub fn panic_at(message: String, location: Ptr[Location]) -> Never {
+    unsafe {
+        flush()
+        write_err("panic: ")
+        let _ = sys.write(2, message.as_ptr(), message.len())
+        write_err("\n")
+        if not location.is_null() {
+            let loc = location.read()
+            write_err("  --> ")
+            let _ = sys.write(2, loc.file, loc.file_len)
+            write_err(":")
+            write_err_u64(loc.line as u64)
+            write_err(":")
+            write_err_u64(loc.col as u64)
+            write_err("\n")
+        }
+    }
+    sys.exit(101)
+}
+
+/// Failed checks of arithmetic, conversions and shifts (spec §4.2, §3.6).
+@lang("panic_arith")
+@cold
+fn panic_arith(kind: u32, location: Ptr[Location]) -> Never {
+    let message = match kind {
+        0 => "attempt to add with overflow"
+        1 => "attempt to subtract with overflow"
+        2 => "attempt to multiply with overflow"
+        3 => "attempt to divide by zero"
+        4 => "attempt to divide with overflow"
+        5 => "attempt to calculate the remainder with a divisor of zero"
+        6 => "attempt to calculate the remainder with overflow"
+        7 => "attempt to negate with overflow"
+        8 => "attempt to shift left with overflow"
+        9 => "attempt to shift right with overflow"
+        10 => "attempt to take the absolute value with overflow"
+        11 => "value out of range in `as` conversion"
+        12 => "cannot convert NaN to an integer"
+        13 => "value is not a valid `char`"
+        14 => "attempt to raise to a power with overflow"
+        _ => "arithmetic error"
+    }
+    panic_at(message, location)
+}
+
+/// An index outside of `0..len` (spec §4.6).
+@lang("panic_bounds")
+@cold
+fn panic_bounds(index: u64, len: u64, location: Ptr[Location]) -> Never {
+    panic_at("index out of bounds: the index is {index} but the length is {len}", location)
+}
+
+@lang("panic_bounds_neg")
+@cold
+fn panic_bounds_neg(index: i64, len: u64, location: Ptr[Location]) -> Never {
+    panic_at("index out of bounds: the index is {index} but the length is {len}", location)
+}
+
+/// Out-of-bounds access through an `@index` method (reported at the caller).
+@track_caller
+@cold
+pub fn index_fail(index: usize, len: usize) -> Never {
+    panic("index out of bounds: the index is {index} but the length is {len}")
+}
+
+// ---------------------------------------------------------------------------
+// Characters
+
+/// Unicode `White_Space` property.
+@lang("char_is_whitespace")
+pub fn char_is_whitespace(c: char) -> bool {
+    let v = c as u32
+    return v == 0x20 or (v >= 0x09 and v <= 0x0D) or v == 0x85 or v == 0xA0 or v == 0x1680 or (v >= 0x2000 and v <= 0x200A) or
+        v == 0x2028 or v == 0x2029 or v == 0x202F or v == 0x205F or v == 0x3000
+}

@@ -1,5 +1,13 @@
-/// Mathematical constants (spec chapter 09). The mathematical functions are methods
-/// of the float types: `x.sqrt()`, `x.sin()`, `x.powf(y)`...
+/// Mathematics (spec chapter 09).
+///
+/// The functions of the float types (`x.sqrt()`, `x.sin()`, `x.powf(y)`...) are
+/// implemented here, in NEXUL, without any external library. The algorithms and their
+/// polynomial coefficients are those of fdlibm (Sun Microsystems, "Developed at SunPro,
+/// a Sun Microsystems, Inc. business. Permission to use, copy, modify, and distribute
+/// this software is freely granted, provided that this notice is preserved."), as
+/// refined by musl: results are within 1 ulp of the exact value.
+
+import std.fmt
 
 /// The ratio of a circle's circumference to its diameter.
 pub const PI: f64 = 3.14159265358979323846264338327950288
@@ -10,3 +18,1169 @@ pub const TAU: f64 = 6.28318530717958647692528676655900577
 pub const SQRT_2: f64 = 1.41421356237309504880168872420969808
 pub const LN_2: f64 = 0.693147180559945309417232121458176568
 pub const LN_10: f64 = 2.30258509299404568401799145468436421
+
+/// The `f64` with the given IEEE 754 bit pattern.
+@intrinsic
+pub fn f64_from_bits(bits: u64) -> f64
+
+/// The `f32` with the given IEEE 754 bit pattern.
+@intrinsic
+pub fn f32_from_bits(bits: u32) -> f32
+
+// ---------------------------------------------------------------------------
+// Bit access
+
+fn hi(x: f64) -> u32 {
+    return (x.to_bits() >> 32) as u32
+}
+
+fn lo(x: f64) -> u32 {
+    return (x.to_bits() & 0xFFFF_FFFF) as u32
+}
+
+fn from_words(h: u32, l: u32) -> f64 {
+    return f64_from_bits(((h as u64) << 32) | (l as u64))
+}
+
+/// `x` with the low 32 bits of its representation cleared.
+fn clear_low(x: f64) -> f64 {
+    return f64_from_bits(x.to_bits() & 0xFFFF_FFFF_0000_0000)
+}
+
+/// Reinterprets the bits of a `u32` as an `i32`.
+fn to_i32(u: u32) -> i32 {
+    if u >= 0x8000_0000 {
+        return ((u as i64) - 0x1_0000_0000) as i32
+    }
+    return u as i32
+}
+
+/// Reinterprets the bits of an `i32` as a `u32`.
+fn to_u32(i: i32) -> u32 {
+    if i < 0 {
+        return ((i as i64) + 0x1_0000_0000) as u32
+    }
+    return i as u32
+}
+
+fn pow2(n: i32) -> f64 {
+    return f64_from_bits(((n + 1023) as u64) << 52)
+}
+
+/// `x * 2^n`
+pub fn scalbn(x: f64, n: i32) -> f64 {
+    var y = x
+    var k = n
+    if k > 1023 {
+        y *= pow2(1023)
+        k -= 1023
+        if k > 1023 {
+            y *= pow2(1023)
+            k -= 1023
+            if k > 1023 {
+                k = 1023
+            }
+        }
+    } else if k < -1022 {
+        // Two steps keep the intermediate result normal (no double rounding).
+        y *= pow2(-1022) * pow2(53)
+        k += 1022 - 53
+        if k < -1022 {
+            y *= pow2(-1022) * pow2(53)
+            k += 1022 - 53
+            if k < -1022 {
+                k = -1022
+            }
+        }
+    }
+    return y * pow2(k)
+}
+
+// ---------------------------------------------------------------------------
+// Rounding
+
+@lang("math.trunc")
+pub fn trunc(x: f64) -> f64 {
+    let bits = x.to_bits()
+    let e = ((bits >> 52) & 0x7FF) as i32 - 1023
+    if e >= 52 {
+        return x
+    }
+    if e < 0 {
+        return f64_from_bits(bits & 0x8000_0000_0000_0000)
+    }
+    let mask = ((1 as u64) << ((52 - e) as u64)) - 1
+    return f64_from_bits(bits & (0xFFFF_FFFF_FFFF_FFFF ^ mask))
+}
+
+@lang("math.floor")
+pub fn floor(x: f64) -> f64 {
+    let t = trunc(x)
+    if x < 0.0 and t != x {
+        return t - 1.0
+    }
+    return t
+}
+
+@lang("math.ceil")
+pub fn ceil(x: f64) -> f64 {
+    let t = trunc(x)
+    if x > 0.0 and t != x {
+        return t + 1.0
+    }
+    return t
+}
+
+/// Rounds half away from zero.
+@lang("math.round")
+pub fn round(x: f64) -> f64 {
+    let t = trunc(x)
+    let d = x - t
+    if d >= 0.5 {
+        return t + 1.0
+    }
+    if d <= -0.5 {
+        return t - 1.0
+    }
+    return t
+}
+
+/// Remainder of `x / y` with the sign of `x` (exact).
+@lang("math.fmod")
+pub fn fmod(x: f64, y: f64) -> f64 {
+    var uxi = x.to_bits()
+    var uyi = y.to_bits()
+    var ex = ((uxi >> 52) & 0x7FF) as i32
+    var ey = ((uyi >> 52) & 0x7FF) as i32
+    let sx = uxi >> 63
+    if uyi << 1 == 0 or y.is_nan() or ex == 0x7FF {
+        return (x * y) / (x * y)
+    }
+    if uxi << 1 <= uyi << 1 {
+        if uxi << 1 == uyi << 1 {
+            return 0.0 * x
+        }
+        return x
+    }
+    // Normalize the mantissas.
+    if ex == 0 {
+        var i = uxi << 12
+        while i >> 63 == 0 {
+            ex -= 1
+            i <<= 1
+        }
+        uxi <<= (1 - ex) as u64
+    } else {
+        uxi &= 0xF_FFFF_FFFF_FFFF
+        uxi |= (1 as u64) << 52
+    }
+    if ey == 0 {
+        var i = uyi << 12
+        while i >> 63 == 0 {
+            ey -= 1
+            i <<= 1
+        }
+        uyi <<= (1 - ey) as u64
+    } else {
+        uyi &= 0xF_FFFF_FFFF_FFFF
+        uyi |= (1 as u64) << 52
+    }
+    while ex > ey {
+        let i = uxi -% uyi
+        if i >> 63 == 0 {
+            if i == 0 {
+                return 0.0 * x
+            }
+            uxi = i
+        }
+        uxi <<= 1
+        ex -= 1
+    }
+    let i = uxi -% uyi
+    if i >> 63 == 0 {
+        if i == 0 {
+            return 0.0 * x
+        }
+        uxi = i
+    }
+    while uxi >> 52 == 0 {
+        uxi <<= 1
+        ex -= 1
+    }
+    if ex > 0 {
+        uxi -= (1 as u64) << 52
+        uxi |= (ex as u64) << 52
+    } else {
+        uxi >>= (1 - ex) as u64
+    }
+    uxi |= sx << 63
+    return f64_from_bits(uxi)
+}
+
+// ---------------------------------------------------------------------------
+// Exponential and logarithms
+
+const LN2_HI: f64 = 6.93147180369123816490e-01
+const LN2_LO: f64 = 1.90821492927058770002e-10
+const INV_LN2: f64 = 1.44269504088896338700e+00
+const P1: f64 = 1.66666666666666019037e-01
+const P2: f64 = -2.77777777770155933842e-03
+const P3: f64 = 6.61375632143793436117e-05
+const P4: f64 = -1.65339022054652515390e-06
+const P5: f64 = 4.13813679705723846039e-08
+
+@lang("math.exp")
+pub fn exp(x: f64) -> f64 {
+    if x.is_nan() {
+        return x
+    }
+    if x > 709.782712893383973096 {
+        return f64.INFINITY
+    }
+    if x < -745.13321910194110842 {
+        return 0.0
+    }
+    let hx = hi(x) & 0x7FFF_FFFF
+    let negative = x < 0.0
+    var k: i32 = 0
+    var hi_part = 0.0
+    var lo_part = 0.0
+    var r = x
+    if hx > 0x3FD6_2E42 {
+        // |x| > 0.5 ln 2: x = k ln2 + r with |r| <= 0.5 ln 2.
+        if hx < 0x3FF0_A2B2 {
+            if negative {
+                hi_part = x + LN2_HI
+                lo_part = -LN2_LO
+                k = -1
+            } else {
+                hi_part = x - LN2_HI
+                lo_part = LN2_LO
+                k = 1
+            }
+        } else {
+            k = (INV_LN2 * x + (if negative { -0.5 } else { 0.5 })) as i32
+            let t = k as f64
+            hi_part = x - t * LN2_HI
+            lo_part = t * LN2_LO
+        }
+        r = hi_part - lo_part
+    } else if hx < 0x3E30_0000 {
+        // |x| < 2^-28
+        return 1.0 + x
+    }
+    let t = r * r
+    let c = r - t * (P1 + t * (P2 + t * (P3 + t * (P4 + t * P5))))
+    if k == 0 {
+        return 1.0 - ((r * c) / (c - 2.0) - r)
+    }
+    let y = 1.0 - ((lo_part - (r * c) / (2.0 - c)) - hi_part)
+    return scalbn(y, k)
+}
+
+const LG1: f64 = 6.666666666666735130e-01
+const LG2: f64 = 3.999999999940941908e-01
+const LG3: f64 = 2.857142874366239149e-01
+const LG4: f64 = 2.222219843214978396e-01
+const LG5: f64 = 1.818357216161805012e-01
+const LG6: f64 = 1.531383769920937332e-01
+const LG7: f64 = 1.479819860511658591e-01
+
+/// The reduction shared by the logarithms: `x = 2^k * (1 + f)`, with
+/// `sqrt(2)/2 < 1 + f < sqrt(2)`. Returns `(k, f, special)` where `special` is the result
+/// for zero, negative, infinite and NaN arguments (or 0.0 and `false`).
+fn log_reduce(x: f64) -> (i32, f64, f64, bool) {
+    var hx = hi(x)
+    var lx = lo(x)
+    var k: i32 = 0
+    var v = x
+    if hx < 0x0010_0000 or hx >> 31 == 1 {
+        if (hx << 1) == 0 and lx == 0 {
+            return (0, 0.0, f64.NEG_INFINITY, true)
+        }
+        if hx >> 31 == 1 {
+            return (0, 0.0, f64.NAN, true)
+        }
+        // Subnormal: scale up.
+        k -= 54
+        v *= 18014398509481984.0
+        hx = hi(v)
+        lx = lo(v)
+    } else if hx >= 0x7FF0_0000 {
+        return (0, 0.0, x, true)
+    } else if hx == 0x3FF0_0000 and lx == 0 {
+        return (0, 0.0, 0.0, true)
+    }
+    hx += 0x3FF0_0000 - 0x3FE6_A09E
+    k += (hx >> 20) as i32 - 0x3FF
+    hx = (hx & 0x000F_FFFF) + 0x3FE6_A09E
+    v = from_words(hx, lx)
+    return (k, v - 1.0, 0.0, false)
+}
+
+@lang("math.ln")
+pub fn ln(x: f64) -> f64 {
+    let (k, f, special, is_special) = log_reduce(x)
+    if is_special {
+        return special
+    }
+    let hfsq = 0.5 * f * f
+    let s = f / (2.0 + f)
+    let z = s * s
+    let w = z * z
+    let t1 = w * (LG2 + w * (LG4 + w * LG6))
+    let t2 = z * (LG1 + w * (LG3 + w * (LG5 + w * LG7)))
+    let r = t2 + t1
+    let dk = k as f64
+    return s * (hfsq + r) + dk * LN2_LO - hfsq + f + dk * LN2_HI
+}
+
+/// `(hi, lo)` with `hi + lo = log(1 + f) - f + hfsq` computed with extra precision.
+fn log_parts(f: f64) -> (f64, f64) {
+    let hfsq = 0.5 * f * f
+    let s = f / (2.0 + f)
+    let z = s * s
+    let w = z * z
+    let t1 = w * (LG2 + w * (LG4 + w * LG6))
+    let t2 = z * (LG1 + w * (LG3 + w * (LG5 + w * LG7)))
+    let r = t2 + t1
+    let h = clear_low(f - hfsq)
+    let l = f - h - hfsq + s * (hfsq + r)
+    return (h, l)
+}
+
+@lang("math.log2")
+pub fn log2(x: f64) -> f64 {
+    let (k, f, special, is_special) = log_reduce(x)
+    if is_special {
+        return special
+    }
+    let (h, l) = log_parts(f)
+    let ivln2hi = 1.44269504072144627571e+00
+    let ivln2lo = 1.67517131648865118353e-10
+    var val_hi = h * ivln2hi
+    var val_lo = (l + h) * ivln2lo + l * ivln2hi
+    let y = k as f64
+    let w = y + val_hi
+    val_lo += (y - w) + val_hi
+    val_hi = w
+    return val_lo + val_hi
+}
+
+@lang("math.log10")
+pub fn log10(x: f64) -> f64 {
+    let (k, f, special, is_special) = log_reduce(x)
+    if is_special {
+        return special
+    }
+    let (h, l) = log_parts(f)
+    let ivln10hi = 4.34294481878168880939e-01
+    let ivln10lo = 2.50829467116452752298e-11
+    let log10_2hi = 3.01029995663611771306e-01
+    let log10_2lo = 3.69423907715893078616e-13
+    let dk = k as f64
+    let y = dk * log10_2hi
+    var val_hi = h * ivln10hi
+    var val_lo = dk * log10_2lo + (l + h) * ivln10lo + l * ivln10hi
+    let w = y + val_hi
+    val_lo += (y - w) + val_hi
+    val_hi = w
+    return val_lo + val_hi
+}
+
+// ---------------------------------------------------------------------------
+// Power
+
+@lang("math.powf")
+pub fn pow(x: f64, y: f64) -> f64 {
+    let bp0 = 1.0
+    let bp1 = 1.5
+    let dp_h1 = 5.84962487220764160156e-01
+    let dp_l1 = 1.35003920212974897128e-08
+    let two53 = 9007199254740992.0
+    let huge = 1.0e300
+    let tiny = 1.0e-300
+    let l1 = 5.99999999999994648725e-01
+    let l2 = 4.28571428578550184252e-01
+    let l3 = 3.33333329818377432918e-01
+    let l4 = 2.72728123808534006489e-01
+    let l5 = 2.30660745775561754067e-01
+    let l6 = 2.06975017800338417784e-01
+    let lg2 = 6.93147180559945286227e-01
+    let lg2_h = 6.93147182464599609375e-01
+    let lg2_l = -1.90465429995776804525e-09
+    let ovt = 8.0085662595372944372e-17
+    let cp = 9.61796693925975554329e-01
+    let cp_h = 9.61796700954437255859e-01
+    let cp_l = -7.02846165095275826516e-09
+    let ivln2 = 1.44269504088896338700e+00
+    let ivln2_h = 1.44269502162933349609e+00
+    let ivln2_l = 1.92596299112661746887e-08
+
+    let hx = to_i32(hi(x))
+    let lx = lo(x)
+    let hy = to_i32(hi(y))
+    let ly = lo(y)
+    var ix = hx & 0x7FFF_FFFF
+    let iy = hy & 0x7FFF_FFFF
+
+    // x^0 = 1 even if x is NaN; 1^y = 1 even if y is NaN.
+    if (to_u32(iy) | ly) == 0 {
+        return 1.0
+    }
+    if hx == 0x3FF0_0000 and lx == 0 {
+        return 1.0
+    }
+    if ix > 0x7FF0_0000 or (ix == 0x7FF0_0000 and lx != 0) or iy > 0x7FF0_0000 or (iy == 0x7FF0_0000 and ly != 0) {
+        return x + y
+    }
+    // yisint: 0 not an integer, 1 odd integer, 2 even integer (only when x < 0).
+    var yisint = 0
+    if hx < 0 {
+        if iy >= 0x4340_0000 {
+            yisint = 2
+        } else if iy >= 0x3FF0_0000 {
+            let k = (iy >> 20) - 0x3FF
+            if k > 20 {
+                let j = ly >> ((52 - k) as u32)
+                if (j << ((52 - k) as u32)) == ly {
+                    yisint = 2 - (j & 1) as i32
+                }
+            } else if ly == 0 {
+                let j = iy >> (20 - k)
+                if (j << (20 - k)) == iy {
+                    yisint = 2 - (j & 1)
+                }
+            }
+        }
+    }
+    // Special values of y.
+    if ly == 0 {
+        if iy == 0x7FF0_0000 {
+            if ((ix - 0x3FF0_0000) | to_i32(lx)) == 0 {
+                return 1.0
+            }
+            if ix >= 0x3FF0_0000 {
+                return if hy >= 0 { y } else { 0.0 }
+            }
+            return if hy >= 0 { 0.0 } else { -y }
+        }
+        if iy == 0x3FF0_0000 {
+            return if hy >= 0 { x } else { 1.0 / x }
+        }
+        if hy == 0x4000_0000 {
+            return x * x
+        }
+        if hy == 0x3FE0_0000 and hx >= 0 {
+            return x.sqrt()
+        }
+    }
+    var ax = x.abs()
+    // Special values of x.
+    if lx == 0 {
+        if ix == 0x7FF0_0000 or ix == 0 or ix == 0x3FF0_0000 {
+            var z = ax
+            if hy < 0 {
+                z = 1.0 / z
+            }
+            if hx < 0 {
+                if ((ix - 0x3FF0_0000) | yisint) == 0 {
+                    z = (z - z) / (z - z)
+                } else if yisint == 1 {
+                    z = -z
+                }
+            }
+            return z
+        }
+    }
+    var s = 1.0
+    if hx < 0 {
+        if yisint == 0 {
+            return (x - x) / (x - x)
+        }
+        if yisint == 1 {
+            s = -1.0
+        }
+    }
+    var t1 = 0.0
+    var t2 = 0.0
+    if iy > 0x41E0_0000 {
+        // |y| > 2^31
+        if iy > 0x43F0_0000 {
+            if ix <= 0x3FEF_FFFF {
+                return if hy < 0 { huge * huge } else { tiny * tiny }
+            }
+            if ix >= 0x3FF0_0000 {
+                return if hy > 0 { huge * huge } else { tiny * tiny }
+            }
+        }
+        if ix < 0x3FEF_FFFF {
+            return if hy < 0 { s * huge * huge } else { s * tiny * tiny }
+        }
+        if ix > 0x3FF0_0000 {
+            return if hy > 0 { s * huge * huge } else { s * tiny * tiny }
+        }
+        // |1 - x| <= 2^-20: log(x) by its series.
+        let t = ax - 1.0
+        let w = (t * t) * (0.5 - t * (0.3333333333333333333333 - t * 0.25))
+        let u = ivln2_h * t
+        let v = t * ivln2_l - w * ivln2
+        t1 = clear_low(u + v)
+        t2 = v - (t1 - u)
+    } else {
+        var n: i32 = 0
+        if ix < 0x0010_0000 {
+            ax *= two53
+            n -= 53
+            ix = to_i32(hi(ax))
+        }
+        n += (ix >> 20) - 0x3FF
+        let j = ix & 0x000F_FFFF
+        ix = j | 0x3FF0_0000
+        var k = 0
+        if j <= 0x3988E {
+            k = 0
+        } else if j < 0xBB67A {
+            k = 1
+        } else {
+            k = 0
+            n += 1
+            ix -= 0x0010_0000
+        }
+        ax = from_words(to_u32(ix), lo(ax))
+        let bp = if k == 1 { bp1 } else { bp0 }
+        let dp_h = if k == 1 { dp_h1 } else { 0.0 }
+        let dp_l = if k == 1 { dp_l1 } else { 0.0 }
+        // ss = s_h + s_l = (x - 1) / (x + 1) or (x - 1.5) / (x + 1.5)
+        var u = ax - bp
+        var v = 1.0 / (ax + bp)
+        let ss = u * v
+        let s_h = clear_low(ss)
+        var t_h = from_words(to_u32(((ix >> 1) | 0x2000_0000) + 0x0008_0000 + (k << 18)), 0)
+        var t_l = ax - (t_h - bp)
+        let s_l = v * ((u - s_h * t_h) - s_h * t_l)
+        // log(ax)
+        var s2 = ss * ss
+        var r = s2 * s2 * (l1 + s2 * (l2 + s2 * (l3 + s2 * (l4 + s2 * (l5 + s2 * l6)))))
+        r += s_l * (s_h + ss)
+        s2 = s_h * s_h
+        t_h = clear_low(3.0 + s2 + r)
+        t_l = r - ((t_h - 3.0) - s2)
+        u = s_h * t_h
+        v = s_l * t_h + t_l * ss
+        let p_h = clear_low(u + v)
+        let p_l = v - (p_h - u)
+        let z_h = cp_h * p_h
+        let z_l = cp_l * p_h + p_l * cp + dp_l
+        let t = n as f64
+        t1 = clear_low(((z_h + z_l) + dp_h) + t)
+        t2 = z_l - (((t1 - t) - dp_h) - z_h)
+    }
+    // (y1 + y2) * (t1 + t2)
+    let y1 = clear_low(y)
+    var p_l = (y - y1) * t1 + y * t2
+    var p_h = y1 * t1
+    var z = p_l + p_h
+    var j = to_i32(hi(z))
+    let i = to_i32(lo(z))
+    if j >= 0x4090_0000 {
+        if ((j - 0x4090_0000) | i) != 0 {
+            return s * huge * huge
+        }
+        if p_l + ovt > z - p_h {
+            return s * huge * huge
+        }
+    } else if (j & 0x7FFF_FFFF) >= 0x4090_CC00 {
+        if (to_u32(j) -% 0xC090_CC00 | to_u32(i)) != 0 {
+            return s * tiny * tiny
+        }
+        if p_l <= z - p_h {
+            return s * tiny * tiny
+        }
+    }
+    // 2^(p_h + p_l)
+    let ia = j & 0x7FFF_FFFF
+    var k = (ia >> 20) - 0x3FF
+    var n: i32 = 0
+    if ia > 0x3FE0_0000 {
+        n = j + (0x0010_0000 >> (k + 1))
+        k = ((n & 0x7FFF_FFFF) >> 20) - 0x3FF
+        let t = from_words(to_u32(n & ~(0x000F_FFFF >> k)), 0)
+        n = ((n & 0x000F_FFFF) | 0x0010_0000) >> (20 - k)
+        if j < 0 {
+            n = -n
+        }
+        p_h -= t
+    }
+    let t = clear_low(p_l + p_h)
+    let u = t * lg2_h
+    let v = (p_l - (t - p_h)) * lg2 + t * lg2_l
+    z = u + v
+    let w = v - (z - u)
+    let tt = z * z
+    let r1 = z - tt * (P1 + tt * (P2 + tt * (P3 + tt * (P4 + tt * P5))))
+    let r = (z * r1) / (r1 - 2.0) - (w + z * w)
+    z = 1.0 - (r - z)
+    j = to_i32(hi(z))
+    j += n << 20
+    if (j >> 20) <= 0 {
+        z = scalbn(z, n)
+    } else {
+        z = from_words(to_u32(j), lo(z))
+    }
+    return s * z
+}
+
+@lang("math.hypot")
+pub fn hypot(x: f64, y: f64) -> f64 {
+    var ux = x.to_bits() & 0x7FFF_FFFF_FFFF_FFFF
+    var uy = y.to_bits() & 0x7FFF_FFFF_FFFF_FFFF
+    if ux < uy {
+        let t = ux
+        ux = uy
+        uy = t
+    }
+    let ex = (ux >> 52) as i32
+    let ey = (uy >> 52) as i32
+    var a = f64_from_bits(ux)
+    var b = f64_from_bits(uy)
+    if ey == 0x7FF {
+        return b
+    }
+    if ex == 0x7FF or uy == 0 {
+        return a
+    }
+    if ex - ey > 64 {
+        return a + b
+    }
+    var z = 1.0
+    if ex > 0x3FF + 510 {
+        z = pow2(700)
+        a *= pow2(-700)
+        b *= pow2(-700)
+    } else if ey < 0x3FF - 450 {
+        z = pow2(-700)
+        a *= pow2(700)
+        b *= pow2(700)
+    }
+    // Exact squares as hi + lo (Dekker splitting).
+    let split = 134217729.0
+    let ac = a * split
+    let ah = a - ac + ac
+    let al = a - ah
+    let hx = a * a
+    let lx = ah * ah - hx + 2.0 * ah * al + al * al
+    let bc = b * split
+    let bh = b - bc + bc
+    let bl = b - bh
+    let hy = b * b
+    let ly = bh * bh - hy + 2.0 * bh * bl + bl * bl
+    return z * (ly + lx + hy + hx).sqrt()
+}
+
+// ---------------------------------------------------------------------------
+// Trigonometry
+
+const PIO2_1: f64 = 1.57079632673412561417e+00
+const PIO2_1T: f64 = 6.07710050650619224932e-11
+const PIO2_2: f64 = 6.07710050630396597660e-11
+const PIO2_2T: f64 = 2.02226624879595063154e-21
+const PIO2_3: f64 = 2.02226624871116645580e-21
+const PIO2_3T: f64 = 8.47842766036889956997e-32
+const INV_PIO2: f64 = 6.36619772367581382433e-01
+
+/// Bits of 2/π for the reduction of huge arguments: 48 words of 32 bits after the binary
+/// point, computed exactly on first use (Machin's formula in integer arithmetic).
+static var TWO_OVER_PI: [u32; 48] = [0; 48]
+static var TWO_OVER_PI_READY: bool = false
+
+/// arctan(1/n) * 2^bits, by its alternating series.
+fn arctan_inv(n: u32, bits: u32) -> fmt.Big {
+    var pos = fmt.Big.zero()
+    var neg = fmt.Big.zero()
+    var term = fmt.Big.from_u64(1)
+    term.shl(bits)
+    let _ = term.div_small(n)
+    var k: u32 = 0
+    while not term.is_zero() {
+        var t = term.clone()
+        let _ = t.div_small(2 * k + 1)
+        if k % 2 == 0 {
+            pos.add(t)
+        } else {
+            neg.add(t)
+        }
+        let _ = term.div_small(n * n)
+        k += 1
+    }
+    pos.sub(neg)
+    return pos
+}
+
+fn init_two_over_pi() {
+    // π * 2^1600 = 16 arctan(1/5) - 4 arctan(1/239)
+    let bits: u32 = 1600
+    var pi = arctan_inv(5, bits)
+    pi.mul_small(16)
+    var b = arctan_inv(239, bits)
+    b.mul_small(4)
+    pi.sub(b)
+    // 2/π * 2^1536 = 2^(1600 + 1537) / (π * 2^1600)
+    var num = fmt.Big.from_u64(1)
+    num.shl(bits + 1537)
+    let q = fmt.big_divide(&num, pi)
+    // q < 2^1536 (2/π < 1): its words are the fraction bits, most significant last.
+    for i in 0..48 {
+        unsafe {
+            TWO_OVER_PI[47 - i] = q.word(i)
+        }
+    }
+    unsafe {
+        TWO_OVER_PI_READY = true
+    }
+}
+
+/// Reduction of a huge |x| (>= 2^20 π/2): returns the quadrant and `r = y0 + y1` with
+/// `x = (4m + n) π/2 + r` (Payne-Hanek method with exact integer arithmetic).
+fn rem_pio2_large(x: f64) -> (i32, f64, f64) {
+    if not unsafe { TWO_OVER_PI_READY } {
+        init_two_over_pi()
+    }
+    let bits = x.abs().to_bits()
+    let e = ((bits >> 52) & 0x7FF) as i32 - 1075
+    let m = (bits & 0xF_FFFF_FFFF_FFFF) | ((1 as u64) << 52)
+    // T = 2/π * 2^1536; x * 2/π = m * T * 2^(e - 1536).
+    var t = fmt.Big.zero()
+    for i in 0..48 {
+        t.push_word(unsafe { TWO_OVER_PI[47 - i] })
+    }
+    t.normalize()
+    var prod = t.clone()
+    prod.mul_small((m >> 32) as u32)
+    prod.shl(32)
+    var low = t.clone()
+    low.mul_small((m & 0xFFFF_FFFF) as u32)
+    prod.add(low)
+    // Binary point at bit 1536 - e: keep 2 integer bits and 128 fraction bits.
+    let point = (1536 - e) as u32
+    let quadrant: i32 = (if prod.bit(point) { 1 } else { 0 }) + (if prod.bit(point + 1) { 2 } else { 0 })
+    var frac = prod.clone()
+    frac.shr(point - 128)
+    // frac now holds the integer part above bit 128: keep the 128 fraction bits.
+    let f_hi = ((frac.word(3) as u64) << 32) | (frac.word(2) as u64)
+    let f_lo = ((frac.word(1) as u64) << 32) | (frac.word(0) as u64)
+    var f = (f_hi as f64) * pow2(-64) + (f_lo as f64) * pow2(-128)
+    var n = quadrant
+    if f > 0.5 {
+        f -= 1.0
+        n += 1
+    }
+    // r = f * π/2 in double-double precision.
+    let fh = clear_low(f)
+    let fl = f - fh
+    let y0 = f * PIO2_1 + f * PIO2_1T
+    let y1 = ((fh * PIO2_1 - y0) + fl * PIO2_1) + f * PIO2_1T
+    if x < 0.0 {
+        return ((4 - n % 4) % 4, -y0, -y1)
+    }
+    return (n % 4, y0, y1)
+}
+
+/// `x = n π/2 + (y0 + y1)` with |y0 + y1| <= π/4 (approximately).
+fn rem_pio2(x: f64) -> (i32, f64, f64) {
+    let ix = hi(x) & 0x7FFF_FFFF
+    if ix >= 0x4139_21FB {
+        return rem_pio2_large(x)
+    }
+    // Medium size: rint(x / (π/2)) and three rounds of Cody-Waite reduction.
+    let toint = 6755399441055744.0
+    var fn_ = x * INV_PIO2 + toint - toint
+    var n = fn_ as i32
+    var r = x - fn_ * PIO2_1
+    var w = fn_ * PIO2_1T
+    let pio4 = 0.785398163397448278999
+    if r - w < -pio4 {
+        n -= 1
+        fn_ -= 1.0
+        r = x - fn_ * PIO2_1
+        w = fn_ * PIO2_1T
+    } else if r - w > pio4 {
+        n += 1
+        fn_ += 1.0
+        r = x - fn_ * PIO2_1
+        w = fn_ * PIO2_1T
+    }
+    var y0 = r - w
+    let ex = (ix >> 20) as i32
+    var ey = ((hi(y0) >> 20) & 0x7FF) as i32
+    if ex - ey > 16 {
+        var t = r
+        w = fn_ * PIO2_2
+        r = t - w
+        w = fn_ * PIO2_2T - ((t - r) - w)
+        y0 = r - w
+        ey = ((hi(y0) >> 20) & 0x7FF) as i32
+        if ex - ey > 49 {
+            t = r
+            w = fn_ * PIO2_3
+            r = t - w
+            w = fn_ * PIO2_3T - ((t - r) - w)
+            y0 = r - w
+        }
+    }
+    let y1 = (r - y0) - w
+    return (((n % 4) + 4) % 4, y0, y1)
+}
+
+const S1: f64 = -1.66666666666666324348e-01
+const S2: f64 = 8.33333333332248946124e-03
+const S3: f64 = -1.98412698298579493134e-04
+const S4: f64 = 2.75573137070700676789e-06
+const S5: f64 = -2.50507602534068634195e-08
+const S6: f64 = 1.58969099521155010221e-10
+
+/// sin(x + y) for |x + y| <= π/4; `y` is the tail of x when `iy` is 1.
+fn k_sin(x: f64, y: f64, iy: bool) -> f64 {
+    let z = x * x
+    let w = z * z
+    let r = S2 + z * (S3 + z * S4) + z * w * (S5 + z * S6)
+    let v = z * x
+    if not iy {
+        return x + v * (S1 + z * r)
+    }
+    return x - ((z * (0.5 * y - v * r) - y) - v * S1)
+}
+
+const C1: f64 = 4.16666666666666019037e-02
+const C2: f64 = -1.38888888888741095749e-03
+const C3: f64 = 2.48015872894767294178e-05
+const C4: f64 = -2.75573143513906633035e-07
+const C5: f64 = 2.08757232129817482790e-09
+const C6: f64 = -1.13596475577881948265e-11
+
+/// cos(x + y) for |x + y| <= π/4.
+fn k_cos(x: f64, y: f64) -> f64 {
+    let z = x * x
+    let w = z * z
+    let r = z * (C1 + z * (C2 + z * C3)) + w * w * (C4 + z * (C5 + z * C6))
+    let hz = 0.5 * z
+    let w2 = 1.0 - hz
+    return w2 + (((1.0 - w2) - hz) + (z * r - x * y))
+}
+
+/// tan(x + y) for |x + y| <= π/4, or -1/tan(x + y) when `odd`.
+fn k_tan(x0: f64, y0: f64, odd: bool) -> f64 {
+    let t0 = 3.33333333333334091986e-01
+    let t1 = 1.33333333333201242699e-01
+    let t2 = 5.39682539762260521377e-02
+    let t3 = 2.18694882948595424599e-02
+    let t4 = 8.86323982359930005737e-03
+    let t5 = 3.59207910759131235356e-03
+    let t6 = 1.45620945432529025516e-03
+    let t7 = 5.88041240820264096874e-04
+    let t8 = 2.46463134818469906812e-04
+    let t9 = 7.81794442939557092300e-05
+    let t10 = 7.14072491382608190305e-05
+    let t11 = -1.85586374855275456654e-05
+    let t12 = 2.59073051863633712884e-05
+    let pio4 = 7.85398163397448278999e-01
+    let pio4lo = 3.06161699786838301793e-17
+    var x = x0
+    var y = y0
+    let hx = hi(x)
+    let big = (hx & 0x7FFF_FFFF) >= 0x3FE5_9428
+    let negative = hx >> 31 == 1
+    if big {
+        if negative {
+            x = -x
+            y = -y
+        }
+        x = (pio4 - x) + (pio4lo - y)
+        y = 0.0
+    }
+    let z = x * x
+    let w = z * z
+    var r = t1 + w * (t3 + w * (t5 + w * (t7 + w * (t9 + w * t11))))
+    var v = z * (t2 + w * (t4 + w * (t6 + w * (t8 + w * (t10 + w * t12)))))
+    var s = z * x
+    r = y + z * (s * (r + v) + y) + s * t0
+    let ww = x + r
+    if big {
+        s = if odd { -1.0 } else { 1.0 }
+        v = s - 2.0 * (x + (r - ww * ww / (ww + s)))
+        return if negative { -v } else { v }
+    }
+    if not odd {
+        return ww
+    }
+    // -1/(x + r), computed accurately.
+    let w0 = clear_low(ww)
+    v = r - (w0 - x)
+    let t = -1.0 / ww
+    let a0 = clear_low(t)
+    return a0 + t * (1.0 + a0 * w0 + a0 * v)
+}
+
+@lang("math.sin")
+pub fn sin(x: f64) -> f64 {
+    let ix = hi(x) & 0x7FFF_FFFF
+    if ix <= 0x3FE9_21FB {
+        if ix < 0x3E50_0000 {
+            return x
+        }
+        return k_sin(x, 0.0, false)
+    }
+    if ix >= 0x7FF0_0000 {
+        return x - x
+    }
+    let (n, y0, y1) = rem_pio2(x)
+    return match n {
+        0 => k_sin(y0, y1, true)
+        1 => k_cos(y0, y1)
+        2 => -k_sin(y0, y1, true)
+        _ => -k_cos(y0, y1)
+    }
+}
+
+@lang("math.cos")
+pub fn cos(x: f64) -> f64 {
+    let ix = hi(x) & 0x7FFF_FFFF
+    if ix <= 0x3FE9_21FB {
+        if ix < 0x3E46_A09E {
+            return 1.0
+        }
+        return k_cos(x, 0.0)
+    }
+    if ix >= 0x7FF0_0000 {
+        return x - x
+    }
+    let (n, y0, y1) = rem_pio2(x)
+    return match n {
+        0 => k_cos(y0, y1)
+        1 => -k_sin(y0, y1, true)
+        2 => -k_cos(y0, y1)
+        _ => k_sin(y0, y1, true)
+    }
+}
+
+@lang("math.tan")
+pub fn tan(x: f64) -> f64 {
+    let ix = hi(x) & 0x7FFF_FFFF
+    if ix <= 0x3FE9_21FB {
+        if ix < 0x3E40_0000 {
+            return x
+        }
+        return k_tan(x, 0.0, false)
+    }
+    if ix >= 0x7FF0_0000 {
+        return x - x
+    }
+    let (n, y0, y1) = rem_pio2(x)
+    return k_tan(y0, y1, n % 2 == 1)
+}
+
+const PIO2_HI: f64 = 1.57079632679489655800e+00
+const PIO2_LO: f64 = 6.12323399573676603587e-17
+
+/// The rational approximation of (asin(x) - x) / x^3 used by asin and acos.
+fn asin_r(z: f64) -> f64 {
+    let ps0 = 1.66666666666666657415e-01
+    let ps1 = -3.25565818622400915405e-01
+    let ps2 = 2.01212532134862925881e-01
+    let ps3 = -4.00555345006794114027e-02
+    let ps4 = 7.91534994289814532176e-04
+    let ps5 = 3.47933107596021167570e-05
+    let qs1 = -2.40339491173441421878e+00
+    let qs2 = 2.02094576023350569471e+00
+    let qs3 = -6.88283971605453293030e-01
+    let qs4 = 7.70381505559019352791e-02
+    let p = z * (ps0 + z * (ps1 + z * (ps2 + z * (ps3 + z * (ps4 + z * ps5)))))
+    let q = 1.0 + z * (qs1 + z * (qs2 + z * (qs3 + z * qs4)))
+    return p / q
+}
+
+@lang("math.asin")
+pub fn asin(x: f64) -> f64 {
+    let hx = hi(x)
+    let ix = hx & 0x7FFF_FFFF
+    if ix >= 0x3FF0_0000 {
+        if ((ix - 0x3FF0_0000) | lo(x)) == 0 {
+            return x * PIO2_HI
+        }
+        return (x - x) / (x - x)
+    }
+    if ix < 0x3FE0_0000 {
+        if ix < 0x3E50_0000 and ix >= 0x0010_0000 {
+            return x
+        }
+        return x + x * asin_r(x * x)
+    }
+    let z = (1.0 - x.abs()) * 0.5
+    let s = z.sqrt()
+    let r = asin_r(z)
+    var y = 0.0
+    if ix >= 0x3FEF_3333 {
+        y = PIO2_HI - (2.0 * (s + s * r) - PIO2_LO)
+    } else {
+        let f = clear_low(s)
+        let c = (z - f * f) / (s + f)
+        y = 0.5 * PIO2_HI - (2.0 * s * r - (PIO2_LO - 2.0 * c) - (0.5 * PIO2_HI - 2.0 * f))
+    }
+    return if hx >> 31 == 1 { -y } else { y }
+}
+
+@lang("math.acos")
+pub fn acos(x: f64) -> f64 {
+    let hx = hi(x)
+    let ix = hx & 0x7FFF_FFFF
+    if ix >= 0x3FF0_0000 {
+        if ((ix - 0x3FF0_0000) | lo(x)) == 0 {
+            if hx >> 31 == 1 {
+                return 2.0 * PIO2_HI
+            }
+            return 0.0
+        }
+        return (x - x) / (x - x)
+    }
+    if ix < 0x3FE0_0000 {
+        if ix <= 0x3C60_0000 {
+            return PIO2_HI
+        }
+        return PIO2_HI - (x - (PIO2_LO - x * asin_r(x * x)))
+    }
+    if hx >> 31 == 1 {
+        let z = (1.0 + x) * 0.5
+        let s = z.sqrt()
+        let w = asin_r(z) * s - PIO2_LO
+        return 2.0 * (PIO2_HI - (s + w))
+    }
+    let z = (1.0 - x) * 0.5
+    let s = z.sqrt()
+    let df = clear_low(s)
+    let c = (z - df * df) / (s + df)
+    let w = asin_r(z) * s + c
+    return 2.0 * (df + w)
+}
+
+@lang("math.atan")
+pub fn atan(x0: f64) -> f64 {
+    let at0 = 3.33333333333329318027e-01
+    let at1 = -1.99999999998764832476e-01
+    let at2 = 1.42857142725034663711e-01
+    let at3 = -1.11111104054623557880e-01
+    let at4 = 9.09088713343650656196e-02
+    let at5 = -7.69187620504482999495e-02
+    let at6 = 6.66107313738753120669e-02
+    let at7 = -5.83357013379057348645e-02
+    let at8 = 4.97687799461593236017e-02
+    let at9 = -3.65315727442169155270e-02
+    let at10 = 1.62858201153657823623e-02
+    let hx = hi(x0)
+    let negative = hx >> 31 == 1
+    let ix = hx & 0x7FFF_FFFF
+    if ix >= 0x4410_0000 {
+        if x0.is_nan() {
+            return x0
+        }
+        return if negative { -1.57079632679489655800e+00 } else { 1.57079632679489655800e+00 }
+    }
+    var x = x0
+    var id = -1
+    if ix < 0x3FDC_0000 {
+        if ix < 0x3E40_0000 {
+            return x
+        }
+    } else {
+        x = x.abs()
+        if ix < 0x3FF3_0000 {
+            if ix < 0x3FE6_0000 {
+                id = 0
+                x = (2.0 * x - 1.0) / (2.0 + x)
+            } else {
+                id = 1
+                x = (x - 1.0) / (x + 1.0)
+            }
+        } else if ix < 0x4003_8000 {
+            id = 2
+            x = (x - 1.5) / (1.0 + 1.5 * x)
+        } else {
+            id = 3
+            x = -1.0 / x
+        }
+    }
+    let z = x * x
+    let w = z * z
+    let s1 = z * (at0 + w * (at2 + w * (at4 + w * (at6 + w * (at8 + w * at10)))))
+    let s2 = w * (at1 + w * (at3 + w * (at5 + w * (at7 + w * at9))))
+    if id < 0 {
+        return x - x * (s1 + s2)
+    }
+    let (atan_hi, atan_lo) = match id {
+        0 => (4.63647609000806093515e-01, 2.26987774529616870924e-17)
+        1 => (7.85398163397448278999e-01, 3.06161699786838301793e-17)
+        2 => (9.82793723247329054082e-01, 1.39033110312309984516e-17)
+        _ => (1.57079632679489655800e+00, 6.12323399573676603587e-17)
+    }
+    let r = atan_hi - (x * (s1 + s2) - atan_lo - x)
+    return if negative { -r } else { r }
+}
+
+@lang("math.atan2")
+pub fn atan2(y: f64, x: f64) -> f64 {
+    let pi = 3.1415926535897931160e+00
+    let pi_lo = 1.2246467991473531772e-16
+    if x.is_nan() or y.is_nan() {
+        return x + y
+    }
+    let ix0 = hi(x)
+    let lx = lo(x)
+    let iy0 = hi(y)
+    let ly = lo(y)
+    if ((ix0 -% 0x3FF0_0000) | lx) == 0 {
+        return atan(y)
+    }
+    let m = ((iy0 >> 31) & 1) | ((ix0 >> 30) & 2)
+    let ix = ix0 & 0x7FFF_FFFF
+    let iy = iy0 & 0x7FFF_FFFF
+    if (iy | ly) == 0 {
+        return match m {
+            0 | 1 => y
+            2 => pi
+            _ => -pi
+        }
+    }
+    if (ix | lx) == 0 {
+        return if m & 1 == 1 { -pi / 2.0 } else { pi / 2.0 }
+    }
+    if ix == 0x7FF0_0000 {
+        if iy == 0x7FF0_0000 {
+            return match m {
+                0 => pi / 4.0
+                1 => -pi / 4.0
+                2 => 3.0 * pi / 4.0
+                _ => -3.0 * pi / 4.0
+            }
+        }
+        return match m {
+            0 => 0.0
+            1 => -0.0
+            2 => pi
+            _ => -pi
+        }
+    }
+    if ix + (64 << 20) < iy or iy == 0x7FF0_0000 {
+        return if m & 1 == 1 { -pi / 2.0 } else { pi / 2.0 }
+    }
+    var z = 0.0
+    if m & 2 == 2 and iy + (64 << 20) < ix {
+        z = 0.0
+    } else {
+        z = atan((y / x).abs())
+    }
+    return match m {
+        0 => z
+        1 => -z
+        2 => pi - (z - pi_lo)
+        _ => (z - pi_lo) - pi
+    }
+}

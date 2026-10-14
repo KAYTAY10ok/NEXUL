@@ -1,8 +1,10 @@
-error[E0232]: unknown attribute `@inline`
+error[E0232]: unknown attribute `@inlin`
  --> attributes.nx:1:2
   |
-1 | @inline
-  |  ^^^^^^ unknown attribute
+1 | @inlin
+  |  ^^^^^ unknown attribute
+  |
+  = help: did you mean `@inline`?
 
 error[E0231]: the attribute `@intrinsic` is reserved for the standard library
  --> attributes.nx:5:1

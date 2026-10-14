@@ -1,6 +1,6 @@
 [package]
-name = "nxc_codegen_c"
-description = "NEXUL compiler: monomorphization and portable C11 backend"
+name = "nxc_codegen_llvm"
+description = "NEXUL compiler: LLVM IR back end (monomorphization, layout, code and debug information)"
 version.workspace = true
 edition.workspace = true
 license.workspace = true

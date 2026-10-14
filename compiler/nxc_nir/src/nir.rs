@@ -4,7 +4,7 @@
 //! Every implicit operation of the source is explicit here: temporaries, drops,
 //! bounds checks and argument passing by reference.
 
-use nxc_sema::defs::{AdtId, Builtin, ConstValue, FnId};
+use nxc_sema::defs::{AdtId, Builtin, ConstValue, FnId, StaticId};
 use nxc_sema::thir::PrimOp;
 use nxc_sema::ty::Ty;
 use nxc_syntax::ast::{BinOp, UnOp};
@@ -95,6 +95,8 @@ pub enum Rvalue {
     Aggregate(AggKind, Vec<Operand>),
     Repeat(Operand, u64),
     Discriminant(Place),
+    /// Address of a static variable (type `Ptr[T]`).
+    StaticAddr(StaticId),
 }
 
 /// Functions of the C runtime called directly by generated code.
@@ -239,6 +241,7 @@ pub fn pretty(body: &Body) -> String {
                     Rvalue::Aggregate(k, ops) => format!("{:?}({})", k, ops.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")),
                     Rvalue::Repeat(o, n) => format!("[{}; {}]", o, n),
                     Rvalue::Discriminant(p) => format!("discriminant({})", p),
+                    Rvalue::StaticAddr(st) => format!("&static#{}", st.0),
                 }),
                 StmtKind::Drop(p) => format!("drop({})", p),
                 StmtKind::DropIfInit(l) => format!("drop_if_init(_{})", l),

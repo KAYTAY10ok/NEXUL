@@ -19,7 +19,7 @@ const CODES: &[(&str, &str)] = &[
     ("E0007", "Unknown escape sequence in a string or character literal.\n\nValid escapes: \\n \\r \\t \\0 \\\\ \\' \\\" \\{ \\} and \\u{1F600}."),
     ("E0008", "A string literal is not closed on its line.\n\nStrings cannot contain a raw line break in NEXUL 0.1; write \\n instead."),
     ("E0009", "Invalid format specification in an interpolation.\n\nFormat: {value:[[fill]align][+][0][width][.precision][x|X|o|b|e]}\nExamples: {x:>8} {price:.2} {n:08x} {name:-^20}"),
-    ("E0010", "A reserved keyword is used as a name.\n\nThese words are reserved for future versions: async await class defer dyn interface\nloop macro ref static trait try union where yield."),
+    ("E0010", "A reserved keyword is used as a name.\n\nThese words are reserved for future versions: async await class defer dyn interface\nloop macro ref trait try union where yield."),
     ("E0011", "A float literal is too large for `f64`."),
     ("E0013", "An interpolation `{...}` in a string is not closed.\n\nTo write a literal brace in a string, escape it: \"\\{\"."),
     ("E0014", "An interpolation `{}` is empty.\n\nWrite an expression between the braces, or escape the brace: \"\\{\"."),
@@ -52,6 +52,18 @@ const CODES: &[(&str, &str)] = &[
     ("E0231", "This attribute is reserved for the standard library (`@lang`, `@intrinsic`, `@index`, `@track_caller`)."),
     ("E0232", "Unknown or misplaced attribute.\n\nAttributes: `@test` on functions, `@link(\"lib\")` on `extern` functions."),
     ("E0233", "A `@test` function must be a free function without parameters, generics or return value."),
+    ("E0234", "Invalid `@cfg` condition.
+
+`@cfg(\"condition\")` keeps an item only when the condition holds for the target being
+compiled. Conditions: windows, linux, macos, wasi, bare, unix, x86_64, aarch64, arm,
+riscv64, riscv32, riscv, wasm32, wasm, ptr32, ptr64, debug, release, test, hard_float,
+soft_float. Negate with `!` and combine alternatives with `|`:
+
+    @cfg(\"windows\")
+    fn path_separator() -> char { return '\\' }
+
+    @cfg(\"!windows\")
+    fn path_separator() -> char { return '/' }"),
     ("E0301", "A literal or constant does not fit in its type.\n\nUse a wider type (`i64`, `u64`), or check the value."),
     ("E0302", "Mismatched types.\n\nNEXUL never converts values implicitly: convert numbers with `as`\n(`x as f64`), wrap optional values in `Some(...)`, build strings with interpolation."),
     ("E0303", "An operator is applied to a type that does not support it.\n\nArithmetic works on numbers, `+` also concatenates strings, comparisons work on\nnumbers, `char`, `bool`, `String` and enums without data."),
@@ -92,6 +104,11 @@ const CODES: &[(&str, &str)] = &[
     ("E0371", "This expression cannot be evaluated at compile time.\n\nConstants may use literals, other constants, operators and `as`."),
     ("E0372", "A constant depends on itself."),
     ("E0373", "Invalid array length: it must be a constant integer between 0 and 4294967295."),
+    ("E0374", "A static variable cannot hold a resource.
+
+Static variables live for the whole program and are never destroyed, so their type must
+be copyable (numbers, `bool`, `char`, pointers, and arrays, tuples and structures of
+them). Use `const` for a constant string, or keep the resource in a local variable."),
     ("E0401", "A variable is read before being initialized.\n\nEvery path must assign a value before the variable is read."),
     ("E0402", "A value is used after being moved.\n\nTypes that own resources (`String`, `Vec`, structures containing them...) are moved,\nnot copied, when assigned or passed `owned`. After the move, the variable has no value.\n\n    let s = \"text\".clone()\n    let t = s          // `s` is moved into `t`\n    println(s)         // error: `s` has no value any more\n\nUse `s.clone()` to keep a copy, or pass the value as a borrowed parameter."),
     ("E0403", "A resource cannot be moved out of a field, an element or a borrowed value.\n\nOnly whole variables that own their value can be moved. Alternatives: copy the value\n(`.clone()`), take it out of an `Option` with `.take()`, or move the whole variable."),
@@ -107,7 +124,8 @@ const CODES: &[(&str, &str)] = &[
     ("E0432", "A destructor must be declared `fn drop(inout self)`."),
     ("E0501", "This operation requires an `unsafe` block.\n\nCalling external C functions, unsafe functions, and reading or writing through raw\npointers cannot be checked by the compiler. Wrap the operation in `unsafe { ... }` after\nverifying that it is correct."),
     ("E0502", "Unsupported ABI: NEXUL 0.1 only supports `extern \"C\"`."),
-    ("E0503", "This type cannot cross the C boundary.\n\nAllowed: integers, floats, `bool`, `char` and `Ptr[T]` (and `()` as return type)."),
+    ("E0503", "This type cannot cross the C boundary.\n\nAllowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types whose signature is\nitself allowed (and `()` as return type)."),
+    ("E0504", "Invalid `@export` function.\n\nAn exported function is called from other languages with the C calling convention: it\nmust be a free function without generic parameters, and its symbol name may contain only\nletters, digits and `_`:\n\n    @export(\"nexul_add\")\n    pub fn add(a: i32, b: i32) -> i32 { return a + b }"),
     ("E0900", "The standard library is incomplete (internal error)."),
     ("W0001", "A variable or parameter is never read.\n\nIf this is intentional, start its name with `_`."),
     ("W0002", "A `match` arm can never be reached: earlier arms already match all its values."),

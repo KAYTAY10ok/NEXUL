@@ -8,7 +8,7 @@
 //!
 //! Set `NEXUL_BLESS=1` to (re)write the expectation files from the current results.
 
-use nxc_driver::{c_compile, compile_file, BuildOptions, Mode};
+use nxc_driver::{build, compile_file, BuildOptions, CompileOptions, Mode, Target};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -57,14 +57,14 @@ fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &st
 
 fn run_one(nx: &Path) -> Vec<String> {
     let mut failures = Vec::new();
-    let c = compile_file(nx, Mode::Program, false);
+    let c = compile_file(nx, &CompileOptions::new(Mode::Program));
     if c.errors > 0 {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
     let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
-    if let Err(e) = c_compile(c.c_source.as_ref().unwrap(), &c.links, &exe, &BuildOptions { release: false, target: None }) {
-        return vec![format!("{}: C compilation failed\n{}", nx.display(), e)];
+    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
+        return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
     let stdin_path = nx.with_extension("in");
     let mut cmd = Command::new(&exe);
@@ -74,6 +74,7 @@ fn run_one(nx: &Path) -> Vec<String> {
     }
     let out = cmd.output().expect("run test program");
     let _ = std::fs::remove_file(&exe);
+    let _ = std::fs::remove_file(exe.with_extension("pdb"));
     let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
     let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
     let code = out.status.code().unwrap_or(-1);
@@ -105,6 +106,94 @@ fn run_one(nx: &Path) -> Vec<String> {
     failures
 }
 
+/// The targets a test program runs on: `// targets: windows, linux` on its first line
+/// restricts it (programs calling a C library, for example).
+fn runs_on(nx: &Path, target: &Target) -> bool {
+    let text = std::fs::read_to_string(nx).unwrap_or_default();
+    match text.lines().next().and_then(|l| l.strip_prefix("// targets:")) {
+        Some(list) => list.split(',').any(|t| t.trim() == target.os.name()),
+        None => true,
+    }
+}
+
+/// Runs an executable of `target` from this machine: directly for the host, in WSL for
+/// Linux on Windows, with Node.js for WebAssembly.
+fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::Output {
+    let mut cmd = if target.os == nxc_driver::Os::Wasi {
+        let mut c = Command::new("node");
+        c.arg("--no-warnings").arg(root().join("tools").join("wasi-run.mjs")).arg(exe);
+        c
+    } else if *target == Target::host() {
+        Command::new(exe)
+    } else if cfg!(windows) && target.os == nxc_driver::Os::Linux {
+        let p = std::fs::canonicalize(exe).unwrap().to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/");
+        let drive = p[..1].to_ascii_lowercase();
+        let mut c = Command::new("wsl");
+        c.arg("-e").arg(format!("/mnt/{}{}", drive, &p[2..]));
+        c.env("WSLENV", "NEXUL_LEAK_CHECK/u");
+        c
+    } else {
+        panic!("cannot run programs for `{}` on this machine", target.name);
+    };
+    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    if let Some(i) = stdin {
+        cmd.stdin(std::fs::File::open(i).unwrap());
+    }
+    cmd.output().expect("run test program")
+}
+
+/// The programs of `tests/run` on other targets: `NEXUL_TEST_TARGETS=x86_64-linux,wasm32-wasi`.
+#[test]
+fn run_programs_cross() {
+    let Ok(list) = std::env::var("NEXUL_TEST_TARGETS") else { return };
+    let paths = files("tests/run");
+    let mut failures = Vec::new();
+    for name in list.split(',').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+        let target = Target::from_name(name).unwrap();
+        let dir = std::env::temp_dir().join(format!("nexul-suite-{}", target.name));
+        let _ = std::fs::create_dir_all(&dir);
+        let results = parallel(&paths, |nx| {
+            if !runs_on(nx, &target) {
+                return vec![];
+            }
+            let mut opts = CompileOptions::new(Mode::Program);
+            opts.target = target.clone();
+            let c = compile_file(nx, &opts);
+            if c.errors > 0 {
+                return vec![format!("[{}] {}: compilation failed\n{}", target.name, nx.display(), c.diagnostics)];
+            }
+            let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
+            let exe = dir.join(target.exe_name(&stem));
+            if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(target.clone(), false)) {
+                return vec![format!("[{}] {}: code generation failed\n{}", target.name, nx.display(), e)];
+            }
+            let stdin = nx.with_extension("in");
+            let out = run_cross(&target, &exe, if stdin.exists() { Some(&stdin) } else { None });
+            let mut f = Vec::new();
+            let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+            let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
+            let expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
+            if stdout != expected {
+                f.push(format!("[{}] {}: stdout differs\n--- expected ---\n{}\n--- actual ---\n{}", target.name, nx.display(), expected, stdout));
+            }
+            let code = out.status.code().unwrap_or(-1);
+            let expected_code: i32 = std::fs::read_to_string(nx.with_extension("exit")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+            if code != expected_code {
+                f.push(format!("[{}] {}: exit code {} (expected {})\n{}", target.name, nx.display(), code, expected_code, stderr));
+            }
+            let expected_err = std::fs::read_to_string(nx.with_extension("stderr")).map(|s| normalize(&s)).unwrap_or_default();
+            if stderr != expected_err {
+                f.push(format!("[{}] {}: stderr differs\n--- expected ---\n{}\n--- actual ---\n{}", target.name, nx.display(), expected_err, stderr));
+            }
+            f
+        });
+        failures.extend(results);
+    }
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
 fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<String> {
     let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let chunks: Vec<Vec<PathBuf>> = (0..n).map(|i| paths.iter().skip(i).step_by(n).cloned().collect()).collect();
@@ -130,7 +219,7 @@ fn ui_diagnostics() {
     let paths = files("tests/ui");
     let failures = parallel(&paths, |nx| {
         let mut f = Vec::new();
-        let c = compile_file(nx, Mode::Check, false);
+        let c = compile_file(nx, &CompileOptions::new(Mode::Check));
         let actual = normalize(&c.diagnostics);
         if actual.is_empty() {
             f.push(format!("{}: expected diagnostics, got none", nx.display()));
@@ -147,7 +236,7 @@ fn ui_diagnostics() {
 fn examples_compile_cleanly() {
     let paths = files("examples");
     let failures = parallel(&paths, |nx| {
-        let c = compile_file(nx, Mode::Program, false);
+        let c = compile_file(nx, &CompileOptions::new(Mode::Program));
         if c.errors > 0 || c.warnings > 0 {
             vec![format!("{}:\n{}", nx.display(), c.diagnostics)]
         } else {
@@ -187,7 +276,7 @@ fn documentation_examples_compile() {
             checked += 1;
             let line = text[..text.len() - rest.len()].lines().count();
             let name = format!("{}:{}", doc.file_name().unwrap().to_string_lossy(), line);
-            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, Mode::Check, false);
+            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, &CompileOptions::new(Mode::Check));
             match block.find("// erreur E") {
                 Some(i) => {
                     let code = &block[i + "// erreur ".len()..i + "// erreur ".len() + 5];

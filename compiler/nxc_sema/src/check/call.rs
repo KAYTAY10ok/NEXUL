@@ -3,7 +3,7 @@
 use super::{Deferred, Expect, FnCtxt};
 use crate::collect::{lookup_in_module, lookup_item, primitive_type};
 use crate::consts::prim_assoc_const;
-use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId, ItemRef, ModId};
+use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId, ItemRef, ModId, StaticId};
 use crate::thir::{self, CallArg, Callee, ExprKind as T, PrimOp};
 use crate::ty::{Ty, TyKind};
 use crate::util::{best_match, PRIMITIVE_TYPES};
@@ -23,6 +23,7 @@ pub(crate) enum PathRes {
     AssocFn { f: FnId, owner_args: Vec<Ty>, explicit: Option<Vec<Ty>> },
     Variant(AdtId, u32, Option<Vec<Ty>>),
     Const(ConstId),
+    Static(StaticId),
     PrimConst(ConstValue, Ty),
     PrimFn(PrimOp, Ty),
     Builtin(Builtin),
@@ -45,6 +46,7 @@ impl<'a> FnCtxt<'a> {
             ItemRef::Const(c) => PathRes::Const(c),
             ItemRef::Variant(a, v) => PathRes::Variant(a, v, None),
             ItemRef::Builtin(b) => PathRes::Builtin(b),
+            ItemRef::Static(st) => PathRes::Static(st),
             ItemRef::Alias(al) => {
                 let t = self.p.aliases[al.idx()].ty;
                 match self.tcx().as_adt(t) {
@@ -71,7 +73,7 @@ impl<'a> FnCtxt<'a> {
             d = d.help(format!("did you mean `{}`?", s));
         } else if matches!(name, "null" | "nil" | "None_" | "NULL") {
             d = d.help("NEXUL has no null value; use `Option[T]` and `None`");
-        } else if self.p.modules.iter().any(|m| m.path == format!("std.{}", name)) || crate::load::STD_MODULES.iter().any(|(p, _)| *p == format!("std.{}", name)) {
+        } else if self.p.modules.iter().any(|m| m.path == format!("std.{}", name)) || crate::load::public_std_modules().iter().any(|p| *p == format!("std.{}", name)) {
             d = d.help(format!("add `import std.{}` at the top of the file", name));
         }
         self.err(d);
@@ -145,6 +147,9 @@ impl<'a> FnCtxt<'a> {
                         if let TyKind::Ptr(_) = &*self.tcx().kind(t) {
                             if name.name == "null" {
                                 return PathLookup::Res(PathRes::PrimFn(PrimOp::PtrNull, t));
+                            }
+                            if name.name == "from_addr" {
+                                return PathLookup::Res(PathRes::PrimFn(PrimOp::PtrFromAddr, t));
                             }
                         }
                         self.err(
@@ -277,6 +282,13 @@ impl<'a> FnCtxt<'a> {
                     let ty = self.p.consts[c.idx()].ty;
                     self.mk(T::Const(c), ty, span)
                 }
+                PathRes::Static(st) => {
+                    let sd = &self.p.statics[st.idx()];
+                    if sd.mutable {
+                        self.require_unsafe(span, &format!("using the mutable static `{}`", sd.name));
+                    }
+                    self.mk(T::Static(st), sd.ty, span)
+                }
                 PathRes::PrimConst(v, t) => self.mk(T::Lit(v), t, span),
                 PathRes::Variant(id, v, args) => {
                     let adt = self.p.adt(id);
@@ -383,7 +395,10 @@ impl<'a> FnCtxt<'a> {
             PathLookup::Res(PathRes::Local(_)) | PathLookup::NotPath => {
                 if let (Some(base), Some(name)) = (method_base, method_name) {
                     // `base` is a value (or the path failed above).
-                    if matches!(self.resolve_path(base), PathLookup::NotPath | PathLookup::Res(PathRes::Local(_))) {
+                    if matches!(
+                        self.resolve_path(base),
+                        PathLookup::NotPath | PathLookup::Res(PathRes::Local(_)) | PathLookup::Res(PathRes::Static(_)) | PathLookup::Res(PathRes::Const(_))
+                    ) {
                         return self.check_method_call(base, name, method_targs.map(|v| v.as_slice()), args, expect, span);
                     }
                 }
@@ -410,15 +425,28 @@ impl<'a> FnCtxt<'a> {
                 PathRes::Variant(id, v, explicit) => self.check_variant_ctor(id, v, explicit, args, expect, span),
                 PathRes::Builtin(b) => self.check_builtin(b, args, span),
                 PathRes::PrimFn(op, t) => {
-                    if !args.is_empty() {
-                        self.err(Diagnostic::error("E0304", "this function takes no arguments").primary(span, "remove the arguments"));
-                    }
                     if let Some(et) = expect.ty() {
                         self.unify(t, et);
                     }
+                    if op == PrimOp::PtrFromAddr {
+                        // `Ptr[T].from_addr(address)`: a pointer to a fixed address (memory-mapped
+                        // registers, spec §5.2).
+                        self.require_unsafe(span, "`Ptr.from_addr`");
+                        if args.len() != 1 {
+                            self.err(Diagnostic::error("E0304", "`from_addr` takes one argument (the address)").primary(span, "wrong number of arguments"));
+                            self.check_args_for_errors(args);
+                            return self.error_expr(span);
+                        }
+                        let usize_ty = self.tcx().usize;
+                        let a = self.check_arg(&args[0], Convention::Borrow, usize_ty, Some("from_addr"));
+                        return self.mk(T::Call { callee: Callee::Prim(op), args: vec![a] }, t, span);
+                    }
+                    if !args.is_empty() {
+                        self.err(Diagnostic::error("E0304", "this function takes no arguments").primary(span, "remove the arguments"));
+                    }
                     self.mk(T::Call { callee: Callee::Prim(op), args: vec![] }, t, span)
                 }
-                PathRes::Const(_) | PathRes::PrimConst(..) => {
+                PathRes::Const(_) | PathRes::PrimConst(..) | PathRes::Static(_) => {
                     let f = self.check_expr(callee, Expect::None);
                     self.check_indirect_call(f, args, span)
                 }
@@ -688,13 +716,26 @@ impl<'a> FnCtxt<'a> {
                 "min" => Some((PrimOp::IntMin, vec![rt], rt)),
                 "max" => Some((PrimOp::IntMax, vec![rt], rt)),
                 "pow" => Some((PrimOp::IntPow, vec![tcx.u32], rt)),
+                "leading_zeros" => Some((PrimOp::IntLeadingZeros, vec![], tcx.u32)),
+                "trailing_zeros" => Some((PrimOp::IntTrailingZeros, vec![], tcx.u32)),
+                "count_ones" => Some((PrimOp::IntCountOnes, vec![], tcx.u32)),
+                "rotate_left" => Some((PrimOp::IntRotateLeft, vec![tcx.u32], rt)),
+                "rotate_right" => Some((PrimOp::IntRotateRight, vec![tcx.u32], rt)),
+                "swap_bytes" => Some((PrimOp::IntSwapBytes, vec![], rt)),
                 _ => None,
             }
         } else if is_float {
             match n {
                 "sqrt" | "floor" | "ceil" | "round" | "trunc" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "exp" | "ln" | "log10"
                 | "log2" | "abs" => Some((PrimOp::FloatUnary(static_name(n)), vec![], rt)),
-                "powf" | "atan2" | "min" | "max" | "hypot" => Some((PrimOp::FloatBinary(static_name(n)), vec![rt], rt)),
+                "powf" | "atan2" | "min" | "max" | "hypot" | "copysign" => Some((PrimOp::FloatBinary(static_name(n)), vec![rt], rt)),
+                "to_bits" => {
+                    let bits = match &*kind {
+                        TyKind::Float(crate::ty::FloatTy::F32) => tcx.u32,
+                        _ => tcx.u64,
+                    };
+                    Some((PrimOp::FloatToBits, vec![], bits))
+                }
                 "is_nan" => Some((PrimOp::FloatIsNan, vec![], tcx.bool)),
                 "is_infinite" => Some((PrimOp::FloatIsInfinite, vec![], tcx.bool)),
                 "is_finite" => Some((PrimOp::FloatIsFinite, vec![], tcx.bool)),
@@ -745,6 +786,7 @@ impl<'a> FnCtxt<'a> {
             "is_null" => (PrimOp::PtrIsNull, vec![], tcx.bool, false),
             "addr" => (PrimOp::PtrAddr, vec![], tcx.usize, false),
             "offset" => (PrimOp::PtrOffset, vec![(Convention::Borrow, tcx.usize)], rt, true),
+            "sub" => (PrimOp::PtrSub, vec![(Convention::Borrow, tcx.usize)], rt, true),
             "read" => (PrimOp::PtrRead, vec![], elem, true),
             "write" => (PrimOp::PtrWrite, vec![(Convention::Owned, elem)], tcx.unit, true),
             "cast" => {
@@ -761,7 +803,7 @@ impl<'a> FnCtxt<'a> {
                 self.err(
                     Diagnostic::error("E0308", format!("no method named `{}` on type `{}`", n, self.ty_str(rt)))
                         .primary(name.span, "method not found")
-                        .note("pointer methods: is_null, addr, offset, read, write, cast"),
+                        .note("pointer methods: is_null, addr, offset, sub, read, write, cast"),
                 );
                 self.check_args_for_errors(args);
                 return self.error_expr(span);
@@ -988,7 +1030,7 @@ impl<'a> FnCtxt<'a> {
 fn static_name(n: &str) -> &'static str {
     const NAMES: &[&str] = &[
         "sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "asin", "acos", "atan", "exp", "ln", "log10", "log2", "abs", "powf",
-        "atan2", "min", "max", "hypot", "is_ascii_digit", "is_ascii_alphabetic", "is_ascii_alphanumeric", "is_whitespace",
+        "atan2", "min", "max", "hypot", "copysign", "is_ascii_digit", "is_ascii_alphabetic", "is_ascii_alphanumeric", "is_whitespace",
         "is_ascii_uppercase", "is_ascii_lowercase", "is_ascii",
     ];
     NAMES.iter().copied().find(|s| *s == n).unwrap_or("?")

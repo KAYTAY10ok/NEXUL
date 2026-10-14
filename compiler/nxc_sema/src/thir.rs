@@ -5,7 +5,7 @@
 //! parameter convention of every argument is recorded, struct literals list their fields
 //! in declaration order.
 
-use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId};
+use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId, StaticId};
 use crate::ty::Ty;
 use nxc_syntax::ast::{BinOp, Convention, UnOp};
 use nxc_syntax::token::FormatSpec;
@@ -111,12 +111,20 @@ pub enum PrimOp {
     IntMin,
     IntMax,
     IntPow,
+    IntLeadingZeros,
+    IntTrailingZeros,
+    IntCountOnes,
+    IntRotateLeft,
+    IntRotateRight,
+    IntSwapBytes,
     // Floats
     FloatUnary(&'static str),
     FloatBinary(&'static str),
     FloatIsNan,
     FloatIsInfinite,
     FloatIsFinite,
+    /// The IEEE 754 bit pattern (`u32` for `f32`, `u64` for `f64`).
+    FloatToBits,
     // Characters
     CharPredicate(&'static str),
     CharToUpper,
@@ -128,6 +136,10 @@ pub enum PrimOp {
     PtrNull,
     PtrIsNull,
     PtrOffset,
+    /// `p.sub(n)`: the address `n` elements before `p`.
+    PtrSub,
+    /// `Ptr[T].from_addr(address)`
+    PtrFromAddr,
     PtrRead,
     PtrWrite,
     PtrCast,
@@ -172,6 +184,8 @@ pub enum ExprKind {
     Lit(ConstValue),
     Local(LocalId),
     Const(ConstId),
+    /// A `static` variable (a place).
+    Static(StaticId),
     FnRef(FnId),
     Unary(UnOp, Box<Expr>),
     Binary(BinOp, Box<Expr>, Box<Expr>),
@@ -204,10 +218,20 @@ impl Expr {
     /// Is this expression a place (it designates existing storage)?
     pub fn is_place(&self) -> bool {
         match &self.kind {
-            ExprKind::Local(_) => true,
+            ExprKind::Local(_) | ExprKind::Static(_) => true,
             ExprKind::Field(b, _) | ExprKind::Index(b, _) => b.is_place(),
             ExprKind::IndexFn { base, .. } => base.is_place(),
             _ => false,
+        }
+    }
+
+    /// The static variable at the root of a place expression.
+    pub fn static_root(&self) -> Option<StaticId> {
+        match &self.kind {
+            ExprKind::Static(s) => Some(*s),
+            ExprKind::Field(b, _) | ExprKind::Index(b, _) => b.static_root(),
+            ExprKind::IndexFn { base, .. } => base.static_root(),
+            _ => None,
         }
     }
 

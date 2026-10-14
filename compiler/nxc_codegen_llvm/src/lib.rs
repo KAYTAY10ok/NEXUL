@@ -1,0 +1,1079 @@
+//! LLVM IR back end (spec §10.1).
+//!
+//! The NIR of every reachable function is monomorphized and translated into textual LLVM
+//! IR, which the driver gives to LLVM (used as a library, as infrastructure only) to
+//! produce machine code. Every rule of NEXUL is decided before this point; this crate
+//! only chooses the machine representation:
+//!
+//! - scalars (integers, floats, `bool`, `char`, pointers, functions) are SSA values;
+//! - aggregates (tuples, arrays, structures, enumerations) live in memory and are copied
+//!   with `llvm.memcpy`;
+//! - aggregates are passed by address and returned through a hidden pointer (NEXUL's own
+//!   calling convention); exported and external functions use the C convention.
+//!
+//! The runtime (panics, heap, formatting...) is NEXUL code from the standard library,
+//! called through the functions marked `@lang`.
+
+mod debuginfo;
+mod func;
+pub mod layout;
+
+use debuginfo::DebugInfo;
+use layout::LayoutCx;
+use nxc_nir::build::param_by_ref;
+use nxc_nir::nir::Body;
+use nxc_sema::defs::{AdtId, AdtKind, ConstValue, FnId, FnKind, Program, StaticId, StaticValue};
+use nxc_sema::target::{Arch, Os, Target};
+use nxc_sema::ty::{FloatTy, IntTy, Ty, TyKind};
+use nxc_syntax::ast::Convention;
+use nxc_syntax::token::{Align, FormatKind, FormatSpec};
+use nxc_syntax::{SourceMap, Span};
+use std::collections::{HashMap, HashSet};
+use std::fmt::Write;
+
+pub enum Entry {
+    /// A program: its `main` function.
+    Main(FnId),
+    /// The `@test` functions; the first command-line argument selects one.
+    Tests(Vec<FnId>),
+    /// A library: only the `@export` functions are entry points.
+    Library,
+}
+
+pub struct Options {
+    pub target: Target,
+    pub debug_info: bool,
+    pub optimize: bool,
+    /// Directory of the program (for the debug information).
+    pub root_dir: String,
+    /// Counts calls and time per function (`nxc build --profile`, used by `nxprof`).
+    pub profile: bool,
+}
+
+pub struct Output {
+    pub ir: String,
+    /// Imported functions by library: Windows DLLs, WebAssembly import modules.
+    pub imports: Vec<(String, String)>,
+    /// Libraries to link (`@link`), for the other targets.
+    pub links: Vec<String>,
+    /// Exported symbols (`@export`).
+    pub exports: Vec<String>,
+    /// Names of the profiled functions, by counter index (`--profile`).
+    pub profile_names: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+enum TypeKey {
+    Ty(Ty),
+    Payload(Ty, u32),
+}
+
+/// How a value of some type is passed and returned.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum PKind {
+    /// By value, as this LLVM scalar type.
+    Scalar(String),
+    /// By address (aggregates, `()`, and parameters passed by reference).
+    Ptr,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RetKind {
+    Void,
+    Scalar(String),
+    /// Through a hidden first parameter pointing to the destination.
+    Sret(Ty),
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct Sig {
+    pub ret: RetKind,
+    pub params: Vec<PKind>,
+    pub track_caller: bool,
+}
+
+pub(crate) struct Gen<'a> {
+    pub p: &'a Program,
+    pub sm: &'a SourceMap,
+    pub bodies: &'a std::collections::HashMap<FnId, Body>,
+    pub opts: &'a Options,
+    pub lx: LayoutCx<'a>,
+    type_names: HashMap<TypeKey, String>,
+    type_defs: String,
+    pub instances: HashMap<(FnId, Vec<Ty>), String>,
+    pub fn_queue: Vec<(FnId, Vec<Ty>)>,
+    drop_names: HashMap<Ty, String>,
+    drop_queue: Vec<Ty>,
+    externs: HashMap<FnId, String>,
+    pub decls: String,
+    declared: HashSet<String>,
+    pub globals: String,
+    strings: HashMap<Vec<u8>, String>,
+    string_values: HashMap<Vec<u8>, String>,
+    locs: HashMap<(usize, usize, usize), String>,
+    specs: HashMap<String, String>,
+    statics: HashMap<StaticId, String>,
+    pub fn_defs: String,
+    pub helpers: HashSet<String>,
+    counter: usize,
+    pub di: Option<DebugInfo>,
+    pub imports: Vec<(String, String)>,
+    pub links: Vec<String>,
+    pub exports: Vec<String>,
+    pub profile_names: Vec<String>,
+    pub module_asm: Vec<String>,
+}
+
+/// Escapes a quoted LLVM identifier.
+pub(crate) fn quote_name(s: &str) -> String {
+    let mut o = String::from("\"");
+    for b in s.bytes() {
+        if b == b'"' || b == b'\\' || !(0x20..0x7f).contains(&b) {
+            let _ = write!(o, "\\{:02X}", b);
+        } else {
+            o.push(b as char);
+        }
+    }
+    o.push('"');
+    o
+}
+
+fn c_string(bytes: &[u8]) -> String {
+    let mut s = String::from("c\"");
+    for &b in bytes {
+        if (0x20..0x7f).contains(&b) && b != b'"' && b != b'\\' {
+            s.push(b as char);
+        } else {
+            let _ = write!(s, "\\{:02X}", b);
+        }
+    }
+    s.push_str("\\00\"");
+    s
+}
+
+/// An integer constant of `bits` bits, written as LLVM expects (two's complement).
+pub(crate) fn int_const(n: i128, bits: u32) -> String {
+    if bits >= 128 {
+        return n.to_string();
+    }
+    let m = 1i128 << bits;
+    let mut v = n.rem_euclid(m);
+    if v >= m / 2 {
+        v -= m;
+    }
+    v.to_string()
+}
+
+pub(crate) fn float_const(x: f64, f: FloatTy) -> String {
+    match f {
+        FloatTy::F64 => format!("0x{:016X}", x.to_bits()),
+        FloatTy::F32 => format!("0x{:016X}", ((x as f32) as f64).to_bits()),
+    }
+}
+
+/// Generates the LLVM module of a whole program.
+pub fn generate(p: &Program, sm: &SourceMap, bodies: &HashMap<FnId, Body>, entry: &Entry, opts: &Options) -> Output {
+    let lx = LayoutCx::new(p, opts.target.ptr_bytes());
+    let di = if opts.debug_info {
+        let root_name = sm.try_get(p.modules[p.root.idx()].file).map(|f| f.name.clone()).unwrap_or_else(|| "main.nx".into());
+        Some(DebugInfo::new(&root_name, &opts.root_dir, opts.target.os == Os::Windows, opts.optimize))
+    } else {
+        None
+    };
+    let mut g = Gen {
+        p,
+        sm,
+        bodies,
+        opts,
+        lx,
+        type_names: HashMap::new(),
+        type_defs: String::new(),
+        instances: HashMap::new(),
+        fn_queue: Vec::new(),
+        drop_names: HashMap::new(),
+        drop_queue: Vec::new(),
+        externs: HashMap::new(),
+        decls: String::new(),
+        declared: HashSet::new(),
+        globals: String::new(),
+        strings: HashMap::new(),
+        string_values: HashMap::new(),
+        locs: HashMap::new(),
+        specs: HashMap::new(),
+        statics: HashMap::new(),
+        fn_defs: String::new(),
+        helpers: HashSet::new(),
+        counter: 0,
+        di,
+        imports: Vec::new(),
+        links: Vec::new(),
+        exports: Vec::new(),
+        profile_names: Vec::new(),
+        module_asm: Vec::new(),
+    };
+    g.emit_entry(entry);
+    // Exported functions are roots too.
+    for (i, f) in p.fns.iter().enumerate() {
+        if f.export.is_some() && matches!(f.kind, FnKind::User(_)) && !p.modules[f.module.idx()].is_std {
+            g.instance(FnId(i as u32), vec![]);
+        }
+    }
+    // Generate every reachable function and drop glue (they discover more work).
+    loop {
+        if let Some((f, targs)) = g.fn_queue.pop() {
+            g.emit_fn(f, &targs);
+            continue;
+        }
+        if let Some(t) = g.drop_queue.pop() {
+            g.emit_drop_glue(t);
+            continue;
+        }
+        break;
+    }
+    g.emit_builtins();
+    g.finish()
+}
+
+impl<'a> Gen<'a> {
+    pub fn fresh(&mut self) -> usize {
+        self.counter += 1;
+        self.counter
+    }
+
+    pub fn tcx(&self) -> &'a nxc_sema::ty::TyCtx {
+        &self.p.tcx
+    }
+
+    /// `i64` or `i32`: the LLVM type of `usize`.
+    pub fn usize_ty(&self) -> &'static str {
+        if self.opts.target.ptr_bits == 64 {
+            "i64"
+        } else {
+            "i32"
+        }
+    }
+
+    pub fn int_bits(&self, i: IntTy) -> u32 {
+        (self.lx.int_bytes(i) * 8) as u32
+    }
+
+    // -----------------------------------------------------------------------
+    // Types
+
+    /// Is a value of this type an SSA scalar (rather than an aggregate in memory)?
+    pub fn is_scalar(&self, t: Ty) -> bool {
+        matches!(&*self.tcx().kind(t), TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Ptr(_) | TyKind::Fn(..))
+    }
+
+    pub fn is_void(&self, t: Ty) -> bool {
+        matches!(&*self.tcx().kind(t), TyKind::Unit | TyKind::Never | TyKind::Error)
+    }
+
+    /// The LLVM type of a value of type `t` in memory.
+    pub fn llty(&mut self, t: Ty) -> String {
+        let tcx = self.tcx();
+        match &*tcx.kind(t) {
+            TyKind::Int(i) => format!("i{}", self.int_bits(*i)),
+            TyKind::Float(FloatTy::F32) => "float".into(),
+            TyKind::Float(FloatTy::F64) => "double".into(),
+            TyKind::Bool => "i1".into(),
+            TyKind::Char => "i32".into(),
+            TyKind::Unit | TyKind::Never | TyKind::Error => "{}".into(),
+            TyKind::Ptr(_) | TyKind::Fn(..) => "ptr".into(),
+            TyKind::Array(e, n) => {
+                let et = self.llty(*e);
+                format!("[{} x {}]", n, et)
+            }
+            TyKind::Tuple(_) | TyKind::Adt(..) => self.named(TypeKey::Ty(t)),
+            TyKind::Param(_) | TyKind::Infer(_) | TyKind::IntVar(_) | TyKind::FloatVar(_) => {
+                panic!("internal: non-concrete type in code generation: {}", self.p.ty_str(t))
+            }
+        }
+    }
+
+    /// The payload structure of variant `v` of the enumeration `t`.
+    pub fn payload_ty(&mut self, t: Ty, v: u32) -> String {
+        self.named(TypeKey::Payload(t, v))
+    }
+
+    fn named(&mut self, key: TypeKey) -> String {
+        if let Some(n) = self.type_names.get(&key) {
+            return n.clone();
+        }
+        let label = match key {
+            TypeKey::Ty(t) => self.p.ty_str(t),
+            TypeKey::Payload(t, v) => {
+                let (id, _) = self.tcx().as_adt(t).unwrap();
+                format!("{}.{}", self.p.ty_str(t), self.p.adt(id).variants()[v as usize].name)
+            }
+        };
+        let id = self.fresh();
+        let name = format!("%{}", quote_name(&format!("{}#{}", label, id)));
+        self.type_names.insert(key, name.clone());
+        let tcx = self.tcx();
+        let body = match key {
+            TypeKey::Payload(t, v) => {
+                let fields = self.lx.variant_fields(t, v);
+                let parts: Vec<String> = fields.iter().map(|&f| self.llty(f)).collect();
+                format!("{{ {} }}", parts.join(", "))
+            }
+            TypeKey::Ty(t) => match &*tcx.kind(t) {
+                TyKind::Tuple(elems) => {
+                    let parts: Vec<String> = elems.clone().iter().map(|&e| self.llty(e)).collect();
+                    format!("{{ {} }}", parts.join(", "))
+                }
+                TyKind::Adt(aid, args) => {
+                    let adt = self.p.adt(*aid);
+                    match &adt.kind {
+                        AdtKind::Struct { fields } => {
+                            let mut parts = Vec::new();
+                            for f in fields {
+                                if f.indirect {
+                                    parts.push("ptr".to_string());
+                                } else {
+                                    let ft = tcx.subst(f.ty, args);
+                                    parts.push(self.llty(ft));
+                                }
+                            }
+                            format!("{{ {} }}", parts.join(", "))
+                        }
+                        AdtKind::Enum { .. } => {
+                            let s = self.lx.enum_shape(t);
+                            if !s.has_payload {
+                                "{ i32 }".to_string()
+                            } else {
+                                let a = s.payload_align.min(8);
+                                format!("{{ i32, [{} x i{}] }}", s.payload_size / a, a * 8)
+                            }
+                        }
+                    }
+                }
+                _ => unreachable!(),
+            },
+        };
+        let _ = writeln!(self.type_defs, "{} = type {}", name, body);
+        name
+    }
+
+    pub fn size_of(&self, t: Ty) -> u64 {
+        self.lx.layout(t).size
+    }
+
+    pub fn align_of(&self, t: Ty) -> u64 {
+        self.lx.layout(t).align
+    }
+
+    // -----------------------------------------------------------------------
+    // Signatures
+
+    /// How a value of type `t` is passed.
+    pub fn pass_kind(&mut self, t: Ty) -> PKind {
+        if self.is_scalar(t) {
+            PKind::Scalar(self.llty(t))
+        } else {
+            PKind::Ptr
+        }
+    }
+
+    pub fn ret_kind(&mut self, t: Ty) -> RetKind {
+        if self.is_void(t) {
+            RetKind::Void
+        } else if self.is_scalar(t) {
+            RetKind::Scalar(self.llty(t))
+        } else {
+            RetKind::Sret(t)
+        }
+    }
+
+    /// The signature of an instance of a NEXUL function (NEXUL calling convention).
+    pub fn fn_sig(&mut self, f: FnId, targs: &[Ty]) -> Sig {
+        let fd = self.p.func(f);
+        let tcx = self.tcx();
+        let mut params = Vec::new();
+        for prm in &fd.params {
+            if param_by_ref(self.p, prm.conv, prm.ty) {
+                params.push(PKind::Ptr);
+            } else {
+                let t = tcx.subst(prm.ty, targs);
+                params.push(self.pass_kind(t));
+            }
+        }
+        let ret = tcx.subst(fd.ret, targs);
+        Sig { ret: self.ret_kind(ret), params, track_caller: fd.track_caller }
+    }
+
+    /// The signature of a call through a function value of type `t`.
+    pub fn fn_ty_sig(&mut self, t: Ty) -> Sig {
+        let tcx = self.tcx();
+        let (params, ret) = match &*tcx.kind(t) {
+            TyKind::Fn(ps, r) => (ps.clone(), *r),
+            _ => (vec![], tcx.unit),
+        };
+        let mut out = Vec::new();
+        for (c, pt) in params {
+            if param_by_ref(self.p, c, pt) {
+                out.push(PKind::Ptr);
+            } else {
+                out.push(self.pass_kind(pt));
+            }
+        }
+        Sig { ret: self.ret_kind(ret), params: out, track_caller: false }
+    }
+
+    pub fn sig_param_list(&self, sig: &Sig) -> Vec<String> {
+        let mut v = Vec::new();
+        if let RetKind::Sret(_) = sig.ret {
+            v.push("ptr".to_string());
+        }
+        for p in &sig.params {
+            v.push(match p {
+                PKind::Scalar(t) => t.clone(),
+                PKind::Ptr => "ptr".into(),
+            });
+        }
+        if sig.track_caller {
+            v.push("ptr".into());
+        }
+        v
+    }
+
+    pub fn sig_ret(&self, sig: &Sig) -> String {
+        match &sig.ret {
+            RetKind::Scalar(t) => t.clone(),
+            _ => "void".into(),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Functions
+
+    pub fn instance(&mut self, f: FnId, targs: Vec<Ty>) -> String {
+        let key = (f, targs);
+        if let Some(n) = self.instances.get(&key) {
+            return n.clone();
+        }
+        let fd = self.p.func(f);
+        let name = match &fd.export {
+            Some(sym) if key.1.is_empty() => format!("@{}", quote_name(sym)),
+            _ => {
+                let module = &self.p.modules[fd.module.idx()].path;
+                let mut label = format!("{}.{}", module, fd.qualified_name(self.p));
+                if !key.1.is_empty() {
+                    let a: Vec<String> = key.1.iter().map(|&t| self.p.ty_str(t)).collect();
+                    label = format!("{}[{}]", label, a.join(", "));
+                }
+                let id = self.fresh();
+                format!("@{}", quote_name(&format!("{}#{}", label, id)))
+            }
+        };
+        self.instances.insert(key.clone(), name.clone());
+        self.fn_queue.push(key);
+        name
+    }
+
+    /// A runtime function of the standard library.
+    pub fn lang_fn(&mut self, name: &str) -> (String, Sig) {
+        let f = self.p.lang_fn(name).unwrap_or_else(|| panic!("internal: the standard library has no `@lang(\"{}\")` function", name));
+        let n = self.instance(f, vec![]);
+        let sig = self.fn_sig(f, &[]);
+        (n, sig)
+    }
+
+    pub fn lang_adt(&self, name: &str) -> AdtId {
+        *self.p.lang_adts.get(name).unwrap_or_else(|| panic!("internal: the standard library has no `@lang(\"{}\")` type", name))
+    }
+
+    /// Declares an LLVM function once.
+    pub fn declare(&mut self, line: &str) {
+        if self.declared.insert(line.to_string()) {
+            let _ = writeln!(self.decls, "{}", line);
+        }
+    }
+
+    /// The symbol of an `extern "C"` function, declared with the C calling convention.
+    pub fn extern_fn(&mut self, f: FnId) -> String {
+        if let Some(n) = self.externs.get(&f) {
+            return n.clone();
+        }
+        let fd = self.p.func(f);
+        let name = format!("@{}", quote_name(&fd.name));
+        let params: Vec<String> = fd.params.iter().map(|p| p.ty).collect::<Vec<_>>().into_iter().map(|t| self.c_param(t)).collect();
+        let ret_ty = fd.ret;
+        let ret = if self.is_void(ret_ty) { "void".to_string() } else { self.c_param(ret_ty) };
+        let link = match &fd.kind {
+            FnKind::Extern { link, .. } => link.clone(),
+            _ => None,
+        };
+        let mut attrs = String::from("nounwind");
+        if self.tcx().is_never(ret_ty) {
+            attrs.push_str(" noreturn");
+        }
+        let target = self.opts.target.clone();
+        match (target.os, &link) {
+            (Os::Windows, l) => {
+                // Without `@link`, a C function comes from the C runtime DLL of Windows.
+                let dll = l.clone().unwrap_or_else(|| "ucrtbase".into());
+                self.imports.push((dll, fd.name.clone()));
+            }
+            (_, Some(l)) if target.arch == Arch::Wasm32 => {
+                attrs.push_str(&format!(" \"wasm-import-module\"=\"{}\" \"wasm-import-name\"=\"{}\"", l, fd.name));
+                self.imports.push((l.clone(), fd.name.clone()));
+            }
+            (_, Some(l)) => {
+                if !self.links.contains(l) {
+                    self.links.push(l.clone());
+                }
+            }
+            _ => {}
+        }
+        self.declare(&format!("declare {} {}({}) {}", ret, name, params.join(", "), attrs));
+        self.externs.insert(f, name.clone());
+        name
+    }
+
+    /// A parameter or return type with the C calling convention (narrow integers are
+    /// extended by the caller, as C compilers expect).
+    pub fn c_param(&mut self, t: Ty) -> String {
+        let base = self.llty(t);
+        let windows = self.opts.target.os == Os::Windows;
+        match &*self.tcx().kind(t) {
+            TyKind::Bool => "i1 zeroext".into(),
+            TyKind::Int(i) if self.int_bits(*i) < 32 && !windows => {
+                format!("{} {}", base, if i.signed() { "signext" } else { "zeroext" })
+            }
+            _ => base,
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Constants and globals
+
+    /// A NUL-terminated byte array; returns its global name.
+    pub fn bytes_global(&mut self, bytes: &[u8]) -> String {
+        if let Some(n) = self.strings.get(bytes) {
+            return n.clone();
+        }
+        let n = format!("@str.{}", self.fresh());
+        let _ = writeln!(self.globals, "{} = private unnamed_addr constant [{} x i8] {}, align 1", n, bytes.len() + 1, c_string(bytes));
+        self.strings.insert(bytes.to_vec(), n.clone());
+        n
+    }
+
+    /// A constant `String` value (a literal: not owned, `cap == 0`).
+    pub fn string_value(&mut self, s: &[u8]) -> String {
+        if let Some(n) = self.string_values.get(s) {
+            return n.clone();
+        }
+        let data = self.bytes_global(s);
+        let sty = self.p.string_ty();
+        let ty = self.llty(sty);
+        let u = self.usize_ty();
+        let n = format!("@strv.{}", self.fresh());
+        let _ = writeln!(self.globals, "{} = private unnamed_addr constant {} {{ ptr {}, {} {}, {} 0 }}", n, ty, data, u, s.len(), u);
+        self.string_values.insert(s.to_vec(), n.clone());
+        n
+    }
+
+    /// A pointer to the constant `Location` of `span` (or `null`).
+    pub fn location(&mut self, span: Span) -> String {
+        if span.is_dummy() {
+            return "null".into();
+        }
+        let l = self.sm.location(span);
+        let key = (span.file.0 as usize, l.line, l.col);
+        if let Some(n) = self.locs.get(&key) {
+            return n.clone();
+        }
+        let file = self.bytes_global(l.file.as_bytes());
+        let lid = self.lang_adt("location");
+        let lt = self.tcx().adt(lid, vec![]);
+        let ty = self.llty(lt);
+        let u = self.usize_ty();
+        let n = format!("@loc.{}", self.fresh());
+        let _ = writeln!(self.globals, "{} = private unnamed_addr constant {} {{ ptr {}, {} {}, i32 {}, i32 {} }}", n, ty, file, u, l.file.len(), l.line, l.col);
+        self.locs.insert(key, n.clone());
+        n
+    }
+
+    /// A pointer to a constant `FormatSpec` (or `null`).
+    pub fn spec(&mut self, spec: &Option<FormatSpec>) -> String {
+        let Some(sp) = spec else { return "null".into() };
+        let align = match sp.align {
+            None => 0,
+            Some(Align::Left) => 1,
+            Some(Align::Center) => 2,
+            Some(Align::Right) => 3,
+        };
+        let kind = match sp.kind {
+            None => 0,
+            Some(FormatKind::LowerHex) => 1,
+            Some(FormatKind::UpperHex) => 2,
+            Some(FormatKind::Octal) => 3,
+            Some(FormatKind::Binary) => 4,
+            Some(FormatKind::Exponent) => 5,
+        };
+        let sid = self.lang_adt("format_spec");
+        let st = self.tcx().adt(sid, vec![]);
+        let ty = self.llty(st);
+        let init = format!(
+            "{} {{ i32 {}, i8 {}, i1 {}, i1 {}, i32 {}, i32 {}, i8 {} }}",
+            ty,
+            sp.fill as u32,
+            align,
+            sp.plus,
+            sp.zero,
+            sp.width.map(|w| w as i64).unwrap_or(-1),
+            sp.precision.map(|w| w as i64).unwrap_or(-1),
+            kind
+        );
+        if let Some(n) = self.specs.get(&init) {
+            return n.clone();
+        }
+        let n = format!("@spec.{}", self.fresh());
+        let _ = writeln!(self.globals, "{} = private unnamed_addr constant {}", n, init);
+        self.specs.insert(init, n.clone());
+        n
+    }
+
+    /// The global variable of a `static`.
+    pub fn static_global(&mut self, st: StaticId) -> String {
+        if let Some(n) = self.statics.get(&st) {
+            return n.clone();
+        }
+        let sd = &self.p.statics[st.idx()];
+        let module = &self.p.modules[sd.module.idx()].path;
+        let n = format!("@{}", quote_name(&format!("{}.{}#{}", module, sd.name, self.fresh())));
+        self.statics.insert(st, n.clone());
+        let ty = sd.ty;
+        let llt = self.llty(ty);
+        let init = match self.p.static_values.get(&st).cloned() {
+            Some(v) => self.static_init(&v, ty),
+            None => "zeroinitializer".into(),
+        };
+        let kind = if sd.mutable { "global" } else { "constant" };
+        let align = self.align_of(ty);
+        let mut dbg = String::new();
+        if self.di.is_some() {
+            let span = sd.span;
+            let file = self.sm.try_get(span.file).map(|f| f.name.clone()).unwrap_or_default();
+            let line = self.sm.location(span).line as u32;
+            let root = self.opts.root_dir.clone();
+            let name = sd.name.clone();
+            let di = self.di.as_mut().unwrap();
+            let f = di.file(&file, &root);
+            let tyd = di.ty(&self.lx, self.p, ty);
+            let g = di.global_variable(&name, f, line, tyd);
+            dbg = format!(", !dbg !{}", g);
+        }
+        let _ = writeln!(self.globals, "{} = internal {} {} {}, align {}{}", n, kind, llt, init, align, dbg);
+        n
+    }
+
+    fn static_init(&mut self, v: &StaticValue, t: Ty) -> String {
+        let tcx = self.tcx();
+        match v {
+            StaticValue::Null => "null".into(),
+            StaticValue::Scalar(c) => self.const_scalar(c, t),
+            StaticValue::Repeat(inner, n) => {
+                let et = match &*tcx.kind(t) {
+                    TyKind::Array(e, _) => *e,
+                    _ => return "zeroinitializer".into(),
+                };
+                if matches!(**inner, StaticValue::Null) || matches!(&**inner, StaticValue::Scalar(ConstValue::Int(0)) | StaticValue::Scalar(ConstValue::Bool(false))) {
+                    return "zeroinitializer".into();
+                }
+                if let StaticValue::Scalar(ConstValue::Float(x)) = &**inner {
+                    if *x == 0.0 && x.is_sign_positive() {
+                        return "zeroinitializer".into();
+                    }
+                }
+                let ety = self.llty(et);
+                let e = self.static_init(inner, et);
+                let parts: Vec<String> = (0..*n).map(|_| format!("{} {}", ety, e)).collect();
+                format!("[{}]", parts.join(", "))
+            }
+            StaticValue::Aggregate(vals) => match &*tcx.kind(t) {
+                TyKind::Array(e, _) => {
+                    let ety = self.llty(*e);
+                    let parts: Vec<String> = vals.iter().map(|v| format!("{} {}", ety, self.static_init(v, *e))).collect();
+                    format!("[{}]", parts.join(", "))
+                }
+                TyKind::Tuple(ts) => {
+                    let ts = ts.clone();
+                    let parts: Vec<String> = vals.iter().zip(ts.iter()).map(|(v, &et)| format!("{} {}", self.llty(et), self.static_init(v, et))).collect();
+                    format!("{{ {} }}", parts.join(", "))
+                }
+                TyKind::Adt(id, args) => {
+                    let fts: Vec<Ty> = self.p.adt(*id).fields().iter().map(|f| tcx.subst(f.ty, args)).collect();
+                    let parts: Vec<String> = vals.iter().zip(fts.iter()).map(|(v, &et)| format!("{} {}", self.llty(et), self.static_init(v, et))).collect();
+                    format!("{{ {} }}", parts.join(", "))
+                }
+                _ => "zeroinitializer".into(),
+            },
+            StaticValue::Variant(i) => {
+                let s = self.lx.enum_shape(t);
+                if s.has_payload {
+                    let a = s.payload_align.min(8);
+                    format!("{{ i32 {}, [{} x i{}] zeroinitializer }}", i, s.payload_size / a, a * 8)
+                } else {
+                    format!("{{ i32 {} }}", i)
+                }
+            }
+        }
+    }
+
+    /// A scalar constant of type `t`.
+    pub fn const_scalar(&mut self, v: &ConstValue, t: Ty) -> String {
+        let tcx = self.tcx();
+        match (v, &*tcx.kind(t)) {
+            (ConstValue::Int(n), TyKind::Int(i)) => int_const(*n, self.int_bits(*i)),
+            (ConstValue::Int(n), TyKind::Float(f)) => float_const(*n as f64, *f),
+            (ConstValue::Float(x), TyKind::Float(f)) => float_const(*x, *f),
+            (ConstValue::Bool(b), _) => if *b { "true".into() } else { "false".into() },
+            (ConstValue::Char(c), _) => (*c as u32).to_string(),
+            (ConstValue::Int(n), TyKind::Char) => n.to_string(),
+            (ConstValue::Int(n), _) => n.to_string(),
+            (ConstValue::Float(x), _) => float_const(*x, FloatTy::F64),
+            (ConstValue::Unit, _) => "zeroinitializer".into(),
+            (ConstValue::Str(_), _) => panic!("internal: string constant used as a scalar"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Drop glue
+
+    /// The drop function of a type (`None` if dropping does nothing).
+    pub fn drop_fn(&mut self, t: Ty) -> Option<String> {
+        if !self.p.needs_drop(t) {
+            return None;
+        }
+        if let Some(n) = self.drop_names.get(&t) {
+            return Some(n.clone());
+        }
+        let n = format!("@{}", quote_name(&format!("drop.{}#{}", self.p.ty_str(t), self.fresh())));
+        self.drop_names.insert(t, n.clone());
+        self.drop_queue.push(t);
+        Some(n)
+    }
+
+    fn emit_drop_glue(&mut self, t: Ty) {
+        let tcx = self.tcx();
+        let name = self.drop_names[&t].clone();
+        let lt = self.llty(t);
+        let mut b = String::new();
+        let mut k = 0usize;
+        let tmp = |k: &mut usize| {
+            *k += 1;
+            format!("%d{}", k)
+        };
+        let free = self.lang_fn("free").0;
+        match &*tcx.kind(t) {
+            TyKind::Tuple(elems) => {
+                for (i, e) in elems.clone().iter().enumerate() {
+                    if let Some(d) = self.drop_fn(*e) {
+                        let a = tmp(&mut k);
+                        let _ = writeln!(b, "  {} = getelementptr inbounds {}, ptr %p, i32 0, i32 {}", a, lt, i);
+                        let _ = writeln!(b, "  call void {}(ptr {})", d, a);
+                    }
+                }
+            }
+            TyKind::Array(e, n) => {
+                if let Some(d) = self.drop_fn(*e) {
+                    let u = self.usize_ty();
+                    // Elements are destroyed by increasing index (spec §5.5).
+                    let _ = writeln!(b, "  br label %loop");
+                    let _ = writeln!(b, "loop:");
+                    let _ = writeln!(b, "  %i = phi {} [ 0, %start ], [ %next, %loop ]", u);
+                    let _ = writeln!(b, "  %a = getelementptr inbounds {}, ptr %p, {} 0, {} %i", lt, u, u);
+                    let _ = writeln!(b, "  call void {}(ptr %a)", d);
+                    let _ = writeln!(b, "  %next = add {} %i, 1", u);
+                    let _ = writeln!(b, "  %done = icmp eq {} %next, {}", u, n);
+                    let _ = writeln!(b, "  br i1 %done, label %end, label %loop");
+                    let _ = writeln!(b, "end:");
+                }
+            }
+            TyKind::Adt(id, args) => {
+                let adt = self.p.adt(*id);
+                if let Some(df) = adt.drop_fn {
+                    let inst = self.instance(df, args.clone());
+                    let _ = writeln!(b, "  call void {}(ptr %p)", inst);
+                }
+                match &adt.kind {
+                    AdtKind::Struct { fields } => {
+                        for (i, f) in fields.iter().enumerate() {
+                            let ft = tcx.subst(f.ty, args);
+                            let d = self.drop_fn(ft);
+                            let a = tmp(&mut k);
+                            let _ = writeln!(b, "  {} = getelementptr inbounds {}, ptr %p, i32 0, i32 {}", a, lt, i);
+                            if f.indirect {
+                                let bx = tmp(&mut k);
+                                let _ = writeln!(b, "  {} = load ptr, ptr {}", bx, a);
+                                if let Some(d) = d {
+                                    let _ = writeln!(b, "  call void {}(ptr {})", d, bx);
+                                }
+                                let _ = writeln!(b, "  call void {}(ptr {})", free, bx);
+                            } else if let Some(d) = d {
+                                let _ = writeln!(b, "  call void {}(ptr {})", d, a);
+                            }
+                        }
+                    }
+                    AdtKind::Enum { variants } => {
+                        let tagp = tmp(&mut k);
+                        let tag = tmp(&mut k);
+                        let _ = writeln!(b, "  {} = getelementptr inbounds {}, ptr %p, i32 0, i32 0", tagp, lt);
+                        let _ = writeln!(b, "  {} = load i32, ptr {}", tag, tagp);
+                        let mut cases = String::new();
+                        let mut blocks = String::new();
+                        for (vi, v) in variants.iter().enumerate() {
+                            if v.fields.is_empty() {
+                                continue;
+                            }
+                            let pty = self.payload_ty(t, vi as u32);
+                            let mut case = String::new();
+                            let pay = tmp(&mut k);
+                            let _ = writeln!(case, "  {} = getelementptr inbounds {}, ptr %p, i32 0, i32 1", pay, lt);
+                            let base = if v.indirect {
+                                let bx = tmp(&mut k);
+                                let _ = writeln!(case, "  {} = load ptr, ptr {}", bx, pay);
+                                bx
+                            } else {
+                                pay
+                            };
+                            let mut any = v.indirect;
+                            for (fi, &f) in v.fields.iter().enumerate() {
+                                let ft = tcx.subst(f, args);
+                                if let Some(d) = self.drop_fn(ft) {
+                                    any = true;
+                                    let a = tmp(&mut k);
+                                    let _ = writeln!(case, "  {} = getelementptr inbounds {}, ptr {}, i32 0, i32 {}", a, pty, base, fi);
+                                    let _ = writeln!(case, "  call void {}(ptr {})", d, a);
+                                }
+                            }
+                            if v.indirect {
+                                let _ = writeln!(case, "  call void {}(ptr {})", free, base);
+                            }
+                            if any {
+                                let _ = writeln!(cases, "    i32 {}, label %v{}", vi, vi);
+                                let _ = write!(blocks, "v{}:\n{}  br label %end\n", vi, case);
+                            }
+                        }
+                        let _ = writeln!(b, "  switch i32 {}, label %end [\n{}  ]", tag, cases);
+                        b.push_str(&blocks);
+                        b.push_str("end:\n");
+                    }
+                }
+            }
+            _ => {}
+        }
+        let _ = write!(self.fn_defs, "define internal void {}(ptr %p) nounwind {{\nstart:\n{}  ret void\n}}\n\n", name, b);
+    }
+
+    // -----------------------------------------------------------------------
+    // Entry points
+
+    fn emit_entry(&mut self, entry: &Entry) {
+        let main_ptr = match entry {
+            Entry::Library => return,
+            Entry::Main(f) => self.instance(*f, vec![]),
+            Entry::Tests(tests) => {
+                let (index_fn, _) = self.lang_fn("test_index");
+                let mut cases = String::new();
+                let mut blocks = String::new();
+                for (i, t) in tests.iter().enumerate() {
+                    let name = self.instance(*t, vec![]);
+                    let _ = writeln!(cases, "    i32 {}, label %t{}", i, i);
+                    let _ = write!(blocks, "t{}:\n  call void {}()\n  ret void\n", i, name);
+                }
+                let _ = write!(
+                    self.fn_defs,
+                    "define internal void @nx.tests() nounwind {{\nstart:\n  %i = call i32 {}()\n  switch i32 %i, label %none [\n{}  ]\n{}none:\n  ret void\n}}\n\n",
+                    index_fn, cases, blocks
+                );
+                "@nx.tests".to_string()
+            }
+        };
+        let (entry_fn, _) = self.lang_fn("entry");
+        let target = self.opts.target.clone();
+        match target.os {
+            Os::Windows => {
+                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
+            }
+            Os::Linux | Os::MacOs => {
+                let (set_stack, _) = self.lang_fn("sys_set_stack");
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_linux_start(ptr %sp) nounwind {{\nstart:\n  call void {}(ptr %sp)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    set_stack, entry_fn, main_ptr
+                );
+                let asm = match target.arch {
+                    Arch::X86_64 => ".text\n.globl _start\n.type _start,@function\n_start:\n  xorl %ebp, %ebp\n  movq %rsp, %rdi\n  andq $-16, %rsp\n  callq nx_linux_start\n  hlt\n",
+                    Arch::Aarch64 => ".text\n.globl _start\n.type _start,%function\n_start:\n  mov x29, #0\n  mov x30, #0\n  mov x0, sp\n  and x1, x0, #-16\n  mov sp, x1\n  bl nx_linux_start\n  brk #0\n",
+                    _ => ".text\n.globl _start\n.type _start,@function\n_start:\n  mv a0, sp\n  andi sp, sp, -16\n  call nx_linux_start\n  ebreak\n",
+                };
+                self.module_asm.push(asm.to_string());
+            }
+            Os::Wasi => {
+                let _ = write!(self.fn_defs, "define void @_start() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
+            }
+            Os::None => {
+                // Bare metal: the reset handler of the vector table calls `nx_reset`.
+                let (init, _) = self.lang_fn("sys_reset");
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_reset() nounwind noreturn {{\nstart:\n  call void {}()\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    init, entry_fn, main_ptr
+                );
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Builtins: functions that LLVM itself may call (memory copies, stack probes).
+
+    fn emit_builtins(&mut self) {
+        let u = self.usize_ty();
+        let attrs = "nounwind \"no-builtins\"";
+        // memcpy / memmove / memset / memcmp / bcmp, written so that LLVM cannot turn
+        // them back into calls to themselves ("no-builtins").
+        let _ = write!(
+            self.fn_defs,
+            "define weak ptr @memcpy(ptr %d, ptr %s, {u} %n) {attrs} {{
+start:
+  %z = icmp eq {u} %n, 0
+  br i1 %z, label %done, label %loop
+loop:
+  %i = phi {u} [ 0, %start ], [ %i1, %loop ]
+  %sp = getelementptr i8, ptr %s, {u} %i
+  %b = load i8, ptr %sp
+  %dp = getelementptr i8, ptr %d, {u} %i
+  store i8 %b, ptr %dp
+  %i1 = add {u} %i, 1
+  %c = icmp eq {u} %i1, %n
+  br i1 %c, label %done, label %loop
+done:
+  ret ptr %d
+}}
+
+define weak ptr @memmove(ptr %d, ptr %s, {u} %n) {attrs} {{
+start:
+  %z = icmp eq {u} %n, 0
+  br i1 %z, label %done, label %dir
+dir:
+  %di = ptrtoint ptr %d to {u}
+  %si = ptrtoint ptr %s to {u}
+  %fwd = icmp ule {u} %di, %si
+  br i1 %fwd, label %floop, label %bloop
+floop:
+  %i = phi {u} [ 0, %dir ], [ %i1, %floop ]
+  %sp = getelementptr i8, ptr %s, {u} %i
+  %b = load i8, ptr %sp
+  %dp = getelementptr i8, ptr %d, {u} %i
+  store i8 %b, ptr %dp
+  %i1 = add {u} %i, 1
+  %c = icmp eq {u} %i1, %n
+  br i1 %c, label %done, label %floop
+bloop:
+  %j = phi {u} [ %n, %dir ], [ %j1, %bloop ]
+  %j1 = sub {u} %j, 1
+  %sp2 = getelementptr i8, ptr %s, {u} %j1
+  %b2 = load i8, ptr %sp2
+  %dp2 = getelementptr i8, ptr %d, {u} %j1
+  store i8 %b2, ptr %dp2
+  %c2 = icmp eq {u} %j1, 0
+  br i1 %c2, label %done, label %bloop
+done:
+  ret ptr %d
+}}
+
+define weak ptr @memset(ptr %d, i32 %v, {u} %n) {attrs} {{
+start:
+  %z = icmp eq {u} %n, 0
+  %b = trunc i32 %v to i8
+  br i1 %z, label %done, label %loop
+loop:
+  %i = phi {u} [ 0, %start ], [ %i1, %loop ]
+  %dp = getelementptr i8, ptr %d, {u} %i
+  store i8 %b, ptr %dp
+  %i1 = add {u} %i, 1
+  %c = icmp eq {u} %i1, %n
+  br i1 %c, label %done, label %loop
+done:
+  ret ptr %d
+}}
+
+define weak i32 @memcmp(ptr %a, ptr %b, {u} %n) {attrs} {{
+start:
+  %z = icmp eq {u} %n, 0
+  br i1 %z, label %equal, label %loop
+loop:
+  %i = phi {u} [ 0, %start ], [ %i1, %next ]
+  %ap = getelementptr i8, ptr %a, {u} %i
+  %x = load i8, ptr %ap
+  %bp = getelementptr i8, ptr %b, {u} %i
+  %y = load i8, ptr %bp
+  %ne = icmp ne i8 %x, %y
+  br i1 %ne, label %diff, label %next
+next:
+  %i1 = add {u} %i, 1
+  %c = icmp eq {u} %i1, %n
+  br i1 %c, label %equal, label %loop
+diff:
+  %xe = zext i8 %x to i32
+  %ye = zext i8 %y to i32
+  %r = sub i32 %xe, %ye
+  ret i32 %r
+equal:
+  ret i32 0
+}}
+
+define weak i32 @bcmp(ptr %a, ptr %b, {u} %n) {attrs} {{
+start:
+  %r = call i32 @memcmp(ptr %a, ptr %b, {u} %n)
+  ret i32 %r
+}}
+
+"
+        );
+        let target = self.opts.target.clone();
+        if target.os == Os::Windows {
+            // Floating-point marker expected by MSVC-style objects, and the stack probe
+            // called for frames larger than a page.
+            let _ = writeln!(self.globals, "@_fltused = global i32 0");
+            if target.arch == Arch::X86_64 {
+                self.module_asm.push(
+                    ".text\n.globl __chkstk\n__chkstk:\n  pushq %rcx\n  pushq %rax\n  cmpq $0x1000, %rax\n  leaq 24(%rsp), %rcx\n  jb 2f\n1:\n  subq $0x1000, %rcx\n  orq $0, (%rcx)\n  subq $0x1000, %rax\n  cmpq $0x1000, %rax\n  ja 1b\n2:\n  subq %rax, %rcx\n  orq $0, (%rcx)\n  popq %rax\n  popq %rcx\n  retq\n"
+                        .to_string(),
+                );
+            }
+        }
+    }
+
+    fn finish(mut self) -> Output {
+        let mut out = String::new();
+        out.push_str("; Generated by nxc, the NEXUL compiler. Do not edit.\n");
+        let _ = writeln!(out, "target triple = \"{}\"\n", self.opts.target.llvm_triple);
+        for asm in &self.module_asm {
+            for line in asm.lines() {
+                let _ = writeln!(out, "module asm \"{}\"", line.replace('\\', "\\5C").replace('"', "\\22"));
+            }
+        }
+        out.push('\n');
+        out.push_str(&self.type_defs);
+        out.push('\n');
+        out.push_str(&self.globals);
+        out.push('\n');
+        out.push_str(&self.decls);
+        out.push('\n');
+        out.push_str(&self.fn_defs);
+        if let Some(di) = self.di.take() {
+            out.push_str(&di.module_tail(&[]));
+            out.push_str(&di.defs);
+        }
+        Output { ir: out, imports: self.imports, links: self.links, exports: self.exports, profile_names: self.profile_names }
+    }
+}
+
+#[allow(dead_code)]
+fn conv_by_ref(c: Convention) -> bool {
+    c != Convention::Owned
+}

@@ -1,0 +1,1135 @@
+/// Formatting and parsing of numbers (spec §1.5, §4.11).
+///
+/// Floating-point numbers are printed in their shortest form that reads back to the same
+/// value (the free-format algorithm of Steele & White / Burger & Dybvig) and parsed with
+/// correct rounding; both use exact arbitrary-precision arithmetic (`Big`).
+
+import std.rt
+import std.mem
+import std.math
+
+/// A format specification `{value:spec}` (spec §1.5).
+@lang("format_spec")
+pub struct FormatSpec {
+    pub fill: char
+    /// 0 default, 1 left `<`, 2 center `^`, 3 right `>`.
+    pub align: u8
+    pub plus: bool
+    pub zero: bool
+    /// -1 when absent.
+    pub width: i32
+    /// -1 when absent.
+    pub precision: i32
+    /// 0 default, 1 `x`, 2 `X`, 3 `o`, 4 `b`, 5 `e`.
+    pub kind: u8
+}
+
+pub fn default_spec() -> FormatSpec {
+    return FormatSpec(fill: ' ', align: 0, plus: false, zero: false, width: -1, precision: -1, kind: 0)
+}
+
+unsafe fn spec_of(p: Ptr[FormatSpec]) -> FormatSpec {
+    if p.is_null() {
+        return default_spec()
+    }
+    return p.read()
+}
+
+/// Appends `text` with the padding of `spec`; the first `sign_len` bytes stay in front of
+/// zero padding.
+fn pad(inout dest: String, text: String, spec: FormatSpec, numeric: bool, sign_len: usize) {
+    if spec.width < 0 {
+        dest.push_str(text)
+        return
+    }
+    let chars = text.char_count()
+    let width = spec.width as usize
+    if chars >= width {
+        dest.push_str(text)
+        return
+    }
+    let count = width - chars
+    if numeric and spec.zero and spec.align == 0 {
+        dest.push_str(text.substring(0, sign_len))
+        for _ in 0..count {
+            dest.push('0')
+        }
+        dest.push_str(text.substring(sign_len, text.len()))
+        return
+    }
+    let align = if spec.align != 0 { spec.align } else if numeric { 3 } else { 1 }
+    let left = if align == 1 { 0 } else if align == 3 { count } else { count / 2 }
+    let fill = if spec.fill as u32 == 0 { ' ' } else { spec.fill }
+    for _ in 0..left {
+        dest.push(fill)
+    }
+    dest.push_str(text)
+    for _ in 0..count - left {
+        dest.push(fill)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Integers
+
+fn digit_char(d: u64, upper: bool) -> char {
+    if d < 10 {
+        return (('0' as u64) + d) as u8 as char
+    }
+    if upper {
+        return (('A' as u64) + d - 10) as u8 as char
+    }
+    return (('a' as u64) + d - 10) as u8 as char
+}
+
+/// Writes the magnitude `v` in the base of `spec`, with a sign.
+fn format_uint(inout dest: String, v: u64, negative: bool, spec: FormatSpec) {
+    var text = String.with_capacity(24)
+    if negative {
+        text.push('-')
+    } else if spec.plus {
+        text.push('+')
+    }
+    let sign_len = text.len()
+    let base: u64 = match spec.kind {
+        1 | 2 => 16
+        3 => 8
+        4 => 2
+        _ => 10
+    }
+    var digits: [u8; 64] = [0; 64]
+    var n: usize = 0
+    var x = v
+    while true {
+        digits[n] = digit_char(x % base, spec.kind == 2) as u8
+        n += 1
+        x /= base
+        if x == 0 {
+            break
+        }
+    }
+    while n > 0 {
+        n -= 1
+        text.push(digits[n] as char)
+    }
+    pad(&dest, text, spec, true, sign_len)
+}
+
+@lang("fmt_u64")
+pub fn fmt_u64(inout dest: String, v: u64, spec: Ptr[FormatSpec]) {
+    format_uint(&dest, v, false, unsafe { spec_of(spec) })
+}
+
+@lang("fmt_i64")
+pub fn fmt_i64(inout dest: String, v: i64, spec: Ptr[FormatSpec]) {
+    let sp = unsafe { spec_of(spec) }
+    if v < 0 {
+        // The magnitude of `i64.MIN` does not fit in an `i64`.
+        format_uint(&dest, ((0 - (v + 1)) as u64) + 1, true, sp)
+    } else {
+        format_uint(&dest, v as u64, false, sp)
+    }
+}
+
+@lang("fmt_bool")
+pub fn fmt_bool(inout dest: String, v: bool, spec: Ptr[FormatSpec]) {
+    pad(&dest, if v { "true" } else { "false" }, unsafe { spec_of(spec) }, false, 0)
+}
+
+@lang("fmt_char")
+pub fn fmt_char(inout dest: String, c: char, spec: Ptr[FormatSpec]) {
+    var t = String.new()
+    t.push(c)
+    pad(&dest, t, unsafe { spec_of(spec) }, false, 0)
+}
+
+@lang("fmt_str")
+pub fn fmt_str(inout dest: String, s: String, spec: Ptr[FormatSpec]) {
+    let sp = unsafe { spec_of(spec) }
+    if sp.precision >= 0 {
+        // The precision is a maximum number of characters.
+        var t = String.new()
+        var n = 0
+        for c in s {
+            if n == sp.precision {
+                break
+            }
+            t.push(c)
+            n += 1
+        }
+        pad(&dest, t, sp, false, 0)
+        return
+    }
+    if sp.width < 0 {
+        dest.push_str(s)
+        return
+    }
+    let copy = s.clone()
+    pad(&dest, copy, sp, false, 0)
+}
+
+@lang("to_string_i64")
+pub fn i64_to_string(v: i64) -> String {
+    var s = String.new()
+    fmt_i64(&s, v, Ptr.null())
+    return s
+}
+
+@lang("to_string_u64")
+pub fn u64_to_string(v: u64) -> String {
+    var s = String.new()
+    fmt_u64(&s, v, Ptr.null())
+    return s
+}
+
+@lang("to_string_f64")
+pub fn f64_to_string(v: f64, is_f32: bool) -> String {
+    var s = String.new()
+    fmt_f64(&s, v, is_f32, Ptr.null())
+    return s
+}
+
+@lang("to_string_bool")
+pub fn bool_to_string(v: bool) -> String {
+    return if v { "true" } else { "false" }
+}
+
+@lang("to_string_char")
+pub fn char_to_string(c: char) -> String {
+    var s = String.new()
+    s.push(c)
+    return s
+}
+
+// ---------------------------------------------------------------------------
+// Arbitrary-precision natural numbers
+
+/// A natural number in base 2^32, least significant limb first, without leading zero
+/// limbs (zero has no limbs).
+pub struct Big {
+    limbs: Vec[u32]
+}
+
+impl Big {
+    pub fn zero() -> Big {
+        return Big(limbs: Vec.new())
+    }
+
+    pub fn from_u64(v: u64) -> Big {
+        var b = Big.zero()
+        if v != 0 {
+            b.limbs.push((v & 0xFFFF_FFFF) as u32)
+            if v > 0xFFFF_FFFF {
+                b.limbs.push((v >> 32) as u32)
+            }
+        }
+        return b
+    }
+
+    pub fn clone(self) -> Big {
+        var v: Vec[u32] = Vec.with_capacity(self.limbs.len())
+        for x in self.limbs {
+            v.push(x)
+        }
+        return Big(limbs: v)
+    }
+
+    pub fn is_zero(self) -> bool {
+        return self.limbs.len() == 0
+    }
+
+    /// Limb `i` (0 beyond the most significant limb).
+    pub fn word(self, i: usize) -> u32 {
+        if i < self.limbs.len() {
+            return self.limbs[i]
+        }
+        return 0
+    }
+
+    /// Appends a more significant limb (call `normalize` after the last one).
+    pub fn push_word(inout self, w: u32) {
+        self.limbs.push(w)
+    }
+
+    /// Removes the leading zero limbs.
+    pub fn normalize(inout self) {
+        self.trim()
+    }
+
+    fn trim(inout self) {
+        while self.limbs.len() > 0 and self.limbs[self.limbs.len() - 1] == 0 {
+            let _ = self.limbs.pop()
+        }
+    }
+
+    /// Number of significant bits (0 for zero).
+    pub fn bit_length(self) -> u32 {
+        let n = self.limbs.len()
+        if n == 0 {
+            return 0
+        }
+        return (n as u32 - 1) * 32 + (32 - self.limbs[n - 1].leading_zeros())
+    }
+
+    /// Bit `i` (bit 0 is the least significant).
+    pub fn bit(self, i: u32) -> bool {
+        let w = (i / 32) as usize
+        if w >= self.limbs.len() {
+            return false
+        }
+        return (self.limbs[w] >> (i % 32)) & 1 == 1
+    }
+
+    /// Are the `count` least significant bits all zero?
+    pub fn low_bits_zero(self, count: u32) -> bool {
+        var i: u32 = 0
+        while i < count {
+            let w = (i / 32) as usize
+            if w >= self.limbs.len() {
+                return true
+            }
+            if count - i >= 32 and i % 32 == 0 {
+                if self.limbs[w] != 0 {
+                    return false
+                }
+                i += 32
+            } else {
+                if self.bit(i) {
+                    return false
+                }
+                i += 1
+            }
+        }
+        return true
+    }
+
+    /// The low 64 bits.
+    pub fn low_u64(self) -> u64 {
+        var v: u64 = 0
+        if self.limbs.len() > 0 {
+            v = self.limbs[0] as u64
+        }
+        if self.limbs.len() > 1 {
+            v |= (self.limbs[1] as u64) << 32
+        }
+        return v
+    }
+
+    pub fn mul_small(inout self, m: u32) {
+        if m == 0 {
+            self.limbs.clear()
+            return
+        }
+        var carry: u64 = 0
+        for i in 0..self.limbs.len() {
+            let t = (self.limbs[i] as u64) * (m as u64) + carry
+            self.limbs[i] = (t & 0xFFFF_FFFF) as u32
+            carry = t >> 32
+        }
+        if carry != 0 {
+            self.limbs.push(carry as u32)
+        }
+    }
+
+    pub fn add_small(inout self, a: u32) {
+        var carry = a as u64
+        var i: usize = 0
+        while carry != 0 {
+            if i == self.limbs.len() {
+                self.limbs.push(0)
+            }
+            let t = (self.limbs[i] as u64) + carry
+            self.limbs[i] = (t & 0xFFFF_FFFF) as u32
+            carry = t >> 32
+            i += 1
+        }
+    }
+
+    pub fn add(inout self, other: Big) {
+        while self.limbs.len() < other.limbs.len() {
+            self.limbs.push(0)
+        }
+        var carry: u64 = 0
+        for i in 0..self.limbs.len() {
+            let o = if i < other.limbs.len() { other.limbs[i] as u64 } else { 0 }
+            if o == 0 and carry == 0 and i >= other.limbs.len() {
+                break
+            }
+            let t = (self.limbs[i] as u64) + o + carry
+            self.limbs[i] = (t & 0xFFFF_FFFF) as u32
+            carry = t >> 32
+        }
+        if carry != 0 {
+            self.limbs.push(carry as u32)
+        }
+    }
+
+    /// `self -= other`; requires `self >= other`.
+    pub fn sub(inout self, other: Big) {
+        var borrow: u64 = 0
+        for i in 0..self.limbs.len() {
+            let o = (if i < other.limbs.len() { other.limbs[i] as u64 } else { 0 }) + borrow
+            if o == 0 and i >= other.limbs.len() {
+                break
+            }
+            let s = self.limbs[i] as u64
+            if s >= o {
+                self.limbs[i] = (s - o) as u32
+                borrow = 0
+            } else {
+                self.limbs[i] = (s + 0x1_0000_0000 - o) as u32
+                borrow = 1
+            }
+        }
+        self.trim()
+    }
+
+    /// -1, 0 or 1.
+    pub fn cmp(self, other: Big) -> i32 {
+        if self.limbs.len() != other.limbs.len() {
+            return if self.limbs.len() < other.limbs.len() { -1 } else { 1 }
+        }
+        var i = self.limbs.len()
+        while i > 0 {
+            i -= 1
+            let (a, b) = (self.limbs[i], other.limbs[i])
+            if a != b {
+                return if a < b { -1 } else { 1 }
+            }
+        }
+        return 0
+    }
+
+    /// `self *= 2^n`
+    pub fn shl(inout self, n: u32) {
+        if self.is_zero() {
+            return
+        }
+        let bits = n % 32
+        if bits != 0 {
+            var carry: u32 = 0
+            for i in 0..self.limbs.len() {
+                let x = self.limbs[i]
+                self.limbs[i] = (x << bits) | carry
+                carry = x >> (32 - bits)
+            }
+            if carry != 0 {
+                self.limbs.push(carry)
+            }
+        }
+        let words = (n / 32) as usize
+        if words > 0 {
+            var v: Vec[u32] = Vec.with_capacity(self.limbs.len() + words)
+            for _ in 0..words {
+                v.push(0)
+            }
+            for x in self.limbs {
+                v.push(x)
+            }
+            self.limbs = v
+        }
+    }
+
+    /// `self = floor(self / 2^n)`
+    pub fn shr(inout self, n: u32) {
+        let words = (n / 32) as usize
+        if words >= self.limbs.len() {
+            self.limbs.clear()
+            return
+        }
+        var v: Vec[u32] = Vec.with_capacity(self.limbs.len() - words)
+        let bits = n % 32
+        for i in words..self.limbs.len() {
+            var x = self.limbs[i] >> bits
+            if bits != 0 and i + 1 < self.limbs.len() {
+                x |= self.limbs[i + 1] << (32 - bits)
+            }
+            v.push(x)
+        }
+        self.limbs = v
+        self.trim()
+    }
+
+    /// `self *= 10^n`
+    pub fn mul_pow10(inout self, n: u32) {
+        var k = n
+        while k >= 9 {
+            self.mul_small(1_000_000_000)
+            k -= 9
+        }
+        if k > 0 {
+            var p: u32 = 1
+            for _ in 0..k {
+                p *= 10
+            }
+            self.mul_small(p)
+        }
+    }
+
+    /// `self /= d`, returning the remainder.
+    pub fn div_small(inout self, d: u32) -> u32 {
+        var rem: u64 = 0
+        var i = self.limbs.len()
+        while i > 0 {
+            i -= 1
+            let cur = (rem << 32) | (self.limbs[i] as u64)
+            self.limbs[i] = (cur / (d as u64)) as u32
+            rem = cur % (d as u64)
+        }
+        self.trim()
+        return rem as u32
+    }
+
+    /// The decimal digits.
+    pub fn to_decimal(self) -> String {
+        if self.is_zero() {
+            return "0"
+        }
+        var x = self.clone()
+        var chunks: Vec[u32] = Vec.new()
+        while not x.is_zero() {
+            chunks.push(x.div_small(1_000_000_000))
+        }
+        var s = String.new()
+        var i = chunks.len()
+        var first = true
+        while i > 0 {
+            i -= 1
+            let c = chunks[i]
+            if first {
+                fmt_u64(&s, c as u64, Ptr.null())
+                first = false
+            } else {
+                var d: u32 = 100_000_000
+                while d > 0 {
+                    s.push((('0' as u32) + (c / d) % 10) as u8 as char)
+                    d /= 10
+                }
+            }
+        }
+        return s
+    }
+}
+
+fn big_pow2(n: u32) -> Big {
+    var b = Big.from_u64(1)
+    b.shl(n)
+    return b
+}
+
+fn big_pow10(n: u32) -> Big {
+    var b = Big.from_u64(1)
+    b.mul_pow10(n)
+    return b
+}
+
+/// Compares `a + b` with `c`.
+fn sum_cmp(a: Big, b: Big, c: Big) -> i32 {
+    var s = a.clone()
+    s.add(b)
+    return s.cmp(c)
+}
+
+/// `floor(num / den)`; `num` becomes the remainder (binary long division).
+pub fn big_divide(inout num: Big, den: Big) -> Big {
+    return divide(&num, den)
+}
+
+fn divide(inout num: Big, den: Big) -> Big {
+    var q = Big.zero()
+    if num.cmp(den) < 0 {
+        return q
+    }
+    let nb = num.bit_length()
+    let db = den.bit_length()
+    var shift = nb - db
+    let words = (shift / 32 + 1) as usize
+    for _ in 0..words {
+        q.limbs.push(0)
+    }
+    var t = den.clone()
+    t.shl(shift)
+    while true {
+        if num.cmp(t) >= 0 {
+            num.sub(t)
+            let w = (shift / 32) as usize
+            q.limbs[w] = q.limbs[w] | ((1 as u32) << (shift % 32))
+        }
+        if shift == 0 {
+            break
+        }
+        shift -= 1
+        t.shr(1)
+    }
+    q.trim()
+    return q
+}
+
+// ---------------------------------------------------------------------------
+// Decoding floats
+
+/// A finite non-negative float as `mant * 2^exp`, with its neighbours' half-distances
+/// `minus` and `plus` (in the same unit) and whether the bounds belong to its rounding
+/// interval (`inclusive`, when the mantissa is even).
+struct Decoded {
+    mant: u64
+    minus: u64
+    plus: u64
+    exp: i32
+    inclusive: bool
+}
+
+/// Splits a finite non-negative value into its integer mantissa and binary exponent:
+/// `v = mant * 2^exp`.
+fn split(v: f64, is_f32: bool) -> (u64, i32) {
+    if is_f32 {
+        let bits = (v as f32).to_bits()
+        let biased = ((bits >> 23) & 0xFF) as i32
+        let frac = (bits & 0x7F_FFFF) as u64
+        if biased == 0 {
+            return (frac, -149)
+        }
+        return (frac | 0x80_0000, biased - 150)
+    }
+    let bits = v.to_bits()
+    let biased = ((bits >> 52) & 0x7FF) as i32
+    let frac = bits & 0xF_FFFF_FFFF_FFFF
+    if biased == 0 {
+        return (frac, -1074)
+    }
+    return (frac | 0x10_0000_0000_0000, biased - 1075)
+}
+
+fn decode(v: f64, is_f32: bool) -> Decoded {
+    let (m, e) = split(v, is_f32)
+    let even = m & 1 == 0
+    let min_normal: u64 = if is_f32 { 0x80_0000 } else { 0x10_0000_0000_0000 }
+    let min_exp = if is_f32 { -149 } else { -1074 }
+    if m == min_normal and e > min_exp {
+        // The lower neighbour is closer: the interval is asymmetric.
+        return Decoded(mant: m << 2, minus: 1, plus: 2, exp: e - 2, inclusive: even)
+    }
+    return Decoded(mant: m << 1, minus: 1, plus: 1, exp: e - 1, inclusive: even)
+}
+
+/// The shortest digits `d1 d2 ... dn` such that `0.d1d2...dn * 10^k` reads back to the
+/// value (free-format algorithm, exact arithmetic).
+fn shortest_digits(d: Decoded) -> (Vec[u8], i32) {
+    // Estimate k = ceil(log10(mant + plus) * 2^exp); it may be one too small.
+    let nbits = 64 - (d.mant + d.plus - 1).leading_zeros() as i64
+    var k = (((nbits + d.exp as i64) * 1_292_913_986) >> 32) as i32
+    var mant = Big.from_u64(d.mant)
+    var minus = Big.from_u64(d.minus)
+    var plus = Big.from_u64(d.plus)
+    var scale = Big.from_u64(1)
+    if d.exp < 0 {
+        scale.shl((0 - d.exp) as u32)
+    } else {
+        mant.shl(d.exp as u32)
+        minus.shl(d.exp as u32)
+        plus.shl(d.exp as u32)
+    }
+    if k >= 0 {
+        scale.mul_pow10(k as u32)
+    } else {
+        mant.mul_pow10((0 - k) as u32)
+        minus.mul_pow10((0 - k) as u32)
+        plus.mul_pow10((0 - k) as u32)
+    }
+    let c0 = sum_cmp(mant, plus, scale)
+    if c0 > 0 or (d.inclusive and c0 == 0) {
+        k += 1
+    } else {
+        mant.mul_small(10)
+        minus.mul_small(10)
+        plus.mul_small(10)
+    }
+    var digits: Vec[u8] = Vec.new()
+    var down = false
+    var up = false
+    while true {
+        var digit: u8 = 0
+        while mant.cmp(scale) >= 0 {
+            mant.sub(scale)
+            digit += 1
+        }
+        digits.push(digit)
+        let cd = mant.cmp(minus)
+        down = cd < 0 or (d.inclusive and cd == 0)
+        let cu = sum_cmp(mant, plus, scale)
+        up = cu > 0 or (d.inclusive and cu == 0)
+        if down or up {
+            break
+        }
+        mant.mul_small(10)
+        minus.mul_small(10)
+        plus.mul_small(10)
+    }
+    var round_up = false
+    if up and not down {
+        round_up = true
+    } else if up and down {
+        // Both neighbours read back: take the closer one (ties to even).
+        var twice = mant.clone()
+        twice.shl(1)
+        let c = twice.cmp(scale)
+        round_up = c > 0 or (c == 0 and digits[digits.len() - 1] % 2 == 1)
+    }
+    if round_up {
+        var i = digits.len()
+        var carry = true
+        while carry and i > 0 {
+            i -= 1
+            if digits[i] == 9 {
+                digits[i] = 0
+            } else {
+                digits[i] += 1
+                carry = false
+            }
+        }
+        if carry {
+            digits.insert(0, 1)
+            let _ = digits.pop()
+            k += 1
+        }
+    }
+    while digits.len() > 1 and digits[digits.len() - 1] == 0 {
+        let _ = digits.pop()
+    }
+    return (digits, k)
+}
+
+/// `round(v * 10^precision)` to the nearest integer, ties to even, exactly.
+fn scaled_integer(v: f64, is_f32: bool, decimals: i32) -> Big {
+    let (m, e) = split(v, is_f32)
+    var num = Big.from_u64(m)
+    if decimals >= 0 {
+        num.mul_pow10(decimals as u32)
+    }
+    var den = Big.from_u64(1)
+    if decimals < 0 {
+        den.mul_pow10((0 - decimals) as u32)
+    }
+    if e >= 0 {
+        num.shl(e as u32)
+    } else {
+        den.shl((0 - e) as u32)
+    }
+    // q = num / den with rounding; the quotient may be large (big integers in fixed
+    // notation), so divide limb-wise when the denominator is a power of two.
+    if decimals >= 0 and e < 0 {
+        let s = (0 - e) as u32
+        let half_bit = s - 1
+        var q = num.clone()
+        q.shr(s)
+        let above = num.bit(half_bit)
+        let rest_zero = num.low_bits_zero(half_bit)
+        if above and (not rest_zero or q.bit(0)) {
+            q.add_small(1)
+        }
+        return q
+    }
+    if den.cmp(Big.from_u64(1)) == 0 {
+        return num
+    }
+    var rem = num.clone()
+    var q = divide(&rem, den)
+    var twice = rem.clone()
+    twice.shl(1)
+    let c = twice.cmp(den)
+    if c > 0 or (c == 0 and q.bit(0)) {
+        q.add_small(1)
+    }
+    return q
+}
+
+/// Floor of log10 of a finite positive value (exact).
+fn decimal_exponent(v: f64, is_f32: bool) -> i32 {
+    let (m, e) = split(v, is_f32)
+    let nbits = (64 - m.leading_zeros()) as i64
+    var k = (((nbits - 1 + e as i64) * 1_292_913_986) >> 32) as i32
+    // value = m * 2^e; compare with 10^k and 10^(k+1).
+    var num = Big.from_u64(m)
+    var den = Big.from_u64(1)
+    if e >= 0 {
+        num.shl(e as u32)
+    } else {
+        den.shl((0 - e) as u32)
+    }
+    while true {
+        // Is 10^(k+1) <= value?
+        var lhs = den.clone()
+        var rhs = num.clone()
+        if k + 1 >= 0 {
+            lhs.mul_pow10((k + 1) as u32)
+        } else {
+            rhs.mul_pow10((0 - (k + 1)) as u32)
+        }
+        if lhs.cmp(rhs) <= 0 {
+            k += 1
+            continue
+        }
+        // Is 10^k > value?
+        var lhs2 = den.clone()
+        var rhs2 = num.clone()
+        if k >= 0 {
+            lhs2.mul_pow10(k as u32)
+        } else {
+            rhs2.mul_pow10((0 - k) as u32)
+        }
+        if lhs2.cmp(rhs2) > 0 {
+            k -= 1
+            continue
+        }
+        return k
+    }
+}
+
+fn push_exponent(inout s: String, e: i32) {
+    s.push('e')
+    fmt_i64(&s, e as i64, Ptr.null())
+}
+
+/// Text of a finite non-negative value (no sign).
+fn float_text(v: f64, is_f32: bool, sci: bool, precision: i32) -> String {
+    var s = String.new()
+    if precision >= 0 and not sci {
+        // Fixed notation with exactly `precision` decimals.
+        let n = scaled_integer(v, is_f32, precision)
+        var digits = n.to_decimal()
+        let p = precision as usize
+        while digits.len() < p + 1 {
+            digits = "0" + digits
+        }
+        let int_len = digits.len() - p
+        s.push_str(digits.substring(0, int_len))
+        if p > 0 {
+            s.push('.')
+            s.push_str(digits.substring(int_len, digits.len()))
+        }
+        return s
+    }
+    if precision >= 0 {
+        // Scientific notation with `precision` decimals.
+        if v == 0.0 {
+            s.push('0')
+            if precision > 0 {
+                s.push('.')
+                for _ in 0..precision {
+                    s.push('0')
+                }
+            }
+            push_exponent(&s, 0)
+            return s
+        }
+        var e10 = decimal_exponent(v, is_f32)
+        var n = scaled_integer(v, is_f32, precision - e10)
+        if n.cmp(big_pow10((precision + 1) as u32)) >= 0 {
+            // Rounding carried into a new digit (9.99 -> 10.0).
+            e10 += 1
+            n = scaled_integer(v, is_f32, precision - e10)
+        }
+        let digits = n.to_decimal()
+        s.push_str(digits.substring(0, 1))
+        if precision > 0 {
+            s.push('.')
+            s.push_str(digits.substring(1, digits.len()))
+        }
+        push_exponent(&s, e10)
+        return s
+    }
+    // Shortest representation.
+    if v == 0.0 {
+        if sci {
+            return "0e0"
+        }
+        return "0.0"
+    }
+    let (digits, k) = shortest_digits(decode(v, is_f32))
+    let exp = k - 1
+    let nd = digits.len()
+    if sci or exp < -5 or exp >= 17 {
+        s.push((('0' as u8) + digits[0]) as char)
+        if nd > 1 {
+            s.push('.')
+            for i in 1..nd {
+                s.push((('0' as u8) + digits[i]) as char)
+            }
+        }
+        push_exponent(&s, exp)
+        return s
+    }
+    if exp >= 0 {
+        let int_digits = (exp + 1) as usize
+        for i in 0..int_digits {
+            s.push(if i < nd { (('0' as u8) + digits[i]) as char } else { '0' })
+        }
+        s.push('.')
+        if int_digits < nd {
+            for i in int_digits..nd {
+                s.push((('0' as u8) + digits[i]) as char)
+            }
+        } else {
+            s.push('0')
+        }
+        return s
+    }
+    s.push_str("0.")
+    for _ in 0..(0 - exp - 1) {
+        s.push('0')
+    }
+    for i in 0..nd {
+        s.push((('0' as u8) + digits[i]) as char)
+    }
+    return s
+}
+
+/// Formats a float (spec §4.11): shortest exact representation, or the requested
+/// precision; `{x:e}` uses scientific notation.
+@lang("fmt_f64")
+pub fn fmt_f64(inout dest: String, v: f64, is_f32: bool, spec: Ptr[FormatSpec]) {
+    let sp = unsafe { spec_of(spec) }
+    if v.is_nan() {
+        pad(&dest, "NaN", sp, true, 0)
+        return
+    }
+    let negative = v.to_bits() >> 63 == 1
+    let magnitude = if negative { -v } else { v }
+    var text = String.new()
+    if negative {
+        text.push('-')
+    } else if sp.plus {
+        text.push('+')
+    }
+    let sign_len = text.len()
+    if magnitude.is_infinite() {
+        text.push_str("inf")
+        pad(&dest, text, sp, true, 0)
+        return
+    }
+    text.push_str(float_text(magnitude, is_f32, sp.kind == 5, sp.precision))
+    pad(&dest, text, sp, true, sign_len)
+}
+
+// ---------------------------------------------------------------------------
+// Parsing floats
+
+/// Rounds `q * 2^e2` (plus a nonzero tail if `sticky`) to the nearest `f64`, ties to even.
+fn round_to_f64(q: u64, e2: i32, sticky: bool) -> f64 {
+    if q == 0 {
+        return 0.0
+    }
+    let nb = (64 - q.leading_zeros()) as i32
+    let exponent = nb - 1 + e2
+    if exponent > 1023 {
+        return f64.INFINITY
+    }
+    // Quantum of the result: 2^qe.
+    var qe = exponent - 52
+    if qe < -1074 {
+        qe = -1074
+    }
+    var m: u64 = 0
+    let shift = qe - e2
+    if shift <= 0 {
+        m = q << ((0 - shift) as u64)
+    } else if shift >= 64 {
+        // Below half of the smallest subnormal unless exactly representable rounding up.
+        m = 0
+        if shift == 64 and (q > (1 as u64) << 63 or (q == (1 as u64) << 63 and sticky)) {
+            m = 1
+        }
+    } else {
+        let s = shift as u64
+        m = q >> s
+        let half = (1 as u64) << (s - 1)
+        let rest = q & (((1 as u64) << s) - 1)
+        if rest > half or (rest == half and (sticky or m & 1 == 1)) {
+            m += 1
+        }
+        if m == (1 as u64) << 53 {
+            m >>= 1
+            qe += 1
+        }
+    }
+    if m == 0 {
+        return 0.0
+    }
+    if m >= (1 as u64) << 52 {
+        let biased = qe + 52 + 1023
+        if biased >= 2047 {
+            return f64.INFINITY
+        }
+        return math.f64_from_bits(((biased as u64) << 52) | (m & 0xF_FFFF_FFFF_FFFF))
+    }
+    return math.f64_from_bits(m)
+}
+
+fn eq_ignore_case(s: String, start: usize, word: String) -> bool {
+    if s.len() - start != word.len() {
+        return false
+    }
+    for i in 0..word.len() {
+        var b = s.byte_at(start + i)
+        if b >= 'A' as u8 and b <= 'Z' as u8 {
+            b += 32
+        }
+        if b != word.byte_at(i) {
+            return false
+        }
+    }
+    return true
+}
+
+/// Reads `[+-] (digits [. digits] | . digits) [(e|E) [+-] digits]`, `inf`, `infinity` or
+/// `nan` (any case), rounded correctly to the nearest `f64`.
+pub fn parse_f64(s: String) -> Option[f64] {
+    let n = s.len()
+    if n == 0 {
+        return None
+    }
+    var i: usize = 0
+    var negative = false
+    let first = s.byte_at(0)
+    if first == '+' as u8 or first == '-' as u8 {
+        negative = first == '-' as u8
+        i = 1
+    }
+    if eq_ignore_case(s, i, "inf") or eq_ignore_case(s, i, "infinity") {
+        return Some(if negative { f64.NEG_INFINITY } else { f64.INFINITY })
+    }
+    if eq_ignore_case(s, i, "nan") {
+        return Some(f64.NAN)
+    }
+    // Significant digits (at most 800; further nonzero digits only matter for ties).
+    var mant = Big.zero()
+    var ndigits: i32 = 0
+    var exp10: i64 = 0
+    var sticky = false
+    var seen_digit = false
+    var chunk: u32 = 0
+    var chunk_len: u32 = 0
+    var in_fraction = false
+    while i < n {
+        let b = s.byte_at(i)
+        if b == '.' as u8 {
+            if in_fraction {
+                return None
+            }
+            in_fraction = true
+            i += 1
+            continue
+        }
+        if b < '0' as u8 or b > '9' as u8 {
+            break
+        }
+        seen_digit = true
+        let d = (b - '0' as u8) as u32
+        if ndigits == 0 and d == 0 {
+            // Leading zeros are not significant.
+            if in_fraction {
+                exp10 -= 1
+            }
+        } else if ndigits < 800 {
+            chunk = chunk * 10 + d
+            chunk_len += 1
+            if chunk_len == 9 {
+                mant.mul_small(1_000_000_000)
+                mant.add_small(chunk)
+                chunk = 0
+                chunk_len = 0
+            }
+            ndigits += 1
+            if in_fraction {
+                exp10 -= 1
+            }
+        } else {
+            if d != 0 {
+                sticky = true
+            }
+            if not in_fraction {
+                exp10 += 1
+            }
+        }
+        i += 1
+    }
+    if not seen_digit {
+        return None
+    }
+    if chunk_len > 0 {
+        var p: u32 = 1
+        for _ in 0..chunk_len {
+            p *= 10
+        }
+        mant.mul_small(p)
+        mant.add_small(chunk)
+    }
+    if i < n {
+        let b = s.byte_at(i)
+        if b != 'e' as u8 and b != 'E' as u8 {
+            return None
+        }
+        i += 1
+        var eneg = false
+        if i < n and (s.byte_at(i) == '+' as u8 or s.byte_at(i) == '-' as u8) {
+            eneg = s.byte_at(i) == '-' as u8
+            i += 1
+        }
+        if i == n {
+            return None
+        }
+        var e: i64 = 0
+        while i < n {
+            let c = s.byte_at(i)
+            if c < '0' as u8 or c > '9' as u8 {
+                return None
+            }
+            if e < 1_000_000 {
+                e = e * 10 + (c - '0' as u8) as i64
+            }
+            i += 1
+        }
+        exp10 += if eneg { 0 - e } else { e }
+    }
+    var value = 0.0
+    if not mant.is_zero() {
+        if sticky {
+            // Represent the dropped digits by one more nonzero digit (exact for ties).
+            mant.mul_small(10)
+            mant.add_small(1)
+            exp10 -= 1
+            ndigits += 1
+        }
+        if exp10 + (ndigits as i64) > 310 {
+            value = f64.INFINITY
+        } else if exp10 + (ndigits as i64) < -330 {
+            value = 0.0
+        } else if exp10 >= 0 {
+            var big = mant.clone()
+            big.mul_pow10(exp10 as u32)
+            // Keep 64 significant bits and a sticky bit.
+            let nb = big.bit_length() as i32
+            if nb <= 64 {
+                value = round_to_f64(big.low_u64(), 0, false)
+            } else {
+                let drop = (nb - 64) as u32
+                let tail = not big.low_bits_zero(drop)
+                big.shr(drop)
+                value = round_to_f64(big.low_u64(), drop as i32, tail)
+            }
+        } else {
+            // mant / 10^-exp10, scaled by 2^s2 so that the quotient has 63 or 64 bits.
+            var den = big_pow10((0 - exp10) as u32)
+            var num = mant.clone()
+            let s2 = 63 + den.bit_length() as i32 - num.bit_length() as i32
+            if s2 >= 0 {
+                num.shl(s2 as u32)
+            } else {
+                den.shl((0 - s2) as u32)
+            }
+            let q = divide(&num, den)
+            value = round_to_f64(q.low_u64(), 0 - s2, not num.is_zero())
+        }
+    }
+    return Some(if negative { -value } else { value })
+}

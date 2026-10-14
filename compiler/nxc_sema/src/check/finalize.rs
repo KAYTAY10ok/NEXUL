@@ -217,7 +217,7 @@ impl<'a> FnCtxt<'a> {
                     self.check_int_range(n, e.ty, e.span);
                 }
             }
-            T::Lit(_) | T::Local(_) | T::Const(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
+            T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
             T::Unary(_, x) | T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) => self.fin_expr(x),
             T::Cast(x) => {
                 self.fin_expr(x);

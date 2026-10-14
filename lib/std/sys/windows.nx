@@ -1,0 +1,635 @@
+/// System layer for Windows (spec §5.3).
+///
+/// Only `kernel32.dll` (and `bcrypt.dll` for random numbers) is used: no C runtime.
+/// Text crosses the system boundary in UTF-16; NEXUL strings are UTF-8.
+
+import std.mem
+import std.rt
+
+// ---------------------------------------------------------------------------
+// Windows API
+
+@link("kernel32")
+extern "C" fn GetStdHandle(id: u32) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn WriteFile(h: Ptr[u8], buffer: Ptr[u8], length: u32, written: Ptr[u32], overlapped: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn ReadFile(h: Ptr[u8], buffer: Ptr[u8], length: u32, read: Ptr[u32], overlapped: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn WriteConsoleW(h: Ptr[u8], buffer: Ptr[u16], length: u32, written: Ptr[u32], reserved: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn ReadConsoleW(h: Ptr[u8], buffer: Ptr[u16], length: u32, read: Ptr[u32], control: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn GetConsoleMode(h: Ptr[u8], mode: Ptr[u32]) -> i32
+@link("kernel32")
+extern "C" fn SetConsoleOutputCP(code_page: u32) -> i32
+@link("kernel32")
+extern "C" fn ExitProcess(code: u32) -> Never
+@link("kernel32")
+extern "C" fn GetProcessHeap() -> Ptr[u8]
+@link("kernel32")
+extern "C" fn HeapAlloc(heap: Ptr[u8], flags: u32, size: usize) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn HeapReAlloc(heap: Ptr[u8], flags: u32, p: Ptr[u8], size: usize) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn HeapFree(heap: Ptr[u8], flags: u32, p: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn GetCommandLineW() -> Ptr[u16]
+@link("kernel32")
+extern "C" fn GetEnvironmentVariableW(name: Ptr[u16], buffer: Ptr[u16], size: u32) -> u32
+@link("kernel32")
+extern "C" fn GetLastError() -> u32
+@link("kernel32")
+extern "C" fn CreateFileW(name: Ptr[u16], access: u32, share: u32, security: Ptr[u8], disposition: u32, flags: u32, template: Ptr[u8]) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn CloseHandle(h: Ptr[u8]) -> i32
+@link("kernel32")
+extern "C" fn QueryPerformanceCounter(counter: Ptr[i64]) -> i32
+@link("kernel32")
+extern "C" fn QueryPerformanceFrequency(frequency: Ptr[i64]) -> i32
+@link("kernel32")
+extern "C" fn GetSystemTimePreciseAsFileTime(time: Ptr[u64])
+@link("kernel32")
+extern "C" fn FileTimeToSystemTime(file_time: Ptr[u64], system_time: Ptr[u16]) -> i32
+@link("kernel32")
+extern "C" fn SystemTimeToFileTime(system_time: Ptr[u16], file_time: Ptr[u64]) -> i32
+@link("kernel32")
+extern "C" fn SystemTimeToTzSpecificLocalTime(zone: Ptr[u8], utc: Ptr[u16], local: Ptr[u16]) -> i32
+@link("kernel32")
+extern "C" fn CreateWaitableTimerExW(attributes: Ptr[u8], name: Ptr[u16], flags: u32, access: u32) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn SetWaitableTimer(timer: Ptr[u8], due: Ptr[i64], period: i32, routine: Ptr[u8], argument: Ptr[u8], resume: i32) -> i32
+@link("kernel32")
+extern "C" fn WaitForSingleObject(h: Ptr[u8], milliseconds: u32) -> u32
+@link("kernel32")
+extern "C" fn Sleep(milliseconds: u32)
+@link("bcrypt")
+extern "C" fn BCryptGenRandom(algorithm: Ptr[u8], buffer: Ptr[u8], length: u32, flags: u32) -> i32
+
+const STD_INPUT: u32 = 0xFFFF_FFF6
+const STD_OUTPUT: u32 = 0xFFFF_FFF5
+const STD_ERROR: u32 = 0xFFFF_FFF4
+const CP_UTF8: u32 = 65001
+
+// ---------------------------------------------------------------------------
+// Process
+
+static var HEAP: Ptr[u8] = Ptr.null()
+static var STDOUT_CONSOLE: bool = false
+static var STDERR_CONSOLE: bool = false
+
+unsafe fn is_console(h: Ptr[u8]) -> bool {
+    var mode: u32 = 0
+    return GetConsoleMode(h, mem.addr_of(&mode)) != 0
+}
+
+/// Called once at program start.
+pub fn init() {
+    unsafe {
+        let _ = heap()
+        let _ = SetConsoleOutputCP(CP_UTF8)
+        STDOUT_CONSOLE = is_console(GetStdHandle(STD_OUTPUT))
+        STDERR_CONSOLE = is_console(GetStdHandle(STD_ERROR))
+    }
+}
+
+pub fn stdout_is_terminal() -> bool {
+    return unsafe { STDOUT_CONSOLE }
+}
+
+/// The exit code as the unsigned value Windows expects.
+fn code_bits(code: i32) -> u32 {
+    if code < 0 {
+        return ((code as i64) + 0x1_0000_0000) as u32
+    }
+    return code as u32
+}
+
+pub fn exit(code: i32) -> Never {
+    unsafe {
+        ExitProcess(code_bits(code))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Heap
+
+unsafe fn heap() -> Ptr[u8] {
+    if HEAP.is_null() {
+        HEAP = GetProcessHeap()
+    }
+    return HEAP
+}
+
+/// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
+pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+    return HeapAlloc(heap(), 0, size)
+}
+
+pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    return HeapReAlloc(heap(), 0, p, size)
+}
+
+pub unsafe fn heap_free(p: Ptr[u8]) {
+    let _ = HeapFree(heap(), 0, p)
+}
+
+// ---------------------------------------------------------------------------
+// UTF-16
+
+/// `s` as UTF-16, followed by a zero (for the `...W` functions).
+fn to_wide(s: String) -> Vec[u16] {
+    var w: Vec[u16] = Vec.with_capacity(s.len() + 1)
+    for c in s {
+        let v = c as u32
+        if v >= 0x10000 {
+            let u = v - 0x10000
+            w.push((0xD800 + (u >> 10)) as u16)
+            w.push((0xDC00 + (u & 0x3FF)) as u16)
+        } else {
+            w.push(v as u16)
+        }
+    }
+    w.push(0)
+    return w
+}
+
+/// The UTF-16 text `p[0..n]` as a string (unpaired surrogates become U+FFFD).
+unsafe fn from_wide(p: Ptr[u16], n: usize) -> String {
+    var s = String.with_capacity(n)
+    var i: usize = 0
+    while i < n {
+        let u = p.offset(i).read() as u32
+        i += 1
+        if u >= 0xD800 and u <= 0xDBFF and i < n {
+            let low = p.offset(i).read() as u32
+            if low >= 0xDC00 and low <= 0xDFFF {
+                i += 1
+                s.push((0x10000 + ((u - 0xD800) << 10) + (low - 0xDC00)) as char)
+                continue
+            }
+        }
+        if u >= 0xD800 and u <= 0xDFFF {
+            s.push('\u{FFFD}')
+        } else {
+            s.push(u as char)
+        }
+    }
+    return s
+}
+
+unsafe fn wide_len(p: Ptr[u16]) -> usize {
+    var n: usize = 0
+    while p.offset(n).read() != 0 {
+        n += 1
+    }
+    return n
+}
+
+// ---------------------------------------------------------------------------
+// Standard input and output
+
+/// Bytes of an incomplete UTF-8 sequence left at the end of the last console write.
+static var CARRY: [u8; 4] = [0; 4]
+static var CARRY_LEN: usize = 0
+
+/// Writes UTF-8 to a console as UTF-16 (the console does not reliably decode UTF-8
+/// split across writes).
+unsafe fn write_console(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
+    var wide: [u16; 1024] = [0; 1024]
+    var n: usize = 0
+    var i: usize = 0
+    let total = CARRY_LEN + len
+    while i < total {
+        // Decode one UTF-8 sequence, reading the carried bytes first.
+        let b0 = byte_at(data, i) as u32
+        var need: usize = 1
+        var cp: u32 = b0
+        if b0 >= 0xF0 {
+            need = 4
+            cp = b0 & 0x07
+        } else if b0 >= 0xE0 {
+            need = 3
+            cp = b0 & 0x0F
+        } else if b0 >= 0xC0 {
+            need = 2
+            cp = b0 & 0x1F
+        } else if b0 >= 0x80 {
+            cp = 0xFFFD
+        }
+        if i + need > total {
+            // Incomplete at the end: keep it for the next write.
+            var k: usize = 0
+            while i + k < total {
+                let b = byte_at(data, i + k)
+                CARRY[k] = b
+                k += 1
+            }
+            CARRY_LEN = k
+            break
+        }
+        for k in 1..need {
+            cp = (cp << 6) | (byte_at(data, i + k) as u32 & 0x3F)
+        }
+        i += need
+        if cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF) {
+            cp = 0xFFFD
+        }
+        if cp >= 0x10000 {
+            wide[n] = (0xD800 + ((cp - 0x10000) >> 10)) as u16
+            wide[n + 1] = (0xDC00 + ((cp - 0x10000) & 0x3FF)) as u16
+            n += 2
+        } else {
+            wide[n] = cp as u16
+            n += 1
+        }
+        if n >= 1020 {
+            if not flush_wide(h, mem.addr_of(&wide).cast[u16](), n) {
+                return false
+            }
+            n = 0
+        }
+        if i == total {
+            CARRY_LEN = 0
+        }
+    }
+    if total == 0 or i == total {
+        CARRY_LEN = 0
+    }
+    return flush_wide(h, mem.addr_of(&wide).cast[u16](), n)
+}
+
+/// Byte `i` of the carried bytes followed by `data`.
+unsafe fn byte_at(data: Ptr[u8], i: usize) -> u8 {
+    if i < CARRY_LEN {
+        return CARRY[i]
+    }
+    return data.offset(i - CARRY_LEN).read()
+}
+
+unsafe fn flush_wide(h: Ptr[u8], p: Ptr[u16], n: usize) -> bool {
+    var done: usize = 0
+    while done < n {
+        var written: u32 = 0
+        if WriteConsoleW(h, p.offset(done), (n - done) as u32, mem.addr_of(&written), Ptr.null()) == 0 or written == 0 {
+            return false
+        }
+        done += written as usize
+    }
+    return true
+}
+
+/// Writes bytes to standard output (`fd` 1) or standard error (`fd` 2).
+pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+    let h = GetStdHandle(if fd == 2 { STD_ERROR } else { STD_OUTPUT })
+    if (fd == 2 and STDERR_CONSOLE) or (fd != 2 and STDOUT_CONSOLE) {
+        return write_console(h, data, len)
+    }
+    return write_handle(h, data, len)
+}
+
+unsafe fn write_handle(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
+    var done: usize = 0
+    while done < len {
+        let chunk = if len - done > 0x4000_0000 { 0x4000_0000 } else { len - done }
+        var written: u32 = 0
+        if WriteFile(h, data.offset(done), chunk as u32, mem.addr_of(&written), Ptr.null()) == 0 or written == 0 {
+            return false
+        }
+        done += written as usize
+    }
+    return true
+}
+
+static var IN_BUF: [u8; 4096] = [0; 4096]
+static var IN_POS: usize = 0
+static var IN_LEN: usize = 0
+
+/// Next byte of the (redirected) standard input, or -1 at the end.
+unsafe fn read_byte(h: Ptr[u8]) -> i32 {
+    if IN_POS == IN_LEN {
+        var got: u32 = 0
+        if ReadFile(h, mem.addr_of(&IN_BUF).cast[u8](), 4096, mem.addr_of(&got), Ptr.null()) == 0 or got == 0 {
+            return -1
+        }
+        IN_POS = 0
+        IN_LEN = got as usize
+    }
+    let b = IN_BUF[IN_POS]
+    IN_POS += 1
+    return b as i32
+}
+
+/// Reads one line of standard input without its terminator; `false` at the end.
+pub fn read_line(inout out: String) -> bool {
+    rt.flush()
+    unsafe {
+        let h = GetStdHandle(STD_INPUT)
+        if is_console(h) {
+            // UTF-16 from the console, one code unit at a time.
+            var units: Vec[u16] = Vec.new()
+            var any = false
+            while true {
+                var c: u16 = 0
+                var got: u32 = 0
+                if ReadConsoleW(h, mem.addr_of(&c), 1, mem.addr_of(&got), Ptr.null()) == 0 or got == 0 {
+                    break
+                }
+                any = true
+                if c == 10 {
+                    break
+                }
+                units.push(c)
+            }
+            if units.len() > 0 and units[units.len() - 1] == 13 {
+                let _ = units.pop()
+            }
+            // Ctrl+Z at the start of a line ends the input.
+            if not any or (units.len() > 0 and units[0] == 0x1A) {
+                return false
+            }
+            out = from_wide(units.as_ptr(), units.len())
+            return true
+        }
+        var bytes: Vec[u8] = Vec.new()
+        var any = false
+        while true {
+            let b = read_byte(h)
+            if b < 0 {
+                break
+            }
+            any = true
+            if b == 10 {
+                break
+            }
+            bytes.push(b as u8)
+        }
+        if not any {
+            return false
+        }
+        if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
+            let _ = bytes.pop()
+        }
+        out = String.from_bytes_lossy(bytes.as_ptr(), bytes.len())
+        return true
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Command line and environment
+
+/// The command line split into arguments with the rules of the Microsoft C runtime.
+fn command_line() -> Vec[String] {
+    var args: Vec[String] = Vec.new()
+    unsafe {
+        let p = GetCommandLineW()
+        let n = wide_len(p)
+        var i: usize = 0
+        // The program name: up to the closing quote, or up to the first blank.
+        var name: Vec[u16] = Vec.new()
+        if n > 0 and p.read() == 34 {
+            i = 1
+            while i < n and p.offset(i).read() != 34 {
+                name.push(p.offset(i).read())
+                i += 1
+            }
+            if i < n {
+                i += 1
+            }
+        } else {
+            while i < n and p.offset(i).read() != 32 and p.offset(i).read() != 9 {
+                name.push(p.offset(i).read())
+                i += 1
+            }
+        }
+        args.push(from_wide(name.as_ptr(), name.len()))
+        while true {
+            while i < n and (p.offset(i).read() == 32 or p.offset(i).read() == 9) {
+                i += 1
+            }
+            if i >= n {
+                break
+            }
+            var arg: Vec[u16] = Vec.new()
+            var quoted = false
+            while i < n {
+                let c = p.offset(i).read()
+                if (c == 32 or c == 9) and not quoted {
+                    break
+                }
+                if c == 92 {
+                    // Backslashes are literal unless they precede a quote.
+                    var count: usize = 0
+                    while i < n and p.offset(i).read() == 92 {
+                        count += 1
+                        i += 1
+                    }
+                    if i < n and p.offset(i).read() == 34 {
+                        for _ in 0..count / 2 {
+                            arg.push(92)
+                        }
+                        if count % 2 == 1 {
+                            arg.push(34)
+                            i += 1
+                        }
+                    } else {
+                        for _ in 0..count {
+                            arg.push(92)
+                        }
+                    }
+                    continue
+                }
+                if c == 34 {
+                    if quoted and i + 1 < n and p.offset(i + 1).read() == 34 {
+                        // `""` inside quotes is a literal quote.
+                        arg.push(34)
+                        i += 2
+                        continue
+                    }
+                    quoted = not quoted
+                    i += 1
+                    continue
+                }
+                arg.push(c)
+                i += 1
+            }
+            args.push(from_wide(arg.as_ptr(), arg.len()))
+        }
+    }
+    return args
+}
+
+pub fn arg_count() -> i32 {
+    return command_line().len() as i32
+}
+
+pub fn arg(index: i32) -> String {
+    let all = command_line()
+    if index < 0 or index as usize >= all.len() {
+        panic("argument index {index} out of range")
+    }
+    return all[index as usize].clone()
+}
+
+pub fn env(name: String) -> Option[String] {
+    unsafe {
+        let wname = to_wide(name)
+        let size = GetEnvironmentVariableW(wname.as_ptr(), Ptr.null(), 0)
+        if size == 0 {
+            if GetLastError() == 203 {
+                return None
+            }
+            return Some(String.new())
+        }
+        let buf = mem.alloc((size as usize) * 2).cast[u16]()
+        let n = GetEnvironmentVariableW(wname.as_ptr(), buf, size)
+        let value = from_wide(buf, n as usize)
+        mem.free(buf.cast[u8]())
+        return Some(value)
+    }
+}
+
+pub fn env_is_set(name: String) -> bool {
+    return env(name).is_some()
+}
+
+// ---------------------------------------------------------------------------
+// Files
+
+const GENERIC_READ: u32 = 0x8000_0000
+const GENERIC_WRITE: u32 = 0x4000_0000
+const FILE_APPEND_DATA: u32 = 0x0004
+
+fn invalid(h: Ptr[u8]) -> bool {
+    return h.is_null() or h.addr() == usize.MAX
+}
+
+/// Reads a whole file into `out` (bytes).
+pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+    unsafe {
+        let wpath = to_wide(path)
+        let h = CreateFileW(wpath.as_ptr(), GENERIC_READ, 3, Ptr.null(), 3, 0x80, Ptr.null())
+        if invalid(h) {
+            return false
+        }
+        var ok = true
+        while true {
+            out.reserve(65536)
+            var got: u32 = 0
+            if ReadFile(h, out.as_ptr().offset(out.len()), 65536, mem.addr_of(&got), Ptr.null()) == 0 {
+                ok = false
+                break
+            }
+            if got == 0 {
+                break
+            }
+            out.set_len(out.len() + got as usize)
+        }
+        let _ = CloseHandle(h)
+        return ok
+    }
+}
+
+/// Creates (or replaces, or appends to) a file.
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+    unsafe {
+        let wpath = to_wide(path)
+        let access = if append { FILE_APPEND_DATA } else { GENERIC_WRITE }
+        let disposition: u32 = if append { 4 } else { 2 }
+        let h = CreateFileW(wpath.as_ptr(), access, 1, Ptr.null(), disposition, 0x80, Ptr.null())
+        if invalid(h) {
+            return false
+        }
+        let ok = len == 0 or write_handle(h, data, len)
+        let closed = CloseHandle(h) != 0
+        return ok and closed
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Time
+
+pub fn monotonic_ns() -> u64 {
+    var counter: i64 = 0
+    var frequency: i64 = 0
+    unsafe {
+        let _ = QueryPerformanceCounter(mem.addr_of(&counter))
+        let _ = QueryPerformanceFrequency(mem.addr_of(&frequency))
+    }
+    let c = counter as u64
+    let f = frequency as u64
+    return (c / f) * 1_000_000_000 + (c % f) * 1_000_000_000 / f
+}
+
+/// 100 ns intervals from 1601-01-01 to 1970-01-01.
+const EPOCH_DIFFERENCE: i64 = 116_444_736_000_000_000
+
+pub fn unix_time_ns() -> i64 {
+    var ft: u64 = 0
+    unsafe {
+        GetSystemTimePreciseAsFileTime(mem.addr_of(&ft))
+    }
+    return ((ft as i64) - EPOCH_DIFFERENCE) * 100
+}
+
+/// Offset of local time from UTC at `unix_seconds`, in seconds (daylight saving time
+/// included).
+pub fn utc_offset(unix_seconds: i64) -> i32 {
+    var ft = (unix_seconds * 10_000_000 + EPOCH_DIFFERENCE) as u64
+    var utc: [u16; 8] = [0; 8]
+    var local: [u16; 8] = [0; 8]
+    var local_ft: u64 = 0
+    unsafe {
+        if FileTimeToSystemTime(mem.addr_of(&ft), mem.addr_of(&utc).cast[u16]()) == 0 {
+            return 0
+        }
+        if SystemTimeToTzSpecificLocalTime(Ptr.null(), mem.addr_of(&utc).cast[u16](), mem.addr_of(&local).cast[u16]()) == 0 {
+            return 0
+        }
+        if SystemTimeToFileTime(mem.addr_of(&local).cast[u16](), mem.addr_of(&local_ft)) == 0 {
+            return 0
+        }
+    }
+    return (((local_ft as i64) - (ft as i64)) / 10_000_000) as i32
+}
+
+pub fn sleep_ns(ns: u64) {
+    if ns == 0 {
+        return
+    }
+    unsafe {
+        // A high-resolution waitable timer is precise to well under a millisecond;
+        // `Sleep` rounds up to the system tick (about 15.6 ms).
+        let timer = CreateWaitableTimerExW(Ptr.null(), Ptr.null(), 2, 0x1F_0003)
+        var left = ns
+        while left > 0 {
+            let chunk = if left > 86_400_000_000_000 { 86_400_000_000_000 } else { left }
+            var due = 0 - ((chunk + 99) / 100) as i64
+            if not timer.is_null() and SetWaitableTimer(timer, mem.addr_of(&due), 0, Ptr.null(), Ptr.null(), 0) != 0 {
+                let _ = WaitForSingleObject(timer, 0xFFFF_FFFF)
+            } else {
+                Sleep(((chunk + 999_999) / 1_000_000) as u32)
+            }
+            left -= chunk
+        }
+        if not timer.is_null() {
+            let _ = CloseHandle(timer)
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Random numbers
+
+/// Fills `buffer` with cryptographically secure random bytes.
+pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+    var done: usize = 0
+    while done < len {
+        let n = if len - done > 0x4000_0000 { 0x4000_0000 } else { len - done }
+        if BCryptGenRandom(Ptr.null(), buffer.offset(done), n as u32, 2) != 0 {
+            return false
+        }
+        done += n
+    }
+    return true
+}

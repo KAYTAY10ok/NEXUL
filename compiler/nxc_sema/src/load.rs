@@ -1,26 +1,58 @@
 //! Module loading: from the root file, follow `import` declarations, parse every
-//! reachable module once, and register it in the program.
+//! reachable module once, drop the items excluded by `@cfg`, and register each module in
+//! the program.
 
 use crate::defs::{ImportEntry, ModId, ModuleInfo, Program};
-use nxc_syntax::ast::ImportKind;
+use crate::target::{Cfg, Os, CFG_NAMES};
+use nxc_syntax::ast::{self, ImportKind, ItemKind, Lit};
 use nxc_syntax::{DiagSink, Diagnostic, SourceMap, Span};
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 
-/// The standard library, embedded in the compiler (spec §09).
-pub const STD_MODULES: &[(&str, &str)] = &[
-    ("std.core", include_str!("../../../lib/std/core.nx")),
-    ("std.string", include_str!("../../../lib/std/string.nx")),
-    ("std.vec", include_str!("../../../lib/std/vec.nx")),
-    ("std.mem", include_str!("../../../lib/std/mem.nx")),
-    ("std.io", include_str!("../../../lib/std/io.nx")),
-    ("std.system", include_str!("../../../lib/std/system.nx")),
-    ("std.time", include_str!("../../../lib/std/time.nx")),
-    ("std.math", include_str!("../../../lib/std/math.nx")),
+/// The standard library, embedded in the compiler (spec §09). The last field marks the
+/// internal modules (runtime and system layer), not listed in diagnostics.
+pub const STD_MODULES: &[(&str, &str, bool)] = &[
+    ("std.core", include_str!("../../../lib/std/core.nx"), true),
+    ("std.string", include_str!("../../../lib/std/string.nx"), false),
+    ("std.vec", include_str!("../../../lib/std/vec.nx"), false),
+    ("std.mem", include_str!("../../../lib/std/mem.nx"), false),
+    ("std.rt", include_str!("../../../lib/std/rt.nx"), true),
+    ("std.fmt", include_str!("../../../lib/std/fmt.nx"), false),
+    ("std.builtins", include_str!("../../../lib/std/builtins.nx"), true),
+    ("std.heap", include_str!("../../../lib/std/heap.nx"), true),
+    ("std.io", include_str!("../../../lib/std/io.nx"), false),
+    ("std.system", include_str!("../../../lib/std/system.nx"), false),
+    ("std.time", include_str!("../../../lib/std/time.nx"), false),
+    ("std.random", include_str!("../../../lib/std/random.nx"), false),
+    ("std.math", include_str!("../../../lib/std/math.nx"), false),
 ];
 
-/// Modules loaded in every program: they define the prelude.
-const ALWAYS_LOADED: &[&str] = &["std.core", "std.string", "std.vec", "std.mem"];
+/// The system layer `std.sys`, one implementation per operating system.
+const SYS_WINDOWS: &str = include_str!("../../../lib/std/sys/windows.nx");
+const SYS_LINUX: &str = include_str!("../../../lib/std/sys/linux.nx");
+const SYS_WASI: &str = include_str!("../../../lib/std/sys/wasi.nx");
+const SYS_BARE: &str = include_str!("../../../lib/std/sys/bare.nx");
+
+/// Source of a standard module for a given configuration.
+pub fn std_source(path: &str, cfg: &Cfg) -> Option<&'static str> {
+    if path == "std.sys" {
+        return Some(match cfg.target.os {
+            Os::Windows => SYS_WINDOWS,
+            Os::Linux | Os::MacOs => SYS_LINUX,
+            Os::Wasi => SYS_WASI,
+            Os::None => SYS_BARE,
+        });
+    }
+    STD_MODULES.iter().find(|(p, _, _)| *p == path).map(|(_, t, _)| *t)
+}
+
+/// Names of the public standard modules (for diagnostics).
+pub fn public_std_modules() -> Vec<&'static str> {
+    STD_MODULES.iter().filter(|(_, _, internal)| !internal).map(|(p, _, _)| *p).collect()
+}
+
+/// Modules loaded in every program: they define the prelude and the runtime.
+const ALWAYS_LOADED: &[&str] = &["std.core", "std.string", "std.vec", "std.mem", "std.rt"];
 
 /// Where to find the root module and the modules it imports.
 pub struct ProgramSource {
@@ -29,10 +61,20 @@ pub struct ProgramSource {
     pub root_text: String,
     /// Directory containing the root file (imports are resolved under it).
     pub root_dir: Option<PathBuf>,
+    /// Packages the program depends on (`nxpm`): `import name.module` is resolved under
+    /// the package's source directory.
+    pub deps: Vec<(String, PathBuf)>,
+    /// Target and build mode, for `@cfg`.
+    pub cfg: Cfg,
 }
 
-fn read_user_module(root_dir: &Option<PathBuf>, path: &[String]) -> Option<(String, String)> {
-    let dir = root_dir.as_ref()?;
+impl ProgramSource {
+    pub fn new(root_name: impl Into<String>, root_text: impl Into<String>, root_dir: Option<PathBuf>) -> ProgramSource {
+        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), cfg: Cfg::default() }
+    }
+}
+
+fn read_module_file(dir: &PathBuf, path: &[String]) -> Option<(PathBuf, String)> {
     let mut p = dir.clone();
     for (i, seg) in path.iter().enumerate() {
         if i + 1 == path.len() {
@@ -44,17 +86,71 @@ fn read_user_module(root_dir: &Option<PathBuf>, path: &[String]) -> Option<(Stri
     let bytes = std::fs::read(&p).ok()?;
     let text = String::from_utf8(bytes).ok()?;
     let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
+    Some((p, text))
+}
+
+fn read_user_module(src: &ProgramSource, path: &[String]) -> Option<(String, String)> {
+    // A dependency package: `import pkg.module` reads `<pkg dir>/module.nx`
+    // (`import pkg` alone reads `<pkg dir>/lib.nx`).
+    if let Some((_, dir)) = src.deps.iter().find(|(name, _)| Some(name) == path.first()) {
+        let rest: Vec<String> = if path.len() == 1 { vec!["lib".to_string()] } else { path[1..].to_vec() };
+        let (p, t) = read_module_file(dir, &rest)?;
+        return Some((p.to_string_lossy().replace('\\', "/"), t));
+    }
+    let dir = src.root_dir.as_ref()?;
+    let (_, text) = read_module_file(dir, path)?;
     Some((format!("{}.nx", path.join("/")), text))
+}
+
+/// Evaluates the `@cfg` attributes of an item: `true` if the item is kept.
+fn item_enabled(attrs: &[ast::Attr], cfg: &Cfg, diags: &DiagSink) -> bool {
+    let mut keep = true;
+    for a in attrs.iter().filter(|a| a.name.name == "cfg") {
+        if a.args.is_empty() {
+            diags.emit(Diagnostic::error("E0234", "`@cfg` needs a condition").primary(a.span, "for example `@cfg(\"windows\")`"));
+        }
+        for (lit, span) in &a.args {
+            let Lit::Str(pred) = lit else {
+                diags.emit(Diagnostic::error("E0234", "a `@cfg` condition is a string").primary(*span, "expected a string such as \"linux\""));
+                continue;
+            };
+            match cfg.eval(pred) {
+                Ok(v) => keep &= v,
+                Err(name) => {
+                    let mut d = Diagnostic::error("E0234", format!("unknown `@cfg` condition `{}`", name)).primary(*span, "unknown condition");
+                    if let Some(s) = crate::util::best_match(&name, CFG_NAMES.iter().copied()) {
+                        d = d.help(format!("did you mean `{}`?", s));
+                    } else {
+                        d = d.note(format!("known conditions: {}", CFG_NAMES.join(", ")));
+                    }
+                    diags.emit(d);
+                }
+            }
+        }
+    }
+    keep
+}
+
+/// Removes the items (and `impl` members) whose `@cfg` is false.
+fn apply_cfg(module: &mut ast::Module, cfg: &Cfg, diags: &DiagSink) {
+    module.items.retain(|it| item_enabled(&it.attrs, cfg, diags));
+    for it in module.items.iter_mut() {
+        if let ItemKind::Impl(imp) = &mut it.kind {
+            imp.items.retain(|m| item_enabled(&m.attrs, cfg, diags));
+        }
+    }
 }
 
 pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program {
     let mut prog = Program::new();
+    prog.cfg = src.cfg.clone();
     let mut by_path: HashMap<String, ModId> = HashMap::new();
     let mut queue: VecDeque<ModId> = VecDeque::new();
 
     // The root module.
-    let root_file = sm.add(src.root_name.clone(), src.root_text);
-    let root_ast = nxc_syntax::parse_file(sm, root_file, diags);
+    let root_file = sm.add(src.root_name.clone(), src.root_text.clone());
+    let mut root_ast = nxc_syntax::parse_file(sm, root_file, diags);
+    apply_cfg(&mut root_ast, &src.cfg, diags);
     let stem = std::path::Path::new(&src.root_name)
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -82,20 +178,19 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             return Some(id);
         }
         let (name, text, is_std) = if segs.first().map(|s| s.as_str()) == Some("std") {
-            match STD_MODULES.iter().find(|(p, _)| *p == path) {
-                Some((_, text)) => (format!("<{}>", path), text.to_string(), true),
+            match std_source(&path, &src.cfg) {
+                Some(text) => (format!("<{}>", path), text.to_string(), true),
                 None => {
                     if let Some(span) = span {
                         let mut d = Diagnostic::error("E0221", format!("module `{}` not found", path)).primary(span, "no such module in the standard library");
-                        let names: Vec<&str> = STD_MODULES.iter().map(|(p, _)| *p).filter(|p| *p != "std.core").collect();
-                        d = d.note(format!("available: {}", names.join(", ")));
+                        d = d.note(format!("available: {}", public_std_modules().join(", ")));
                         diags.emit(d);
                     }
                     return None;
                 }
             }
         } else {
-            match read_user_module(&src.root_dir, segs) {
+            match read_user_module(&src, segs) {
                 Some((n, t)) => (n, t, false),
                 None => {
                     if let Some(span) = span {
@@ -110,10 +205,12 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         };
         let file = sm.add(name, text);
-        let ast = nxc_syntax::parse_file(sm, file, diags);
+        let mut ast = nxc_syntax::parse_file(sm, file, diags);
+        apply_cfg(&mut ast, &src.cfg, diags);
         if let Some((decl, dspan)) = &ast.decl {
             let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
-            if declared != path {
+            let dep_relative = src.deps.iter().any(|(n, _)| Some(n) == segs.first()) && declared == segs[1..].join(".");
+            if declared != path && !dep_relative {
                 diags.emit(
                     Diagnostic::error("E0220", format!("module declaration `{}` does not match the file path", declared))
                         .primary(*dspan, format!("this file is module `{}`", path))

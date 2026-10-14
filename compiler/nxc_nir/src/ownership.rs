@@ -92,6 +92,7 @@ fn stmt_effects(s: &Statement, sites: &mut Vec<MoveSite>, out: &mut Vec<Effect>)
                 }
                 Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_effects(o, span, sites, out)),
                 Rvalue::Ref(p) | Rvalue::Discriminant(p) => place_uses(p, span, out),
+                Rvalue::StaticAddr(_) => {}
             }
             if place.proj.is_empty() {
                 out.push(Effect::Init(place.local));

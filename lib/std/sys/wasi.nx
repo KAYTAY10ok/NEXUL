@@ -1,0 +1,395 @@
+/// System layer for WebAssembly with WASI (spec §5.3, §8.2).
+///
+/// The program imports the functions of `wasi_snapshot_preview1` from its host (a browser
+/// runtime, Node.js, Wasmtime...). Memory grows by pages of 64 KiB; files are reached
+/// through the directories the host grants (preopens).
+
+import std.mem
+import std.rt
+import std.heap
+
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_write(fd: i32, iovs: Ptr[u8], iovs_len: i32, written: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_read(fd: i32, iovs: Ptr[u8], iovs_len: i32, read: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_close(fd: i32) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_fdstat_get(fd: i32, stat: Ptr[u8]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_prestat_get(fd: i32, prestat: Ptr[u8]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn fd_prestat_dir_name(fd: i32, path: Ptr[u8], len: i32) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn path_open(dirfd: i32, dirflags: i32, path: Ptr[u8], path_len: i32, oflags: i32, rights_base: i64, rights_inheriting: i64, fdflags: i32, fd: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn args_sizes_get(argc: Ptr[i32], buf_size: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn args_get(argv: Ptr[Ptr[u8]], buf: Ptr[u8]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn environ_sizes_get(count: Ptr[i32], buf_size: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn environ_get(env: Ptr[Ptr[u8]], buf: Ptr[u8]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn clock_time_get(id: i32, precision: i64, time: Ptr[i64]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn random_get(buf: Ptr[u8], len: i32) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn poll_oneoff(subscriptions: Ptr[u8], events: Ptr[u8], count: i32, nevents: Ptr[i32]) -> i32
+@link("wasi_snapshot_preview1")
+extern "C" fn proc_exit(code: i32) -> Never
+
+/// Grows the linear memory by `pages` pages of 64 KiB; returns the previous size in pages,
+/// or -1.
+@intrinsic
+unsafe fn wasm_memory_grow(pages: usize) -> isize
+
+const PAGE: usize = 65536
+
+// ---------------------------------------------------------------------------
+// Process
+
+static var STDOUT_TERMINAL: bool = false
+
+unsafe fn is_terminal(fd: i32) -> bool {
+    var stat: [u8; 24] = [0; 24]
+    if fd_fdstat_get(fd, mem.addr_of(&stat).cast[u8]()) != 0 {
+        return false
+    }
+    // filetype 2: character device
+    return stat[0] == 2
+}
+
+pub fn init() {
+    unsafe {
+        STDOUT_TERMINAL = is_terminal(1)
+    }
+}
+
+pub fn stdout_is_terminal() -> bool {
+    return unsafe { STDOUT_TERMINAL }
+}
+
+pub fn exit(code: i32) -> Never {
+    unsafe {
+        proc_exit(code)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Memory
+
+/// Freed large regions, reused first (linear memory cannot shrink): each region starts
+/// with [size, next].
+static var FREE_REGIONS: Ptr[u8] = Ptr.null()
+
+pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
+    // First fit among the freed regions.
+    var prev: Ptr[u8] = Ptr.null()
+    var r = FREE_REGIONS
+    while not r.is_null() {
+        let rsize = r.cast[usize]().read()
+        let next = r.offset(4).cast[Ptr[u8]]().read()
+        if rsize >= size {
+            if prev.is_null() {
+                FREE_REGIONS = next
+            } else {
+                prev.offset(4).cast[Ptr[u8]]().write(next)
+            }
+            mem.set_bytes(r, 0, size)
+            return r
+        }
+        prev = r
+        r = next
+    }
+    let pages = (size + PAGE - 1) / PAGE
+    let old = wasm_memory_grow(pages)
+    if old < 0 {
+        return Ptr.null()
+    }
+    return Ptr[u8].from_addr((old as usize) * PAGE)
+}
+
+pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+    p.cast[usize]().write(size)
+    p.offset(4).cast[Ptr[u8]]().write(FREE_REGIONS)
+    FREE_REGIONS = p
+}
+
+pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+    return heap.alloc(size)
+}
+
+pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    return heap.realloc(p, size)
+}
+
+pub unsafe fn heap_free(p: Ptr[u8]) {
+    heap.free(p)
+}
+
+// ---------------------------------------------------------------------------
+// Input and output
+
+unsafe fn write_fd(fd: i32, data: Ptr[u8], len: usize) -> bool {
+    var done: usize = 0
+    while done < len {
+        var iov: [usize; 2] = [data.offset(done).addr(), len - done]
+        var written: i32 = 0
+        if fd_write(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&written)) != 0 or written <= 0 {
+            return false
+        }
+        done += written as usize
+    }
+    return true
+}
+
+pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+    return write_fd(fd, data, len)
+}
+
+static var IN_BUF: [u8; 4096] = [0; 4096]
+static var IN_POS: usize = 0
+static var IN_LEN: usize = 0
+
+unsafe fn read_byte() -> i32 {
+    if IN_POS == IN_LEN {
+        var iov: [usize; 2] = [mem.addr_of(&IN_BUF).cast[u8]().addr(), 4096]
+        var got: i32 = 0
+        if fd_read(0, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got)) != 0 or got <= 0 {
+            return -1
+        }
+        IN_POS = 0
+        IN_LEN = got as usize
+    }
+    let b = IN_BUF[IN_POS]
+    IN_POS += 1
+    return b as i32
+}
+
+pub fn read_line(inout out: String) -> bool {
+    rt.flush()
+    var bytes: Vec[u8] = Vec.new()
+    var any = false
+    unsafe {
+        while true {
+            let b = read_byte()
+            if b < 0 {
+                break
+            }
+            any = true
+            if b == 10 {
+                break
+            }
+            bytes.push(b as u8)
+        }
+    }
+    if not any {
+        return false
+    }
+    if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
+        let _ = bytes.pop()
+    }
+    out = unsafe { String.from_bytes_lossy(bytes.as_ptr(), bytes.len()) }
+    return true
+}
+
+// ---------------------------------------------------------------------------
+// Command line and environment
+
+unsafe fn c_len(p: Ptr[u8]) -> usize {
+    var n: usize = 0
+    while p.offset(n).read() != 0 {
+        n += 1
+    }
+    return n
+}
+
+/// The arguments or the environment as strings.
+fn strings(environment: bool) -> Vec[String] {
+    var out: Vec[String] = Vec.new()
+    unsafe {
+        var count: i32 = 0
+        var size: i32 = 0
+        let r = if environment { environ_sizes_get(mem.addr_of(&count), mem.addr_of(&size)) } else { args_sizes_get(mem.addr_of(&count), mem.addr_of(&size)) }
+        if r != 0 or count == 0 {
+            return out
+        }
+        let ptrs = mem.alloc((count as usize) * 4).cast[Ptr[u8]]()
+        let buf = mem.alloc(size as usize)
+        let r2 = if environment { environ_get(ptrs, buf) } else { args_get(ptrs, buf) }
+        if r2 == 0 {
+            for i in 0..count as usize {
+                let p = ptrs.offset(i).read()
+                out.push(String.from_bytes_lossy(p, c_len(p)))
+            }
+        }
+        mem.free(buf)
+        mem.free(ptrs.cast[u8]())
+    }
+    return out
+}
+
+pub fn arg_count() -> i32 {
+    return strings(false).len() as i32
+}
+
+pub fn arg(index: i32) -> String {
+    let all = strings(false)
+    if index < 0 or index as usize >= all.len() {
+        panic("argument index {index} out of range")
+    }
+    return all[index as usize].clone()
+}
+
+pub fn env(name: String) -> Option[String] {
+    let prefix = name + "="
+    for e in strings(true) {
+        if e.starts_with(prefix) {
+            return Some(e.substring(prefix.len(), e.len()))
+        }
+    }
+    return None
+}
+
+pub fn env_is_set(name: String) -> bool {
+    return env(name).is_some()
+}
+
+// ---------------------------------------------------------------------------
+// Files
+
+/// A preopened directory for `path`, and the path relative to it.
+fn resolve(path: String) -> (i32, String) {
+    var best: i32 = -1
+    var best_len: usize = 0
+    var rel = path.clone()
+    unsafe {
+        var fd: i32 = 3
+        while fd < 64 {
+            var pre: [u32; 2] = [0; 2]
+            if fd_prestat_get(fd, mem.addr_of(&pre).cast[u8]()) != 0 {
+                break
+            }
+            let n = pre[1] as usize
+            let name_buf = mem.alloc(n + 1)
+            if fd_prestat_dir_name(fd, name_buf, n as i32) == 0 {
+                let name = String.from_bytes_lossy(name_buf, n)
+                if name == "." or name == "./" {
+                    if best < 0 and not path.starts_with("/") {
+                        best = fd
+                        rel = if path.starts_with("./") { path.substring(2, path.len()) } else { path.clone() }
+                    }
+                } else if path.starts_with(name) and name.len() > best_len {
+                    best = fd
+                    best_len = name.len()
+                    var r = path.substring(name.len(), path.len())
+                    if r.starts_with("/") {
+                        r = r.substring(1, r.len())
+                    }
+                    rel = if r.len() == 0 { "." } else { r }
+                }
+            }
+            mem.free(name_buf)
+            fd += 1
+        }
+    }
+    if best < 0 {
+        // Without a matching preopen, try the first one.
+        return (3, if path.starts_with("/") { path.substring(1, path.len()) } else { path.clone() })
+    }
+    return (best, rel)
+}
+
+unsafe fn open(path: String, oflags: i32, rights: i64, fdflags: i32) -> i32 {
+    let (dir, rel) = resolve(path)
+    var fd: i32 = -1
+    if path_open(dir, 1, rel.as_ptr(), rel.len() as i32, oflags, rights, rights, fdflags, mem.addr_of(&fd)) != 0 {
+        return -1
+    }
+    return fd
+}
+
+pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+    unsafe {
+        // Rights: fd_read (2) | fd_seek (4) | fd_tell (32) | fd_filestat_get (2097152)
+        let fd = open(path, 0, 2097190, 0)
+        if fd < 0 {
+            return false
+        }
+        var ok = true
+        while true {
+            out.reserve(65536)
+            var iov: [usize; 2] = [out.as_ptr().offset(out.len()).addr(), 65536]
+            var got: i32 = 0
+            if fd_read(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got)) != 0 {
+                ok = false
+                break
+            }
+            if got <= 0 {
+                break
+            }
+            out.set_len(out.len() + got as usize)
+        }
+        let _ = fd_close(fd)
+        return ok
+    }
+}
+
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+    unsafe {
+        // oflags: creat (1) | trunc (8); fdflags: append (1); rights: fd_write (64)
+        let fd = if append { open(path, 1, 64, 1) } else { open(path, 9, 64, 0) }
+        if fd < 0 {
+            return false
+        }
+        let ok = write_fd(fd, data, len)
+        let closed = fd_close(fd) == 0
+        return ok and closed
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Time
+
+unsafe fn clock(id: i32) -> i64 {
+    var t: i64 = 0
+    let _ = clock_time_get(id, 1, mem.addr_of(&t))
+    return t
+}
+
+pub fn monotonic_ns() -> u64 {
+    return unsafe { clock(1) } as u64
+}
+
+pub fn unix_time_ns() -> i64 {
+    return unsafe { clock(0) }
+}
+
+/// WASI has no time zones: local time is UTC.
+pub fn utc_offset(unix_seconds: i64) -> i32 {
+    let _ = unix_seconds
+    return 0
+}
+
+pub fn sleep_ns(ns: u64) {
+    if ns == 0 {
+        return
+    }
+    unsafe {
+        // One clock subscription: relative timeout on the monotonic clock.
+        var sub: [u64; 6] = [0; 6]
+        sub[2] = 1
+        sub[3] = ns
+        var events: [u64; 4] = [0; 4]
+        var n: i32 = 0
+        let _ = poll_oneoff(mem.addr_of(&sub).cast[u8](), mem.addr_of(&events).cast[u8](), 1, mem.addr_of(&n))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Random numbers
+
+pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+    return random_get(buffer, len as i32) == 0
+}

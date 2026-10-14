@@ -405,3 +405,125 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
         _ => not_const(e, diags),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Static variables (spec §3.9)
+
+/// Evaluates the initial value of every `static` item.
+pub fn eval_statics(prog: &mut Program, diags: &DiagSink) {
+    for i in 0..prog.statics.len() {
+        let st = &prog.statics[i];
+        if prog.tcx.is_error(st.ty) || !prog.is_copy(st.ty) {
+            continue;
+        }
+        let (module, ty, ast) = (st.module, st.ty, st.ast.clone());
+        if let Some(v) = eval_static_value(prog, module, &ast.value, ty, diags) {
+            prog.static_values.insert(crate::defs::StaticId(i as u32), v);
+        }
+    }
+}
+
+fn is_ptr_null(e: &Expr) -> bool {
+    let ExprKind::Call(callee, args) = &e.kind else { return false };
+    if !args.is_empty() {
+        return false;
+    }
+    let ExprKind::Field(base, name) = &callee.kind else { return false };
+    if name.name != "null" {
+        return false;
+    }
+    match &base.kind {
+        ExprKind::Ident(n) => n == "Ptr",
+        ExprKind::Index(b, _) => matches!(&b.kind, ExprKind::Ident(n) if n == "Ptr"),
+        _ => false,
+    }
+}
+
+/// The value of a static initializer of type `ty`: a constant expression, `Ptr.null()`,
+/// or an array, tuple or structure built from them.
+pub fn eval_static_value(prog: &Program, module: ModId, e: &Expr, ty: Ty, diags: &DiagSink) -> Option<crate::defs::StaticValue> {
+    use crate::defs::{AdtKind, StaticValue};
+    let tcx = &prog.tcx;
+    let not_static = |e: &Expr| {
+        diags.emit(
+            Diagnostic::error("E0371", "this expression cannot be evaluated at compile time")
+                .primary(e.span, "not a constant initializer")
+                .note("a static variable is initialized with constants, `Ptr.null()`, arrays, tuples and structures of them"),
+        );
+        None
+    };
+    if let ExprKind::Paren(inner) = &e.kind {
+        return eval_static_value(prog, module, inner, ty, diags);
+    }
+    match &*tcx.kind(ty) {
+        TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit => {
+            let mut visiting = Vec::new();
+            let v = eval_expr(prog, module, e, ty, &mut visiting, diags)?;
+            check_fits(prog, &v, ty, e.span, diags).map(StaticValue::Scalar)
+        }
+        TyKind::Ptr(_) | TyKind::Fn(..) => {
+            if is_ptr_null(e) {
+                Some(StaticValue::Null)
+            } else {
+                not_static(e)
+            }
+        }
+        TyKind::Array(elem, n) => match &e.kind {
+            ExprKind::ArrayRepeat(x, count) => {
+                let c = eval_array_len(prog, module, count, diags)?;
+                if c != *n {
+                    diags.emit(Diagnostic::error("E0302", "mismatched array length").primary(count.span, format!("expected {} elements, found {}", n, c)));
+                    return None;
+                }
+                let v = eval_static_value(prog, module, x, *elem, diags)?;
+                Some(StaticValue::Repeat(Box::new(v), *n))
+            }
+            ExprKind::Array(xs) => {
+                if xs.len() as u64 != *n {
+                    diags.emit(Diagnostic::error("E0302", "mismatched array length").primary(e.span, format!("expected {} elements, found {}", n, xs.len())));
+                    return None;
+                }
+                let vs: Option<Vec<StaticValue>> = xs.iter().map(|x| eval_static_value(prog, module, x, *elem, diags)).collect();
+                Some(StaticValue::Aggregate(vs?))
+            }
+            _ => not_static(e),
+        },
+        TyKind::Tuple(ts) => match &e.kind {
+            ExprKind::Tuple(xs) if xs.len() == ts.len() => {
+                let vs: Option<Vec<StaticValue>> = xs.iter().zip(ts.iter()).map(|(x, &t)| eval_static_value(prog, module, x, t, diags)).collect();
+                Some(StaticValue::Aggregate(vs?))
+            }
+            _ => not_static(e),
+        },
+        TyKind::Adt(id, args) => {
+            let adt = prog.adt(*id);
+            match &adt.kind {
+                AdtKind::Struct { fields } => {
+                    let ExprKind::Call(_, cargs) = &e.kind else { return not_static(e) };
+                    if cargs.len() != fields.len() || cargs.iter().zip(fields.iter()).any(|(a, f)| a.label.as_ref().map(|l| l.name.as_str()) != Some(f.name.as_str())) {
+                        diags.emit(
+                            Diagnostic::error("E0310", "every field must be given by name, in declaration order")
+                                .primary(e.span, format!("`{}` has the fields {}", adt.name, fields.iter().map(|f| f.name.as_str()).collect::<Vec<_>>().join(", "))),
+                        );
+                        return None;
+                    }
+                    let vs: Option<Vec<StaticValue>> =
+                        cargs.iter().zip(fields.iter()).map(|(a, f)| eval_static_value(prog, module, &a.expr, tcx.subst(f.ty, args), diags)).collect();
+                    Some(StaticValue::Aggregate(vs?))
+                }
+                AdtKind::Enum { variants } => {
+                    let name = match &e.kind {
+                        ExprKind::Ident(n) => n.clone(),
+                        ExprKind::Field(_, f) => f.name.clone(),
+                        _ => return not_static(e),
+                    };
+                    match variants.iter().position(|v| v.name == name && v.fields.is_empty()) {
+                        Some(i) => Some(StaticValue::Variant(i as u32)),
+                        None => not_static(e),
+                    }
+                }
+            }
+        }
+        _ => not_static(e),
+    }
+}

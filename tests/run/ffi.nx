@@ -1,3 +1,4 @@
+// targets: windows
 // Spec chapter 08: calling C functions.
 extern "C" fn abs(x: i32) -> i32
 extern "C" fn strlen(s: Ptr[u8]) -> usize

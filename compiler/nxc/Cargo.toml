@@ -17,4 +17,4 @@ path = "src/lib.rs"
 nxc_syntax = { path = "../nxc_syntax" }
 nxc_sema = { path = "../nxc_sema" }
 nxc_nir = { path = "../nxc_nir" }
-nxc_codegen_c = { path = "../nxc_codegen_c" }
+nxc_codegen_llvm = { path = "../nxc_codegen_llvm" }

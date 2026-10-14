@@ -1,10 +1,7 @@
 /// A growable array stored on the heap (spec chapter 09).
 
 import std.mem
-
-/// Reports an out-of-bounds index (kept out of line so that indexing stays small).
-@intrinsic
-fn rt_index_fail(index: usize, len: usize) -> Never
+import std.rt
 
 @lang("vec")
 pub struct Vec[T] {
@@ -153,12 +150,32 @@ impl Vec {
         }
     }
 
+    /// Address of the first element (null for an empty vector without storage). The
+    /// pointer is valid until the vector is modified or destroyed.
+    pub fn as_ptr(self) -> Ptr[T] {
+        return self.data
+    }
+
+    /// Sets the length without initializing or destroying elements: the elements
+    /// `0..length` must be valid and `length <= capacity()`.
+    pub unsafe fn set_len(inout self, length: usize) {
+        self.len = length
+    }
+
+    /// Gives up the storage: (data, length, capacity). The caller becomes responsible
+    /// for the elements and for freeing the storage with `mem.free`.
+    pub unsafe fn into_raw_parts(owned self) -> (Ptr[T], usize, usize) {
+        let parts = (self.data, self.len, self.cap)
+        mem.forget(self)
+        return parts
+    }
+
     /// Address of element `index` (used by `v[index]`).
     @index
     @track_caller
     fn at(self, index: usize) -> Ptr[T] {
         if index >= self.len {
-            rt_index_fail(index, self.len)
+            rt.index_fail(index, self.len)
         }
         unsafe {
             return self.data.offset(index)

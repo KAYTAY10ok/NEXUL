@@ -4,17 +4,17 @@ version = 4
 
 [[package]]
 name = "nxc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
- "nxc_codegen_c",
+ "nxc_codegen_llvm",
  "nxc_nir",
  "nxc_sema",
  "nxc_syntax",
 ]
 
 [[package]]
-name = "nxc_codegen_c"
-version = "0.1.0"
+name = "nxc_codegen_llvm"
+version = "0.2.0"
 dependencies = [
  "nxc_nir",
  "nxc_sema",
@@ -23,7 +23,7 @@ dependencies = [
 
 [[package]]
 name = "nxc_nir"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nxc_sema",
  "nxc_syntax",
@@ -31,11 +31,11 @@ dependencies = [
 
 [[package]]
 name = "nxc_sema"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "nxc_syntax",
 ]
 
 [[package]]
 name = "nxc_syntax"
-version = "0.1.0"
+version = "0.2.0"

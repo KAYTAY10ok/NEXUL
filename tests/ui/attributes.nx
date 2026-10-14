@@ -1,4 +1,4 @@
-@inline
+@inlin
 fn f() {
 }
 

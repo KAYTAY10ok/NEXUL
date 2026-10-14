@@ -3,6 +3,8 @@
 /// The `unsafe` functions give raw access to memory: the caller is responsible for
 /// passing valid pointers and sizes.
 
+import std.rt
+
 /// Size in bytes of a value of type `T`.
 @intrinsic
 pub fn size_of[T]() -> usize
@@ -11,26 +13,53 @@ pub fn size_of[T]() -> usize
 @intrinsic
 pub fn align_of[T]() -> usize
 
-/// Allocates `size` bytes on the heap (never returns null; panics if out of memory).
-@intrinsic
-pub unsafe fn alloc(size: usize) -> Ptr[u8]
+/// Allocates `size` bytes on the heap, aligned for any type (never returns null;
+/// panics if out of memory).
+pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+    return rt.alloc(size)
+}
 
 /// Resizes an allocation made by `alloc`.
-@intrinsic
-pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8]
+pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    return rt.realloc(p, size)
+}
 
 /// Frees an allocation made by `alloc` or `realloc`.
-@intrinsic
-pub unsafe fn free(p: Ptr[u8])
+pub unsafe fn free(p: Ptr[u8]) {
+    rt.free(p)
+}
 
 /// Copies `count` values from `src` to `dst` (the regions may overlap). The values
 /// are copied bit for bit: ownership is duplicated, not transferred.
 @intrinsic
 pub unsafe fn copy[T](src: Ptr[T], dst: Ptr[T], count: usize)
 
+/// Sets `count` bytes at `dst` to `value`.
+@intrinsic
+pub unsafe fn set_bytes(dst: Ptr[u8], value: u8, count: usize)
+
 /// Destroys the value pointed to by `p`, without freeing its memory.
 @intrinsic
 pub unsafe fn drop_in_place[T](p: Ptr[T])
+
+/// The address of a place (variable, field, element or static variable). The pointer
+/// is only valid while the place exists and is not moved.
+@intrinsic
+pub unsafe fn addr_of[T](inout place: T) -> Ptr[T]
+
+/// Reads a value without letting the compiler remove or reorder the access (hardware
+/// registers mapped in memory, spec §5.2).
+@intrinsic
+pub unsafe fn read_volatile[T](p: Ptr[T]) -> T
+
+/// Writes a value without letting the compiler remove or reorder the access.
+@intrinsic
+pub unsafe fn write_volatile[T](p: Ptr[T], owned value: T)
+
+/// A value whose bytes are all zero (valid for integers, floats, `bool`, pointers and
+/// aggregates of them).
+@intrinsic
+pub unsafe fn zeroed[T]() -> T
 
 /// Takes ownership of a value without destroying it (its resources are leaked).
 @intrinsic

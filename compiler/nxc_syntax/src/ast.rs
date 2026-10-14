@@ -56,6 +56,7 @@ pub enum ItemKind {
     Const(ConstDecl),
     TypeAlias(TypeAliasDecl),
     ExternFn(ExternFnDecl),
+    Static(StaticDecl),
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
@@ -140,6 +141,16 @@ pub struct ImplDecl {
 #[derive(Clone, Debug)]
 pub struct ConstDecl {
     pub name: Ident,
+    pub ty: TypeExpr,
+    pub value: Expr,
+}
+
+/// `static NAME: T = value` (immutable) or `static var NAME: T = value` (mutable,
+/// accessed only in `unsafe` code).
+#[derive(Clone, Debug)]
+pub struct StaticDecl {
+    pub name: Ident,
+    pub mutable: bool,
     pub ty: TypeExpr,
     pub value: Expr,
 }

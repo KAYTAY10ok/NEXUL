@@ -1,14 +1,22 @@
-//! The NEXUL compiler driver: front end, NIR, C generation and the C toolchain.
+//! The NEXUL compiler driver: front end, NIR, LLVM IR back end, code generation with LLVM
+//! and linking with LLD.
 
 pub mod codes;
+pub mod link;
+pub mod llvm;
+mod objsyms;
+pub mod toolchain;
 
-use nxc_codegen_c::{Entry, Options};
+pub use link::OutputKind;
+pub use nxc_codegen_llvm::{Entry, Output};
+pub use nxc_sema::target::{Cfg, Os, Target};
+
 use nxc_sema::defs::{FnId, ItemRef};
 use nxc_sema::ProgramSource;
 use nxc_syntax::diag::render_all;
 use nxc_syntax::{DiagSink, Diagnostic, Level, SourceMap, Span};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use toolchain::Toolchain;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Mode {
@@ -18,6 +26,27 @@ pub enum Mode {
     Program,
     /// The `@test` functions.
     Tests,
+    /// A library: the `@export` functions.
+    Library,
+}
+
+/// What to compile, and how.
+#[derive(Clone, Debug)]
+pub struct CompileOptions {
+    pub mode: Mode,
+    pub color: bool,
+    pub target: Target,
+    pub release: bool,
+    pub debug_info: bool,
+    pub profile: bool,
+    /// Dependencies (`nxpm`): package name and source directory.
+    pub deps: Vec<(String, PathBuf)>,
+}
+
+impl CompileOptions {
+    pub fn new(mode: Mode) -> CompileOptions {
+        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new() }
+    }
 }
 
 pub struct Compilation {
@@ -25,40 +54,42 @@ pub struct Compilation {
     pub diagnostics: String,
     pub errors: usize,
     pub warnings: usize,
-    pub c_source: Option<String>,
-    pub links: Vec<String>,
+    /// The generated module (when there is no error and code was requested).
+    pub output: Option<Output>,
     /// Names of the test functions, in the order of their index.
     pub tests: Vec<String>,
     /// The same diagnostics as a JSON array (for editors and tools).
     pub json: String,
 }
 
-/// Runs the whole front end and generates C (unless `mode` is `Check`).
-pub fn compile_file(path: &Path, mode: Mode, color: bool) -> Compilation {
+/// Runs the whole front end and generates LLVM IR (unless `mode` is `Check`).
+pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
     let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
+            let msg = format!("cannot read `{}`: {}", path.display(), e);
             return Compilation {
-                diagnostics: format!("error: cannot read `{}`: {}\n", path.display(), e),
+                diagnostics: format!("error: {}\n", msg),
                 errors: 1,
                 warnings: 0,
-                c_source: None,
-                links: vec![],
+                output: None,
                 tests: vec![],
                 json: format!(
                     "[{{\"level\":\"error\",\"code\":\"\",\"message\":{},\"file\":\"\",\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0,\"labels\":[],\"notes\":[]}}]",
-                    json_str(&format!("cannot read `{}`: {}", path.display(), e))
+                    json_str(&msg)
                 ),
-            }
+            };
         }
     };
-    compile_source(&name, bytes, path.parent().map(|p| p.to_path_buf()), mode, color)
+    let root_dir = path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() });
+    compile_source(&name, bytes, root_dir, opts)
 }
 
-pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, mode: Mode, color: bool) -> Compilation {
+pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opts: &CompileOptions) -> Compilation {
     let mut sm = SourceMap::new();
     let diags = DiagSink::new();
+    let color = opts.color;
     let text = match String::from_utf8(bytes) {
         Ok(t) => t,
         Err(e) => {
@@ -70,20 +101,22 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, mod
                     .primary(Span::new(f, pos as u32, pos as u32 + 1), "invalid byte sequence")
                     .help("save the file with the UTF-8 encoding"),
             );
-            return finish(&sm, &diags, None, vec![], vec![], color);
+            return finish(&sm, &diags, None, vec![], color);
         }
     };
     let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
-    let src = ProgramSource { root_name: name.to_string(), root_text: text, root_dir };
+    let mut src = ProgramSource::new(name.to_string(), text, root_dir.clone());
+    src.deps = opts.deps.clone();
+    src.cfg = Cfg { target: opts.target.clone(), release: opts.release, test: opts.mode == Mode::Tests };
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     if diags.has_errors() {
-        return finish(&sm, &diags, None, vec![], vec![], color);
+        return finish(&sm, &diags, None, vec![], color);
     }
     let bodies = nxc_nir::lower_program(&prog, &sm, &diags);
-    if diags.has_errors() || mode == Mode::Check {
-        return finish(&sm, &diags, None, vec![], vec![], color);
+    if diags.has_errors() || opts.mode == Mode::Check {
+        return finish(&sm, &diags, None, vec![], color);
     }
-    let entry = match mode {
+    let entry = match opts.mode {
         Mode::Program => match prog.main_fn {
             Some(f) => Entry::Main(f),
             None => {
@@ -91,9 +124,9 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, mod
                 diags.emit(
                     Diagnostic::error("E0230", "no `main` function")
                         .primary(Span::new(root_file, 0, 0), "the program starts with `fn main()` in this file")
-                        .help("add `fn main() { ... }`, or use `nxc test` to run `@test` functions"),
+                        .help("add `fn main() { ... }`, use `nxc test` to run `@test` functions, or `--lib` to build a library"),
                 );
-                return finish(&sm, &diags, None, vec![], vec![], color);
+                return finish(&sm, &diags, None, vec![], color);
             }
         },
         Mode::Tests => {
@@ -112,6 +145,7 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, mod
             }
             Entry::Tests(tests)
         }
+        Mode::Library => Entry::Library,
         Mode::Check => unreachable!(),
     };
     let test_names = match &entry {
@@ -125,11 +159,16 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, mod
             .collect(),
         _ => vec![],
     };
-    let (c, links) = nxc_codegen_c::generate(&prog, &sm, &bodies, &entry, &Options::default());
-    finish(&sm, &diags, Some(c), links, test_names, color)
+    let root = root_dir
+        .and_then(|d| std::fs::canonicalize(&d).ok().or(Some(d)))
+        .map(|d| d.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/"))
+        .unwrap_or_default();
+    let gen_opts = nxc_codegen_llvm::Options { target: opts.target.clone(), debug_info: opts.debug_info, optimize: opts.release, root_dir: root, profile: opts.profile };
+    let out = nxc_codegen_llvm::generate(&prog, &sm, &bodies, &entry, &gen_opts);
+    finish(&sm, &diags, Some(out), test_names, color)
 }
 
-fn finish(sm: &SourceMap, diags: &DiagSink, c: Option<String>, links: Vec<String>, tests: Vec<String>, color: bool) -> Compilation {
+fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<String>, color: bool) -> Compilation {
     let mut list = diags.take_sorted();
     let errors = list.iter().filter(|d| d.level == Level::Error).count();
     // Warnings are often consequences of errors (code skipped by recovery): show them
@@ -139,7 +178,7 @@ fn finish(sm: &SourceMap, diags: &DiagSink, c: Option<String>, links: Vec<String
     }
     let warnings = list.len() - errors;
     let json = diagnostics_json(&list, sm);
-    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, c_source: if errors == 0 { c } else { None }, links, tests, json }
+    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, output: if errors == 0 { output } else { None }, tests, json }
 }
 
 /// A JSON string literal.
@@ -211,87 +250,199 @@ pub fn diagnostics_json(list: &[Diagnostic], sm: &SourceMap) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// C toolchain
+// Code generation and linking
 
 pub struct BuildOptions {
+    pub target: Target,
     pub release: bool,
-    pub target: Option<String>,
+    /// `0`-`3`, `s` or `z`; default `0` in debug and `2` with `--release`.
+    pub opt_level: Option<char>,
+    pub debug_info: bool,
+    pub kind: OutputKind,
+    pub link_args: Vec<String>,
 }
 
-/// The C compiler command: `NEXUL_CC` (e.g. `clang`), or `zig cc`.
-pub fn find_c_compiler() -> Result<Vec<String>, String> {
-    if let Ok(cc) = std::env::var("NEXUL_CC") {
-        let parts: Vec<String> = cc.split_whitespace().map(|s| s.to_string()).collect();
-        if !parts.is_empty() {
-            return Ok(parts);
+impl BuildOptions {
+    pub fn new(target: Target, release: bool) -> BuildOptions {
+        BuildOptions { target, release, opt_level: None, debug_info: !release, kind: OutputKind::Executable, link_args: Vec::new() }
+    }
+
+    fn level(&self) -> char {
+        self.opt_level.unwrap_or(if self.release { '2' } else { '0' })
+    }
+}
+
+/// The folder of the build cache: `NEXUL_CACHE_DIR`, else `%LOCALAPPDATA%\nexul\cache`
+/// (Windows), `$XDG_CACHE_HOME/nexul` or `~/.cache/nexul`. `None` disables the cache
+/// (also with `NEXUL_NO_CACHE`).
+fn cache_dir() -> Option<PathBuf> {
+    if std::env::var_os("NEXUL_NO_CACHE").is_some() {
+        return None;
+    }
+    let dir = if let Some(d) = std::env::var_os("NEXUL_CACHE_DIR") {
+        PathBuf::from(d)
+    } else if let Some(d) = std::env::var_os("LOCALAPPDATA") {
+        Path::new(&d).join("nexul").join("cache")
+    } else if let Some(d) = std::env::var_os("XDG_CACHE_HOME") {
+        Path::new(&d).join("nexul")
+    } else {
+        Path::new(&std::env::var_os("HOME")?).join(".cache").join("nexul")
+    };
+    std::fs::create_dir_all(&dir).ok()?;
+    Some(dir)
+}
+
+/// A 128-bit key for the build cache. The IR contains the whole program, including the
+/// runtime, so equal keys mean equal outputs.
+fn cache_key(parts: &[&str]) -> String {
+    use std::hash::{DefaultHasher, Hasher};
+    let mut out = String::new();
+    for seed in [0x4e45_5855_4c00_0002u64, 0x9e37_79b9_7f4a_7c15] {
+        let mut h = DefaultHasher::new();
+        h.write_u64(seed);
+        for p in parts {
+            h.write_usize(p.len());
+            h.write(p.as_bytes());
         }
+        out.push_str(&format!("{:016x}", h.finish()));
     }
-    let mut candidates: Vec<PathBuf> = vec![PathBuf::from("zig")];
-    if let Ok(local) = std::env::var("LOCALAPPDATA") {
-        candidates.push(Path::new(&local).join("Microsoft").join("WinGet").join("Links").join("zig.exe"));
-    }
-    if let Ok(home) = std::env::var("HOME") {
-        candidates.push(Path::new(&home).join(".local").join("bin").join("zig"));
-    }
-    for c in candidates {
-        if Command::new(&c).arg("version").output().map(|o| o.status.success()).unwrap_or(false) {
-            return Ok(vec![c.to_string_lossy().to_string(), "cc".into()]);
-        }
-    }
-    Err("no C toolchain found: install Zig (https://ziglang.org) or set NEXUL_CC to a C11 compiler such as `clang`".into())
+    out
 }
 
-fn target_is_windows(target: &Option<String>) -> bool {
-    match target {
-        Some(t) => t.contains("windows"),
-        None => cfg!(windows),
+/// Keeps the most recent cached outputs only.
+fn trim_cache(dir: &Path, keep: usize) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut entries: Vec<(std::time::SystemTime, PathBuf)> = rd
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("nx-"))
+        .filter_map(|e| Some((e.metadata().ok()?.modified().ok()?, e.path())))
+        .collect();
+    if entries.len() <= keep {
+        return;
+    }
+    entries.sort();
+    for (_, p) in &entries[..entries.len() - keep] {
+        let _ = std::fs::remove_file(p);
     }
 }
 
-/// Compiles C source into an executable.
-pub fn c_compile(c_source: &str, links: &[String], out: &Path, opts: &BuildOptions) -> Result<(), String> {
-    let cc = find_c_compiler()?;
-    let dir = out.parent().map(|p| p.to_path_buf()).unwrap_or_else(|| PathBuf::from("."));
+fn unique_suffix() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static N: AtomicU64 = AtomicU64::new(0);
+    format!("{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed))
+}
+
+/// Object file extension of a target.
+fn obj_ext(t: &Target) -> &'static str {
+    if t.os == Os::Windows {
+        "obj"
+    } else {
+        "o"
+    }
+}
+
+/// Compiles the generated module to an object file.
+pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(), String> {
+    let tc = Toolchain::find();
+    let t = &opts.target;
+    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows };
+    llvm::compile(&tc, &output.ir, obj, &cg, false).map(|_| ())
+}
+
+/// The module after LLVM's optimizations, as text (`--emit llvm-ir`).
+pub fn optimized_ir(output: &Output, opts: &BuildOptions) -> Result<String, String> {
+    let tc = Toolchain::find();
+    let t = &opts.target;
+    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: false };
+    llvm::compile(&tc, &output.ir, Path::new(""), &cg, true).map(|s| s.unwrap_or_default())
+}
+
+/// Produces an executable or a library from the generated module.
+///
+/// Outputs are cached by content: building the same program again (same IR, options,
+/// target and libraries) copies the cached file instead of running LLVM and the linker.
+pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), String> {
+    let dir = out.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() }).unwrap_or_else(|| PathBuf::from("."));
     std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create `{}`: {}", dir.display(), e))?;
-    let stem = out.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "out".into());
-    let c_path = std::env::temp_dir().join(format!("nexul-{}-{}.c", stem, std::process::id()));
-    std::fs::write(&c_path, c_source).map_err(|e| format!("cannot write `{}`: {}", c_path.display(), e))?;
-    let mut cmd = Command::new(&cc[0]);
-    cmd.args(&cc[1..]);
-    cmd.arg("-std=c11").arg("-w").arg("-fno-strict-aliasing").arg("-fwrapv");
-    if opts.release {
-        cmd.arg("-O2");
-    } else {
-        cmd.arg("-O0").arg("-g");
+    let ext = out.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+    let imports: Vec<String> = output.imports.iter().map(|(a, b)| format!("{}:{}", a, b)).collect();
+    let cached = cache_dir().map(|d| {
+        let key = cache_key(&[
+            env!("CARGO_PKG_VERSION"),
+            &opts.target.name,
+            &opts.level().to_string(),
+            if opts.debug_info { "g" } else { "" },
+            &format!("{:?}", opts.kind),
+            &output.links.join(","),
+            &imports.join(","),
+            &opts.link_args.join(" "),
+            &output.ir,
+        ]);
+        (d.clone(), d.join(format!("nx-{}{}", key, ext)))
+    });
+    if let Some((_, file)) = &cached {
+        if file.is_file() && std::fs::copy(file, out).is_ok() {
+            let pdb = file.with_extension("pdb");
+            if pdb.is_file() {
+                let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
+            }
+            // Recently used outputs are the last ones removed from the cache.
+            let _ = std::fs::File::options().write(true).open(file).and_then(|f| f.set_modified(std::time::SystemTime::now()));
+            return Ok(());
+        }
     }
-    if let Some(t) = &opts.target {
-        cmd.arg("-target").arg(t);
-    }
-    cmd.arg(&c_path).arg("-o").arg(out);
-    if target_is_windows(&opts.target) {
-        cmd.arg("-lshell32");
-    } else {
-        cmd.arg("-lm");
-    }
-    for l in links {
-        cmd.arg(format!("-l{}", l));
-    }
-    let output = cmd.output().map_err(|e| format!("cannot run the C compiler `{}`: {}", cc.join(" "), e))?;
-    let _ = std::fs::remove_file(&c_path);
-    if !output.status.success() {
-        return Err(format!(
-            "the C compiler failed (this is a bug in nxc, please report it):\n{}{}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        ));
-    }
-    Ok(())
+    let work = std::env::temp_dir().join(format!("nexul-build-{}", unique_suffix()));
+    std::fs::create_dir_all(&work).map_err(|e| format!("cannot create `{}`: {}", work.display(), e))?;
+    let result = (|| -> Result<(), String> {
+        let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
+        emit_object(output, &obj, opts)?;
+        let target_path = match &cached {
+            Some((_, file)) => work.join(file.file_name().unwrap()),
+            None => out.to_path_buf(),
+        };
+        let tc = Toolchain::find();
+        let job = link::LinkJob {
+            target: &opts.target,
+            objects: vec![obj],
+            out: target_path.clone(),
+            kind: opts.kind,
+            imports: &output.imports,
+            links: &output.links,
+            exports: &output.exports,
+            debug: opts.debug_info,
+            optimize: opts.release,
+            work_dir: work.clone(),
+            extra: &opts.link_args,
+        };
+        link::link(&tc, &job)?;
+        if let Some((d, file)) = &cached {
+            let _ = std::fs::copy(&target_path, file);
+            let pdb = target_path.with_extension("pdb");
+            if pdb.is_file() {
+                let _ = std::fs::copy(&pdb, file.with_extension("pdb"));
+                let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
+            }
+            std::fs::copy(&target_path, out).map_err(|e| format!("cannot write `{}`: {}", out.display(), e))?;
+            trim_cache(d, 200);
+        }
+        Ok(())
+    })();
+    let _ = std::fs::remove_dir_all(&work);
+    result
 }
 
-pub fn exe_name(stem: &str, target: &Option<String>) -> String {
-    if target_is_windows(target) {
-        format!("{}.exe", stem)
-    } else {
-        stem.to_string()
+pub fn exe_name(stem: &str, target: &Target) -> String {
+    target.exe_name(stem)
+}
+
+/// File name of a library for a target.
+pub fn lib_name(stem: &str, target: &Target, kind: OutputKind) -> String {
+    match (target.os, kind) {
+        (Os::Windows, OutputKind::SharedLibrary) => format!("{}.dll", stem),
+        (Os::Windows, _) => format!("{}.lib", stem),
+        (Os::MacOs, OutputKind::SharedLibrary) => format!("lib{}.dylib", stem),
+        (Os::Wasi, _) => format!("{}.wasm", stem),
+        (_, OutputKind::SharedLibrary) => format!("lib{}.so", stem),
+        _ => format!("lib{}.a", stem),
     }
 }

@@ -5,6 +5,7 @@
 /// empty string); they are copied to the heap on the first modification.
 
 import std.mem
+import std.fmt
 
 @lang("string")
 pub struct String {
@@ -13,11 +14,128 @@ pub struct String {
     cap: usize
 }
 
-@intrinsic
-unsafe fn rt_decode(s: String, inout pos: usize) -> char
+/// Decodes the (valid) UTF-8 character at byte `pos` and advances `pos` past it.
+@lang("str_decode")
+unsafe fn rt_decode(s: String, inout pos: usize) -> char {
+    let p = s.data.offset(pos)
+    let b0 = p.read() as u32
+    if b0 < 0x80 {
+        pos += 1
+        return b0 as char
+    }
+    if b0 < 0xE0 {
+        pos += 2
+        return (((b0 & 0x1F) << 6) | (p.offset(1).read() as u32 & 0x3F)) as char
+    }
+    if b0 < 0xF0 {
+        pos += 3
+        return (((b0 & 0x0F) << 12) | ((p.offset(1).read() as u32 & 0x3F) << 6) | (p.offset(2).read() as u32 & 0x3F)) as char
+    }
+    pos += 4
+    return (((b0 & 0x07) << 18) | ((p.offset(1).read() as u32 & 0x3F) << 12) | ((p.offset(2).read() as u32 & 0x3F) << 6) | (p.offset(3).read() as u32 & 0x3F)) as char
+}
 
-@intrinsic
-unsafe fn rt_parse_float(s: String, inout out: f64) -> bool
+/// `dest += src` (also correct when `src` and `dest` are the same string).
+@lang("str_push_str")
+unsafe fn rt_push_str(inout dest: String, src: String) {
+    let n = src.len
+    if n == 0 {
+        return
+    }
+    dest.reserve(n)
+    // `src` may be `dest` itself: its bytes are read after the reallocation.
+    mem.copy(src.data, dest.data.offset(dest.len), n)
+    dest.len += n
+}
+
+/// `a + b`
+@lang("str_concat")
+fn rt_concat(a: String, b: String) -> String {
+    var s = String.with_capacity(a.len + b.len)
+    s.push_str(a)
+    s.push_str(b)
+    return s
+}
+
+/// `a == b`
+@lang("str_eq")
+fn rt_eq(a: String, b: String) -> bool {
+    if a.len != b.len {
+        return false
+    }
+    for i in 0..a.len {
+        if unsafe { a.data.offset(i).read() != b.data.offset(i).read() } {
+            return false
+        }
+    }
+    return true
+}
+
+/// Lexicographic order of the UTF-8 bytes: -1, 0 or 1.
+@lang("str_cmp")
+fn rt_cmp(a: String, b: String) -> i32 {
+    let n = if a.len < b.len { a.len } else { b.len }
+    for i in 0..n {
+        let x = unsafe { a.data.offset(i).read() }
+        let y = unsafe { b.data.offset(i).read() }
+        if x != y {
+            return if x < y { -1 } else { 1 }
+        }
+    }
+    if a.len == b.len {
+        return 0
+    }
+    return if a.len < b.len { -1 } else { 1 }
+}
+
+/// Length of the valid UTF-8 sequence starting at `p[i]` (0 if invalid).
+unsafe fn utf8_sequence_len(p: Ptr[u8], i: usize, n: usize) -> usize {
+    let c = p.offset(i).read() as u32
+    var len: usize = 0
+    var min: u32 = 0
+    if c < 0x80 {
+        return 1
+    } else if (c & 0xE0) == 0xC0 {
+        len = 2
+        min = 0x80
+    } else if (c & 0xF0) == 0xE0 {
+        len = 3
+        min = 0x800
+    } else if (c & 0xF8) == 0xF0 {
+        len = 4
+        min = 0x10000
+    } else {
+        return 0
+    }
+    if i + len > n {
+        return 0
+    }
+    var cp = c & (0xFF >> (len as u32 + 1))
+    for k in 1..len {
+        let b = p.offset(i + k).read() as u32
+        if (b & 0xC0) != 0x80 {
+            return 0
+        }
+        cp = (cp << 6) | (b & 0x3F)
+    }
+    if cp < min or cp > 0x10FFFF or (cp >= 0xD800 and cp <= 0xDFFF) {
+        return 0
+    }
+    return len
+}
+
+/// Is `p[0..n]` valid UTF-8?
+pub unsafe fn utf8_valid(p: Ptr[u8], n: usize) -> bool {
+    var i: usize = 0
+    while i < n {
+        let l = utf8_sequence_len(p, i, n)
+        if l == 0 {
+            return false
+        }
+        i += l
+    }
+    return true
+}
 
 impl String {
     /// An empty string (no allocation).
@@ -397,13 +515,48 @@ impl String {
         return Some(-value)
     }
 
-    /// Reads a floating-point number (`1.5`, `-2e10`, `inf`, `NaN`).
+    /// Reads a floating-point number (`1.5`, `-2e10`, `inf`, `NaN`), rounded correctly to
+    /// the nearest `f64`.
     pub fn parse_float(self) -> Option[f64] {
-        var out: f64 = 0.0
-        if unsafe { rt_parse_float(self, &out) } {
-            return Some(out)
+        return fmt.parse_f64(self)
+    }
+
+    /// A string made of the bytes `p[0..n]`, where each invalid UTF-8 sequence is
+    /// replaced by U+FFFD.
+    pub unsafe fn from_bytes_lossy(p: Ptr[u8], n: usize) -> String {
+        var s = String.with_capacity(n)
+        var i: usize = 0
+        while i < n {
+            let l = utf8_sequence_len(p, i, n)
+            if l == 0 {
+                s.push('\u{FFFD}')
+                i += 1
+            } else {
+                s.reserve(l)
+                mem.copy(p.offset(i), s.data.offset(s.len), l)
+                s.len += l
+                i += l
+            }
         }
-        return None
+        return s
+    }
+
+    /// Takes ownership of a heap buffer of valid UTF-8 allocated with `mem.alloc`
+    /// (`capacity` bytes, of which `len` are used).
+    pub unsafe fn from_raw_parts(data: Ptr[u8], len: usize, capacity: usize) -> String {
+        if capacity == 0 {
+            return String.new()
+        }
+        return String(data: data, len: len, cap: capacity)
+    }
+
+    /// The bytes of the string, consuming it.
+    pub fn into_bytes(owned self) -> Vec[u8] {
+        var v: Vec[u8] = Vec.with_capacity(self.len)
+        for i in 0..self.len {
+            v.push(unsafe { self.data.offset(i).read() })
+        }
+        return v
     }
 
     fn drop(inout self) {

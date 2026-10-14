@@ -1,0 +1,131 @@
+/// A general-purpose heap allocator for systems without one (Linux without a C library,
+/// WebAssembly, bare metal), spec §5.3.
+///
+/// Blocks of 32 bytes to 64 KiB come from segregated free lists, carved out of chunks of
+/// pages obtained from `std.sys`; larger blocks are mapped directly. Every block starts
+/// with a 16-byte header (so that every allocation is aligned on 16 bytes):
+/// `[size class or mapping size][marker]`.
+
+import std.sys
+import std.mem
+
+const HEADER: usize = 16
+const CLASSES: usize = 12
+/// The largest block of a size class: 32 << 11 = 64 KiB.
+const MAX_CLASS_SIZE: usize = 65536
+const CHUNK: usize = 1048576
+const SMALL: usize = 0x5A11
+const LARGE: usize = 0x1A26E
+
+static var FREE_LISTS: [Ptr[u8]; 12] = [Ptr.null(); 12]
+static var CHUNK_NEXT: Ptr[u8] = Ptr.null()
+static var CHUNK_LEFT: usize = 0
+
+/// The smallest class whose blocks hold `total` bytes: blocks of 32 << class bytes.
+fn class_of(total: usize) -> usize {
+    var c: usize = 0
+    var size: usize = 32
+    while size < total {
+        size <<= 1
+        c += 1
+    }
+    return c
+}
+
+fn class_size(c: usize) -> usize {
+    return (32 as usize) << (c as u32)
+}
+
+fn round_up(x: usize, to: usize) -> usize {
+    return (x + to - 1) / to * to
+}
+
+unsafe fn write_header(block: Ptr[u8], first: usize, marker: usize) {
+    block.cast[usize]().write(first)
+    block.offset(8).cast[usize]().write(marker)
+}
+
+/// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
+pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+    if size > usize.MAX - MAX_CLASS_SIZE {
+        return Ptr.null()
+    }
+    let total = size + HEADER
+    if total > MAX_CLASS_SIZE {
+        let bytes = round_up(total, 65536)
+        let base = sys.page_alloc(bytes)
+        if base.is_null() {
+            return base
+        }
+        write_header(base, bytes, LARGE)
+        return base.offset(HEADER)
+    }
+    let c = class_of(total)
+    let head = FREE_LISTS[c]
+    if not head.is_null() {
+        FREE_LISTS[c] = head.cast[Ptr[u8]]().read()
+        write_header(head, c, SMALL)
+        return head.offset(HEADER)
+    }
+    let need = class_size(c)
+    if CHUNK_LEFT < need {
+        let chunk = sys.page_alloc(CHUNK)
+        if chunk.is_null() {
+            return chunk
+        }
+        CHUNK_NEXT = chunk
+        CHUNK_LEFT = CHUNK
+    }
+    let block = CHUNK_NEXT
+    CHUNK_NEXT = CHUNK_NEXT.offset(need)
+    CHUNK_LEFT -= need
+    write_header(block, c, SMALL)
+    return block.offset(HEADER)
+}
+
+/// Usable size of an allocation.
+unsafe fn usable_size(p: Ptr[u8]) -> usize {
+    let block = p.sub(HEADER)
+    let first = block.cast[usize]().read()
+    let marker = block.offset(8).cast[usize]().read()
+    if marker == LARGE {
+        return first - HEADER
+    }
+    return class_size(first) - HEADER
+}
+
+pub unsafe fn free(p: Ptr[u8]) {
+    if p.is_null() {
+        return
+    }
+    let block = p.sub(HEADER)
+    let first = block.cast[usize]().read()
+    let marker = block.offset(8).cast[usize]().read()
+    if marker == LARGE {
+        sys.page_free(block, first)
+        return
+    }
+    if marker != SMALL or first >= CLASSES {
+        panic("heap corruption: invalid block freed")
+    }
+    block.offset(8).cast[usize]().write(0)
+    block.cast[Ptr[u8]]().write(FREE_LISTS[first])
+    FREE_LISTS[first] = block
+}
+
+pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    if p.is_null() {
+        return alloc(size)
+    }
+    let old = usable_size(p)
+    if size <= old {
+        return p
+    }
+    let q = alloc(size)
+    if q.is_null() {
+        return q
+    }
+    mem.copy(p, q, old)
+    free(p)
+    return q
+}

@@ -60,6 +60,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0231` | This attribute is reserved for the standard library (`@lang`, `@intrinsic`, `@index`, `@track_caller`). |
 | `E0232` | Unknown or misplaced attribute. |
 | `E0233` | A `@test` function must be a free function without parameters, generics or return value. |
+| `E0234` | Invalid `@cfg` condition. |
 
 ## Types, motifs et constantes (chapitres 03 et 04)
 
@@ -105,6 +106,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0371` | This expression cannot be evaluated at compile time. |
 | `E0372` | A constant depends on itself. |
 | `E0373` | Invalid array length: it must be a constant integer between 0 and 4294967295. |
+| `E0374` | A static variable cannot hold a resource. |
 
 ## Modèle mémoire (chapitre 05)
 
@@ -131,6 +133,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0501` | This operation requires an `unsafe` block. |
 | `E0502` | Unsupported ABI: NEXUL 0.1 only supports `extern "C"`. |
 | `E0503` | This type cannot cross the C boundary. |
+| `E0504` | Invalid `@export` function. |
 
 ## Erreurs internes
 

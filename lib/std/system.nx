@@ -1,32 +1,24 @@
 /// Interface with the operating system (spec chapter 09).
 
-@intrinsic
-fn rt_arg_count() -> i32
+import std.sys
+import std.rt
 
-@intrinsic
-fn rt_arg(index: i32) -> String
-
-@intrinsic
-unsafe fn rt_env(name: String, inout out: String) -> bool
-
-/// Ends the program immediately with an exit code (0 means success).
-@intrinsic
-pub fn exit(code: i32) -> Never
+/// Ends the program immediately with an exit code (0 means success). The standard
+/// output is flushed first.
+pub fn exit(code: i32) -> Never {
+    rt.exit(code)
+}
 
 /// The command-line arguments; the first one is the program name.
 pub fn args() -> Vec[String] {
     var all: Vec[String] = Vec.new()
-    for i in 0..rt_arg_count() {
-        all.push(rt_arg(i))
+    for i in 0..sys.arg_count() {
+        all.push(sys.arg(i))
     }
     return all
 }
 
 /// The value of an environment variable.
 pub fn env(name: String) -> Option[String] {
-    var value = String.new()
-    if unsafe { rt_env(name, &value) } {
-        return Some(value)
-    }
-    return None
+    return sys.env(name)
 }

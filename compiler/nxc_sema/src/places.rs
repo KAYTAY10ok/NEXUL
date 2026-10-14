@@ -99,6 +99,18 @@ impl<'a> Cx<'a> {
 
     /// A write to a place (assignment, `inout`, move): checks mutability and freezing.
     fn write(&self, e: &Expr, span: Span, action: &str, check_mut: bool) {
+        if let (Some(st), true) = (e.static_root(), check_mut) {
+            let sd = &self.p.statics[st.idx()];
+            if !sd.mutable {
+                self.diags.emit(
+                    Diagnostic::error("E0405", format!("cannot {} the immutable static `{}`", action, sd.name))
+                        .primary(span, "not modifiable")
+                        .secondary(sd.span, "declared here")
+                        .help(format!("declare it with `static var {}` (its uses then require `unsafe`)", sd.name)),
+                );
+            }
+            return;
+        }
         let Some(path) = place_path(e) else { return };
         for f in self.frozen.iter().rev() {
             if overlaps(&f.path, &path) {
@@ -162,7 +174,22 @@ impl<'a> Cx<'a> {
             }
             _ => {}
         }
-        if !e.is_place() || self.p.is_copy(e.ty) {
+        if self.p.is_copy(e.ty) {
+            return;
+        }
+        if !e.is_place() {
+            // A part of a temporary value: moving it would leave the rest of the
+            // temporary half-destroyed.
+            if matches!(e.kind, T::Field(..) | T::Index(..) | T::IndexFn { .. }) {
+                let tname = self.p.ty_str(e.ty);
+                let mut d = Diagnostic::error("E0403", "cannot move a part out of a temporary value")
+                    .primary(e.span, format!("`{}` is a resource stored inside a temporary", tname))
+                    .help("store the temporary in a variable first, then move the whole variable or copy the part");
+                if self.p.is_string(e.ty) {
+                    d = d.help("use `.clone()` to make a copy");
+                }
+                self.diags.emit(d);
+            }
             return;
         }
         let tname = self.p.ty_str(e.ty);
@@ -422,7 +449,7 @@ impl<'a> Cx<'a> {
             return;
         }
         match &e.kind {
-            T::Lit(_) | T::Local(_) | T::Const(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
+            T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
             T::Unary(_, x) | T::Field(x, _) | T::Cast(x) | T::Try(x, _) => self.expr(x),
             T::ArrayRepeat(x, _) => {
                 self.expr(x);

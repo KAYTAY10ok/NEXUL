@@ -49,6 +49,7 @@ pub enum TokenKind {
     Return,
     SelfValue,
     SelfType,
+    Static,
     Struct,
     True,
     Type,
@@ -187,6 +188,7 @@ pub fn keyword(s: &str) -> Option<TokenKind> {
         "return" => Return,
         "self" => SelfValue,
         "Self" => SelfType,
+        "static" => Static,
         "struct" => Struct,
         "true" => True,
         "type" => Type,
@@ -199,7 +201,7 @@ pub fn keyword(s: &str) -> Option<TokenKind> {
 
 /// Keywords reserved for future versions of the language.
 pub const RESERVED: &[&str] = &[
-    "async", "await", "class", "defer", "dyn", "interface", "loop", "macro", "ref", "static", "trait", "try",
+    "async", "await", "class", "defer", "dyn", "interface", "loop", "macro", "ref", "trait", "try",
     "union", "where", "yield",
 ];
 
@@ -285,6 +287,7 @@ impl fmt::Display for TokenKind {
             Return => "return",
             SelfValue => "self",
             SelfType => "Self",
+            Static => "static",
             Struct => "struct",
             True => "true",
             Type => "type",

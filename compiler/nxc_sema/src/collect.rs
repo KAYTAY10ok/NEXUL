@@ -45,12 +45,17 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 ItemKind::Const(c) => Some(c.name.clone()),
                 ItemKind::TypeAlias(t) => Some(t.name.clone()),
                 ItemKind::ExternFn(e) => Some(e.name.clone()),
+                ItemKind::Static(st) => Some(st.name.clone()),
                 ItemKind::Impl(_) => None,
             };
-            let lang = item.attrs.iter().find(|a| a.name.name == "lang").and_then(|a| match a.args.first() {
-                Some((Lit::Str(s), _)) => LangItem::from_name(s),
+            let lang_text = item.attrs.iter().find(|a| a.name.name == "lang").and_then(|a| match a.args.first() {
+                Some((Lit::Str(s), _)) => Some(s.clone()),
                 _ => None,
             });
+            let lang = lang_text.as_deref().and_then(LangItem::from_name);
+            if let (Some(name), ItemKind::Struct(_) | ItemKind::Enum(_)) = (&lang_text, &item.kind) {
+                prog.lang_adts.insert(name.clone(), AdtId(prog.adts.len() as u32));
+            }
             let item_ref = match item.kind {
                 ItemKind::Impl(decl) => {
                     impls.push(PendingImpl { module: mid, decl, span: item.span });
@@ -84,6 +89,8 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         kind: FnKind::Extern { abi: e.abi.clone(), link },
                         is_test: false,
                         track_caller: false,
+                        export: None,
+                        hints: vec![],
                     });
                     pending_externs.push((id, e, item.attrs.clone()));
                     ItemRef::Fn(id)
@@ -136,6 +143,19 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                     });
                     ItemRef::Const(id)
                 }
+                ItemKind::Static(st) => {
+                    let id = StaticId(prog.statics.len() as u32);
+                    prog.statics.push(StaticDef {
+                        name: st.name.name.clone(),
+                        module: mid,
+                        span: st.name.span,
+                        is_pub: item.is_pub,
+                        mutable: st.mutable,
+                        ty: prog.tcx.error,
+                        ast: Rc::new(st),
+                    });
+                    ItemRef::Static(id)
+                }
                 ItemKind::TypeAlias(t) => {
                     let id = AliasId(prog.aliases.len() as u32);
                     prog.aliases.push(AliasDef { name: t.name.name.clone(), module: mid, span: t.name.span, is_pub: item.is_pub, ty: prog.tcx.error });
@@ -159,6 +179,11 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
             Some(LangItem::Option) => prog.lang.option = Some(id),
             Some(LangItem::Result) => prog.lang.result = Some(id),
             None => {}
+        }
+    }
+    for (id, _, attrs) in &pending_fns {
+        if let Some(name) = lang_name(attrs) {
+            prog.lang_fns.insert(name, *id);
         }
     }
     for b in [Builtin::Print, Builtin::Println, Builtin::Eprint, Builtin::Eprintln, Builtin::Panic, Builtin::Assert, Builtin::Unreachable] {
@@ -240,6 +265,21 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
         let ty = resolve_type(prog, &scope, &ast.ty, diags);
         prog.consts[c].ty = ty;
     }
+    for st in 0..prog.statics.len() {
+        let module = prog.statics[st].module;
+        let ast = prog.statics[st].ast.clone();
+        let scope = TypeScope { module, generics: &[], self_ty: None };
+        let ty = resolve_type(prog, &scope, &ast.ty, diags);
+        if !prog.tcx.is_error(ty) && !prog.is_copy(ty) {
+            diags.emit(
+                Diagnostic::error("E0374", format!("a static variable cannot hold a resource of type `{}`", prog.ty_str(ty)))
+                    .primary(ast.ty.span, "not a copyable type")
+                    .note("static variables live for the whole program and are never destroyed")
+                    .help("use a `const` for a constant string, or store the resource in a local variable"),
+            );
+        }
+        prog.statics[st].ty = ty;
+    }
     for (id, decl, attrs) in &pending_fns {
         resolve_fn_sig(prog, *id, decl, attrs, None, diags);
     }
@@ -270,7 +310,25 @@ fn new_fn_def(f: &Rc<ast::FnDecl>, module: ModId, is_pub: bool, owner: Option<Ad
         kind,
         is_test: attrs.iter().any(|a| a.name.name == "test"),
         track_caller: attrs.iter().any(|a| a.name.name == "track_caller"),
+        export: export_name(attrs, &f.name.name),
+        hints: attrs.iter().filter(|a| matches!(a.name.name.as_str(), "cold" | "inline" | "no_builtins")).map(|a| a.name.name.clone()).collect(),
     }
+}
+
+/// `@lang("name")` on a function.
+fn lang_name(attrs: &[ast::Attr]) -> Option<String> {
+    attrs.iter().find(|a| a.name.name == "lang").and_then(|a| match a.args.first() {
+        Some((Lit::Str(s), _)) => Some(s.clone()),
+        _ => None,
+    })
+}
+
+/// `@export` (symbol = function name) or `@export("symbol")`.
+fn export_name(attrs: &[ast::Attr], fn_name: &str) -> Option<String> {
+    attrs.iter().find(|a| a.name.name == "export").map(|a| match a.args.first() {
+        Some((Lit::Str(s), _)) => s.clone(),
+        _ => fn_name.to_string(),
+    })
 }
 
 fn check_generic_names(gens: &[ast::Ident], diags: &DiagSink) {
@@ -288,8 +346,8 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" => {}
-            "lang" | "intrinsic" | "index" | "track_caller" => {
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" => {}
+            "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
                 if !is_std {
                     diags.emit(
                         Diagnostic::error("E0231", format!("the attribute `@{}` is reserved for the standard library", name))
@@ -299,7 +357,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             }
             _ => {
                 let mut d = Diagnostic::error("E0232", format!("unknown attribute `@{}`", name)).primary(a.name.span, "unknown attribute");
-                if let Some(s) = best_match(name, ["test", "link"]) {
+                if let Some(s) = best_match(name, ["test", "link", "export", "cfg", "inline", "cold"]) {
                     d = d.help(format!("did you mean `@{}`?", s));
                 }
                 diags.emit(d);
@@ -308,11 +366,13 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
         let ok_target = match (name, &item.kind) {
             ("test", ItemKind::Fn(_)) => true,
             ("link", ItemKind::ExternFn(_)) => true,
-            ("lang", ItemKind::Struct(_) | ItemKind::Enum(_)) => true,
+            ("lang", ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Fn(_)) => true,
             ("intrinsic", ItemKind::Fn(_)) => true,
             ("index", ItemKind::Fn(_)) => true,
             ("track_caller", ItemKind::Fn(_)) => true,
-            ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller", _) => false,
+            ("export" | "inline" | "cold" | "no_builtins", ItemKind::Fn(_)) => true,
+            ("cfg", _) => true,
+            ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller" | "export" | "inline" | "cold" | "no_builtins", _) => false,
             _ => true,
         };
         if !ok_target {
@@ -411,6 +471,7 @@ pub fn item_is_pub(prog: &Program, item: ItemRef) -> bool {
         ItemRef::Const(c) => prog.consts[c.idx()].is_pub,
         ItemRef::Alias(a) => prog.aliases[a.idx()].is_pub,
         ItemRef::Variant(a, _) => prog.adts[a.idx()].is_pub,
+        ItemRef::Static(st) => prog.statics[st.idx()].is_pub,
     }
 }
 
@@ -635,6 +696,9 @@ fn is_ffi_safe(prog: &Program, t: Ty, is_ret: bool) -> bool {
         TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Ptr(_) | TyKind::Error => true,
         TyKind::Unit => is_ret,
         TyKind::Never => is_ret,
+        // A function pointer is a C callback when its signature is itself FFI-safe:
+        // scalar parameters are passed by value, exactly as in C.
+        TyKind::Fn(params, r) => params.iter().all(|&(c, p)| c != Convention::Inout && is_ffi_safe(prog, p, false)) && is_ffi_safe(prog, *r, true),
         _ => false,
     }
 }
@@ -745,6 +809,32 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
             Diagnostic::error("E0233", "a `@test` function must be a free function without parameters, generics or return value")
                 .primary(decl.name.span, "invalid test function"),
         );
+    }
+    if let Some(sym) = &prog.fns[id.idx()].export {
+        if !generics.is_empty() || owner.is_some() {
+            diags.emit(
+                Diagnostic::error("E0504", "an `@export` function must be a free function without generic parameters")
+                    .primary(decl.name.span, "cannot be exported"),
+            );
+        }
+        if sym.is_empty() || !sym.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '.') {
+            diags.emit(Diagnostic::error("E0504", format!("invalid exported symbol name `{}`", sym)).primary(decl.name.span, "letters, digits and `_` only"));
+        }
+        for p in &params {
+            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !is_ffi_safe(prog, p.ty, false) {
+                diags.emit(
+                    Diagnostic::error("E0503", format!("parameter `{}` of an exported function cannot cross the C boundary", p.name))
+                        .primary(p.span, format!("type `{}`", prog.ty_str(p.ty)))
+                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, passed by value (see spec §8.2)"),
+                );
+            }
+        }
+        if !is_ffi_safe(prog, ret, true) {
+            diags.emit(
+                Diagnostic::error("E0503", format!("type `{}` cannot cross the C boundary", prog.ty_str(ret)))
+                    .primary(decl.ret.as_ref().map(|r| r.span).unwrap_or(decl.name.span), "not FFI-safe"),
+            );
+        }
     }
     let f = &mut prog.fns[id.idx()];
     f.generics = generics;

@@ -245,6 +245,12 @@ impl<'a> Builder<'a> {
     fn prepare_place(&mut self, e: &Expr) -> PrePlace {
         match &e.kind {
             T::Local(l) => PrePlace { base: self.local_place(*l), steps: vec![] },
+            T::Static(st) => {
+                let ty = self.p.statics[st.idx()].ty;
+                let p = self.temp(self.tcx().ptr(ty), e.span);
+                self.assign(Place::local(p), Rvalue::StaticAddr(*st), e.span);
+                PrePlace { base: Place { local: p, proj: vec![Proj::Deref] }, steps: vec![] }
+            }
             T::Field(b, i) => {
                 let mut pp = self.prepare_place(b);
                 pp.steps.push(Step::Field(*i));
@@ -327,7 +333,10 @@ impl<'a> Builder<'a> {
             T::FnRef(f) => return Operand::FnRef(*f),
             _ => {}
         }
-        if e.is_place() {
+        // A field or element of a temporary (`make().field`) is read through a place too:
+        // `place_of` stores the temporary first.
+        let place_like = matches!(e.kind, T::Local(_) | T::Static(_) | T::Field(..) | T::Index(..) | T::IndexFn { .. });
+        if place_like {
             let place = self.place_of(e);
             if self.is_copy(e.ty) {
                 Operand::Copy(place)
@@ -583,7 +592,7 @@ impl<'a> Builder<'a> {
                 let op = self.operand_owned(e);
                 self.assign(dest, Rvalue::Use(op), span);
             }
-            T::Local(_) | T::Field(..) | T::Index(..) | T::IndexFn { .. } | T::Move(_) => {
+            T::Local(_) | T::Static(_) | T::Field(..) | T::Index(..) | T::IndexFn { .. } | T::Move(_) => {
                 let op = self.operand_owned(e);
                 self.assign(dest, Rvalue::Use(op), span);
             }

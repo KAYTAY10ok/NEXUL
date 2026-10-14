@@ -8,6 +8,7 @@ pub mod defs;
 pub mod exhaust;
 pub mod load;
 pub mod places;
+pub mod target;
 pub mod thir;
 pub mod ty;
 pub mod util;
@@ -23,6 +24,7 @@ pub fn analyze(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Prog
     let mut prog = load::load(src, sm, diags);
     collect::collect(&mut prog, diags);
     consts::eval_all(&mut prog, diags);
+    consts::eval_statics(&mut prog, diags);
     check::check_program(&mut prog, diags);
     exhaust::check_program(&prog, diags);
     places::check_program(&prog, diags);
