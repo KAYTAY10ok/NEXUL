@@ -1,5 +1,8 @@
 # 0002 — Premier backend : C11 portable, compilé par Zig
 
+**Statut : remplacée** par [0008](0008-backend-llvm-et-runtime-nexul.md) (version 0.2). Le
+backend C et le runtime C ont été supprimés.
+
 **Contexte.** Le cahier des charges recommande LLVM (§3.1) et demande la compilation
 croisée (§3.3). Lier le compilateur à la bibliothèque LLVM impose une version précise de
 LLVM, compliquée à installer sur chaque plateforme.

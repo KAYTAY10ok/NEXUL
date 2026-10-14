@@ -1,0 +1,17 @@
+[package]
+name = "nexul-installer"
+description = "The installer of NEXUL (compiler, tools, NEXUL Studio)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+build = "build.rs"
+
+[[bin]]
+name = "NEXUL-Setup"
+path = "src/main.rs"
+
+[[bin]]
+name = "nexul-pack"
+path = "src/pack.rs"
+
+[dependencies]

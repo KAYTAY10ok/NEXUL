@@ -32,7 +32,8 @@ Constantes associées : `MIN`, `MAX` et `BITS` pour chaque entier (`i32.MIN`, `u
 | Tableau | `[u8; 16]` | `N` éléments contigus, `N` constante entière ≥ 0 connue à la compilation |
 | Structure | `struct Point { x: f64, y: f64 }` | produit nommé |
 | Énumération | `enum Forme { Cercle(f64), Vide }` | somme étiquetée (union discriminée) |
-| Fonction | `fn(i32, inout String) -> bool` | pointeur vers une fonction nommée (sans capture en 0.1) |
+| Fonction | `fn(i32, inout String) -> bool` | pointeur vers une fonction nommée ; en paramètre, accepte aussi une fonction anonyme (§4.12) |
+| Objet de trait | `dyn Forme` | valeur de n'importe quel type qui implémente le trait, appelée par répartition dynamique (§3.9) |
 | Pointeur brut | `Ptr[T]` | adresse non vérifiée, utilisable seulement en `unsafe` (§05, §08) |
 
 ### Structures
@@ -109,10 +110,10 @@ fn echanger[A, B](owned p: Paire[A, B]) -> Paire[B, A] {
   explicitement avec des crochets : `Vec[i32].new()`, `taille_de[u64]()`.
 - Implémentation par **monomorphisation** : chaque instanciation produit du code
   spécialisé, sans indirection à l'exécution.
-- En 0.1, les paramètres de type ne portent **pas de contraintes** : dans un corps
-  générique, une valeur de type `T` peut être déplacée, passée, stockée et détruite, mais
-  pas comparée ni additionnée. *(Hors 0.1 : traits et contraintes `[T: Ord]`, qui
-  ajouteront ces opérations sans changer la syntaxe existante.)*
+- Sans contrainte, une valeur de type `T` peut être déplacée, passée, stockée et
+  détruite, mais pas comparée ni additionnée. Les **contraintes de traits** (§3.9),
+  `[T: Ord + Clone]` ou `where T: Ord`, donnent accès aux méthodes et opérateurs des
+  traits nommés ; à chaque appel, les arguments de type doivent les implémenter (E0249).
 - Dans un corps générique, `T` est traité comme un type *ressource* (non copiable),
   ce qui garantit que le corps est valide pour **toute** instanciation.
 
@@ -180,3 +181,109 @@ remplissage entre éléments autre que celui imposé par l'alignement du type d'
 *(Hors 0.1 : `@repr("C")` pour garantir la disposition C, `@align(n)`, `@packed`.)*
 Seuls les types primitifs et `Ptr[T]` ont une représentation garantie à la frontière C
 (§08).
+
+## 3.9 Traits
+
+Un **trait** nomme un ensemble de méthodes qu'un type peut implémenter. Une méthode d'un
+trait peut avoir un corps par défaut ; `Self` désigne le type qui implémente le trait.
+
+```nexul
+trait Forme {
+    fn aire(self) -> f64
+    fn nom(self) -> String
+
+    fn decrire(self) -> String {
+        return "{self.nom()} d'aire {self.aire():.2}"
+    }
+}
+
+struct Cercle {
+    rayon: f64
+}
+
+struct Rectangle {
+    l: f64
+    h: f64
+}
+
+impl Forme for Cercle {
+    fn aire(self) -> f64 {
+        return 3.14159 * self.rayon * self.rayon
+    }
+
+    fn nom(self) -> String {
+        return "cercle"
+    }
+}
+
+impl Forme for Rectangle {
+    fn aire(self) -> f64 {
+        return self.l * self.h
+    }
+
+    fn nom(self) -> String {
+        return "rectangle"
+    }
+}
+
+fn aire_totale[T: Forme](formes: Vec[T]) -> f64 {
+    var total = 0.0
+    for f in formes {
+        total += f.aire()
+    }
+    return total
+}
+
+fn main() {
+    var cercles: Vec[Cercle] = Vec.new()
+    cercles.push(Cercle(rayon: 1.0))
+    println("{aire_totale(cercles):.3}")
+
+    var formes: Vec[dyn Forme] = Vec.new()
+    formes.push(Cercle(rayon: 0.5))
+    formes.push(Rectangle(l: 2.0, h: 3.0))
+    for f in formes {
+        println(f.decrire())
+    }
+}
+```
+
+Règles :
+
+- `impl Trait for Type` fournit chaque méthode sans corps par défaut (E0242), avec
+  exactement la signature du trait, `Self` remplacé par le type (E0241). Un type
+  implémente un trait **au plus une fois** dans un programme (E0243) ; l'`impl` se trouve
+  dans le module du trait ou dans celui du type (E0247).
+- `trait Ord: Eq` déclare un **super-trait** : tout type qui implémente `Ord` implémente
+  aussi `Eq` (E0244).
+- Une implémentation peut être conditionnelle : `impl Eq for Option[T: Eq]`.
+- Contraintes : `fn f[T: Ord + Clone](...)` ou `where T: Ord, U: Display` après la
+  signature. Dans le corps, les méthodes des traits sont appelées sur `T` (`x.clone()`),
+  et les fonctions sans `self` sur le type (`T.default()`). Les appels génériques sont
+  **monomorphisés** : aucun coût à l'exécution.
+- **Répartition dynamique** : une valeur de type `dyn Trait` contient une valeur de
+  n'importe quel type qui implémente le trait, rangée sur le tas, et une table de ses
+  méthodes. La conversion est implicite là où `dyn Trait` est attendu, ou explicite avec
+  `x as dyn Trait`. Un trait utilisable en `dyn` n'a que des méthodes qui prennent `self`
+  ou `inout self`, sans paramètre générique ni `Self` ailleurs dans la signature (E0246).
+  Une valeur `dyn` est une ressource : elle est détruite avec sa valeur.
+
+### Traits standards et opérateurs
+
+Le prélude fournit `Eq`, `Ord` (avec `Ordering`), `Clone`, `Display`, `Hash`, `Default`
+et les traits d'opérateurs `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, implémentés par les
+types primitifs, `String`, `Vec`, `Option`, `Result`, `Map` et `Set` (§09).
+
+| Écriture | Devient |
+|---|---|
+| `a == b`, `a != b` | `a.eq(b)`, `not a.eq(b)` |
+| `a < b`, `a <= b`, `a > b`, `a >= b` | comparaison de `a.cmp(b)` avec `Ordering.Less`, etc. |
+| `a + b`, `a - b`, `a * b`, `a / b`, `a % b` | `a.add(b)`, `a.sub(b)`, `a.mul(b)`, `a.div(b)`, `a.rem(b)` |
+| `-a` | `a.neg()` |
+| `"{x}"`, `print(x)` | `x.to_string()` |
+
+`@derive(Eq, Ord, Clone, Display, Hash, Default)` devant une structure ou une énumération
+génère ces implémentations champ par champ (dans l'ordre de déclaration ; pour une
+énumération, l'ordre des variantes, puis leurs valeurs). `Display` affiche
+`Point(x: 1, y: 2)` ; `Default` n'est dérivable que pour une structure.
+

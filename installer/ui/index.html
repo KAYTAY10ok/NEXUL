@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>Installation de NEXUL</title>
+<link rel="icon" href="/icon.ico">
+<style>
+:root {
+  --bg: #12131b; --panel: #181a24; --panel-2: #1e2030; --border: #2a2d3e; --fg: #dfe2f1; --muted: #8c91ab; --faint: #5f6480;
+  --accent: #8b5cf6; --accent-2: #22d3ee; --grad: linear-gradient(135deg, #8b5cf6, #22d3ee); --ok: #9ece6a; --err: #f7768e;
+  font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif; color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font-size: 14px; overflow: hidden; user-select: none; }
+#app { display: grid; grid-template-columns: 250px 1fr; height: 100vh; }
+aside { background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 26px 0 18px; }
+.brand { display: flex; align-items: center; gap: 12px; padding: 0 24px 28px; }
+.logo { width: 42px; height: 42px; border-radius: 11px; background: var(--grad); display: grid; place-items: center; font-weight: 800; font-size: 22px; color: #fff; box-shadow: 0 6px 22px rgba(139,92,246,.35); }
+.brand b { font-size: 18px; letter-spacing: .04em; display: block; }
+.brand small { color: var(--muted); }
+.steps { list-style: none; margin: 0; padding: 0 12px; }
+.steps li { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-radius: 8px; color: var(--muted); margin-bottom: 2px; }
+.steps li .n { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; font-size: 12px; font-weight: 700; flex: none; }
+.steps li.active { background: rgba(139,92,246,.14); color: var(--fg); }
+.steps li.active .n { border-color: var(--accent); background: var(--accent); color: #fff; }
+.steps li.done { color: var(--fg); }
+.steps li.done .n { border-color: var(--ok); color: var(--ok); }
+.aside-foot { margin-top: auto; padding: 0 24px; color: var(--faint); font-size: 12px; line-height: 1.5; }
+main { display: flex; flex-direction: column; min-width: 0; }
+.page { flex: 1; overflow: auto; padding: 34px 42px 10px; display: none; }
+.page.active { display: block; animation: fade .25s ease; }
+@keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+h1 { font-size: 26px; margin: 0 0 6px; font-weight: 700; }
+h1 span { background: var(--grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.lead { color: var(--muted); margin: 0 0 24px; line-height: 1.55; max-width: 640px; }
+.features { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 22px; }
+.feature { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+.feature b { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; }
+.feature p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.ico { width: 18px; height: 18px; stroke: url(#g); fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; flex: none; }
+.license { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; color: var(--muted); font-size: 12.5px; line-height: 1.55; max-height: 150px; overflow: auto; user-select: text; }
+.check { display: flex; align-items: center; gap: 10px; margin-top: 14px; cursor: pointer; }
+.check input { width: 17px; height: 17px; accent-color: var(--accent); }
+.cards { display: flex; flex-direction: column; gap: 10px; }
+.card { display: grid; grid-template-columns: 26px 40px 1fr auto; align-items: center; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer; transition: border-color .15s, background .15s; }
+.card:hover { border-color: #3a3e56; }
+.card.on { border-color: rgba(139,92,246,.7); background: linear-gradient(0deg, rgba(139,92,246,.07), rgba(139,92,246,.07)), var(--panel); }
+.card.locked { cursor: default; }
+.card input { width: 18px; height: 18px; accent-color: var(--accent); }
+.card .cicon { width: 40px; height: 40px; border-radius: 9px; background: var(--panel-2); display: grid; place-items: center; }
+.card .cicon .ico { width: 22px; height: 22px; }
+.card b { display: block; margin-bottom: 2px; }
+.card small { color: var(--muted); line-height: 1.45; display: block; }
+.card .size { color: var(--muted); font-size: 12.5px; white-space: nowrap; }
+.tag { font-size: 10.5px; padding: 1px 7px; border-radius: 8px; background: rgba(34,211,238,.13); color: var(--accent-2); margin-left: 6px; vertical-align: 1px; font-weight: 600; }
+.field label { display: block; color: var(--muted); font-size: 12.5px; margin-bottom: 6px; }
+.row { display: flex; gap: 8px; }
+.input { flex: 1; height: 36px; border-radius: 8px; border: 1px solid var(--border); background: var(--panel); color: var(--fg); padding: 0 12px; font: inherit; outline: none; user-select: text; }
+.input:focus { border-color: var(--accent); }
+.hint { color: var(--faint); font-size: 12px; margin-top: 6px; line-height: 1.5; }
+.options { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 22px; }
+.opt { display: flex; gap: 12px; align-items: flex-start; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; }
+.opt input { margin-top: 2px; width: 17px; height: 17px; accent-color: var(--accent); flex: none; }
+.opt b { display: block; font-size: 13.5px; }
+.opt small { color: var(--muted); font-size: 12px; line-height: 1.45; }
+.summary { margin-top: 18px; color: var(--muted); font-size: 13px; }
+.summary b { color: var(--fg); }
+.bar { height: 10px; border-radius: 6px; background: var(--panel-2); overflow: hidden; margin: 26px 0 14px; border: 1px solid var(--border); }
+.bar > div { height: 100%; width: 0; background: var(--grad); border-radius: 6px; transition: width .3s ease; position: relative; overflow: hidden; }
+.bar > div::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.25), transparent); animation: shine 1.4s infinite; }
+@keyframes shine { from { transform: translateX(-100%); } to { transform: translateX(100%); } }
+.pstep { font-size: 15px; font-weight: 600; }
+.pfile { color: var(--faint); font-size: 12px; font-family: "Cascadia Code", Consolas, monospace; margin-top: 4px; height: 16px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.plog { margin-top: 18px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; height: 190px; overflow: auto; font-size: 12.5px; color: var(--muted); line-height: 1.7; }
+.plog div::before { content: "✓ "; color: var(--ok); }
+.done-hero { display: flex; align-items: center; gap: 18px; margin-bottom: 18px; }
+.done-hero .big { width: 64px; height: 64px; border-radius: 50%; background: rgba(158,206,106,.13); display: grid; place-items: center; color: var(--ok); font-size: 34px; flex: none; }
+.done-hero .big.err { background: rgba(247,118,142,.13); color: var(--err); }
+.tips { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; line-height: 1.7; color: var(--muted); }
+.tips code { font-family: "Cascadia Code", Consolas, monospace; color: var(--fg); background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; user-select: text; }
+.error-box { background: rgba(247,118,142,.1); border: 1px solid rgba(247,118,142,.4); color: #ffc3cd; border-radius: 10px; padding: 12px 14px; white-space: pre-wrap; line-height: 1.5; user-select: text; }
+footer { display: flex; align-items: center; justify-content: flex-end; gap: 10px; padding: 16px 42px 22px; border-top: 1px solid var(--border); background: var(--bg); }
+footer .space { flex: 1; color: var(--faint); font-size: 12.5px; }
+.btn { height: 38px; padding: 0 20px; border-radius: 9px; border: 1px solid var(--border); background: var(--panel-2); color: var(--fg); font: inherit; font-weight: 600; cursor: pointer; transition: border-color .15s, filter .15s; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--grad); color: #fff; border-color: transparent; }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.danger { background: var(--err); border-color: transparent; color: #1a0b10; }
+.btn:disabled { opacity: .45; cursor: default; filter: none; }
+.old-tools { display: flex; align-items: center; gap: 8px; margin: 0 0 12px; }
+.old-tools .space { flex: 1; color: var(--faint); font-size: 12.5px; }
+.btn.small { height: 30px; padding: 0 12px; font-size: 12.5px; font-weight: 600; }
+.ocard { display: grid; grid-template-columns: 40px 1fr auto; align-items: center; gap: 14px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; transition: border-color .15s; }
+.ocard.pending { border-color: rgba(224,175,104,.55); }
+.ocard .cicon { width: 40px; height: 40px; border-radius: 9px; background: var(--panel-2); display: grid; place-items: center; }
+.ocard .cicon .ico { width: 22px; height: 22px; }
+.ocard b { display: block; margin-bottom: 2px; }
+.ocard b .ver { color: var(--muted); font-weight: 500; margin-left: 4px; }
+.ocard .loc { font-family: "Cascadia Code", Consolas, monospace; font-size: 11.5px; color: var(--muted); word-break: break-all; user-select: text; }
+.ocard small { color: var(--faint); font-size: 12px; display: block; margin-top: 3px; line-height: 1.45; }
+.ocard small .adm { color: #e0af68; }
+.seg { display: flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; flex: none; }
+.seg button { height: 32px; padding: 0 14px; border: 0; background: var(--panel-2); color: var(--muted); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; }
+.seg button + button { border-left: 1px solid var(--border); }
+.seg button:hover { color: var(--fg); }
+.seg button.on[data-a="remove"] { background: rgba(247,118,142,.18); color: #ffb4c1; }
+.seg button.on[data-a="backup"] { background: rgba(34,211,238,.16); color: #a5f0ff; }
+.seg button.on[data-a="keep"] { background: rgba(158,206,106,.15); color: #cdeaa8; }
+.warn-box { background: rgba(224,175,104,.1); border: 1px solid rgba(224,175,104,.4); color: #f3d9ae; border-radius: 10px; padding: 12px 14px; margin-top: 16px; line-height: 1.55; user-select: text; }
+.warn-box div::before { content: "! "; font-weight: 700; }
+.spin { display: inline-block; width: 12px; height: 12px; border: 2px solid rgba(34,211,238,.3); border-top-color: var(--accent-2); border-radius: 50%; animation: rot .8s linear infinite; vertical-align: -1px; margin-right: 8px; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.note { background: rgba(34,211,238,.08); border: 1px solid rgba(34,211,238,.3); border-radius: 10px; padding: 10px 14px; margin-bottom: 18px; color: #bfefff; font-size: 13px; }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#a78bfa"/><stop offset="1" stop-color="#22d3ee"/></linearGradient></defs></svg>
+<div id="app">
+  <aside>
+    <div class="brand"><div class="logo">N</div><div><b>NEXUL</b><small id="ver"></small></div></div>
+    <ul class="steps" id="steps"></ul>
+    <div class="aside-foot">Langage NEXUL, compilateur, bibliothèque standard, outils et NEXUL Studio.<br>Licence MIT ou Apache 2.0.</div>
+  </aside>
+  <main>
+    <!-- 1. Welcome -->
+    <section class="page" data-page="welcome">
+      <h1>Bienvenue dans <span>NEXUL</span></h1>
+      <p class="lead">Cet assistant installe le langage NEXUL sur votre ordinateur : le compilateur natif, ses outils et NEXUL Studio, l'environnement de développement officiel.</p>
+      <div id="existing"></div>
+      <div class="features">
+        <div class="feature"><b><svg class="ico" viewBox="0 0 24 24"><path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/></svg>Compilateur natif</b><p>nxc compile en code machine optimisé (LLVM) pour Windows, Linux, macOS, WebAssembly et les microcontrôleurs.</p></div>
+        <div class="feature"><b><svg class="ico" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/></svg>NEXUL Studio</b><p>Éditeur avec complétion, documentation au survol, refactorisation, tests et aperçu web.</p></div>
+        <div class="feature"><b><svg class="ico" viewBox="0 0 24 24"><path d="M8 8a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z"/><path d="M12 13v8M3 13h5M16 13h5"/></svg>Débogueur</b><p>Points d'arrêt, pas à pas, variables et pile d'appels directement dans Studio.</p></div>
+        <div class="feature"><b><svg class="ico" viewBox="0 0 24 24"><path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/></svg>Paquets nxpm</b><p>Dépendances locales ou Git, versions figées et vérification d'intégrité SHA-256.</p></div>
+      </div>
+      <div class="license">
+        <b style="color:var(--fg)">Licences</b><br>
+        NEXUL (langage, compilateur, bibliothèque standard, NEXUL Studio, outils) est distribué sous licence MIT ou Apache 2.0, au choix.<br><br>
+        Composants tiers inclus : LLVM et LLD (génération de code, édition de liens et débogueur) — licence Apache 2.0 avec exceptions LLVM, voir llvm.org/LICENSE.txt ; Python (moteur utilisé par le débogueur LLDB) — licence de la Python Software Foundation, fournie avec le composant.<br><br>
+        LE LOGICIEL EST FOURNI « TEL QUEL », SANS GARANTIE D'AUCUNE SORTE, EXPLICITE OU IMPLICITE.
+      </div>
+      <label class="check"><input type="checkbox" id="accept"> J'accepte les conditions des licences</label>
+    </section>
+
+    <!-- Earlier versions -->
+    <section class="page" data-page="old">
+      <h1>Anciennes versions</h1>
+      <p class="lead">Des versions précédentes de NEXUL ont été trouvées sur cet ordinateur. Choisissez pour chacune de la <b>supprimer</b> ou de la <b>sauvegarder</b>.</p>
+      <div class="note">Une sauvegarde est déplacée dans <b id="backup-root"></b>. Elle est retirée du PATH et n'a plus de raccourci, d'association de fichiers ni d'inscription dans les applications installées : elle ne gêne pas la nouvelle version. Pour vous en débarrasser plus tard, supprimez simplement son dossier.</div>
+      <div class="old-tools"><span class="space" id="old-left"></span><button class="btn small" id="all-remove">Tout supprimer</button><button class="btn small" id="all-backup">Tout sauvegarder</button></div>
+      <div class="cards" id="old-list"></div>
+    </section>
+
+    <!-- 2. Components -->
+    <section class="page" data-page="components">
+      <h1>Composants</h1>
+      <p class="lead">Choisissez ce qui doit être installé. Les éléments indispensables au compilateur sont toujours installés.</p>
+      <div class="cards" id="cards"></div>
+    </section>
+
+    <!-- 3. Location -->
+    <section class="page" data-page="location">
+      <h1>Emplacement et options</h1>
+      <p class="lead">NEXUL s'installe pour votre compte utilisateur, sans droits d'administrateur.</p>
+      <div class="field">
+        <label for="dir">Dossier d'installation</label>
+        <div class="row"><input class="input" id="dir" spellcheck="false"><button class="btn" id="browse">Parcourir…</button></div>
+        <div class="hint">Les programmes sont placés dans <b>bin</b> ; LLVM dans <b>llvm</b> ; les exemples dans <b>examples</b>.</div>
+      </div>
+      <div class="options">
+        <label class="opt"><input type="checkbox" id="o-path" checked><span><b>Ajouter au PATH</b><small>Utiliser <code>nxc</code> et <code>nxpm</code> depuis un terminal.</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-desktop" checked><span><b>Raccourci sur le Bureau</b><small>Lancer NEXUL Studio d'un double clic.</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-start" checked><span><b>Menu Démarrer</b><small>NEXUL Studio, le guide et la désinstallation.</small></span></label>
+        <label class="opt"><input type="checkbox" id="o-assoc" checked><span><b>Ouvrir les fichiers .nx</b><small>Avec NEXUL Studio, depuis l'Explorateur.</small></span></label>
+      </div>
+      <div class="summary" id="summary"></div>
+    </section>
+
+    <!-- 4. Progress -->
+    <section class="page" data-page="progress">
+      <h1 id="p-title">Installation en cours</h1>
+      <p class="lead" id="p-lead">Les fichiers sont décompressés et vérifiés un par un.</p>
+      <div class="bar"><div id="bar"></div></div>
+      <div class="pstep" id="pstep">Préparation…</div>
+      <div class="pfile" id="pfile"></div>
+      <div class="plog" id="plog"></div>
+    </section>
+
+    <!-- 5. Done -->
+    <section class="page" data-page="done">
+      <div class="done-hero"><div class="big" id="d-icon">✓</div><div><h1 id="d-title">NEXUL est installé</h1><div style="color:var(--muted)" id="d-sub"></div></div></div>
+      <div id="d-body"></div>
+    </section>
+
+    <!-- Uninstall -->
+    <section class="page" data-page="uninstall">
+      <h1>Désinstaller <span>NEXUL</span></h1>
+      <p class="lead">Le compilateur, NEXUL Studio, la chaîne LLVM, les raccourcis, l'association des fichiers .nx et l'entrée du PATH seront supprimés.<br>Vos projets et vos réglages ne sont pas touchés.</p>
+      <div class="tips" id="u-where"></div>
+    </section>
+
+    <footer>
+      <div class="space" id="foot-info"></div>
+      <button class="btn" id="back">Précédent</button>
+      <button class="btn primary" id="next">Suivant</button>
+    </footer>
+  </main>
+</div>
+<script>
+'use strict';
+const TOKEN = '__TOKEN__';
+const $ = (s) => document.querySelector(s);
+const api = async (method, path, body) => {
+  const r = await fetch('/api/' + path, { method, headers: { 'X-Token': TOKEN }, body, cache: 'no-store' });
+  const j = await r.json();
+  if (!r.ok) throw new Error(j.error || r.statusText);
+  return j;
+};
+const mo = (n) => n >= 1073741824 ? (n / 1073741824).toFixed(1).replace('.', ',') + ' Go' : Math.max(0.1, n / 1048576).toFixed(1).replace('.', ',') + ' Mo';
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const ICONS = {
+  core: '<path d="m8 9-4 3 4 3M16 9l4 3-4 3M13 6l-2 12"/>',
+  llvm: '<path d="M12 2 3 7v10l9 5 9-5V7z"/><path d="M12 22V12M3 7l9 5 9-5"/>',
+  studio: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/>',
+  debugger: '<path d="M8 8a4 4 0 0 1 8 0v5a4 4 0 0 1-8 0z"/><path d="M12 13v8M3 13h5M16 13h5M5 7l3 2M19 7l-3 2"/>',
+  samples: '<path d="M4 4h12a4 4 0 0 1 4 4v12H8a4 4 0 0 1-4-4z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+};
+const OLD_ICONS = {
+  install: '<path d="M21 8 12 3 3 8v8l9 5 9-5z"/><path d="M3 8l9 5 9-5M12 13v8"/>',
+  folder: '<rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 9h18M8 21h8"/>',
+  path: '<path d="M4 17l6-6-6-6M12 19h8"/>',
+  shortcut: '<path d="M14 4h6v6M20 4l-9 9"/><path d="M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5"/>',
+  assoc: '<path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6"/>',
+};
+const ACTION_NAMES = { remove: 'Supprimer', backup: 'Sauvegarder', keep: 'Conserver' };
+let INFO = null;
+let OLD = null; // the earlier versions (null while they are looked for)
+const oldChoice = {};
+let page = 'welcome';
+const BASE_PAGES = ['welcome', 'components', 'location', 'progress', 'done'];
+const PAGES = () => OLD && OLD.length ? ['welcome', 'old', 'components', 'location', 'progress', 'done'] : BASE_PAGES;
+const STEP_NAMES = { welcome: 'Bienvenue', old: 'Anciennes versions', components: 'Composants', location: 'Emplacement', progress: 'Installation', done: 'Terminé' };
+const chosen = new Set();
+
+function renderSteps() {
+  const pages = INFO.mode === 'uninstall' ? ['uninstall', 'progress', 'done'] : PAGES();
+  const names = INFO.mode === 'uninstall' ? { uninstall: 'Désinstallation', progress: 'Suppression', done: 'Terminé' } : STEP_NAMES;
+  const i = pages.indexOf(page);
+  $('#steps').innerHTML = pages.map((p, k) => `<li class="${k === i ? 'active' : k < i ? 'done' : ''}"><span class="n">${k < i ? '✓' : k + 1}</span>${names[p]}</li>`).join('');
+}
+
+function show(p) {
+  page = p;
+  document.querySelectorAll('.page').forEach((s) => s.classList.toggle('active', s.dataset.page === p));
+  renderSteps();
+  const back = $('#back'), next = $('#next');
+  back.style.display = ['welcome', 'progress', 'done', 'uninstall'].includes(p) ? 'none' : '';
+  next.style.display = p === 'progress' ? 'none' : '';
+  next.className = 'btn primary';
+  $('#foot-info').textContent = '';
+  next.disabled = false;
+  if (p === 'welcome') { next.textContent = 'Suivant'; updateWelcome(); }
+  if (p === 'old') { next.textContent = 'Suivant'; renderOld(); }
+  if (p === 'components') { next.textContent = 'Suivant'; updateTotal(); }
+  if (p === 'location') { next.textContent = 'Installer'; updateSummary(); }
+  if (p === 'done') { next.textContent = 'Fermer'; }
+  if (p === 'uninstall') { next.textContent = 'Désinstaller'; next.className = 'btn danger'; }
+}
+
+function updateWelcome() {
+  if (page !== 'welcome') return;
+  $('#next').disabled = !$('#accept').checked || OLD === null;
+  $('#foot-info').innerHTML = OLD === null ? '<span class="spin"></span>Recherche des versions précédentes…' : '';
+}
+
+function renderExisting() {
+  const el = $('#existing');
+  if (OLD === null) { el.innerHTML = ''; return; }
+  const versions = OLD.filter((o) => o.kind === 'install' || o.kind === 'folder').length;
+  const others = OLD.length - versions;
+  if (!OLD.length) { el.innerHTML = ''; return; }
+  const what = [versions ? `${versions} version${versions > 1 ? 's' : ''} précédente${versions > 1 ? 's' : ''}` : '', others ? `${others} élément${others > 1 ? 's' : ''} résiduel${others > 1 ? 's' : ''}` : ''].filter(Boolean).join(' et ');
+  el.innerHTML = `<div class="note">${what} de NEXUL trouvé${OLD.length > 1 ? 's' : ''} sur cet ordinateur : à l'étape suivante, vous choisirez de ${versions ? 'supprimer ou de sauvegarder chaque version' : 'les retirer ou de les conserver'}.</div>`;
+}
+
+function renderOld() {
+  $('#backup-root').textContent = INFO.backupRoot;
+  $('#old-list').innerHTML = OLD.map((o) => {
+    const details = [...o.details];
+    if (o.size) details.unshift(mo(o.size));
+    const adm = o.admin ? ' · <span class="adm">droits d\'administrateur demandés</span>' : '';
+    return `<div class="ocard ${oldChoice[o.id] ? '' : 'pending'}" data-id="${o.id}">
+      <div class="cicon"><svg class="ico" viewBox="0 0 24 24">${OLD_ICONS[o.kind] || OLD_ICONS.folder}</svg></div>
+      <div><b>${esc(o.name)}${o.version ? `<span class="ver">${esc(o.version)}</span>` : ''}</b><div class="loc">${esc(o.location)}</div><small>${details.map(esc).join(' · ')}${adm}</small></div>
+      <div class="seg">${o.choices.map((a) => `<button data-a="${a}" class="${oldChoice[o.id] === a ? 'on' : ''}">${ACTION_NAMES[a]}</button>`).join('')}</div>
+    </div>`;
+  }).join('');
+  document.querySelectorAll('.ocard .seg button').forEach((b) => b.addEventListener('click', () => {
+    oldChoice[b.closest('.ocard').dataset.id] = b.dataset.a;
+    renderOld();
+  }));
+  const left = OLD.filter((o) => !oldChoice[o.id]).length;
+  $('#old-left').textContent = left ? `${left} choix restant${left > 1 ? 's' : ''}` : 'Tous les choix sont faits.';
+  if (page === 'old') $('#next').disabled = left > 0;
+}
+
+function chooseAll(a) {
+  for (const o of OLD) oldChoice[o.id] = o.choices.includes(a) ? a : 'remove';
+  renderOld();
+}
+
+function renderCards() {
+  $('#cards').innerHTML = INFO.components.map((c) => `
+    <div class="card ${chosen.has(c.id) ? 'on' : ''} ${c.required ? 'locked' : ''}" data-id="${c.id}">
+      <input type="checkbox" ${chosen.has(c.id) ? 'checked' : ''} ${c.required ? 'disabled' : ''}>
+      <div class="cicon"><svg class="ico" viewBox="0 0 24 24">${ICONS[c.id] || ICONS.core}</svg></div>
+      <div><b>${esc(c.name)}${c.required ? '<span class="tag">requis</span>' : ''}</b><small>${esc(c.description)}</small></div>
+      <div class="size">${mo(c.size)}</div>
+    </div>`).join('');
+  document.querySelectorAll('.card').forEach((el) => el.addEventListener('click', () => {
+    const c = INFO.components.find((x) => x.id === el.dataset.id);
+    if (c.required) return;
+    if (chosen.has(c.id)) chosen.delete(c.id); else chosen.add(c.id);
+    // The debugger works inside NEXUL Studio.
+    if (c.id === 'studio' && !chosen.has('studio')) chosen.delete('debugger');
+    if (c.id === 'debugger' && chosen.has('debugger')) chosen.add('studio');
+    renderCards();
+    updateTotal();
+  }));
+}
+
+function total() { return INFO.components.filter((c) => chosen.has(c.id)).reduce((a, c) => a + c.size, 0); }
+function updateTotal() { $('#foot-info').textContent = 'Espace nécessaire : ' + mo(total()); }
+function updateSummary() {
+  const names = INFO.components.filter((c) => chosen.has(c.id)).map((c) => c.name);
+  $('#summary').innerHTML = `Seront installés : <b>${names.map(esc).join(', ')}</b> — ${mo(total())}.`;
+  $('#foot-info').textContent = 'Espace nécessaire : ' + mo(total());
+  const studio = chosen.has('studio');
+  for (const id of ['o-desktop', 'o-assoc']) { $('#' + id).disabled = !studio; if (!studio) $('#' + id).checked = false; }
+}
+
+async function startInstall() {
+  const dir = $('#dir').value.trim();
+  if (!/^[a-zA-Z]:\\/.test(dir)) { alert("Indiquez un dossier complet, par exemple C:\\NEXUL."); return; }
+  const q = new URLSearchParams({
+    dir, components: [...chosen].join(','),
+    path: $('#o-path').checked ? '1' : '0', desktop: $('#o-desktop').checked ? '1' : '0',
+    startmenu: $('#o-start').checked ? '1' : '0', associate: $('#o-assoc').checked ? '1' : '0',
+    old: (OLD || []).filter((o) => oldChoice[o.id]).map((o) => o.id + ':' + oldChoice[o.id]).join(','),
+  });
+  try { await api('POST', 'install?' + q); } catch (e) { alert(e.message); return; }
+  show('progress');
+  poll(false);
+}
+
+async function startUninstall() {
+  try { await api('POST', 'uninstall'); } catch (e) { alert(e.message); return; }
+  $('#p-title').textContent = 'Désinstallation en cours';
+  $('#p-lead').textContent = 'Les fichiers de NEXUL sont supprimés.';
+  show('progress');
+  poll(true);
+}
+
+async function poll(un) {
+  let p;
+  try { p = await api('GET', 'progress'); } catch (e) { setTimeout(() => poll(un), 400); return; }
+  $('#bar').style.width = p.percent + '%';
+  $('#pstep').textContent = p.step || '';
+  $('#pfile').textContent = p.file || '';
+  $('#plog').innerHTML = p.log.map((l) => `<div>${esc(l)}</div>`).join('');
+  $('#plog').scrollTop = 1e9;
+  if (!p.done) { setTimeout(() => poll(un), 150); return; }
+  show('done');
+  if (p.error) {
+    $('#d-icon').textContent = '!'; $('#d-icon').classList.add('err');
+    $('#d-title').textContent = un ? 'La désinstallation a échoué' : "L'installation a échoué";
+    $('#d-sub').textContent = '';
+    $('#d-body').innerHTML = `<div class="error-box">${esc(p.error)}</div>`;
+    return;
+  }
+  const warnings = p.warnings.length ? `<div class="warn-box">${p.warnings.map((w) => `<div>${esc(w)}</div>`).join('')}</div>` : '';
+  if (un) {
+    $('#d-title').textContent = 'NEXUL a été désinstallé';
+    $('#d-sub').textContent = 'Merci d\'avoir essayé NEXUL.';
+    $('#d-body').innerHTML = warnings;
+    return;
+  }
+  $('#d-sub').textContent = `Version ${INFO.version} — ${$('#dir').value}`;
+  const studio = chosen.has('studio');
+  $('#d-body').innerHTML = `
+    <div class="tips">
+      ${studio ? 'Lancez <b>NEXUL Studio</b> depuis le Bureau ou le menu Démarrer : les exemples s\'ouvrent pour commencer.<br>' : ''}
+      Dans un nouveau terminal : <code>nxc run bonjour.nx</code> · <code>nxc test calcul.nx</code> · <code>nxpm new mon_projet</code><br>
+      Le guide du langage est dans <code>docs\\guide.md</code> ; <code>nxc explain E0302</code> explique une erreur.
+    </div>
+    <div style="display:flex;gap:10px;margin-top:18px">
+      ${studio ? '<button class="btn primary" id="launch">Lancer NEXUL Studio</button>' : ''}
+      <button class="btn" id="openf">Ouvrir le dossier d\'installation</button>
+      ${p.backups ? '<button class="btn" id="openb">Ouvrir les sauvegardes</button>' : ''}
+    </div>${warnings}`;
+  if (p.backups) $('#openb').onclick = () => api('POST', 'open-backups');
+  if (studio) $('#launch').onclick = async () => { await api('POST', 'launch'); setTimeout(() => api('POST', 'quit').catch(() => {}), 400); };
+  $('#openf').onclick = () => api('POST', 'open-folder');
+}
+
+$('#accept').addEventListener('change', updateWelcome);
+$('#all-remove').onclick = () => chooseAll('remove');
+$('#all-backup').onclick = () => chooseAll('backup');
+$('#browse').onclick = async () => { const r = await api('POST', 'browse', $('#dir').value); if (r.path) { $('#dir').value = r.path; } };
+$('#back').onclick = () => { const pages = PAGES(), i = pages.indexOf(page); if (i > 0) show(pages[i - 1]); };
+$('#next').onclick = () => {
+  if (page === 'welcome') show(OLD && OLD.length ? 'old' : 'components');
+  else if (page === 'old') show('components');
+  else if (page === 'components') show('location');
+  else if (page === 'location') startInstall();
+  else if (page === 'uninstall') startUninstall();
+  else if (page === 'done') api('POST', 'quit').then(() => window.close()).catch(() => window.close());
+};
+
+(async () => {
+  INFO = await api('GET', 'info');
+  $('#ver').textContent = 'Version ' + INFO.version;
+  for (const c of INFO.components) if (c.required || c.default) chosen.add(c.id);
+  $('#dir').value = INFO.defaultDir;
+  if (INFO.mode === 'uninstall') {
+    document.title = 'Désinstallation de NEXUL';
+    $('#u-where').innerHTML = INFO.existing ? `Installation trouvée : <b>${esc(INFO.existing)}</b> (version ${esc(INFO.existingVersion || '?')})` : 'Installation trouvée dans le dossier de ce programme.';
+    show('uninstall');
+  } else {
+    renderCards();
+    show('welcome');
+    // The earlier versions are looked for while the welcome page is read.
+    api('GET', 'old-versions').then((r) => { OLD = r.items; }).catch(() => { OLD = []; }).finally(() => {
+      renderExisting();
+      updateWelcome();
+      renderSteps();
+    });
+  }
+  setInterval(() => api('POST', 'ping').catch(() => {}), 3000);
+  api('POST', 'ping').catch(() => {});
+})();
+</script>
+</body>
+</html>

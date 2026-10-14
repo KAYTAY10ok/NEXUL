@@ -1,24 +1,28 @@
-# Spécification du langage NEXUL — version 0.1 (« Noyau »)
+# Spécification du langage NEXUL — version 0.2
 
-Ce dossier contient la **spécification formelle** de NEXUL 0.1. Elle transforme le
+Ce dossier contient la **spécification formelle** de NEXUL. Elle transforme le
 [cahier des charges](../cahier-des-charges.md) en règles précises, vérifiables et testées.
 
-NEXUL 0.1 est volontairement un **noyau** : un sous-ensemble cohérent, entièrement
-spécifié et entièrement implémenté, sur lequel les versions suivantes s'appuient
-sans le remettre en cause (cahier des charges §20 : « limiter la première grammaire »).
+NEXUL 0.1 était volontairement un **noyau** : un sous-ensemble cohérent, entièrement
+spécifié et entièrement implémenté (cahier des charges §20 : « limiter la première
+grammaire »). La version 0.2 l'étend sans le remettre en cause : traits et contraintes
+génériques, répartition dynamique (`dyn`), fonctions anonymes, `Map` et `Set`, variables
+statiques, compilation conditionnelle, export de fonctions vers C, cibles sans système
+d'exploitation, et un compilateur autonome (backend LLVM, runtime écrit en NEXUL). Les
+mentions « Hors 0.1 » signalent ce qui reste à venir.
 
 | Chapitre | Contenu |
 |---|---|
 | [01 — Structure lexicale](01-lexique.md) | Encodage, jetons, commentaires, littéraux, fins d'instruction |
 | [02 — Grammaire](02-grammaire.md) | Grammaire EBNF complète |
-| [03 — Types](03-types.md) | Types primitifs, composés, génériques, inférence, conversions |
-| [04 — Expressions et instructions](04-expressions.md) | Sémantique, ordre d'évaluation, opérateurs, contrôle de flux, motifs |
+| [03 — Types](03-types.md) | Types primitifs, composés, génériques, inférence, conversions, traits |
+| [04 — Expressions et instructions](04-expressions.md) | Sémantique, ordre d'évaluation, opérateurs, contrôle de flux, motifs, fonctions anonymes |
 | [05 — Modèle mémoire](05-memoire.md) | Propriété, déplacements, emprunts, destruction, exclusivité, `unsafe` |
 | [06 — Modules](06-modules.md) | Fichiers, imports, visibilité, prélude |
 | [07 — Erreurs](07-erreurs.md) | Paniques, `Option`/`Result`, opérateur `?`, diagnostics |
-| [08 — Interopérabilité C](08-interop-c.md) | `extern "C"`, `Ptr[T]`, types compatibles |
-| [09 — Bibliothèque standard 0.1](09-bibliotheque.md) | Prélude, `String`, `Vec`, `Option`, `Result`, `std.*` |
-| [10 — Compilateur `nxc`](10-compilateur.md) | Pipeline, IR, backend C, ligne de commande, tests |
+| [08 — Interopérabilité C](08-interop-c.md) | `extern "C"`, `@export`, bibliothèques, `Ptr[T]`, types compatibles |
+| [09 — Bibliothèque standard](09-bibliotheque.md) | Prélude, traits standards, `String`, `Vec`, `Map`, `Set`, `std.*` |
+| [10 — Compilateur `nxc`](10-compilateur.md) | Pipeline, IR, backend LLVM, runtime, cibles, ligne de commande, tests |
 
 ## Conventions
 

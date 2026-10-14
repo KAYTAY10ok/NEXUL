@@ -33,7 +33,7 @@ pub struct Runs {
 pub fn command(program: &Path, args: &[String], cwd: &Path) -> Command {
     let mut cmd = Command::new(program);
     cmd.args(args).current_dir(cwd);
-    // The C toolchain (zig) and cargo may not be in the PATH of a GUI process.
+    // Tools installed for the user (cargo, winget links) may not be in the PATH of a GUI process.
     let mut path = std::env::var_os("PATH").unwrap_or_default();
     let mut extra: Vec<PathBuf> = Vec::new();
     if let Some(local) = std::env::var_os("LOCALAPPDATA") {

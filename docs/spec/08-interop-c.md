@@ -1,8 +1,8 @@
 # 08 — Interopérabilité C (ABI native)
 
 Le cahier des charges (§12.1) demande que **l'ABI C soit la première interface stabilisée**.
-NEXUL 0.1 permet d'appeler des fonctions C ; l'exposition de fonctions NEXUL à C est
-prévue pour 0.2 (mode de compilation « bibliothèque »).
+NEXUL appelle des fonctions C et expose ses propres fonctions à C, sous forme
+d'exécutable ou de bibliothèque statique ou partagée (§8.4).
 
 ## 8.1 Déclarer une fonction C
 
@@ -58,3 +58,31 @@ Une `String` expose `s.as_ptr()` (sûr à appeler, dangereux à déréférencer)
 bibliothèque fournit `std.ffi.CString` *(prévu)* pour produire des chaînes terminées par
 zéro. En 0.1, les littéraux de chaîne sont toujours suivis d'un octet nul en mémoire, ce
 qui permet `puts("bonjour".as_ptr())`.
+
+## 8.4 Exposer des fonctions NEXUL (`@export`)
+
+```nexul
+@export
+fn nx_addition(a: i32, b: i32) -> i32 {
+    return a + b
+}
+
+@export("nx_moyenne")
+fn moyenne(a: f64, b: f64) -> f64 {
+    return (a + b) / 2.0
+}
+
+fn main() {
+    println("{nx_addition(2, 3)} {moyenne(1.0, 2.0)}")
+}
+```
+
+- Une fonction `@export` utilise la convention d'appel C et le nom donné (par défaut son
+  propre nom). Ses paramètres et son résultat sont des types autorisés à la frontière
+  (§8.2) ; elle n'est pas générique (E0504).
+- `nxc build lib.nx --lib` produit une bibliothèque partagée (`.dll`, `.so`, `.dylib`)
+  dont les symboles exportés sont exactement les fonctions `@export` ; `--staticlib`
+  produit une bibliothèque statique (`.lib`, `.a`). Le runtime de NEXUL y est inclus.
+- Une panique dans une fonction exportée arrête le processus avec le message habituel
+  (§07) : elle ne traverse jamais la frontière avec C.
+

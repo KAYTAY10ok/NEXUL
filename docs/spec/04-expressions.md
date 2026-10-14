@@ -207,7 +207,7 @@ Toujours visibles, sans import :
 
 | Fonction | Rôle |
 |---|---|
-| `print(v)` / `println(v)` / `println()` | écrit `v` (entier, flottant, `bool`, `char`, `String`) sur la sortie standard, avec ou sans saut de ligne |
+| `print(v)` / `println(v)` / `println()` | écrit `v` (tout type qui implémente `Display`) sur la sortie standard, avec ou sans saut de ligne |
 | `eprint(v)` / `eprintln(v)` | idem sur la sortie d'erreur |
 | `panic(message: String) -> Never` | arrête le programme (§07) |
 | `assert(condition)` / `assert(condition, message)` | panique si la condition est fausse |
@@ -215,9 +215,62 @@ Toujours visibles, sans import :
 
 ## 4.11 Interpolation et formatage
 
-`"{expr}"` produit une nouvelle `String`. Types formatables en 0.1 : entiers, flottants,
-`bool`, `char`, `String`. Les flottants s'affichent sous la **forme la plus courte qui
+`"{expr}"` produit une nouvelle `String`. Types formatables : entiers, flottants,
+`bool`, `char`, `String` et tout type qui implémente `Display` (§3.9), dont `Vec`,
+`Option`, `Map` et les types dérivés avec `@derive(Display)`. Les flottants s'affichent sous la **forme la plus courte qui
 relit exactement la même valeur** (`0.1` s'affiche `0.1`, `1.0` s'affiche `1.0`,
 `1e300` s'affiche `1e300`), `inf`, `-inf`, `NaN`. Avec une précision (`{x:.2}`), arrondi
 au plus proche. Les spécifications de format (§1.5) s'appliquent aux nombres et chaînes.
-Un type non formatable est l'erreur E0350. *(Hors 0.1 : trait `Display`.)*
+Un type non formatable est l'erreur E0350.
+
+## 4.12 Fonctions anonymes
+
+Une fonction anonyme s'écrit `fn(x) => expression` ou `fn(x: i32) -> String { ... }`.
+Les types des paramètres et du résultat sont inférés du paramètre qui la reçoit.
+
+```nexul
+fn appliquer_deux_fois(x: i32, f: fn(i32) -> i32) -> i32 {
+    return f(f(x))
+}
+
+fn repeter(n: i32, action: fn(i32)) {
+    for i in 0..n {
+        action(i)
+    }
+}
+
+fn main() {
+    let decalage = 10
+    println("{appliquer_deux_fois(1, fn(x) => x + decalage)}")
+
+    var total = 0
+    repeter(5, fn(i) {
+        total += i
+    })
+
+    var v: Vec[i32] = Vec.new()
+    for i in 1..=6 {
+        v.push(i)
+    }
+    let pairs = v.filter(fn(x) => x % 2 == 0)
+    println("{total} {pairs} {v.map(fn(x) => x * x)} {v.fold(0, fn(acc, x) => acc + x)}")
+
+    var pile = v.clone()
+    while let Some(sommet) = pile.pop() {
+        if sommet < 5 {
+            break
+        }
+    }
+}
+```
+
+- Une fonction anonyme utilise les variables qui l'entourent **sur place** (sans copie) :
+  `total += i` modifie la variable de `main`. Les règles d'exclusivité (§05) s'appliquent
+  pendant l'appel qui la reçoit.
+- Elle est **non échappante** : elle ne peut être passée que directement en argument à un
+  paramètre de type fonction, et ce paramètre ne peut être ni stocké, ni renvoyé, ni rangé
+  dans une collection (E0248). Aucune annotation de durée de vie n'est donc nécessaire.
+  Pour conserver une fonction dans une valeur, on utilise une fonction nommée.
+- Un paramètre de type fonction accepte aussi une fonction nommée (`v.map(doubler)`).
+- `while let Motif = expr { ... }` répète le corps tant que la valeur correspond au motif.
+

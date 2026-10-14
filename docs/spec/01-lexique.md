@@ -45,20 +45,21 @@ Conventions (vérifiées par `nxlint`, pas par le compilateur) : `TypesEnCamelCa
 
 ## 1.4 Mots-clés
 
-Mots-clés utilisés en 0.1 :
+Mots-clés :
 
 ```
-and     as      break   const   continue else   enum    extern  false   fn
-for     if      impl    import  in       indirect inout let    match   module
-move    not     or      owned   pub      return self   Self    struct  true
-type    unsafe  var     while
+and     as      break   const   continue dyn    else    enum    extern  false
+fn      for     if      impl    import   in     indirect inout  let     match
+module  move    not     or      owned    pub    return  self    Self    static
+struct  trait   true    type    unsafe   var    where   while
 ```
+
+`dyn`, `static`, `trait` et `where` sont utilisés depuis la version 0.2.
 
 Mots-clés **réservés** pour les versions futures (interdits comme identificateurs) :
 
 ```
-async   await   class   defer   dyn     interface  loop   macro   ref
-static  trait   try     union   where   yield
+async   await   class   defer   interface  loop   macro   ref   try   yield
 ```
 
 ## 1.5 Littéraux

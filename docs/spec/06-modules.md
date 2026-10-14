@@ -30,8 +30,10 @@ import std.io.{read_line, read_file as lire}   // noms importés directement
 - Un import inutilisé produit l'avertissement W0004.
 
 Les modules `std.*` sont fournis par le compilateur ; les autres sont cherchés sous la
-racine des sources. *(Hors 0.1 : dépendances externes via `nxpm` et le manifeste
-`nexul.toml`.)*
+racine des sources, puis dans les dépendances du projet. Un projet est décrit par
+`nexul.toml` (nom, version, fichier principal, dépendances locales ou Git) ; `nxpm`
+récupère les dépendances et fige dans `nexul.lock` le commit exact et l'empreinte SHA-256
+de chacune. Le module racine d'une dépendance `geo` s'importe avec `import geo`.
 
 ## 6.3 Visibilité
 
@@ -79,5 +81,9 @@ sortie se choisit avec `std.system.exit(code)`.
 | `@link("nom")` | fonction `extern` | lie la bibliothèque native `nom` |
 | `@lang("...")`, `@intrinsic`, `@index` | bibliothèque standard uniquement | relient le compilateur aux types et opérations fondamentaux (E0231 ailleurs) |
 | `@track_caller` | bibliothèque standard uniquement | une panique dans la fonction indique la position de l'**appelant** (`v[10]`, `x.unwrap()`) |
+| `@derive(Eq, Ord, ...)` | structure, énumération | génère les implémentations des traits standards (§3.9) |
+| `@cfg("windows")` | tout élément | ne garde l'élément que si la condition est vraie pour la cible : système (`"windows"`, `"linux"`, `"macos"`, `"unix"`, `"wasi"`, `"bare"` sans système), architecture (`"x86_64"`, `"aarch64"`, `"arm"`, `"riscv"`, `"riscv32"`, `"riscv64"`, `"wasm"`, `"ptr32"`, `"ptr64"`), mode (`"debug"`, `"release"`, `"test"`), flottants (`"hard_float"`, `"soft_float"`) ; `"!linux"` (négation), `"windows\|unix"` (l'une ou l'autre) — E0234 si la condition est invalide |
+| `@export` / `@export("nom")` | fonction | rend la fonction visible depuis C sous ce nom (§8.4) |
+| `@inline`, `@cold`, `@no_builtins` | fonction | indications à l'optimiseur |
 
 Un attribut inconnu est l'erreur E0232.

@@ -26,7 +26,7 @@ const PLUGIN_PRELUDE = `
   let seq = 0;
   const pending = new Map();
   const handlers = new Map();
-  const listeners = { save: [], open: [], change: [], activate: [] };
+  const listeners = { save: [], change: [], activate: [] };
   const call = (method, ...args) => new Promise((resolve, reject) => {
     const id = ++seq;
     pending.set(id, { resolve, reject });

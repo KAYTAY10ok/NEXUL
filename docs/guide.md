@@ -1,12 +1,15 @@
 # Guide de démarrage NEXUL
 
-Ce guide présente NEXUL 0.1 par l'exemple. Chaque programme complet de ce guide est
+Ce guide présente NEXUL 0.2 par l'exemple. Chaque programme complet de ce guide est
 compilé par la suite de tests (`cargo test`) : s'il ne compile plus, le test échoue.
 
 ## 1. Installer et lancer
 
-1. Installer [Rust](https://rustup.rs) et [Zig](https://ziglang.org).
-2. Construire le compilateur : `cargo build --release` à la racine du dépôt.
+1. Sur Windows, lancer `NEXUL Setup.exe` : le compilateur, NEXUL Studio et la chaîne
+   LLVM sont installés et `nxc` est ajouté au PATH ([installation](installation.md)).
+   Depuis les sources : installer [Rust](https://rustup.rs) et [LLVM](https://llvm.org)
+   (17 ou plus, avec LLD), puis `cargo build --release` à la racine du dépôt.
+2. Ouvrir un nouveau terminal (ou NEXUL Studio).
 3. Écrire un fichier `bonjour.nx` :
 
 ```nexul
@@ -15,7 +18,8 @@ fn main() {
 }
 ```
 
-4. L'exécuter : `nxc run bonjour.nx`. Pour produire un exécutable : `nxc build bonjour.nx`.
+4. L'exécuter : `nxc run bonjour.nx` (ou **F5** dans NEXUL Studio). Pour produire un
+   exécutable : `nxc build bonjour.nx`.
 
 Il n'y a pas de point-virgule : une instruction se termine en fin de ligne. Une ligne qui
 se termine par un opérateur (`+`, `=`, `,`...) continue sur la ligne suivante.
@@ -256,6 +260,32 @@ fn main() {
 Un accès hors bornes provoque une panique avec la position exacte dans le source ; il ne
 corrompt jamais la mémoire.
 
+Les vecteurs ont aussi des méthodes qui prennent une fonction (§14), et
+`std.collections` fournit les tables associatives `Map` et les ensembles `Set` :
+
+```nexul
+import std.collections.{Map, Set}
+
+fn main() {
+    let texte = "le chat et le chien et le chat"
+    var compte: Map[String, i32] = Map.new()
+    for mot in texte.split(" ") {
+        let _ = compte.insert(mot.clone(), compte.get_or(mot, 0) + 1)
+    }
+    var mots = compte.keys()
+    mots.sort()
+    for m in mots {
+        println("{m} : {compte.get_or(m, 0)}")
+    }
+
+    var lettres: Set[char] = Set.new()
+    for c in texte {
+        let _ = lettres.insert(c)
+    }
+    println("{lettres.len()} caractères différents")
+}
+```
+
 ## 9. Modules
 
 Un fichier est un module. Le fichier `geometrie/formes.nx`, placé à côté du programme
@@ -268,6 +298,21 @@ import std.io                            // bibliothèque standard
 ```
 
 Seuls les éléments marqués `pub` sont visibles depuis les autres modules.
+
+Pour un projet avec des dépendances, `nxpm` gère le manifeste `nexul.toml` :
+
+```
+nxpm new calcul                                   # calcul/nexul.toml et calcul/src/main.nx
+cd calcul
+nxpm add geometrie --path ../geometrie            # dépendance locale
+nxpm add json --git https://exemple.org/json.git --tag v1.2.0
+nxpm run                                          # compile et exécute src/main.nx
+nxpm test
+nxpm verify                                       # vérifie les empreintes SHA-256
+```
+
+`nexul.lock` fige le commit exact et l'empreinte de chaque dépendance : à conserver avec
+le projet. Une dépendance `geometrie` s'importe avec `import geometrie`.
 
 ## 10. Tests
 
@@ -309,11 +354,136 @@ le compilateur ne peut pas les vérifier, et le mot-clé signale ces endroits au
 ## 12. Compiler pour une autre machine
 
 ```
-nxc build programme.nx --release --target aarch64-linux-gnu
-nxc build programme.nx --target x86_64-linux-gnu
+nxc build programme.nx --release --target aarch64-linux
+nxc build programme.nx --target x86_64-linux
 nxc build programme.nx --target aarch64-macos
 nxc build programme.nx --target wasm32-wasi
+nxc build capteur.nx --release --target thumbv7em-none    # microcontrôleur Cortex-M4
 ```
+
+`nxc targets` donne la liste complète. Aucun outil supplémentaire n'est nécessaire : LLVM
+et LLD, installés avec NEXUL, produisent le code de toutes les cibles. `@cfg("windows")`
+devant un élément ne le garde que pour cette cible ; `examples/microcontroleur.nx`
+montre un programme sans système d'exploitation (registres matériels, interruptions).
+
+## 13. Traits
+
+Un trait décrit ce qu'un type sait faire. Les fonctions génériques demandent des traits à
+leurs paramètres de type, et `dyn Trait` range des valeurs de types différents dans une
+même collection.
+
+```nexul
+trait Animal {
+    fn nom(self) -> String
+    fn cri(self) -> String
+
+    fn presenter(self) -> String {
+        return "{self.nom()} fait « {self.cri()} »"
+    }
+}
+
+struct Chat {
+    nom: String
+}
+
+struct Vache {
+    poids: u32
+}
+
+impl Animal for Chat {
+    fn nom(self) -> String {
+        return self.nom.clone()
+    }
+
+    fn cri(self) -> String {
+        return "miaou"
+    }
+}
+
+impl Animal for Vache {
+    fn nom(self) -> String {
+        return "une vache de {self.poids} kg"
+    }
+
+    fn cri(self) -> String {
+        return "meuh"
+    }
+}
+
+@derive(Eq, Ord, Clone, Display)
+struct Version {
+    majeure: u32
+    mineure: u32
+}
+
+fn plus_grand[T: Ord + Clone](valeurs: Vec[T]) -> T {
+    var max = valeurs[0].clone()
+    for v in valeurs {
+        if v > max {
+            max = v.clone()
+        }
+    }
+    return max
+}
+
+fn main() {
+    var ferme: Vec[dyn Animal] = Vec.new()
+    ferme.push(Chat(nom: "Tom"))
+    ferme.push(Vache(poids: 600))
+    for a in ferme {
+        println(a.presenter())
+    }
+
+    var versions: Vec[Version] = Vec.new()
+    versions.push(Version(majeure: 0, mineure: 9))
+    versions.push(Version(majeure: 1, mineure: 2))
+    versions.push(Version(majeure: 1, mineure: 0))
+    println("la plus récente : {plus_grand(versions)}")
+}
+```
+
+- `@derive(Eq, Ord, Clone, Display, Hash, Default)` écrit les implémentations courantes ;
+  `==`, `<`, `+` ou `"{x}"` fonctionnent alors sur vos types.
+- `impl Add for Point { fn add(self, autre: Point) -> Point { ... } }` définit `a + b`.
+- Les appels génériques n'ont aucun coût à l'exécution ; seuls les appels sur `dyn`
+  passent par une table de méthodes.
+
+## 14. Fonctions anonymes
+
+```nexul
+fn main() {
+    var notes: Vec[i32] = Vec.new()
+    for n in [12, 8, 17, 15, 9] {
+        notes.push(n)
+    }
+    let recus = notes.filter(fn(n) => n >= 10)
+    let bonus = notes.map(fn(n) => n + 1)
+    println("{recus} {bonus} moyenne {notes.sum() / notes.len() as i32}")
+
+    var meilleure = 0
+    notes.for_each(fn(n) {
+        if n > meilleure {
+            meilleure = n
+        }
+    })
+    notes.sort_by(fn(a, b) => b.cmp(a))
+    println("{meilleure} {notes}")
+}
+```
+
+Une fonction anonyme utilise directement les variables qui l'entourent (`meilleure` est
+modifiée). Elle ne peut être passée qu'en argument et ne survit pas à l'appel : c'est ce
+qui la rend sûre sans aucune annotation.
+
+## 15. NEXUL Studio
+
+NEXUL Studio, installé avec NEXUL, est l'environnement de développement du langage :
+complétion et documentation au survol fournies par le compilateur, **F12** pour aller à
+une définition, **Maj+F12** pour les références, **F2** pour renommer, erreurs soulignées
+en direct, **F5** pour exécuter, **F6** pour les tests, points d'arrêt (clic dans la
+marge) et débogage pas à pas (**F9**), gestion des paquets `nxpm` et extensions
+([API des extensions](studio/extensions.md)). Un fichier `.nx` s'ouvre dans Studio d'un
+double clic.
 
 ## Pour aller plus loin
 

@@ -3,7 +3,7 @@
 **Contexte.** Le cahier des charges (§16.2) laisse le choix entre C++ et Rust.
 
 **Décision.** `nxc` est écrit en Rust, en plusieurs crates (syntaxe, sémantique, NIR,
-backend C, driver), et **n'utilise aucune bibliothèque externe**.
+backend LLVM, pilote), et **n'utilise aucune bibliothèque externe**.
 
 **Conséquences.**
 - La sûreté mémoire de Rust protège le compilateur lui-même contre les plantages sur des

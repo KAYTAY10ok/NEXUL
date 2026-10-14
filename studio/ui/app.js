@@ -505,7 +505,8 @@ function renderActivityTheme() {
 }
 
 function examplesDir() {
-  const m = S.nxc && /^(.*)[\\/]target[\\/](?:release|debug)[\\/]nxc(?:\.exe)?$/i.exec(S.nxc);
+  // Development checkout (target\release\nxc.exe) or installation (bin\nxc.exe).
+  const m = S.nxc && (/^(.*)[\\/]target[\\/](?:release|debug)[\\/]nxc(?:\.exe)?$/i.exec(S.nxc) || /^(.*)[\\/]bin[\\/]nxc(?:\.exe)?$/i.exec(S.nxc));
   return m ? m[1] + '\\examples' : null;
 }
 

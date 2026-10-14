@@ -22,13 +22,16 @@ Import           = "import" Chemin [ "as" Ident | "." "{" ImportNom { "," Import
 ImportNom        = Ident [ "as" Ident ] ;
 Chemin           = Ident { "." Ident } ;
 
-Element          = { Attribut } [ "pub" ] ( Fonction | Struct | Enum | Impl | Const
-                                          | AliasType | FonctionExterne ) FIN ;
+Element          = { Attribut } [ "pub" ] ( Fonction | Struct | Enum | Impl | Trait | Const
+                                          | Static | AliasType | FonctionExterne ) FIN ;
 Attribut         = "@" Ident [ "(" [ Litteral { "," Litteral } [ "," ] ] ")" ] { FIN } ;
 
 Fonction         = [ "unsafe" ] "fn" Ident [ ParamsGeneriques ]
-                   "(" [ Parametre { "," Parametre } [ "," ] ] ")" [ "->" Type ] [ Bloc ] ;
-ParamsGeneriques = "[" Ident { "," Ident } [ "," ] "]" ;
+                   "(" [ Parametre { "," Parametre } [ "," ] ] ")" [ "->" Type ] [ Where ] [ Bloc ] ;
+ParamsGeneriques = "[" ParamGenerique { "," ParamGenerique } [ "," ] "]" ;
+ParamGenerique   = Ident [ ":" Contraintes ] ;
+Contraintes      = CheminType { "+" CheminType } ;
+Where            = "where" Ident ":" Contraintes { "," Ident ":" Contraintes } ;
 Parametre        = [ Convention ] "self" | Ident ":" [ Convention ] Type ;
 Convention       = "inout" | "owned" ;
 
@@ -38,15 +41,20 @@ Enum             = "enum" Ident [ ParamsGeneriques ] "{" { FIN } { Variante Sep 
 Variante         = [ "indirect" ] Ident [ "(" Type { "," Type } [ "," ] ")" ] ;
 Sep              = ( "," | FIN ) { FIN } ;
 
-Impl             = "impl" Type "{" { FIN } { { Attribut } [ "pub" ] Fonction FIN } "}" ;
+Impl             = "impl" [ CheminType "for" ] TypeImpl "{" { FIN } { { Attribut } [ "pub" ] Fonction FIN } "}" ;
+TypeImpl         = CheminType [ "[" ParamGenerique { "," ParamGenerique } [ "," ] "]" ] | Type ;
+Trait            = "trait" Ident [ ":" Contraintes ] "{" { FIN } { { Attribut } Fonction FIN } "}" ;
 Const            = "const" Ident ":" Type "=" Expr ;
+Static           = "static" [ "var" ] Ident ":" Type "=" Expr ;
 AliasType        = "type" Ident "=" Type ;
 FonctionExterne  = "extern" Chaine "fn" Ident
                    "(" [ Ident ":" Type { "," Ident ":" Type } [ "," ] ] ")" [ "->" Type ] ;
 ```
 
-Une `Fonction` sans corps n'est permise que pour les fonctions marquées `@intrinsic`
-(bibliothèque standard uniquement) ; sinon erreur `E0103`.
+Une `Fonction` sans corps n'est permise que dans un `trait` (méthode requise) et pour les
+fonctions marquées `@intrinsic` (bibliothèque standard uniquement) ; sinon erreur `E0103`.
+Dans `impl Trait for Vec[T: Clone]`, les paramètres du type portent les contraintes sous
+lesquelles l'implémentation s'applique.
 
 ## 2.3 Types
 
@@ -55,7 +63,8 @@ Type        = CheminType [ "[" Type { "," Type } [ "," ] "]" ]      (* i32, Vec[
             | "[" Type ";" Expr "]"                                  (* tableau de taille fixe *)
             | "(" ")"                                                (* unité *)
             | "(" Type "," [ Type { "," Type } [ "," ] ] ")"         (* tuple *)
-            | "fn" "(" [ [ Convention ] Type { "," [ Convention ] Type } [ "," ] ] ")" [ "->" Type ] ;
+            | "fn" "(" [ [ Convention ] Type { "," [ Convention ] Type } [ "," ] ] ")" [ "->" Type ]
+            | "dyn" CheminType ;                                     (* répartition dynamique *)
 CheminType  = Ident { "." Ident } | "Self" ;
 ```
 
@@ -67,13 +76,14 @@ symboles `<` et `>` sont exclusivement des comparaisons.
 
 ```ebnf
 Bloc         = "{" { FIN } { Instruction ( FIN { FIN } | (* avant "}" *) ) } "}" ;
-Instruction  = Let | Var | While | For | Bloc
+Instruction  = Let | Var | While | WhileLet | For | Bloc
              | Expr [ OpAffect Expr ] ;
 Let          = "let" Motif [ ":" Type ] "=" Expr ;
 Var          = "var" Ident [ ":" Type ] [ "=" Expr ] ;
 OpAffect     = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "+%=" | "-%=" | "*%="
              | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 While        = [ Ident ":" ] "while" Expr Bloc ;
+WhileLet     = [ Ident ":" ] "while" "let" Motif "=" [ "&" ] Expr Bloc ;
 For          = [ Ident ":" ] "for" Motif "in" [ "&" ] Expr [ ( ".." | "..=" ) Expr ] Bloc ;
 ```
 
@@ -116,8 +126,11 @@ Argument      = [ Ident ":" ] [ "&" ] Expr ;
 Primaire      = Litteral | Ident | "self" | "Self"
               | "(" ")" | "(" Expr ")" | "(" Expr "," [ Expr { "," Expr } [ "," ] ] ")"
               | "[" [ Expr { "," Expr } [ "," ] ] "]" | "[" Expr ";" Expr "]"
-              | Si | Match | "unsafe" Bloc
+              | Si | Match | "unsafe" Bloc | FonctionAnonyme
               | "return" [ Expr ] | "break" [ Ident ] | "continue" [ Ident ] ;
+FonctionAnonyme = "fn" "(" [ ParamAnonyme { "," ParamAnonyme } [ "," ] ] ")"
+                  ( "=>" Expr | [ "->" Type ] Bloc ) ;
+ParamAnonyme  = [ Convention ] Ident [ ":" Type ] ;
 Litteral      = Entier | Flottant | Caractere | Chaine | "true" | "false" ;
 Si            = "if" ( Expr | "let" Motif "=" [ "&" ] Expr ) Bloc
                 [ { FIN } "else" ( Si | Bloc ) ] ;

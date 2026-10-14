@@ -54,10 +54,10 @@ panic: index out of bounds: the index is 10 but the length is 3
 puis termine le processus avec le **code de sortie 101**, sans dérouler la pile ni
 exécuter les destructeurs. Ce comportement est déterministe, n'a aucun coût sur le
 chemin normal, et convient aux systèmes embarqués (pas de tables de déroulement).
-*(Hors 0.1 : gestionnaire de panique configurable, pour les cibles sans système
-d'exploitation.)*
+Sur les cibles sans système d'exploitation, le message est écrit par semi-hébergement
+et le programme s'arrête (§10.5). *(Hors 0.2 : gestionnaire de panique configurable.)*
 
-Les messages des paniques du runtime sont en anglais en 0.1 (comme les diagnostics),
+Les messages des paniques du runtime sont en anglais (comme les diagnostics),
 avec la position exacte `fichier:ligne:colonne`.
 
 ## 7.4 Diagnostics du compilateur
@@ -91,7 +91,7 @@ Règles de qualité :
 - le compilateur ne s'arrête pas à la première erreur : il en rapporte autant que
   possible, dans l'ordre du source ;
 - le compilateur ne doit **jamais** planter, quel que soit le source donné ; tout plantage
-  est un bogue du compilateur (vérifié par fuzzing, §10).
+  est un bogue du compilateur.
 
-Les messages du compilateur sont en anglais en 0.1. *(Hors 0.1 : catalogue de messages
+Les messages du compilateur sont en anglais. *(Hors 0.2 : catalogue de messages
 traduits, à commencer par le français.)*
