@@ -88,10 +88,17 @@ def main():
     # llvm
     copy(os.path.join(llvm, "bin", "LLVM-C.dll"), st("llvm", "llvm", "bin", "LLVM-C.dll"))
     copy(os.path.join(llvm, "bin", "lld.exe"), st("llvm", "llvm", "bin", "lld.exe"))
+    # The license of LLVM: Apache 2.0 with the LLVM exceptions.
+    with open(os.path.join(ROOT, "LICENSE-APACHE"), encoding="utf-8") as f:
+        apache = f.read()
+    with open(os.path.join(ROOT, "tools", "licenses", "LLVM-exception.txt"), encoding="utf-8") as f:
+        exception = f.read()
     with open(st("llvm", "llvm", "LICENSE-LLVM.txt"), "w", encoding="utf-8") as f:
-        f.write("LLVM, LLD and LLDB are distributed under the Apache License v2.0 with LLVM Exceptions.\n"
-                "Full text: https://llvm.org/LICENSE.txt\n"
-                "These files are unmodified binaries of the official LLVM release.\n")
+        f.write("LLVM, LLD and LLDB (https://llvm.org) are distributed under the Apache License v2.0\n"
+                "with LLVM Exceptions. The files in this folder are unmodified binaries of the\n"
+                "official LLVM release.\n\n"
+                "==============================================================================\n"
+                + apache + "\n" + exception)
     # studio
     copy(os.path.join(TARGET, "NEXUL-Studio.exe"), st("studio", "bin", "NEXUL Studio.exe"))
     copy_tree(os.path.join(ROOT, "studio", "plugins"), st("studio", "bin", "plugins"))
