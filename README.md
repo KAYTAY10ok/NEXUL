@@ -34,7 +34,8 @@ fn main() {
 
 ## Installer
 
-**Windows.** Lancez `NEXUL Setup.exe` : un assistant installe, pour votre compte et sans
+**Windows.** Téléchargez `NEXUL-Setup.exe` depuis la page
+[Releases](https://github.com/KAYTAY10ok/NEXUL/releases) et lancez-le : un assistant installe, pour votre compte et sans
 droits d'administrateur, le compilateur, la chaîne LLVM, NEXUL Studio, le débogueur, les
 exemples et la documentation. Il ajoute `nxc` et `nxpm` au PATH, crée les raccourcis et
 associe les fichiers `.nx` à Studio. S'il trouve une version précédente de NEXUL, il vous
