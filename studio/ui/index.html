@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="fr" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUL Studio</title>
+<link rel="icon" href="/favicon.ico">
+<link rel="stylesheet" href="/static/style.css">
+<script>window.NX_TOKEN = "__NX_TOKEN__";</script>
+</head>
+<body>
+<div id="app">
+  <header id="titlebar">
+    <div class="tb-left">
+      <div class="logo" title="NEXUL Studio"></div>
+      <nav id="menubar"></nav>
+    </div>
+    <button id="command-center" title="Rechercher des fichiers (Ctrl+P) ou des commandes (Ctrl+Maj+P)">
+      <span class="cc-icon"></span><span id="cc-label">NEXUL Studio</span>
+    </button>
+    <div class="tb-right">
+      <button class="tb-btn" id="btn-check" title="Vérifier le programme (F7)"></button>
+      <button class="tb-btn primary" id="btn-run" title="Exécuter (F5)"></button>
+      <button class="tb-btn" id="btn-live" title="Aperçu web en direct"></button>
+    </div>
+  </header>
+  <div id="main">
+    <nav id="activitybar"></nav>
+    <aside id="sidebar">
+      <div class="sb-view" data-view="explorer"></div>
+      <div class="sb-view" data-view="search"></div>
+      <div class="sb-view" data-view="web"></div>
+    </aside>
+    <div class="resizer resizer-x" id="sidebar-resizer"></div>
+    <section id="workbench">
+      <div id="top-area">
+        <div id="editor-group">
+          <div id="tabs" role="tablist"></div>
+          <div id="breadcrumbs"></div>
+          <div id="editor-container"></div>
+        </div>
+        <div class="resizer resizer-x" id="preview-resizer"></div>
+        <section id="preview"></section>
+      </div>
+      <div class="resizer resizer-y" id="panel-resizer"></div>
+      <section id="panel"></section>
+    </section>
+  </div>
+  <footer id="statusbar"></footer>
+</div>
+<div id="overlay-root"></div>
+<script src="/static/langs.js"></script>
+<script src="/static/editor.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

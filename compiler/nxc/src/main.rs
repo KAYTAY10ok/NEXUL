@@ -12,7 +12,12 @@ usage:
     nxc run    <file.nx> [options] [-- program arguments]   compile and run
     nxc build  <file.nx> [options]                          compile an executable or a library
     nxc check  <file.nx> [options]                          check without generating code
-    nxc test   <file.nx> [options]                          run the @test functions
+    nxc test   <file.nx> [name...] [options]                run the @test functions (whose name
+                                                            contains one of the names)
+    nxc fmt    <file.nx> [--check]                          format a file in place
+    nxc ide    <request> <file.nx> [line col] [--stdin]      editor services (JSON):
+                   hover, definition, completion, references, rename <name>,
+                   symbols, tests, format; `nxc ide std-source <module>`
     nxc explain <code>                                      explain a diagnostic (e.g. E0402)
     nxc targets                                             list the supported targets
     nxc version
@@ -123,6 +128,12 @@ fn main() {
 }
 
 fn real_main() {
+    let argv: Vec<String> = std::env::args().skip(1).collect();
+    match argv.first().map(|s| s.as_str()) {
+        Some("ide") => return ide_command(&argv[1..]),
+        Some("fmt") => return fmt_command(&argv[1..]),
+        _ => {}
+    }
     let args = parse_args();
     match args.cmd.as_str() {
         "version" | "--version" | "-V" => println!("nxc {} (NEXUL {})", env!("CARGO_PKG_VERSION"), &env!("CARGO_PKG_VERSION")[..3]),
@@ -147,7 +158,17 @@ fn real_main() {
 }
 
 fn compile_command(args: &Args) {
-    let file = args.file.clone().unwrap_or_else(|| fail(&format!("missing input file\n\n{}", USAGE)));
+    // Without a file, the main file of the project (nexul.toml) of the current folder.
+    let file = match args.file.clone() {
+        Some(f) => f,
+        None => {
+            let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+            match nxc_driver::pkg::find_project(&cwd).and_then(|p| nxc_driver::pkg::load_manifest(&p).ok().map(|m| nxc_driver::pkg::main_file(&p, &m))) {
+                Some(f) => f,
+                None => fail(&format!("missing input file\n\n{}", USAGE)),
+            }
+        }
+    };
     let target = match &args.target {
         Some(t) => Target::from_name(t).unwrap_or_else(|e| fail(&e)),
         None => Target::host(),
@@ -163,6 +184,8 @@ fn compile_command(args: &Args) {
     copts.target = target.clone();
     copts.release = args.release;
     copts.debug_info = !args.no_debug && !args.release;
+    // The dependencies of the project (nexul.toml), if the file belongs to one.
+    copts.deps = nxc_driver::pkg::deps_for(&file).unwrap_or_else(|e| fail(&e));
     let c = compile_file(&file, &copts);
     if args.json {
         // Machine-readable diagnostics on stdout (for editors); no code generation.
@@ -224,24 +247,107 @@ fn compile_command(args: &Args) {
                 Err(e) => fail(&format!("cannot run `{}`: {}", out.display(), e)),
             }
         }
-        "test" => run_tests(&out, &c.tests),
+        "test" => run_tests(&out, &c.tests, &args.rest),
         _ => {}
     }
 }
 
-fn run_tests(exe: &Path, tests: &[String]) {
+/// `nxc ide <request> <file> [line col] [--stdin] [extra]`: answers on stdout in JSON.
+fn ide_command(argv: &[String]) {
+    use nxc_driver::ide;
+    let stdin = argv.iter().any(|a| a == "--stdin");
+    let pos: Vec<&String> = argv.iter().filter(|a| !a.starts_with("--")).collect();
+    let req = pos.first().map(|s| s.as_str()).unwrap_or("");
+    if req == "std-source" {
+        let module = pos.get(1).map(|s| s.as_str()).unwrap_or("");
+        let cfg = nxc_driver::Cfg::default();
+        match nxc_sema::load::std_source(module, &cfg) {
+            Some(text) => print!("{}", text),
+            None => fail(&format!("unknown standard module `{}`", module)),
+        }
+        return;
+    }
+    let file = PathBuf::from(pos.get(1).map(|s| s.as_str()).unwrap_or_else(|| fail("missing file")));
+    let num = |i: usize| -> usize { pos.get(i).and_then(|s| s.parse().ok()).unwrap_or(1) };
+    let text = if stdin {
+        let mut s = String::new();
+        let _ = std::io::Read::read_to_string(&mut std::io::stdin(), &mut s);
+        Some(s)
+    } else {
+        None
+    };
+    match req {
+        "format" => {
+            let t = text.or_else(|| std::fs::read_to_string(&file).ok()).unwrap_or_default();
+            print!("{}", ide::format_source(&t));
+            return;
+        }
+        "completion" => {
+            let t = text.or_else(|| std::fs::read_to_string(&file).ok()).unwrap_or_default();
+            println!("{}", ide::completion(&file, &t, num(2), num(3)));
+            return;
+        }
+        _ => {}
+    }
+    let Some(a) = ide::analyze(&file, text) else { fail(&format!("cannot read `{}`", file.display())) };
+    let out = match req {
+        "hover" => ide::hover(&a, num(2), num(3)),
+        "definition" => ide::definition(&a, num(2), num(3)),
+        "references" => {
+            let refs = ide::references(&a, num(2), num(3));
+            ide::references_json(&a, &refs)
+        }
+        "rename" => match ide::rename(&a, num(2), num(3), pos.get(4).map(|s| s.as_str()).unwrap_or("")) {
+            Ok(j) => j,
+            Err(e) => format!("{{\"error\":{}}}", nxc_driver::json_str(&e)),
+        },
+        "symbols" => ide::symbols(&a),
+        "tests" => ide::tests(&a),
+        other => fail(&format!("unknown ide request `{}`", other)),
+    };
+    println!("{}", out);
+}
+
+/// `nxc fmt <file> [--check]`
+fn fmt_command(argv: &[String]) {
+    let check = argv.iter().any(|a| a == "--check");
+    let files: Vec<&String> = argv.iter().filter(|a| !a.starts_with("--")).collect();
+    if files.is_empty() {
+        fail("usage: nxc fmt <file.nx>... [--check]");
+    }
+    let mut differ = false;
+    for f in files {
+        let text = std::fs::read_to_string(f).unwrap_or_else(|e| fail(&format!("cannot read `{}`: {}", f, e)));
+        let out = nxc_driver::ide::format_source(&text);
+        if out != text {
+            differ = true;
+            if check {
+                println!("{} would be reformatted", f);
+            } else if let Err(e) = std::fs::write(f, out) {
+                fail(&format!("cannot write `{}`: {}", f, e));
+            }
+        }
+    }
+    if check && differ {
+        exit(1);
+    }
+}
+
+/// Runs the tests whose name contains one of `filters` (all without filter).
+fn run_tests(exe: &Path, all: &[String], filters: &[String]) {
     let cleanup = || {
         let _ = std::fs::remove_file(exe);
         let _ = std::fs::remove_file(exe.with_extension("pdb"));
     };
+    let tests: Vec<(usize, &String)> = all.iter().enumerate().filter(|(_, n)| filters.is_empty() || filters.iter().any(|f| n.contains(f.as_str()))).collect();
     if tests.is_empty() {
-        println!("no @test functions found");
+        println!("{}", if all.is_empty() { "no @test functions found" } else { "no test matches the filter" });
         cleanup();
         return;
     }
     println!("running {} test{}", tests.len(), if tests.len() == 1 { "" } else { "s" });
     let mut failed = Vec::new();
-    for (i, name) in tests.iter().enumerate() {
+    for &(i, name) in &tests {
         let out = Command::new(exe).arg(i.to_string()).output();
         match out {
             Ok(o) if o.status.success() => println!("test {} ... ok", name),

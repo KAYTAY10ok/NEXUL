@@ -2,8 +2,10 @@
 //! and linking with LLD.
 
 pub mod codes;
+pub mod ide;
 pub mod link;
 pub mod llvm;
+pub mod pkg;
 mod objsyms;
 pub mod toolchain;
 
@@ -388,6 +390,8 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
             &output.links.join(","),
             &imports.join(","),
             &opts.link_args.join(" "),
+            // With debug information, the executable names its `.pdb` file.
+            &if opts.debug_info { out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { String::new() },
             &output.ir,
         ]);
         (d.clone(), d.join(format!("nx-{}{}", key, ext)))
@@ -409,7 +413,7 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
         let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
         emit_object(output, &obj, opts)?;
         let target_path = match &cached {
-            Some((_, file)) => work.join(file.file_name().unwrap()),
+            Some(_) => work.join(out.file_name().unwrap_or_else(|| std::ffi::OsStr::new("program"))),
             None => out.to_path_buf(),
         };
         let tc = Toolchain::find();

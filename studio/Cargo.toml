@@ -1,0 +1,12 @@
+[package]
+name = "nexul-studio"
+description = "NEXUL Studio: the official editor of the NEXUL language"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "NEXUL-Studio"
+path = "src/main.rs"
+
+[dependencies]

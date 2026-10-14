@@ -9,6 +9,10 @@ license.workspace = true
 name = "nxc"
 path = "src/main.rs"
 
+[[bin]]
+name = "nxpm"
+path = "src/bin/nxpm.rs"
+
 [lib]
 name = "nxc_driver"
 path = "src/lib.rs"

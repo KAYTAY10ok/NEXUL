@@ -75,7 +75,9 @@ fn link_windows(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     }
     cmd.arg(format!("/out:{}", job.out.display()));
     if job.debug {
-        cmd.arg("/debug:full").arg(format!("/pdb:{}", job.out.with_extension("pdb").display()));
+        // The executable records only the file name of its `.pdb`: debuggers find it
+        // next to the executable wherever it is copied.
+        cmd.arg("/debug:full").arg(format!("/pdb:{}", job.out.with_extension("pdb").display())).arg("/pdbaltpath:%_PDB%");
     } else {
         cmd.arg("/debug:none").arg("/opt:ref").arg("/opt:icf");
     }
