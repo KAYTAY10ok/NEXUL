@@ -153,7 +153,8 @@ const api = {
   async req(method, path, body) {
     const headers = { 'X-Nexul-Token': window.NX_TOKEN };
     let data = body;
-    if (body !== undefined && typeof body !== 'string') { data = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
+    const raw = typeof body === 'string' || body instanceof ArrayBuffer || body instanceof Blob;
+    if (body !== undefined && !raw) { data = JSON.stringify(body); headers['Content-Type'] = 'application/json'; }
     const r = await fetch('/api/' + path, { method, headers, body: data, cache: 'no-store' });
     const ct = r.headers.get('content-type') || '';
     const out = ct.includes('json') ? await r.json() : await r.text();
@@ -845,8 +846,10 @@ async function restoreSession() {
     if (main) await openFile(main);
     return;
   }
-  for (const p of ses.open) if (S.files.includes(p)) await openFile(p, { background: true });
-  const act = S.docs.find((d) => d.path === ses.active) || S.docs[0];
+  // Names compare without case, as on Windows (a file renamed outside of Studio).
+  const find = (p) => p && (S.files.includes(p) ? p : S.files.find((f) => f.toLowerCase() === p.toLowerCase()));
+  for (const p of ses.open) { const f = find(p); if (f) await openFile(f, { background: true }); }
+  const act = S.docs.find((d) => d.path === find(ses.active)) || S.docs[0];
   if (act) activate(act);
 }
 
@@ -885,11 +888,23 @@ function renderTree() {
     body.addEventListener('click', onTreeClick);
     body.addEventListener('contextmenu', onTreeContext);
     body.addEventListener('keydown', onTreeKey);
+    body.addEventListener('dragstart', onTreeDragStart);
+    body.addEventListener('dragover', onTreeDragOver);
+    body.addEventListener('dragleave', (e) => { if (!body.contains(e.relatedTarget)) clearDropTarget(); });
+    body.addEventListener('drop', onTreeDrop);
+    body.addEventListener('dragend', () => { S.drag = null; clearDropTarget(); });
   }
   const title = $('#tree-title');
   title.innerHTML = icon('chevronDown') + `<span>${escHtml(S.rootName || '')}</span>`;
   title.title = S.root;
   const scroll = body.scrollTop;
+  // Removing a focused input fires `blur` in Chromium: the name being typed must survive
+  // a redraw (diagnostics, refresh), so the inline input ignores it meanwhile.
+  S.treeRendering = true;
+  try { renderTreeRows(body, scroll); } finally { S.treeRendering = false; }
+}
+
+function renderTreeRows(body, scroll) {
   body.innerHTML = '';
   const frag = document.createDocumentFragment();
   const inline = S.inline;
@@ -905,11 +920,13 @@ function renderTree() {
     if (inline && inline.kind !== 'rename' && inline.parent === parent) frag.append(inlineRow(depth));
     for (const it of items) {
       const open = it.dir && S.expanded.has(it.path);
+      const cut = S.clip && S.clip.mode === 'cut' && S.clip.items.includes(it.path);
       const row = h('div', {
-        class: 'tree-row' + (S.selected === it.path ? ' selected' : ''),
+        class: 'tree-row' + (S.selected === it.path ? ' selected' : '') + (cut ? ' cut' : ''),
         dataset: { path: it.path, dir: it.dir ? '1' : '' },
         style: { paddingLeft: 8 + depth * 14 + 'px' },
         title: it.path,
+        draggable: 'true',
       });
       for (let k = 0; k < depth; k++) row.append(h('div', { class: 'tree-guide', style: { left: 15 + k * 14 + 'px' } }));
       row.append(it.dir ? h('span', { class: 'twisty' + (open ? ' open' : ''), html: icon('chevronRight') }) : h('span', { class: 'twisty' }));
@@ -973,6 +990,12 @@ function onTreeClick(e) {
 
 function onTreeKey(e) {
   if (e.target.classList.contains('tree-input')) return;
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    const lk = e.key.toLowerCase();
+    if (lk === 'x' && S.selected) { e.preventDefault(); clipSet('cut', S.selected); return; }
+    if (lk === 'c' && S.selected) { e.preventDefault(); clipSet('copy', S.selected); return; }
+    if (lk === 'v' && S.clip) { e.preventDefault(); pasteInto(targetDirOf(S.selected)); return; }
+  }
   const rows = $$('.tree-row[data-path]', $('#tree'));
   const i = rows.findIndex((r) => r.dataset.path === S.selected);
   const sel = (r) => { if (r) { S.selected = r.dataset.path; renderTree(); } };
@@ -1002,10 +1025,160 @@ function onTreeContext(e) {
     if (extOf(p) === 'nx') items.push('-', { label: 'Exécuter', key: 'F5', run: () => openFile(p).then(() => runProgram('run')) }, { label: 'Lancer les tests', run: () => openFile(p).then(() => runProgram('test')) });
     if (extOf(p) === 'html') items.push('-', { label: "Ouvrir l'aperçu en direct", run: () => startLive(p) });
   }
+  if (p) items.push('-', { label: 'Couper', key: 'Ctrl+X', run: () => clipSet('cut', p) }, { label: 'Copier', key: 'Ctrl+C', run: () => clipSet('copy', p) });
+  if (S.clip) {
+    if (!p) items.push('-');
+    items.push({ label: S.clip.items.length > 1 ? `Coller (${S.clip.items.length})` : `Coller « ${baseName(S.clip.items[0])} »`, key: 'Ctrl+V', run: () => pasteInto(parent) });
+  }
   items.push('-', { label: 'Copier le chemin', run: () => copyText(absPath(p)) }, { label: 'Copier le chemin relatif', run: () => copyText(p || '.') },
     { label: "Afficher dans l'Explorateur Windows", run: () => api.post('reveal?' + qs({ path: p })) });
   if (p) items.push('-', { label: 'Renommer…', key: 'F2', run: () => startRename(p) }, { label: 'Supprimer', key: 'Suppr', run: () => deletePath(p) });
   showMenu(items, e.clientX, e.clientY);
+}
+
+/* The folder that receives a paste or a drop on `path` (a folder, or the folder of a file). */
+function targetDirOf(path) {
+  if (!path) return '';
+  return S.files.includes(path) ? dirName(path) : path;
+}
+
+function clipSet(mode, path) {
+  S.clip = { mode, items: [path] };
+  toast(mode === 'cut' ? `« ${baseName(path)} » sera déplacé : collez-le dans un dossier (Ctrl+V).` : `« ${baseName(path)} » copié : collez-le dans un dossier (Ctrl+V).`, 'info', 2200);
+  renderTree();
+}
+
+async function pasteInto(dir) {
+  const clip = S.clip;
+  if (!clip) return;
+  if (clip.mode === 'cut') {
+    if (await moveEntries(clip.items, dir)) S.clip = null;
+  } else {
+    await copyEntries(clip.items, dir);
+  }
+  renderTree();
+}
+
+/* Moves entries into `dir`, and follows them in the open editors. */
+async function moveEntries(items, dir) {
+  const inside = items.filter((p) => dir === p || dir.startsWith(p + '/'));
+  if (inside.length) { toast(`Impossible de déplacer « ${baseName(inside[0])} » à l'intérieur de lui-même.`, 'error'); return false; }
+  if (items.every((p) => dirName(p) === dir)) return true;
+  let r;
+  try { r = await api.post('move', { items: items.join('\n'), to: dir }); } catch (e) { toast(e.message, 'error'); return false; }
+  for (const [from, to] of r.moved) renamed(from, to);
+  if (dir) { let d = dir; while (d) { S.expanded.add(d); d = dirName(d); } saveExpanded(); }
+  applyState(r.state);
+  if (r.moved.length) S.selected = r.moved[r.moved.length - 1][1];
+  renderTree();
+  return true;
+}
+
+async function copyEntries(items, dir) {
+  let r;
+  try { r = await api.post('copy', { items: items.join('\n'), to: dir }); } catch (e) { toast(e.message, 'error'); return false; }
+  if (dir) { S.expanded.add(dir); saveExpanded(); }
+  applyState(r.state);
+  if (r.created.length) S.selected = r.created[r.created.length - 1];
+  renderTree();
+  return true;
+}
+
+function clearDropTarget() {
+  for (const el of $$('.drop-target', $('#tree'))) el.classList.remove('drop-target');
+  const t = $('#tree');
+  if (t) t.classList.remove('drop-root');
+  clearTimeout(S.dragExpandTimer);
+  S.dragOverPath = undefined;
+}
+
+/* The folder under the pointer during a drag: a folder row, the folder of a file row, or
+   the open folder itself (empty area). */
+function dropDirAt(target) {
+  const row = target.closest && target.closest('.tree-row[data-path]');
+  if (!row) return { dir: '', row: null };
+  return row.dataset.dir ? { dir: row.dataset.path, row } : { dir: dirName(row.dataset.path), row: null };
+}
+
+function onTreeDragStart(e) {
+  const row = e.target.closest('.tree-row[data-path]');
+  if (!row) return;
+  S.drag = [row.dataset.path];
+  e.dataTransfer.effectAllowed = 'copyMove';
+  e.dataTransfer.setData('application/x-nexul-path', row.dataset.path);
+  e.dataTransfer.setData('text/plain', row.dataset.path);
+}
+
+function onTreeDragOver(e) {
+  const types = [...e.dataTransfer.types];
+  const internal = !!S.drag && types.includes('application/x-nexul-path');
+  if (!internal && !types.includes('Files')) return;
+  const { dir, row } = dropDirAt(e.target);
+  if (internal && S.drag.some((p) => dir === p || dir.startsWith(p + '/'))) { e.dataTransfer.dropEffect = 'none'; clearDropTarget(); return; }
+  e.preventDefault();
+  e.dataTransfer.dropEffect = internal && !e.ctrlKey ? 'move' : 'copy';
+  if (S.dragOverPath === dir) return;
+  clearDropTarget();
+  S.dragOverPath = dir;
+  const folderRow = row || $$('.tree-row[data-path]', $('#tree')).find((r) => r.dataset.path === dir);
+  if (folderRow) folderRow.classList.add('drop-target'); else $('#tree').classList.add('drop-root');
+  // A closed folder opens after a moment under the pointer.
+  if (dir && !S.expanded.has(dir)) S.dragExpandTimer = setTimeout(() => { S.expanded.add(dir); saveExpanded(); renderTree(); S.dragOverPath = undefined; }, 700);
+}
+
+async function onTreeDrop(e) {
+  const types = [...e.dataTransfer.types];
+  const internal = !!S.drag && types.includes('application/x-nexul-path');
+  if (!internal && !types.includes('Files')) return;
+  e.preventDefault();
+  e.stopPropagation();
+  const { dir } = dropDirAt(e.target);
+  clearDropTarget();
+  if (internal) {
+    const items = S.drag;
+    S.drag = null;
+    if (e.ctrlKey) await copyEntries(items, dir); else await moveEntries(items, dir);
+    return;
+  }
+  await importDropped(e.dataTransfer, dir);
+}
+
+/* Files and folders dropped from the Explorer: copied into `dir` (nothing is overwritten:
+   a name already taken becomes « nom (2).ext »). */
+async function importDropped(dt, dir) {
+  if (!S.root) { toast("Ouvrez d'abord un dossier pour y ajouter des fichiers.", 'error'); return; }
+  const files = [];
+  const readEntry = (entry, prefix) => new Promise((resolve) => {
+    if (entry.isFile) {
+      entry.file((f) => { files.push({ file: f, name: prefix + f.name }); resolve(); }, () => resolve());
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const all = [];
+      const next = () => reader.readEntries(async (batch) => {
+        if (!batch.length) { for (const c of all) await readEntry(c, prefix + entry.name + '/'); resolve(); return; }
+        all.push(...batch);
+        next();
+      }, () => resolve());
+      next();
+    } else resolve();
+  });
+  const entries = [...(dt.items || [])].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+  if (entries.length) { for (const en of entries) await readEntry(en, ''); }
+  else for (const f of dt.files) files.push({ file: f, name: f.name });
+  if (!files.length) return;
+  let done = 0, last = null;
+  for (const { file, name } of files) {
+    if (file.size > 60 * 1024 * 1024) { toast(`« ${name} » est trop volumineux (60 Mo au plus).`, 'error'); continue; }
+    try {
+      const r = await api.req('POST', 'import?' + qs({ dir, name }), await file.arrayBuffer());
+      last = r.path;
+      done++;
+    } catch (e) { toast(`${name} : ${e.message}`, 'error'); }
+  }
+  if (dir) { S.expanded.add(dir); saveExpanded(); }
+  await refreshTree();
+  if (last) { S.selected = last; renderTree(); }
+  if (done) toast(done > 1 ? `${done} fichiers ajoutés.` : `« ${baseName(last)} » ajouté.`, 'success', 2000);
 }
 
 function copyText(t) {
@@ -1023,13 +1196,11 @@ function startInlineNew(kind, parent) {
   while (p) { S.expanded.add(p); p = dirName(p); }
   S.inline = { kind, parent };
   showView('explorer');
-  renderTree();
 }
 
 function startRename(path) {
   S.inline = { kind: 'rename', path };
   showView('explorer');
-  renderTree();
 }
 
 function setupInlineInput(input, inline) {
@@ -1064,7 +1235,7 @@ function setupInlineInput(input, inline) {
     if (e.key === 'Enter') { e.preventDefault(); finish(true); }
     else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); finish(false); }
   });
-  input.addEventListener('blur', () => { if (input.isConnected) finish(true); });
+  input.addEventListener('blur', () => { if (!S.treeRendering && input.isConnected) finish(true); });
   input.addEventListener('click', (e) => e.stopPropagation());
 }
 
@@ -2389,7 +2560,14 @@ async function externalChanges() {
   for (const d of S.docs) {
     if (!d.ed || d.ed.isDirty()) continue;
     let text;
-    try { text = await api.get('file?' + qs({ path: d.path })); } catch (e) { continue; }
+    try { text = await api.get('file?' + qs({ path: d.path })); } catch (e) {
+      if (!S.files.includes(d.path) && !d.missingWarned) {
+        d.missingWarned = true;
+        toast(`« ${d.name} » a été supprimé ou déplacé en dehors de Studio : il reste ouvert et sera recréé si vous l'enregistrez.`, 'info', 6000);
+      }
+      continue;
+    }
+    d.missingWarned = false;
     if (text.replace(/\r\n?/g, '\n') !== d.ed.savedValue) d.ed.setText(text);
   }
 }
@@ -2415,6 +2593,13 @@ async function init() {
   renderWelcome();
   updateStatus();
   api.post('ping').catch(() => {});
+  // Without this, a file dropped on the window replaces the application by the file.
+  document.addEventListener('dragover', (e) => { if ([...e.dataTransfer.types].includes('Files')) { e.preventDefault(); e.dataTransfer.dropEffect = S.root ? 'copy' : 'none'; } });
+  document.addEventListener('drop', (e) => {
+    if (![...e.dataTransfer.types].includes('Files')) return;
+    e.preventDefault();
+    if (S.root) importDropped(e.dataTransfer, S.active && !S.active.virtual ? dirName(S.active.path) : '');
+  });
   setInterval(() => api.post('ping').catch(() => {}), 3000);
   setInterval(() => { if (document.hasFocus() && S.root && !S.inline) refreshTree(); }, 4000);
   addEventListener('focus', () => { if (S.root) externalChanges(); });

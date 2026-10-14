@@ -14,13 +14,14 @@
 mod debug;
 mod http;
 mod runner;
+mod workspace;
 
 use http::{json_field, json_str, mime, read_request, write_response, Request, Response};
 use runner::{command, Runs, Step};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -300,19 +301,23 @@ const FAVICON: &[u8] = include_bytes!("../assets/nexul-studio.ico");
 // ---------------------------------------------------------------------------
 // Workspace paths
 
+/// The open folder.
+fn root_of(st: &State) -> Result<PathBuf, Response> {
+    st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "Aucun dossier n'est ouvert."))
+}
+
 /// Resolves a path relative to the open folder, refusing anything outside of it.
 fn resolve(st: &State, rel: &str) -> Result<PathBuf, Response> {
-    let root = st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "aucun dossier ouvert"))?;
-    let rel = rel.replace('\\', "/");
-    let mut out = root.clone();
-    for comp in Path::new(rel.trim_start_matches('/')).components() {
-        match comp {
-            Component::Normal(c) => out.push(c),
-            Component::CurDir => {}
-            _ => return Err(Response::error(400, "chemin invalide")),
-        }
-    }
-    Ok(out)
+    workspace::resolve(&root_of(st)?, rel).map_err(fs_error)
+}
+
+fn fs_error(e: workspace::FsError) -> Response {
+    Response::error(e.status, &e.message)
+}
+
+/// The paths of a request, one per line (names never contain line breaks).
+fn path_list(text: &str) -> Vec<String> {
+    text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
 }
 
 fn rel_of(st: &State, p: &Path) -> String {
@@ -450,48 +455,50 @@ fn api(req: &Request, st: &State) -> Response {
                 Response::new(200, "text/plain; charset=utf-8", bytes)
             }
             ("POST", "file") => {
-                let p = resolve(st, &req.q("path"))?;
-                if let Some(parent) = p.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                std::fs::write(&p, &req.body).map_err(|e| Response::error(500, &format!("écriture impossible : {}", e)))?;
+                workspace::save(&root_of(st)?, &req.q("path"), &req.body).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json("{}".into())
             }
             ("POST", "new") => {
-                let p = resolve(st, &req.q("path"))?;
-                if p.exists() {
-                    return Err(Response::error(400, "ce nom existe déjà"));
-                }
-                if req.q("kind") == "dir" {
-                    std::fs::create_dir_all(&p).map_err(|e| Response::error(500, &e.to_string()))?;
-                } else {
-                    if let Some(parent) = p.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    std::fs::write(&p, &req.body).map_err(|e| Response::error(500, &e.to_string()))?;
-                }
+                let kind = if req.q("kind") == "dir" { workspace::Kind::Dir } else { workspace::Kind::File };
+                workspace::create(&root_of(st)?, &req.q("path"), kind, &req.body).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
             }
             ("POST", "rename") => {
                 let body = req.body_text();
-                let from = resolve(st, &json_field(&body, "from").unwrap_or_default())?;
-                let to = resolve(st, &json_field(&body, "to").unwrap_or_default())?;
-                if to.exists() {
-                    return Err(Response::error(400, "ce nom existe déjà"));
-                }
-                std::fs::rename(&from, &to).map_err(|e| Response::error(500, &e.to_string()))?;
+                let (from, to) = (json_field(&body, "from").unwrap_or_default(), json_field(&body, "to").unwrap_or_default());
+                workspace::rename(&root_of(st)?, &from, &to).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
             }
             ("POST", "delete") => {
-                let p = resolve(st, &req.q("path"))?;
-                if p == st.root.lock().unwrap().clone().unwrap_or_default() {
-                    return Err(Response::error(400, "impossible de supprimer le dossier ouvert"));
-                }
-                recycle(&p)?;
+                workspace::trash(&root_of(st)?, &req.q("path")).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
+            }
+            // Drag and drop, cut and paste: `items` (one path per line) into `to`.
+            ("POST", "move") => {
+                let body = req.body_text();
+                let items = path_list(&json_field(&body, "items").unwrap_or_default());
+                let moved = workspace::move_into(&root_of(st)?, &items, &json_field(&body, "to").unwrap_or_default()).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                let pairs: Vec<String> = moved.iter().map(|(a, b)| format!("[{},{}]", json_str(a), json_str(b))).collect();
+                Response::json(format!("{{\"moved\":[{}],\"state\":{}}}", pairs.join(","), state_json(st)))
+            }
+            ("POST", "copy") => {
+                let body = req.body_text();
+                let items = path_list(&json_field(&body, "items").unwrap_or_default());
+                let created = workspace::copy_into(&root_of(st)?, &items, &json_field(&body, "to").unwrap_or_default()).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                let list: Vec<String> = created.iter().map(|c| json_str(c)).collect();
+                Response::json(format!("{{\"created\":[{}],\"state\":{}}}", list.join(","), state_json(st)))
+            }
+            // A file dropped from the Explorer: its content, into the folder `dir`.
+            ("POST", "import") => {
+                let path = workspace::import(&root_of(st)?, &req.q("dir"), &req.q("name"), &req.body).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                Response::json(format!("{{\"path\":{}}}", json_str(&path)))
             }
             ("GET", "search") => search(st, &req.q("q"), req.q("case") == "1")?,
             ("POST", "check") => check(st, &req.q("path"))?,
@@ -605,28 +612,6 @@ fn strip_verbatim(p: &Path) -> PathBuf {
     match s.strip_prefix(r"\\?\") {
         Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
         _ => p.to_path_buf(),
-    }
-}
-
-/// Sends a file or folder to the recycle bin (Windows), so that it can be restored.
-fn recycle(p: &Path) -> Result<(), Response> {
-    let method = if p.is_dir() { "DeleteDirectory" } else { "DeleteFile" };
-    let script = format!(
-        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::{}($env:NX_TARGET, 'OnlyErrorDialogs', 'SendToRecycleBin')",
-        method
-    );
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]).env("NX_TARGET", p);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|e| Response::error(500, &e.to_string()))?;
-    if out.status.success() && !p.exists() {
-        Ok(())
-    } else {
-        Err(Response::error(500, &format!("suppression impossible : {}", String::from_utf8_lossy(&out.stderr).trim())))
     }
 }
 
