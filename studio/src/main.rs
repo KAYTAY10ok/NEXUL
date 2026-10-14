@@ -11,10 +11,9 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod debug;
 mod http;
-mod runner;
-mod workspace;
+
+use nexul_studio::{debug, runner, workspace};
 
 use http::{json_field, json_str, mime, read_request, write_response, Request, Response};
 use runner::{command, Runs, Step};

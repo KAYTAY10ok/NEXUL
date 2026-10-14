@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+name = "nexul_studio"
+path = "src/lib.rs"
+
 [[bin]]
 name = "NEXUL-Studio"
 path = "src/main.rs"
