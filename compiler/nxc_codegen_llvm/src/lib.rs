@@ -22,7 +22,7 @@ use debuginfo::DebugInfo;
 use layout::LayoutCx;
 use nxc_nir::build::param_by_ref;
 use nxc_nir::nir::Body;
-use nxc_sema::defs::{AdtId, AdtKind, ConstValue, FnId, FnKind, Program, StaticId, StaticValue};
+use nxc_sema::defs::{TraitId, AdtId, AdtKind, ConstValue, FnId, FnKind, Program, StaticId, StaticValue};
 use nxc_sema::target::{Arch, Os, Target};
 use nxc_sema::ty::{FloatTy, IntTy, Ty, TyKind};
 use nxc_syntax::ast::Convention;
@@ -90,6 +90,11 @@ pub(crate) struct Sig {
     pub ret: RetKind,
     pub params: Vec<PKind>,
     pub track_caller: bool,
+    /// Anonymous functions receive their environment pointer first (after `sret`).
+    pub env: bool,
+    /// The (concrete) parameter types, to adapt arguments passed by reference by
+    /// generic code to parameters passed by value.
+    pub param_tys: Vec<Ty>,
 }
 
 pub(crate) struct Gen<'a> {
@@ -122,6 +127,7 @@ pub(crate) struct Gen<'a> {
     pub exports: Vec<String>,
     pub profile_names: Vec<String>,
     pub module_asm: Vec<String>,
+    vtables: HashMap<(TraitId, Ty), String>,
 }
 
 /// Escapes a quoted LLVM identifier.
@@ -210,6 +216,7 @@ pub fn generate(p: &Program, sm: &SourceMap, bodies: &HashMap<FnId, Body>, entry
         exports: Vec::new(),
         profile_names: Vec::new(),
         module_asm: Vec::new(),
+        vtables: HashMap::new(),
     };
     g.emit_entry(entry);
     // Exported functions are roots too.
@@ -280,6 +287,7 @@ impl<'a> Gen<'a> {
             TyKind::Char => "i32".into(),
             TyKind::Unit | TyKind::Never | TyKind::Error => "{}".into(),
             TyKind::Ptr(_) | TyKind::Fn(..) => "ptr".into(),
+            TyKind::Closure(..) | TyKind::Dyn(_) => "{ ptr, ptr }".into(),
             TyKind::Array(e, n) => {
                 let et = self.llty(*e);
                 format!("[{} x {}]", n, et)
@@ -386,43 +394,61 @@ impl<'a> Gen<'a> {
     }
 
     /// The signature of an instance of a NEXUL function (NEXUL calling convention).
+    /// Parameters are passed by reference according to the declaration (the trait's
+    /// for a trait method). Anonymous functions receive an environment pointer instead
+    /// of their captured variables, and pass parameters according to their concrete
+    /// types (like function values).
     pub fn fn_sig(&mut self, f: FnId, targs: &[Ty]) -> Sig {
         let fd = self.p.func(f);
         let tcx = self.tcx();
+        let n_cap = fd.closure_captures();
+        let is_closure = matches!(fd.kind, FnKind::Closure { .. });
         let mut params = Vec::new();
-        for prm in &fd.params {
-            if param_by_ref(self.p, prm.conv, prm.ty) {
+        let mut param_tys = Vec::new();
+        for (i, prm) in fd.params.iter().enumerate() {
+            if i < n_cap {
+                continue;
+            }
+            let t = tcx.subst(prm.ty, targs);
+            let by_ref = if is_closure { param_by_ref(self.p, prm.conv, t) } else { param_by_ref(self.p, prm.conv, fd.abi_param_ty(i)) };
+            if by_ref {
                 params.push(PKind::Ptr);
             } else {
-                let t = tcx.subst(prm.ty, targs);
                 params.push(self.pass_kind(t));
             }
+            param_tys.push(t);
         }
         let ret = tcx.subst(fd.ret, targs);
-        Sig { ret: self.ret_kind(ret), params, track_caller: fd.track_caller }
+        Sig { ret: self.ret_kind(ret), params, track_caller: fd.track_caller, env: is_closure, param_tys }
     }
 
     /// The signature of a call through a function value of type `t`.
     pub fn fn_ty_sig(&mut self, t: Ty) -> Sig {
         let tcx = self.tcx();
-        let (params, ret) = match &*tcx.kind(t) {
-            TyKind::Fn(ps, r) => (ps.clone(), *r),
-            _ => (vec![], tcx.unit),
+        let (params, ret, env) = match &*tcx.kind(t) {
+            TyKind::Fn(ps, r) => (ps.clone(), *r, false),
+            TyKind::Closure(ps, r) => (ps.clone(), *r, true),
+            _ => (vec![], tcx.unit, false),
         };
         let mut out = Vec::new();
+        let mut param_tys = Vec::new();
         for (c, pt) in params {
             if param_by_ref(self.p, c, pt) {
                 out.push(PKind::Ptr);
             } else {
                 out.push(self.pass_kind(pt));
             }
+            param_tys.push(pt);
         }
-        Sig { ret: self.ret_kind(ret), params: out, track_caller: false }
+        Sig { ret: self.ret_kind(ret), params: out, track_caller: false, env, param_tys }
     }
 
     pub fn sig_param_list(&self, sig: &Sig) -> Vec<String> {
         let mut v = Vec::new();
         if let RetKind::Sret(_) = sig.ret {
+            v.push("ptr".to_string());
+        }
+        if sig.env {
             v.push("ptr".to_string());
         }
         for p in &sig.params {
@@ -448,6 +474,12 @@ impl<'a> Gen<'a> {
     // Functions
 
     pub fn instance(&mut self, f: FnId, targs: Vec<Ty>) -> String {
+        // A trait method is the implementation for its concrete `Self`.
+        let (f, targs) = if self.p.func(f).is_trait_decl() {
+            self.p.resolve_trait_method(f, &targs).unwrap_or_else(|| panic!("internal: no implementation of `{}` for `{}`", self.p.func(f).name, self.p.ty_str(targs[0])))
+        } else {
+            (f, targs)
+        };
         let key = (f, targs);
         if let Some(n) = self.instances.get(&key) {
             return n.clone();
@@ -863,9 +895,60 @@ impl<'a> Gen<'a> {
                     }
                 }
             }
+            TyKind::Dyn(_) => {
+                // The concrete value's destructor (first entry of the vtable), then
+                // its heap storage.
+                let _ = writeln!(b, "  %data = load ptr, ptr %p");
+                let _ = writeln!(b, "  %vp = getelementptr inbounds {{ ptr, ptr }}, ptr %p, i32 0, i32 1");
+                let _ = writeln!(b, "  %vt = load ptr, ptr %vp");
+                let _ = writeln!(b, "  %dropf = load ptr, ptr %vt");
+                let _ = writeln!(b, "  %has = icmp ne ptr %dropf, null");
+                let _ = writeln!(b, "  br i1 %has, label %drop, label %free");
+                let _ = writeln!(b, "drop:");
+                let _ = writeln!(b, "  call void %dropf(ptr %data)");
+                let _ = writeln!(b, "  br label %free");
+                let _ = writeln!(b, "free:");
+                let _ = writeln!(b, "  call void {}(ptr %data)", free);
+            }
             _ => {}
         }
         let _ = write!(self.fn_defs, "define internal void {}(ptr %p) nounwind {{\nstart:\n{}  ret void\n}}\n\n", name, b);
+    }
+
+    /// The methods of a `dyn Trait` vtable, in order: those of the trait, then of its
+    /// supertraits.
+    pub fn vtable_methods(&self, tr: TraitId) -> Vec<(TraitId, String, FnId)> {
+        let mut v = Vec::new();
+        for t in self.p.trait_closure(tr) {
+            for m in &self.p.traits[t.idx()].methods {
+                v.push((t, m.name.clone(), m.decl));
+            }
+        }
+        v
+    }
+
+    /// The vtable of `ty` as a `dyn tr`: destructor, size, alignment, then the methods.
+    pub fn vtable(&mut self, tr: TraitId, ty: Ty) -> String {
+        if let Some(n) = self.vtables.get(&(tr, ty)) {
+            return n.clone();
+        }
+        let name = format!("@{}", quote_name(&format!("vtable.{}.{}#{}", self.p.traits[tr.idx()].name, self.p.ty_str(ty), self.fresh())));
+        self.vtables.insert((tr, ty), name.clone());
+        let u = self.usize_ty();
+        let mut entries = vec![match self.drop_fn(ty) {
+            Some(d) => format!("ptr {}", d),
+            None => "ptr null".to_string(),
+        }];
+        entries.push(format!("{} {}", u, self.size_of(ty)));
+        entries.push(format!("{} {}", u, self.align_of(ty)));
+        let mut types = vec!["ptr".to_string(), u.to_string(), u.to_string()];
+        for (_, _, decl) in self.vtable_methods(tr) {
+            let inst = self.instance(decl, vec![ty]);
+            entries.push(format!("ptr {}", inst));
+            types.push("ptr".into());
+        }
+        let _ = writeln!(self.globals, "{} = internal constant {{ {} }} {{ {} }}", name, types.join(", "), entries.join(", "));
+        name
     }
 
     // -----------------------------------------------------------------------

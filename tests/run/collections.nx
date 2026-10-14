@@ -1,0 +1,73 @@
+// Spec chapter 09: `Map` and `Set`.
+import std.collections.{Map, Set}
+
+@derive(Eq, Hash, Clone, Display)
+struct Pos {
+    x: i32
+    y: i32
+}
+
+fn main() {
+    var ages: Map[String, i32] = Map.new()
+    let _ = ages.insert("alice", 31)
+    let _ = ages.insert("bob", 25)
+    let _ = ages.insert("chloé", 40)
+    println("{ages.len()} {ages.get("bob")} {ages.get("zoé")} {ages.contains_key("alice")}")
+    println("previous {ages.insert("bob", 26)}")
+    let _ = ages.update("alice", fn(inout a) {
+        a += 1
+    })
+    println("{ages.get_or("alice", 0)} {ages.remove("chloé")} {ages.len()}")
+    var keys = ages.keys()
+    keys.sort()
+    println("{keys}")
+
+    // Many entries: growth and lookups.
+    var squares: Map[i64, i64] = Map.new()
+    for i in 0..1000 {
+        let _ = squares.insert(i, i * i)
+    }
+    var ok = true
+    for i in 0..1000 {
+        if squares.get(i) != Some(i * i) {
+            ok = false
+        }
+    }
+    for i in 0..500 {
+        let _ = squares.remove(i * 2)
+    }
+    println("{squares.len()} {ok} {squares.get(999)} {squares.get(998)}")
+
+    var words: Map[String, i32] = Map.new()
+    for w in "le chat et le chien et le loup".split(" ") {
+        if not words.update(w, fn(inout n) {
+            n += 1
+        }) {
+            let _ = words.insert(w.clone(), 1)
+        }
+    }
+    var counts = words.entries()
+    counts.sort_by(fn(a, b) => a.0.cmp(b.0))
+    for (w, n) in counts {
+        print("{w}={n} ")
+    }
+    println("")
+
+    var seen: Set[Pos] = Set.new()
+    println("{seen.insert(Pos(x: 1, y: 2))} {seen.insert(Pos(x: 3, y: 4))} {seen.insert(Pos(x: 1, y: 2))}")
+    println("{seen.len()} {seen.contains(Pos(x: 3, y: 4))} {seen.contains(Pos(x: 0, y: 0))}")
+
+    var a: Set[i32] = Set.new()
+    var b: Set[i32] = Set.new()
+    for i in 0..6 {
+        let _ = a.insert(i)
+        let _ = b.insert(i + 3)
+    }
+    var u = a.union(b).items()
+    var n = a.intersection(b).items()
+    var d = a.difference(b).items()
+    u.sort()
+    n.sort()
+    d.sort()
+    println("{u} {n} {d}")
+}

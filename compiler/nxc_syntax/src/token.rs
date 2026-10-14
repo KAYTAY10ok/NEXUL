@@ -207,7 +207,7 @@ pub fn keyword(s: &str) -> Option<TokenKind> {
 
 /// Keywords reserved for future versions of the language.
 pub const RESERVED: &[&str] = &[
-    "async", "await", "class", "defer", "interface", "loop", "macro", "ref", "try", "union", "yield",
+    "async", "await", "class", "defer", "interface", "loop", "macro", "ref", "try", "yield",
 ];
 
 impl TokenKind {

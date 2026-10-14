@@ -1,0 +1,9 @@
+3 Some(25) None true
+previous Some(25)
+32 Some(40) 2
+[alice, bob]
+500 true Some(998001) None
+chat=1 chien=1 et=2 le=3 loup=1 
+true true false
+2 true false
+[0, 1, 2, 3, 4, 5, 6, 7, 8] [3, 4, 5] [0, 1, 2]

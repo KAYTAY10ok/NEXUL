@@ -4,8 +4,8 @@ error[E0350]: a value of type `P` cannot be formatted
 7 |     println("{p}")
   |               ^ not formattable
   |
-  = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
-  = help: format its fields individually, or write a method that returns a `String`
+  = note: integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted
+  = help: implement `Display` for `P`: `impl Display for P { fn to_string(self) -> String { ... } }`
 
 error[E0350]: a value of type `P` cannot be formatted
  --> formatting.nx:8:13
@@ -13,8 +13,8 @@ error[E0350]: a value of type `P` cannot be formatted
 8 |     println(p)
   |             ^ not formattable
   |
-  = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
-  = help: format its fields individually, or write a method that returns a `String`
+  = note: integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted
+  = help: implement `Display` for `P`: `impl Display for P { fn to_string(self) -> String { ... } }`
 
 error[E0351]: invalid format for `f64`: `x`, `X`, `o` and `b` apply to integers
  --> formatting.nx:9:19
@@ -40,13 +40,4 @@ error[E0351]: invalid format for `char`: `+` and `0` apply to numbers
 9 |     println("{1.5:x} {true:.2} {"s":e} {'c':+}")
   |                                             ^ incompatible specification
 
-error[E0350]: a value of type `Vec[i32]` cannot be formatted
-  --> formatting.nx:11:15
-   |
-11 |     println("{v}")
-   |               ^ not formattable
-   |
-   = note: NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`
-   = help: format its fields individually, or write a method that returns a `String`
-
-error: could not compile due to 7 errors
+error: could not compile due to 6 errors

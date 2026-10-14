@@ -97,6 +97,13 @@ pub enum Rvalue {
     Discriminant(Place),
     /// Address of a static variable (type `Ptr[T]`).
     StaticAddr(StaticId),
+    /// An anonymous function value: its code and an environment holding the addresses
+    /// of the captured variables (pointers, in order).
+    Closure { f: FnId, env: Vec<Operand> },
+    /// A function pointer used as an anonymous function value.
+    FnToClosure(Operand),
+    /// A value of the given type moved to the heap as a `dyn Trait`.
+    ToDyn(Operand, Ty),
 }
 
 /// Functions of the C runtime called directly by generated code.
@@ -242,6 +249,9 @@ pub fn pretty(body: &Body) -> String {
                     Rvalue::Repeat(o, n) => format!("[{}; {}]", o, n),
                     Rvalue::Discriminant(p) => format!("discriminant({})", p),
                     Rvalue::StaticAddr(st) => format!("&static#{}", st.0),
+                    Rvalue::Closure { f, env } => format!("closure fn#{}({})", f.0, env.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")),
+                    Rvalue::FnToClosure(o) => format!("closure_of({})", o),
+                    Rvalue::ToDyn(o, t) => format!("to_dyn({}: ty#{})", o, t.0),
                 }),
                 StmtKind::Drop(p) => format!("drop({})", p),
                 StmtKind::DropIfInit(l) => format!("drop_if_init(_{})", l),

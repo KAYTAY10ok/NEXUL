@@ -3,7 +3,7 @@
 use super::{Deferred, Expect, FnCtxt};
 use crate::collect::{lookup_in_module, lookup_item, primitive_type};
 use crate::consts::prim_assoc_const;
-use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId, ItemRef, ModId, StaticId};
+use crate::defs::{AdtId, Builtin, ConstId, ConstValue, FnId, ItemRef, ModId, StaticId, TraitId};
 use crate::thir::{self, CallArg, Callee, ExprKind as T, PrimOp};
 use crate::ty::{Ty, TyKind};
 use crate::util::{best_match, PRIMITIVE_TYPES};
@@ -27,6 +27,7 @@ pub(crate) enum PathRes {
     PrimConst(ConstValue, Ty),
     PrimFn(PrimOp, Ty),
     Builtin(Builtin),
+    Trait(TraitId),
 }
 
 pub(crate) enum PathLookup {
@@ -47,6 +48,7 @@ impl<'a> FnCtxt<'a> {
             ItemRef::Variant(a, v) => PathRes::Variant(a, v, None),
             ItemRef::Builtin(b) => PathRes::Builtin(b),
             ItemRef::Static(st) => PathRes::Static(st),
+            ItemRef::Trait(t) => PathRes::Trait(t),
             ItemRef::Alias(al) => {
                 let t = self.p.aliases[al.idx()].ty;
                 match self.tcx().as_adt(t) {
@@ -86,13 +88,9 @@ impl<'a> FnCtxt<'a> {
                 if let Some(l) = self.lookup_local(name) {
                     return PathLookup::Res(PathRes::Local(l));
                 }
-                if self.generics.iter().any(|g| g == name) {
-                    self.err(
-                        Diagnostic::error("E0314", format!("type parameter `{}` cannot be used as a value", name))
-                            .primary(e.span, "a type, not a value")
-                            .note("operations on generic types will come with traits in NEXUL 0.2"),
-                    );
-                    return PathLookup::Err;
+                if let Some(i) = self.generics.iter().position(|g| g == name) {
+                    // A type parameter as a namespace: `T.default()`.
+                    return PathLookup::Res(PathRes::Prim(self.tcx().param(i as u32)));
                 }
                 if let Some(t) = primitive_type(self.p, name) {
                     return PathLookup::Res(PathRes::Prim(t));
@@ -140,6 +138,17 @@ impl<'a> FnCtxt<'a> {
                         None => PathLookup::Err,
                     },
                     PathLookup::Res(PathRes::Adt(id, args)) => self.resolve_type_member(id, args, name),
+                    PathLookup::Res(PathRes::Trait(t)) => match self.p.traits[t.idx()].method(&name.name) {
+                        // `Default.default()`: `Self` is inferred from the context.
+                        Some(m) => {
+                            let v = self.new_var(name.span);
+                            PathLookup::Res(PathRes::AssocFn { f: m.decl, owner_args: vec![v], explicit: None })
+                        }
+                        None => {
+                            self.err(Diagnostic::error("E0202", format!("trait `{}` has no function `{}`", self.p.traits[t.idx()].name, name.name)).primary(name.span, "not found"));
+                            PathLookup::Err
+                        }
+                    },
                     PathLookup::Res(PathRes::Prim(t)) => {
                         if let Some(v) = prim_assoc_const(self.p, t, &name.name) {
                             return PathLookup::Res(PathRes::PrimConst(v, t));
@@ -151,6 +160,18 @@ impl<'a> FnCtxt<'a> {
                             if name.name == "from_addr" {
                                 return PathLookup::Res(PathRes::PrimFn(PrimOp::PtrFromAddr, t));
                             }
+                        }
+                        let cands = self.trait_methods_for(t, &name.name);
+                        if let Some(f) = self.pick_trait_method(&cands, &name.name, name.span) {
+                            return PathLookup::Res(PathRes::AssocFn { f, owner_args: vec![t], explicit: None });
+                        }
+                        if matches!(&*self.tcx().kind(t), TyKind::Param(_)) {
+                            self.err(
+                                Diagnostic::error("E0202", format!("`{}` has no associated function `{}`", self.ty_str(t), name.name))
+                                    .primary(name.span, "unknown function")
+                                    .help(format!("add a bound declaring it, for example `[{}: Default]`", self.ty_str(t))),
+                            );
+                            return PathLookup::Err;
                         }
                         self.err(
                             Diagnostic::error("E0202", format!("`{}` has no associated item `{}`", self.ty_str(t), name.name))
@@ -236,6 +257,15 @@ impl<'a> FnCtxt<'a> {
                 None => self.fresh_args(adt.generics.len(), name.span),
             };
             return PathLookup::Res(PathRes::AssocFn { f, owner_args, explicit: None });
+        }
+        let self_args = match &args {
+            Some(a) => a.clone(),
+            None => self.fresh_args(adt.generics.len(), name.span),
+        };
+        let self_ty = self.tcx().adt(id, self_args);
+        let cands = self.trait_methods_for(self_ty, &name.name);
+        if let Some(f) = self.pick_trait_method(&cands, &name.name, name.span) {
+            return PathLookup::Res(PathRes::AssocFn { f, owner_args: vec![self_ty], explicit: None });
         }
         let mut d = Diagnostic::error("E0202", format!("`{}` has no variant or associated function `{}`", adt.name, name.name)).primary(name.span, "not found");
         let mut cands: Vec<&str> = adt.variants().iter().map(|v| v.name.as_str()).collect();
@@ -364,6 +394,14 @@ impl<'a> FnCtxt<'a> {
                     self.err(Diagnostic::error("E0314", format!("module `{}` is not a value", self.p.modules[m.idx()].path)).primary(span, "not a value"));
                     self.error_expr(span)
                 }
+                PathRes::Trait(t) => {
+                    self.err(
+                        Diagnostic::error("E0314", format!("trait `{}` is not a value", self.p.traits[t.idx()].name))
+                            .primary(span, "not a value")
+                            .help("call the method on a value: `value.method(...)`"),
+                    );
+                    self.error_expr(span)
+                }
             },
         }
     }
@@ -450,7 +488,7 @@ impl<'a> FnCtxt<'a> {
                     let f = self.check_expr(callee, Expect::None);
                     self.check_indirect_call(f, args, span)
                 }
-                PathRes::Module(_) | PathRes::Prim(_) => {
+                PathRes::Module(_) | PathRes::Prim(_) | PathRes::Trait(_) => {
                     self.err(Diagnostic::error("E0319", "this is not a function").primary(callee.span, "cannot be called"));
                     self.check_args_for_errors(args);
                     self.error_expr(span)
@@ -464,7 +502,7 @@ impl<'a> FnCtxt<'a> {
         let tcx = self.tcx();
         let ft = self.shallow(f.ty);
         match &*tcx.kind(ft) {
-            TyKind::Fn(params, ret) => {
+            TyKind::Fn(params, ret) | TyKind::Closure(params, ret) => {
                 let params: Vec<(Convention, Ty)> = params.clone();
                 let ret = *ret;
                 if params.len() != args.len() {
@@ -521,8 +559,11 @@ impl<'a> FnCtxt<'a> {
             }
             _ => {}
         }
-        let x = self.check_expr(&a.expr, Expect::Has(pty));
-        self.coerce(&x, pty);
+        let mut x = match &a.expr.kind {
+            A::Closure(c) => self.check_closure(c, pty, a.expr.span),
+            _ => self.check_expr(&a.expr, Expect::Has(pty)),
+        };
+        self.coerce(&mut x, pty);
         if conv == Convention::Inout {
             self.mark_mutated(&x);
         }
@@ -568,6 +609,14 @@ impl<'a> FnCtxt<'a> {
         if let Some(t) = expect.ty() {
             // Early hint: helps type literals in the arguments (`Some(1)` as `Option[u8]`).
             self.unify(ret, t);
+        }
+        for b in &fd.bounds {
+            let ty = targs[b.param as usize];
+            let what = format!("by `{}`", fd.qualified_name(self.p));
+            self.deferred.push(super::Deferred::Bound { ty, trait_id: b.trait_id, span, what });
+        }
+        for &t in &targs {
+            self.deferred.push(super::Deferred::NoClosure { ty: t, span });
         }
         if fd.is_unsafe || fd.is_extern() {
             let what = if fd.is_extern() { format!("calling the external function `{}`", fd.name) } else { format!("calling the unsafe function `{}`", fd.name) };
@@ -649,6 +698,11 @@ impl<'a> FnCtxt<'a> {
                         let owner_args = owner_args.clone();
                         self.check_fn_call(f, owner_args, explicit, Some(recv), args, expect, span)
                     }
+                    None if !self.trait_methods_for(rt, &name.name).is_empty() => {
+                        let cands = self.trait_methods_for(rt, &name.name);
+                        let f = self.pick_trait_method(&cands, &name.name, name.span).unwrap();
+                        self.check_trait_method_call(f, rt, recv, name, explicit, args, expect, span)
+                    }
                     None => {
                         if let Some(field) = adt.fields().iter().find(|f| f.name == name.name) {
                             if matches!(&*tcx.kind(field.ty), TyKind::Fn(..)) {
@@ -685,14 +739,79 @@ impl<'a> FnCtxt<'a> {
                 let elem = *elem;
                 self.check_ptr_method(recv, elem, name, explicit, args, span)
             }
+            TyKind::Int(_) | TyKind::Float(_) | TyKind::Char | TyKind::Bool if !self.prim_has_method(rt, &name.name) && !self.trait_methods_for(rt, &name.name).is_empty() => {
+                let cands = self.trait_methods_for(rt, &name.name);
+                let f = self.pick_trait_method(&cands, &name.name, name.span).unwrap();
+                self.check_trait_method_call(f, rt, recv, name, explicit, args, expect, span)
+            }
             TyKind::Int(_) | TyKind::IntVar(_) | TyKind::Float(_) | TyKind::FloatVar(_) | TyKind::Char | TyKind::Bool => {
                 self.check_prim_method(recv, name, args, span)
+            }
+            TyKind::Param(_) | TyKind::Dyn(_) => {
+                let cands = self.trait_methods_for(rt, &name.name);
+                match self.pick_trait_method(&cands, &name.name, name.span) {
+                    Some(f) => {
+                        if let TyKind::Dyn(tr) = &*tcx.kind(rt) {
+                            if !self.check_dyn_compatible(*tr, recv.span) {
+                                self.check_args_for_errors(args);
+                                return self.error_expr(span);
+                            }
+                        }
+                        self.check_trait_method_call(f, rt, recv, name, explicit, args, expect, span)
+                    }
+                    None => {
+                        let mut d = Diagnostic::error("E0308", format!("no method named `{}` on type `{}`", name.name, self.ty_str(rt))).primary(name.span, "method not found");
+                        if matches!(&*tcx.kind(rt), TyKind::Param(_)) {
+                            d = d
+                                .note(format!("a generic type only has the methods of the traits it is bound by"))
+                                .help(format!("add a bound, for example `[{}: Display]`, or `where {}: ...`", self.ty_str(rt), self.ty_str(rt)));
+                        }
+                        self.err(d);
+                        self.check_args_for_errors(args);
+                        self.error_expr(span)
+                    }
+                }
             }
             _ => {
                 self.err(Diagnostic::error("E0308", format!("no method named `{}` on type `{}`", name.name, self.ty_str(rt))).primary(name.span, "method not found"));
                 self.check_args_for_errors(args);
                 self.error_expr(span)
             }
+        }
+    }
+
+    /// `value.method(...)` resolved to a trait method declaration (`Self` = `self_ty`).
+    #[allow(clippy::too_many_arguments)]
+    fn check_trait_method_call(&mut self, f: FnId, self_ty: Ty, recv: thir::Expr, name: &ast::Ident, explicit: Option<Vec<Ty>>, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
+        if !self.p.func(f).has_self {
+            self.err(
+                Diagnostic::error("E0307", format!("`{}` is an associated function, not a method", name.name))
+                    .primary(name.span, "no `self` parameter")
+                    .help(format!("call it as `{}.{}(...)`", self.ty_str(self_ty), name.name)),
+            );
+            self.check_args_for_errors(args);
+            return self.error_expr(span);
+        }
+        self.check_fn_call(f, vec![self_ty], explicit, Some(recv), args, expect, span)
+    }
+
+    /// Is `name` a method provided by the compiler for this primitive type?
+    fn prim_has_method(&self, t: Ty, name: &str) -> bool {
+        let k = self.tcx().kind(t);
+        if name == "to_string" {
+            return true;
+        }
+        match &*k {
+            TyKind::Int(_) => matches!(name, "abs" | "min" | "max" | "pow" | "leading_zeros" | "trailing_zeros" | "count_ones" | "rotate_left" | "rotate_right" | "swap_bytes"),
+            TyKind::Float(_) => matches!(
+                name,
+                "sqrt" | "floor" | "ceil" | "round" | "trunc" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan" | "exp" | "ln" | "log10" | "log2" | "abs" | "powf" | "atan2" | "min" | "max" | "hypot" | "copysign" | "to_bits" | "is_nan" | "is_infinite" | "is_finite"
+            ),
+            TyKind::Char => matches!(
+                name,
+                "is_ascii_digit" | "is_ascii_alphabetic" | "is_ascii_alphanumeric" | "is_whitespace" | "is_ascii_uppercase" | "is_ascii_lowercase" | "is_ascii" | "to_ascii_uppercase" | "to_ascii_lowercase" | "len_utf8"
+            ),
+            _ => false,
         }
     }
 
@@ -960,8 +1079,11 @@ impl<'a> FnCtxt<'a> {
             }
             next_expected = i + 1;
             let fty = tcx.subst(f.ty, &targs);
-            let x = self.check_expr(&a.expr, Expect::Has(fty));
-            self.coerce(&x, fty);
+            let mut x = match &a.expr.kind {
+                A::Closure(_) => self.misplaced_closure(a.expr.span),
+                _ => self.check_expr(&a.expr, Expect::Has(fty)),
+            };
+            self.coerce(&mut x, fty);
             out[i] = Some(x);
         }
         let missing: Vec<&str> = names.iter().zip(out.iter()).filter(|(_, x)| x.is_none()).map(|(n, _)| n.as_str()).collect();
@@ -1016,8 +1138,8 @@ impl<'a> FnCtxt<'a> {
                 self.err(Diagnostic::error("E0412", "`&` is only used for `inout` arguments").primary(amp, "remove this `&`"));
             }
             let fty = field_tys.get(i).copied().unwrap_or(tcx.error);
-            let x = self.check_expr(&a.expr, Expect::Has(fty));
-            self.coerce(&x, fty);
+            let mut x = self.check_expr(&a.expr, Expect::Has(fty));
+            self.coerce(&mut x, fty);
             out.push(x);
         }
         if out.len() != field_tys.len() {

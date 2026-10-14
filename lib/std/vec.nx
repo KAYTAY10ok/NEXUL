@@ -1,5 +1,6 @@
 /// A growable array stored on the heap (spec chapter 09).
 
+import std.core
 import std.mem
 import std.rt
 
@@ -189,5 +190,390 @@ impl Vec {
                 mem.free(self.data.cast[u8]())
             }
         }
+    }
+}
+
+impl Vec {
+    /// `true` if an element equals `value`.
+    pub fn contains(self, value: T) -> bool where T: Eq {
+        for x in self {
+            if x == value {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The position of the first element equal to `value`.
+    pub fn index_of(self, value: T) -> Option[usize] where T: Eq {
+        for i in 0..self.len {
+            if self[i] == value {
+                return Some(i)
+            }
+        }
+        return None
+    }
+
+    /// A copy of the first element, or `None` if the vector is empty.
+    pub fn first(self) -> Option[T] where T: Clone {
+        if self.len == 0 {
+            return None
+        }
+        return Some(self[0].clone())
+    }
+
+    /// A copy of the last element, or `None` if the vector is empty.
+    pub fn last(self) -> Option[T] where T: Clone {
+        if self.len == 0 {
+            return None
+        }
+        return Some(self[self.len - 1].clone())
+    }
+
+    /// Reverses the order of the elements.
+    pub fn reverse(inout self) {
+        var i: usize = 0
+        var j = self.len
+        while i + 1 < j {
+            j -= 1
+            self.swap(i, j)
+            i += 1
+        }
+    }
+
+    /// Sorts the elements in increasing order (heap sort: O(n log n), in place; equal
+    /// elements may change order).
+    pub fn sort(inout self) where T: Ord {
+        let n = self.len
+        if n < 2 {
+            return
+        }
+        var start = n / 2
+        while start > 0 {
+            start -= 1
+            self.sift_down(start, n)
+        }
+        var end = n
+        while end > 1 {
+            end -= 1
+            self.swap(0, end)
+            self.sift_down(0, end)
+        }
+    }
+
+    fn sift_down(inout self, start: usize, end: usize) where T: Ord {
+        var root = start
+        while true {
+            let child = 2 * root + 1
+            if child >= end {
+                return
+            }
+            var c = child
+            if child + 1 < end and self[child] < self[child + 1] {
+                c = child + 1
+            }
+            if self[root] < self[c] {
+                self.swap(root, c)
+                root = c
+            } else {
+                return
+            }
+        }
+    }
+
+    /// Sorts the elements with a comparison function.
+    pub fn sort_by(inout self, compare: fn(T, T) -> Ordering) {
+        let n = self.len
+        if n < 2 {
+            return
+        }
+        var start = n / 2
+        while start > 0 {
+            start -= 1
+            self.sift_down_by(start, n, compare)
+        }
+        var end = n
+        while end > 1 {
+            end -= 1
+            self.swap(0, end)
+            self.sift_down_by(0, end, compare)
+        }
+    }
+
+    fn sift_down_by(inout self, start: usize, end: usize, compare: fn(T, T) -> Ordering) {
+        var root = start
+        while true {
+            let child = 2 * root + 1
+            if child >= end {
+                return
+            }
+            var c = child
+            if child + 1 < end and compare(self[child], self[child + 1]) == Ordering.Less {
+                c = child + 1
+            }
+            if compare(self[root], self[c]) == Ordering.Less {
+                self.swap(root, c)
+                root = c
+            } else {
+                return
+            }
+        }
+    }
+
+    /// The position of `value` in a sorted vector (binary search).
+    pub fn binary_search(self, value: T) -> Option[usize] where T: Ord {
+        var lo: usize = 0
+        var hi = self.len
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            let c = self[mid].cmp(value)
+            if c == Ordering.Equal {
+                return Some(mid)
+            }
+            if c == Ordering.Less {
+                lo = mid + 1
+            } else {
+                hi = mid
+            }
+        }
+        return None
+    }
+
+    /// A new vector with `f` applied to every element.
+    pub fn map[U](self, f: fn(T) -> U) -> Vec[U] {
+        var out: Vec[U] = Vec.with_capacity(self.len)
+        for x in self {
+            out.push(f(x))
+        }
+        return out
+    }
+
+    /// A new vector with the elements for which `keep` is true.
+    pub fn filter(self, keep: fn(T) -> bool) -> Vec[T] where T: Clone {
+        var out: Vec[T] = Vec.new()
+        for x in self {
+            if keep(x) {
+                out.push(x.clone())
+            }
+        }
+        return out
+    }
+
+    /// Calls `f` on every element, in order.
+    pub fn for_each(self, f: fn(T)) {
+        for x in self {
+            f(x)
+        }
+    }
+
+    /// `true` if `test` is true for at least one element.
+    pub fn any(self, test: fn(T) -> bool) -> bool {
+        for x in self {
+            if test(x) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// `true` if `test` is true for every element.
+    pub fn all(self, test: fn(T) -> bool) -> bool {
+        for x in self {
+            if not test(x) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The number of elements for which `test` is true.
+    pub fn count(self, test: fn(T) -> bool) -> usize {
+        var n: usize = 0
+        for x in self {
+            if test(x) {
+                n += 1
+            }
+        }
+        return n
+    }
+
+    /// A copy of the first element for which `test` is true.
+    pub fn find(self, test: fn(T) -> bool) -> Option[T] where T: Clone {
+        for x in self {
+            if test(x) {
+                return Some(x.clone())
+            }
+        }
+        return None
+    }
+
+    /// The position of the first element for which `test` is true.
+    pub fn position(self, test: fn(T) -> bool) -> Option[usize] {
+        for i in 0..self.len {
+            if test(self[i]) {
+                return Some(i)
+            }
+        }
+        return None
+    }
+
+    /// Combines the elements from left to right: `f(f(f(init, a), b), c)`.
+    pub fn fold[A](self, owned init: A, f: fn(A, T) -> A) -> A {
+        var acc = init
+        for x in self {
+            acc = f(acc, x)
+        }
+        return acc
+    }
+
+    /// Keeps only the elements for which `keep` is true.
+    pub fn retain(inout self, keep: fn(T) -> bool) {
+        var i: usize = 0
+        while i < self.len {
+            if keep(self[i]) {
+                i += 1
+            } else {
+                let _ = self.remove(i)
+            }
+        }
+    }
+
+    /// Removes consecutive equal elements.
+    pub fn dedup(inout self) where T: Eq {
+        var i: usize = 1
+        while i < self.len {
+            if self[i] == self[i - 1] {
+                let _ = self.remove(i)
+            } else {
+                i += 1
+            }
+        }
+    }
+
+    /// A copy of the largest element.
+    pub fn max(self) -> Option[T] where T: Ord + Clone {
+        if self.len == 0 {
+            return None
+        }
+        var best: usize = 0
+        for i in 1..self.len {
+            if self[i] > self[best] {
+                best = i
+            }
+        }
+        return Some(self[best].clone())
+    }
+
+    /// A copy of the smallest element.
+    pub fn min(self) -> Option[T] where T: Ord + Clone {
+        if self.len == 0 {
+            return None
+        }
+        var best: usize = 0
+        for i in 1..self.len {
+            if self[i] < self[best] {
+                best = i
+            }
+        }
+        return Some(self[best].clone())
+    }
+
+    /// The sum of the elements (`T.default()` for an empty vector).
+    pub fn sum(self) -> T where T: Add + Default {
+        var total = T.default()
+        for x in self {
+            total = total + x
+        }
+        return total
+    }
+
+    /// The elements as text, separated by `separator`.
+    pub fn join(self, separator: String) -> String where T: Display {
+        var out = ""
+        for i in 0..self.len {
+            if i > 0 {
+                out.push_str(separator)
+            }
+            out.push_str(self[i].to_string())
+        }
+        return out
+    }
+
+    /// Appends copies of the elements of `other`.
+    pub fn extend(inout self, other: Vec[T]) where T: Clone {
+        self.reserve(other.len)
+        for x in other {
+            self.push(x.clone())
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standard traits
+
+impl Clone for Vec[T: Clone] {
+    fn clone(self) -> Vec[T] {
+        var out: Vec[T] = Vec.with_capacity(self.len)
+        for x in self {
+            out.push(x.clone())
+        }
+        return out
+    }
+}
+
+impl Eq for Vec[T: Eq] {
+    fn eq(self, other: Vec[T]) -> bool {
+        if self.len != other.len {
+            return false
+        }
+        for i in 0..self.len {
+            if self[i] != other[i] {
+                return false
+            }
+        }
+        return true
+    }
+}
+
+impl Ord for Vec[T: Ord] {
+    /// Lexicographic order.
+    fn cmp(self, other: Vec[T]) -> Ordering {
+        var i: usize = 0
+        while i < self.len and i < other.len {
+            let c = self[i].cmp(other[i])
+            if c != Ordering.Equal {
+                return c
+            }
+            i += 1
+        }
+        if self.len < other.len {
+            return Ordering.Less
+        }
+        if self.len > other.len {
+            return Ordering.Greater
+        }
+        return Ordering.Equal
+    }
+}
+
+impl Display for Vec[T: Display] {
+    fn to_string(self) -> String {
+        return "[{self.join(", ")}]"
+    }
+}
+
+impl Hash for Vec[T: Hash] {
+    fn hash(self) -> u64 {
+        var h = core.hash_mix(self.len as u64)
+        for x in self {
+            h = core.hash_combine(h, x.hash())
+        }
+        return h
+    }
+}
+
+impl Default for Vec[T] {
+    fn default() -> Vec[T] {
+        return Vec.new()
     }
 }

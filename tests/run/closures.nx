@@ -1,0 +1,85 @@
+// Spec §4.12: anonymous functions, `while let`, collection methods.
+
+fn apply_twice(x: i32, f: fn(i32) -> i32) -> i32 {
+    return f(f(x))
+}
+
+fn repeat(n: i32, action: fn(i32)) {
+    for i in 0..n {
+        action(i)
+    }
+}
+
+fn double(x: i32) -> i32 {
+    return x * 2
+}
+
+fn compose_all(x: i32, steps: Vec[i32], step: fn(i32, i32) -> i32) -> i32 {
+    var acc = x
+    for s in steps {
+        acc = step(acc, s)
+    }
+    return acc
+}
+
+fn main() {
+    let offset = 10
+    println("{apply_twice(1, fn(x) => x + offset)} {apply_twice(3, double)}")
+
+    var total = 0
+    repeat(5, fn(i) {
+        total += i
+    })
+    println("total {total}")
+
+    var v: Vec[i32] = Vec.new()
+    for i in 1..=10 {
+        v.push(i)
+    }
+    let squares = v.map(fn(x) => x * x)
+    let evens = v.filter(fn(x) => x % 2 == 0)
+    println("{squares} {evens}")
+    println("{v.any(fn(x) => x > 9)} {v.all(fn(x) => x > 0)} {v.count(fn(x) => x % 3 == 0)}")
+    println("{v.find(fn(x) => x * x > 50)} {v.position(fn(x) => x == 4)} {v.fold(0, fn(acc, x) => acc + x)}")
+    let labels = v.map(fn(x: i32) -> String {
+        if x % 2 == 0 {
+            return "pair"
+        }
+        return "impair"
+    })
+    println(labels.join("/"))
+
+    var words: Vec[String] = Vec.new()
+    words.push("poire")
+    words.push("kiwi")
+    words.push("ananas")
+    words.push("figue")
+    words.sort()
+    println("{words}")
+    words.sort_by(fn(a, b) => b.len().cmp(a.len()))
+    println("{words} {words.contains("kiwi")} {words.index_of("figue")}")
+    let prefix = "fruit:"
+    words.for_each(fn(w) => println("{prefix}{w}"))
+
+    var nums: Vec[i64] = Vec.new()
+    nums.push(5)
+    nums.push(-3)
+    nums.push(12)
+    nums.push(5)
+    nums.sort()
+    nums.dedup()
+    println("{nums} max {nums.max()} min {nums.min()} sum {nums.sum()} {nums.binary_search(12)}")
+    nums.retain(fn(x) => x > 0)
+    nums.reverse()
+    println("{nums}")
+
+    var stack: Vec[i32] = Vec.new()
+    stack.push(1)
+    stack.push(2)
+    stack.push(3)
+    while let Some(top) = stack.pop() {
+        print("{top} ")
+    }
+    println("")
+    println("{compose_all(1, v, fn(a, b) => a * 2 + b)}")
+}

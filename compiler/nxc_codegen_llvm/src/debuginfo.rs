@@ -196,6 +196,14 @@ impl DebugInfo {
                 self.define(id, format!("!DICompositeType(tag: DW_TAG_array_type, baseType: !{}, size: {}, elements: !{})", inner, size, elems));
                 return id;
             }
+            TyKind::Closure(..) | TyKind::Dyn(_) => {
+                let id = self.reserve();
+                self.types.insert(t, id);
+                let names: Vec<String> = if matches!(&*tcx.kind(t), TyKind::Dyn(_)) { vec!["data".into(), "vtable".into()] } else { vec!["code".into(), "env".into()] };
+                let pu = tcx.ptr(tcx.unit);
+                self.composite(lx, p, id, &name, t, &names, &[pu, pu]);
+                return id;
+            }
             TyKind::Tuple(elems) => {
                 let id = self.reserve();
                 self.types.insert(t, id);

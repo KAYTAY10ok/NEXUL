@@ -1,0 +1,66 @@
+error[E0242]: missing method of trait `Area`: `scale`
+  --> traits_errors.nx:12:1
+   |
+12 | impl Area for Sq {
+   | ^^^^^^^^^^^^^^^^^^ `Area` is not fully implemented
+   |
+   = help: add the missing functions to this `impl` block
+
+error[E0241]: `area` does not match its declaration in trait `Area`
+  --> traits_errors.nx:13:8
+   |
+ 4 |     fn area(self) -> f64
+   |        ---- declared here
+...
+13 |     fn area(self) -> i32 {
+   |        ^^^^ different signature
+   |
+   = note: expected `fn area(self) -> f64` with `Self` = `Sq`
+
+error[E0241]: `perimeter` is not a method of trait `Area`
+  --> traits_errors.nx:17:8
+   |
+17 |     fn perimeter(self) -> f64 {
+   |        ^^^^^^^^^ not declared by the trait
+
+error[E0240]: cannot find trait `Sizable`
+  --> traits_errors.nx:22:6
+   |
+22 | impl Sizable for Sq {
+   |      ^^^^^^^ not found in this scope
+
+error[E0303]: operator `>` cannot be applied to `T`
+  --> traits_errors.nx:33:12
+   |
+33 |     return a > b
+   |            ^^^^^ unsupported operation
+   |
+   = help: add the bound `T: Ord` to the type parameter
+
+error[E0249]: `Pt` does not implement `Display`
+  --> traits_errors.nx:46:13
+   |
+46 |     println(show(p))
+   |             ^^^^^^^ `Display` is required by `show`
+   |
+   = help: implement it: `impl Display for Pt { ... }`
+
+error[E0248]: an anonymous function can only be written as an argument of a call
+  --> traits_errors.nx:48:13
+   |
+48 |     let f = fn(x: i32) => x + 1
+   |             ^^^^^^^^^^^^^^^^^^^ not passed directly to a function
+   |
+   = note: an anonymous function uses the variables around it: it cannot outlive the call that receives it
+   = help: pass it directly, for example `v.map(fn(x) => x * 2)`, or declare a named function
+
+error[E0248]: an anonymous function cannot be stored in a value
+  --> traits_errors.nx:50:16
+   |
+50 |     calls.push(fn(x) => x)
+   |                ^^^^^^^^^^ a function value is expected here
+   |
+   = note: only a borrowed parameter of function type (`f: fn(T) -> U`) accepts an anonymous function; this place may keep the function after the call
+   = help: declare a named function and pass its name
+
+error: could not compile due to 8 errors

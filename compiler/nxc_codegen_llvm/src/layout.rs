@@ -81,6 +81,8 @@ impl<'a> LayoutCx<'a> {
             TyKind::Char => Layout::scalar(4),
             TyKind::Unit | TyKind::Never | TyKind::Error => Layout::ZERO,
             TyKind::Ptr(_) | TyKind::Fn(..) => Layout::scalar(self.ptr_bytes),
+            // (code, environment) and (data, vtable)
+            TyKind::Closure(..) | TyKind::Dyn(_) => Layout { size: 2 * self.ptr_bytes, align: self.ptr_bytes },
             TyKind::Tuple(elems) => self.struct_layout(elems),
             TyKind::Array(e, n) => {
                 let el = self.layout(*e);

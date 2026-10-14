@@ -25,6 +25,7 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.time", include_str!("../../../lib/std/time.nx"), false),
     ("std.random", include_str!("../../../lib/std/random.nx"), false),
     ("std.math", include_str!("../../../lib/std/math.nx"), false),
+    ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.
@@ -151,6 +152,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
     let root_file = sm.add(src.root_name.clone(), src.root_text.clone());
     let mut root_ast = nxc_syntax::parse_file(sm, root_file, diags);
     apply_cfg(&mut root_ast, &src.cfg, diags);
+    crate::derive::expand(&mut root_ast, sm, &src.root_name, diags);
     let stem = std::path::Path::new(&src.root_name)
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
@@ -204,9 +206,10 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
                 }
             }
         };
-        let file = sm.add(name, text);
+        let file = sm.add(name.clone(), text);
         let mut ast = nxc_syntax::parse_file(sm, file, diags);
         apply_cfg(&mut ast, &src.cfg, diags);
+        crate::derive::expand(&mut ast, sm, &name, diags);
         if let Some((decl, dspan)) = &ast.decl {
             let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
             let dep_relative = src.deps.iter().any(|(n, _)| Some(n) == segs.first()) && declared == segs[1..].join(".");

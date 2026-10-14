@@ -77,7 +77,7 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
     for (i, &tl) in thir.params.iter().enumerate() {
         let decl = &thir.locals[tl as usize];
         let param = &fd.params[i];
-        let by_ref = param_by_ref(p, param.conv, param.ty);
+        let by_ref = param_by_ref(p, param.conv, fd.abi_param_ty(i));
         let ty = if by_ref { p.tcx.ptr(decl.ty) } else { decl.ty };
         let l = b.locals.len() as Local;
         b.locals.push(LocalDecl { ty, name: Some(decl.name.clone()), kind: LocalKind::Arg { by_ref }, span: decl.span });
@@ -294,7 +294,7 @@ impl<'a> Builder<'a> {
                 Step::IndexFn { f, targs, index, index_ty, elem, span } => {
                     let fd = self.p.func(f);
                     let self_ty = self.place_ty(&place);
-                    let recv = if param_by_ref(self.p, fd.params[0].conv, fd.params[0].ty) {
+                    let recv = if param_by_ref(self.p, fd.params[0].conv, fd.abi_param_ty(0)) {
                         let r = self.temp(tcx.ptr(self_ty), span);
                         self.assign(Place::local(r), Rvalue::Ref(place.clone()), span);
                         Operand::Copy(Place::local(r))
@@ -475,14 +475,20 @@ impl<'a> Builder<'a> {
         match callee {
             TCallee::Fn(f, targs) => {
                 let fd = self.p.func(*f);
-                let params: Vec<(Convention, Ty)> = fd.params.iter().map(|p| (p.conv, p.ty)).collect();
+                let params: Vec<(Convention, Ty)> = fd.params.iter().enumerate().map(|(i, p)| (p.conv, fd.abi_param_ty(i))).collect();
                 let ops = self.lower_args(&params, args);
                 self.call(Callee::Fn(*f, targs.clone()), ops, call_dest, diverges, span);
             }
             TCallee::Indirect(fexpr) => {
-                let fop = self.operand_in_temp(fexpr);
+                // An anonymous function is called in place (it is never moved).
+                let fop = if matches!(&*tcx.kind(fexpr.ty), TyKind::Closure(..)) {
+                    let pl = self.place_of(fexpr);
+                    Operand::Copy(pl)
+                } else {
+                    self.operand_in_temp(fexpr)
+                };
                 let params: Vec<(Convention, Ty)> = match &*tcx.kind(fexpr.ty) {
-                    TyKind::Fn(ps, _) => ps.clone(),
+                    TyKind::Fn(ps, _) | TyKind::Closure(ps, _) => ps.clone(),
                     _ => vec![],
                 };
                 let ops = self.lower_args(&params, args);
@@ -644,6 +650,22 @@ impl<'a> Builder<'a> {
             }
             T::Try(x, kind) => self.lower_try(dest, x, *kind, span),
             T::Interp(parts) => self.lower_interp(dest, parts, span),
+            T::Closure { f, captures } => {
+                let mut env = Vec::new();
+                for &(l, _) in captures {
+                    let place = self.local_place(l);
+                    env.push(self.ref_place(place, span));
+                }
+                self.assign(dest, Rvalue::Closure { f: *f, env }, span);
+            }
+            T::FnToClosure(x) => {
+                let o = self.operand_read(x);
+                self.assign(dest, Rvalue::FnToClosure(o), span);
+            }
+            T::ToDyn(x) => {
+                let o = self.operand_in_temp(x);
+                self.assign(dest, Rvalue::ToDyn(o, x.ty), span);
+            }
         }
     }
 
@@ -1199,7 +1221,7 @@ impl<'a> Builder<'a> {
                     IterKind::Indexed { index_fn, type_args, .. } => {
                         let fd = self.p.func(*index_fn);
                         let self_ty = self.place_ty(&sp);
-                        let recv = if param_by_ref(self.p, fd.params[0].conv, fd.params[0].ty) {
+                        let recv = if param_by_ref(self.p, fd.params[0].conv, fd.abi_param_ty(0)) {
                             self.ref_place(sp.clone(), span)
                         } else {
                             let _ = self_ty;

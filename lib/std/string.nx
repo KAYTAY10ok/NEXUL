@@ -4,6 +4,7 @@
 /// Representation: `cap == 0` means the bytes are not owned (a string literal or the
 /// empty string); they are copied to the heap on the first modification.
 
+import std.core
 import std.mem
 import std.fmt
 
@@ -565,5 +566,57 @@ impl String {
                 mem.free(self.data)
             }
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standard traits
+
+impl Eq for String {
+    fn eq(self, other: String) -> bool {
+        return self == other
+    }
+}
+
+impl Ord for String {
+    fn cmp(self, other: String) -> Ordering {
+        if self < other {
+            return Ordering.Less
+        }
+        if self > other {
+            return Ordering.Greater
+        }
+        return Ordering.Equal
+    }
+}
+
+impl Clone for String {
+    fn clone(self) -> String {
+        return self.clone()
+    }
+}
+
+impl Display for String {
+    fn to_string(self) -> String {
+        return self.clone()
+    }
+}
+
+impl Hash for String {
+    /// FNV-1a over the bytes, then mixed.
+    fn hash(self) -> u64 {
+        var h: u64 = 0xCBF2_9CE4_8422_2325
+        unsafe {
+            for i in 0..self.len {
+                h = (h ^ (self.data.offset(i).read() as u64)) *% 0x0000_0100_0000_01B3
+            }
+        }
+        return core.hash_mix(h)
+    }
+}
+
+impl Default for String {
+    fn default() -> String {
+        return ""
     }
 }

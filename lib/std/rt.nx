@@ -150,7 +150,7 @@ fn print(text: String, newline: bool, to_stderr: bool) {
 
 /// Called by the platform entry point with the program's `main` function.
 @lang("entry")
-fn entry(main: fn()) {
+fn entry(owned main: fn()) {
     sys.init()
     unsafe {
         OUT_IS_TERMINAL = sys.stdout_is_terminal()

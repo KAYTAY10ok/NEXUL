@@ -26,7 +26,7 @@ error[E0303]: operator `==` cannot be applied to `P`
 10 |     let d = P(x: 1) == P(x: 1)
    |             ^^^^^^^^^^^^^^^^^^ unsupported operation
    |
-   = help: compare the fields, or use `match`
+   = help: implement the trait `Eq` for `P` (or add `@derive(Eq)` to its declaration)
 
 error[E0303]: unary `~` cannot be applied to `bool`
   --> bad_operators.nx:11:13

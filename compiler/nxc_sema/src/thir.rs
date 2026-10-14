@@ -211,6 +211,13 @@ pub enum ExprKind {
     Try(Box<Expr>, TryKind),
     Move(Box<Expr>),
     Interp(Vec<InterpPart>),
+    /// An anonymous function: its code (`f`, whose first parameters receive the
+    /// captured variables) and the variables it uses, with "modified" flags.
+    Closure { f: FnId, captures: Vec<(LocalId, bool)> },
+    /// A function value passed where an anonymous function is accepted.
+    FnToClosure(Box<Expr>),
+    /// A value moved to the heap as a `dyn Trait` (the expression's type).
+    ToDyn(Box<Expr>),
     Error,
 }
 

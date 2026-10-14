@@ -36,8 +36,8 @@ impl<'a> FnCtxt<'a> {
 
     /// Checks `e` and coerces it to `ty`.
     pub(crate) fn check_expr_coerce(&mut self, e: &ast::Expr, ty: Ty) -> thir::Expr {
-        let x = self.check_expr(e, Expect::Has(ty));
-        self.coerce(&x, ty);
+        let mut x = self.check_expr(e, Expect::Has(ty));
+        self.coerce(&mut x, ty);
         x
     }
 
@@ -119,8 +119,8 @@ impl<'a> FnCtxt<'a> {
                 };
                 let mut xs = Vec::new();
                 for el in elems {
-                    let x = self.check_expr(el, Expect::Has(elem_ty));
-                    self.coerce(&x, elem_ty);
+                    let mut x = self.check_expr(el, Expect::Has(elem_ty));
+                    self.coerce(&mut x, elem_ty);
                     xs.push(x);
                 }
                 let ty = tcx.mk(TyKind::Array(elem_ty, xs.len() as u64));
@@ -144,6 +144,12 @@ impl<'a> FnCtxt<'a> {
             A::Binary(op, l, r) => self.check_binary(*op, l, r, expect, span),
             A::Cast(inner, texpr) => {
                 let to = self.resolve_type(texpr);
+                if let TyKind::Dyn(_) = &*tcx.kind(to) {
+                    // `value as dyn Trait`
+                    let mut x = self.check_expr(inner, Expect::None);
+                    self.coerce(&mut x, to);
+                    return x;
+                }
                 let x = self.check_expr(inner, Expect::None);
                 if matches!(&*tcx.kind(self.shallow(x.ty)), TyKind::Ptr(_)) || matches!(&*tcx.kind(to), TyKind::Ptr(_)) {
                     self.require_unsafe(span, "a pointer conversion");
@@ -205,8 +211,8 @@ impl<'a> FnCtxt<'a> {
                             }
                             Some(Box::new(x))
                         } else {
-                            let x = self.check_expr(v, Expect::Has(ret));
-                            self.coerce(&x, ret);
+                            let mut x = self.check_expr(v, Expect::Has(ret));
+                            self.coerce(&mut x, ret);
                             Some(Box::new(x))
                         }
                     }
@@ -257,6 +263,7 @@ impl<'a> FnCtxt<'a> {
                 self.err(Diagnostic::error("E0314", "expected a value, found a type").primary(span, "a type cannot be used as a value"));
                 self.error_expr(span)
             }
+            A::Closure(_) => self.misplaced_closure(span),
         }
     }
 

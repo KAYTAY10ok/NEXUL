@@ -201,8 +201,39 @@ impl<'a> Gen<'a> {
             params.push("ptr %l0".to_string());
             cx.addr[0] = "%l0".into();
         }
+        if sig.env {
+            params.push("ptr %env".to_string());
+        }
+        let n_cap = fd.closure_captures();
+        let mut k = 0usize;
         for i in 1..=body.arg_count {
             let t = tys[i];
+            if i <= n_cap {
+                // A variable captured by an anonymous function: its address is in the
+                // environment.
+                let _ = writeln!(cx.allocas, "  %l{} = alloca ptr", i);
+                let _ = writeln!(entry_code, "  %c{} = getelementptr inbounds ptr, ptr %env, i32 {}", i, i - 1);
+                let _ = writeln!(entry_code, "  %cv{} = load ptr, ptr %c{}", i, i);
+                let _ = writeln!(entry_code, "  store ptr %cv{}, ptr %l{}", i, i);
+                cx.addr[i] = format!("%l{}", i);
+                continue;
+            }
+            let pk = sig.params.get(k).cloned();
+            k += 1;
+            // Received by value (concrete type) although the generic body reads it
+            // through a reference: keep the value in memory and pass its address.
+            if let (Some(PKind::Scalar(slt)), TyKind::Ptr(inner), LocalKind::Arg { by_ref: true }) = (&pk, &*tcx.kind(t), body.locals[i].kind) {
+                if self.is_scalar(*inner) && self.llty(*inner) == *slt {
+                    let align = self.align_of(*inner);
+                    params.push(format!("{} %a{}", slt, i));
+                    let _ = writeln!(cx.allocas, "  %v{} = alloca {}, align {}", i, slt, align);
+                    let _ = writeln!(cx.allocas, "  %l{} = alloca ptr", i);
+                    let _ = writeln!(entry_code, "  store {} %a{}, ptr %v{}", slt, i, i);
+                    let _ = writeln!(entry_code, "  store ptr %v{}, ptr %l{}", i, i);
+                    cx.addr[i] = format!("%l{}", i);
+                    continue;
+                }
+            }
             if self.is_scalar(t) {
                 let lt = self.llty(t);
                 params.push(format!("{} %a{}", lt, i));
@@ -550,6 +581,44 @@ impl<'a> Gen<'a> {
                 let (dst, _) = self.place_addr(cx, place);
                 self.ins(cx, format!("store ptr {}, ptr {}", g, dst));
             }
+            Rvalue::Closure { f, env } => {
+                let code = self.instance(*f, cx.targs.clone());
+                let envp = if env.is_empty() {
+                    "null".to_string()
+                } else {
+                    let arr_t = format!("[{} x ptr]", env.len());
+                    let arr = self.alloca_raw(cx, &arr_t);
+                    for (i, o) in env.iter().enumerate() {
+                        let (v, _) = self.operand(cx, o);
+                        let slot = self.val(cx, format!("getelementptr inbounds {}, ptr {}, i32 0, i32 {}", arr_t, arr, i));
+                        self.ins(cx, format!("store ptr {}, ptr {}", v.scalar(), slot));
+                    }
+                    arr
+                };
+                let (dst, _) = self.place_addr(cx, place);
+                self.store_pair(cx, &dst, &code, &envp);
+            }
+            Rvalue::FnToClosure(o) => {
+                let (v, t) = self.operand(cx, o);
+                let thunk = self.closure_thunk(t);
+                let (dst, _) = self.place_addr(cx, place);
+                let fv = v.scalar().to_string();
+                self.store_pair(cx, &dst, &thunk, &fv);
+            }
+            Rvalue::ToDyn(o, src) => {
+                let (v, t) = self.operand(cx, o);
+                let _ = src;
+                let (dst, dt) = self.place_addr(cx, place);
+                let tr = match &*self.tcx().kind(dt) {
+                    TyKind::Dyn(tr) => *tr,
+                    _ => panic!("internal: conversion to a non-dyn type"),
+                };
+                let size = self.size_of(t).max(1);
+                let data = self.heap_alloc_bytes(cx, size);
+                self.store(cx, &data, &v, t);
+                let vt = self.vtable(tr, t);
+                self.store_pair(cx, &dst, &data, &vt);
+            }
             Rvalue::Discriminant(p) => {
                 let (a, t) = self.place_addr(cx, p);
                 let lt = self.llty(t);
@@ -677,6 +746,44 @@ impl<'a> Gen<'a> {
                 }
             }
         }
+    }
+
+    /// Stores a `{ ptr, ptr }` value (anonymous function or `dyn`).
+    fn store_pair(&mut self, cx: &mut FnCx, dst: &str, a: &str, b: &str) {
+        self.ins(cx, format!("store ptr {}, ptr {}", a, dst));
+        let p1 = self.val(cx, format!("getelementptr inbounds {{ ptr, ptr }}, ptr {}, i32 0, i32 1", dst));
+        self.ins(cx, format!("store ptr {}, ptr {}", b, p1));
+    }
+
+    /// The code of an anonymous function that calls the function pointer stored as its
+    /// environment (one per signature).
+    fn closure_thunk(&mut self, fn_ty: Ty) -> String {
+        let sig = self.fn_ty_sig(fn_ty);
+        let inner = self.sig_param_list(&sig);
+        let ret = self.sig_ret(&sig);
+        let name = format!("@{}", crate::quote_name(&format!("nx.thunk({}) -> {}", inner.join(", "), ret)));
+        if self.helpers.insert(name.clone()) {
+            let sret = matches!(sig.ret, RetKind::Sret(_));
+            let mut params = Vec::new();
+            let mut args = Vec::new();
+            for (i, t) in inner.iter().enumerate() {
+                if i == 0 && sret {
+                    params.push(format!("{} %p{}", t, i));
+                    args.push(format!("{} %p{}", t, i));
+                    params.push("ptr %env".to_string());
+                    continue;
+                }
+                params.push(format!("{} %p{}", t, i));
+                args.push(format!("{} %p{}", t, i));
+            }
+            if !sret {
+                params.insert(0, "ptr %env".to_string());
+            }
+            let call = format!("call {} %env({})", ret, args.join(", "));
+            let body = if ret == "void" { format!("  {}\n  ret void\n", call) } else { format!("  %r = {}\n  ret {} %r\n", call, ret) };
+            let _ = write!(self.fn_defs, "define internal {} {}({}) nounwind {{\nstart:\n{}}}\n\n", ret, name, params.join(", "), body);
+        }
+        name
     }
 
     fn heap_alloc_bytes(&mut self, cx: &mut FnCx, size: u64) -> String {
@@ -1081,6 +1188,17 @@ impl<'a> Gen<'a> {
                     }
                     return;
                 }
+                if fd.is_trait_decl() {
+                    match self.p.resolve_trait_method(*f, &targs) {
+                        Some((g, gargs)) => {
+                            let name = self.instance(g, gargs.clone());
+                            let sig = self.fn_sig(g, &gargs);
+                            self.call_with_sig(cx, &name, &sig, args, dest, span);
+                        }
+                        None => self.emit_dyn_call(cx, *f, &targs, args, dest, span),
+                    }
+                    return;
+                }
                 let name = self.instance(*f, targs.clone());
                 let sig = self.fn_sig(*f, &targs);
                 self.call_with_sig(cx, &name, &sig, args, dest, span);
@@ -1088,6 +1206,15 @@ impl<'a> Gen<'a> {
             Callee::Indirect(fop) => {
                 let (fv, ft) = self.operand(cx, fop);
                 let sig = self.fn_ty_sig(ft);
+                if let Val::Mem(fat) = &fv {
+                    // An anonymous function: code and environment.
+                    let fat = fat.clone();
+                    let code = self.val(cx, format!("load ptr, ptr {}", fat));
+                    let ep = self.val(cx, format!("getelementptr inbounds {{ ptr, ptr }}, ptr {}, i32 0, i32 1", fat));
+                    let env = self.val(cx, format!("load ptr, ptr {}", ep));
+                    self.call_with_sig_ext(cx, &code, &sig, args, dest, span, Some(&env), None);
+                    return;
+                }
                 let target = fv.scalar().to_string();
                 self.call_with_sig(cx, &target, &sig, args, dest, span);
             }
@@ -1097,8 +1224,41 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// A method call on a `dyn Trait` value: through the vtable of the concrete type,
+    /// with the address of the value as `self`.
+    fn emit_dyn_call(&mut self, cx: &mut FnCx, decl: FnId, targs: &[Ty], args: &[Operand], dest: Option<&Place>, span: Span) {
+        let tr0 = match &*self.tcx().kind(targs[0]) {
+            TyKind::Dyn(t) => *t,
+            _ => panic!("internal: dynamic call on a non-dyn type"),
+        };
+        let fd = self.p.func(decl);
+        let (mtrait, mname) = (fd.trait_id, fd.name.clone());
+        let slot = self
+            .vtable_methods(tr0)
+            .iter()
+            .position(|(t, n, _)| Some(*t) == mtrait && *n == mname)
+            .unwrap_or_else(|| panic!("internal: `{}` is not in the vtable", mname));
+        let (rv, _) = self.operand(cx, &args[0]);
+        let fat = rv.scalar().to_string();
+        let data = self.val(cx, format!("load ptr, ptr {}", fat));
+        let vtp = self.val(cx, format!("getelementptr inbounds {{ ptr, ptr }}, ptr {}, i32 0, i32 1", fat));
+        let vt = self.val(cx, format!("load ptr, ptr {}", vtp));
+        let ep = self.val(cx, format!("getelementptr inbounds ptr, ptr {}, i32 {}", vt, 3 + slot));
+        let fptr = self.val(cx, format!("load ptr, ptr {}", ep));
+        let sig = self.fn_sig(decl, targs);
+        self.call_with_sig_ext(cx, &fptr, &sig, args, dest, span, None, Some(&data));
+    }
+
     /// Passes the operands according to `sig` and stores the result in `dest`.
     fn call_with_sig(&mut self, cx: &mut FnCx, target: &str, sig: &Sig, args: &[Operand], dest: Option<&Place>, span: Span) {
+        self.call_with_sig_ext(cx, target, sig, args, dest, span, None, None);
+    }
+
+    /// `env`: the environment of an anonymous function; `first`: the pointer to pass
+    /// as first argument instead of the first operand (`dyn` receivers).
+    #[allow(clippy::too_many_arguments)]
+    fn call_with_sig_ext(&mut self, cx: &mut FnCx, target: &str, sig: &Sig, args: &[Operand], dest: Option<&Place>, span: Span, env: Option<&str>, first: Option<&str>) {
+        let tcx = self.tcx();
         let mut argv = Vec::new();
         if let RetKind::Sret(t) = &sig.ret {
             let slot = match dest {
@@ -1107,8 +1267,22 @@ impl<'a> Gen<'a> {
             };
             argv.push(format!("ptr {}", slot));
         }
-        for (a, pk) in args.iter().zip(sig.params.iter()) {
-            let (v, t) = self.operand(cx, a);
+        if sig.env {
+            argv.push(format!("ptr {}", env.unwrap_or("null")));
+        }
+        for (i, (a, pk)) in args.iter().zip(sig.params.iter()).enumerate() {
+            if let (0, Some(f)) = (i, first) {
+                argv.push(format!("ptr {}", f));
+                continue;
+            }
+            let (mut v, t) = self.operand(cx, a);
+            // Generic code passes a reference where the concrete type is passed by value.
+            if let (PKind::Scalar(lt), Some(&pt)) = (pk, sig.param_tys.get(i)) {
+                if t == tcx.ptr(pt) {
+                    let x = self.val(cx, format!("load {}, ptr {}", lt, v.scalar()));
+                    v = Val::Scalar(lt.clone(), x);
+                }
+            }
             match (pk, &v) {
                 (PKind::Scalar(lt), Val::Scalar(_, x)) => argv.push(format!("{} {}", lt, x)),
                 (PKind::Ptr, Val::Scalar(_, x)) => argv.push(format!("ptr {}", x)),

@@ -368,6 +368,8 @@ impl<'a> Parser<'a> {
                             }
                         },
                         TokenKind::Int(v) => Lit::Int(v),
+                        // `@derive(Eq, Clone)`: names are given as text.
+                        TokenKind::Ident(n) => Lit::Str(n),
                         TokenKind::True => Lit::Bool(true),
                         TokenKind::False => Lit::Bool(false),
                         _ => {

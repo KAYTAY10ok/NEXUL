@@ -351,6 +351,15 @@ impl<'a> FnCtxt<'a> {
                 *e = self.mk(thir::ExprKind::ToDyn(Box::new(inner)), exp, e.span);
                 return;
             }
+            (TyKind::Fn(..), TyKind::Closure(..)) => {
+                self.err(
+                    Diagnostic::error("E0248", "an anonymous function cannot be stored in a value")
+                        .primary(e.span, "a function value is expected here")
+                        .note("only a borrowed parameter of function type (`f: fn(T) -> U`) accepts an anonymous function; this place may keep the function after the call")
+                        .help("declare a named function and pass its name"),
+                );
+                return;
+            }
             (TyKind::Closure(cp, cr), TyKind::Fn(fp, fr)) => {
                 let thin = tcx.mk(TyKind::Fn(cp.clone(), *cr));
                 let _ = (fp, fr);

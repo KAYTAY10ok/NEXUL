@@ -61,6 +61,16 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0232` | Unknown or misplaced attribute. |
 | `E0233` | A `@test` function must be a free function without parameters, generics or return value. |
 | `E0234` | Invalid `@cfg` condition. |
+| `E0240` | A trait name is expected. |
+| `E0241` | A function of an `impl Trait for Type` block does not match the trait. |
+| `E0242` | An `impl Trait for Type` block does not implement every method of the trait. |
+| `E0243` | A trait is implemented twice for the same type. |
+| `E0244` | A trait requires another trait (its supertrait) that the type does not implement. |
+| `E0245` | A method name is declared by several traits implemented by the type. |
+| `E0246` | This trait cannot be used as `dyn Trait`. |
+| `E0247` | An `impl Trait for Type` block is in an unrelated module. |
+| `E0248` | An anonymous function is used where it could outlive the call that receives it. |
+| `E0249` | A type does not implement a trait required by a bound. |
 
 ## Types, motifs et constantes (chapitres 03 et 04)
 

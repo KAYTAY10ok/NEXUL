@@ -1,0 +1,16 @@
+21 12
+total 10
+[1, 4, 9, 16, 25, 36, 49, 64, 81, 100] [2, 4, 6, 8, 10]
+true true 3
+Some(8) Some(3) 55
+impair/pair/impair/pair/impair/pair/impair/pair/impair/pair
+[ananas, figue, kiwi, poire]
+[ananas, figue, poire, kiwi] true Some(1)
+fruit:ananas
+fruit:figue
+fruit:poire
+fruit:kiwi
+[-3, 5, 12] max Some(12) min Some(-3) sum 14 Some(2)
+[12, 5]
+3 2 1 
+3060

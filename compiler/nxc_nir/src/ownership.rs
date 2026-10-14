@@ -90,7 +90,8 @@ fn stmt_effects(s: &Statement, sites: &mut Vec<MoveSite>, out: &mut Vec<Effect>)
                     operand_effects(a, span, sites, out);
                     operand_effects(b, span, sites, out);
                 }
-                Rvalue::Aggregate(_, ops) => ops.iter().for_each(|o| operand_effects(o, span, sites, out)),
+                Rvalue::Aggregate(_, ops) | Rvalue::Closure { env: ops, .. } => ops.iter().for_each(|o| operand_effects(o, span, sites, out)),
+                Rvalue::FnToClosure(o) | Rvalue::ToDyn(o, _) => operand_effects(o, span, sites, out),
                 Rvalue::Ref(p) | Rvalue::Discriminant(p) => place_uses(p, span, out),
                 Rvalue::StaticAddr(_) => {}
             }
@@ -435,6 +436,7 @@ pub fn elaborate_drops(p: &Program, body: &mut Body) {
                             collect(b);
                         }
                         Rvalue::Aggregate(_, ops) => ops.iter().for_each(&mut collect),
+                        Rvalue::ToDyn(o, _) => collect(o),
                         _ => {}
                     }
                     for m in moved {

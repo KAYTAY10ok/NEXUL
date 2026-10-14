@@ -3,8 +3,8 @@
 //! unused variables.
 
 use super::{Deferred, FnCtxt, VarKind};
-use crate::defs::ConstValue;
-use crate::thir::{self, Block, Expr, ExprKind as T, InterpPart, LocalKind, Pat, PatKind, StmtKind as S};
+use crate::defs::{Builtin, ConstValue};
+use crate::thir::{self, Block, CallArg, Callee, Expr, ExprKind as T, InterpPart, LocalKind, Pat, PatKind, StmtKind as S};
 use crate::ty::{FloatTy, Ty, TyKind};
 use nxc_syntax::ast::{BinOp, Convention, UnOp};
 use nxc_syntax::token::FormatKind;
@@ -63,6 +63,12 @@ impl<'a> FnCtxt<'a> {
             l.ty = t;
         }
         self.fin_block(&mut body.block);
+        let mut closures = std::mem::take(&mut self.closures);
+        for c in closures.iter_mut() {
+            self.fin_block(&mut c.block);
+            c.ret_ty = self.resolve(c.ret_ty);
+        }
+        self.closures = closures;
         let deferred = std::mem::take(&mut self.deferred);
         for d in deferred {
             self.run_deferred(d);
@@ -122,9 +128,20 @@ impl<'a> FnCtxt<'a> {
                     self.fin_expr(place);
                     self.fin_expr(value);
                 }
-                S::CompoundAssign { place, value, .. } => {
+                S::CompoundAssign { op, place, value } => {
                     self.fin_expr(place);
                     self.fin_expr(value);
+                    // `a += b` on a type with `Add`: `a = a + b`.
+                    let op = *op;
+                    if !self.builtin_operand(place.ty, op) {
+                        let lhs = place.clone();
+                        let rhs = std::mem::replace(value, self.error_expr(value.span));
+                        let span = s.span;
+                        let mut sum = self.mk(T::Binary(op, Box::new(lhs), Box::new(rhs)), place.ty, span);
+                        self.desugar_operator(&mut sum);
+                        let place = std::mem::replace(place, self.error_expr(span));
+                        s.kind = S::Assign { place, value: sum };
+                    }
                 }
                 S::Expr(e) => self.fin_expr(e),
                 S::While { cond, body, .. } => {
@@ -217,8 +234,12 @@ impl<'a> FnCtxt<'a> {
                     self.check_int_range(n, e.ty, e.span);
                 }
             }
-            T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
-            T::Unary(_, x) | T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) => self.fin_expr(x),
+            T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) | T::Closure { .. } => {}
+            T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => self.fin_expr(x),
+            T::Unary(_, x) => {
+                self.fin_expr(x);
+                self.desugar_operator(e);
+            }
             T::Cast(x) => {
                 self.fin_expr(x);
                 // Compile-time check of literal conversions (spec §3.6).
@@ -227,7 +248,12 @@ impl<'a> FnCtxt<'a> {
                     self.check_int_range(n, e.ty, e.span);
                 }
             }
-            T::Binary(_, a, b) | T::Index(a, b) => {
+            T::Binary(_, a, b) => {
+                self.fin_expr(a);
+                self.fin_expr(b);
+                self.desugar_operator(e);
+            }
+            T::Index(a, b) => {
                 self.fin_expr(a);
                 self.fin_expr(b);
             }
@@ -250,6 +276,11 @@ impl<'a> FnCtxt<'a> {
                 }
                 for a in args.iter_mut() {
                     self.fin_expr(&mut a.expr);
+                }
+                if let Callee::Builtin(Builtin::Print | Builtin::Println | Builtin::Eprint | Builtin::Eprintln) = callee {
+                    if let Some(a) = args.first_mut() {
+                        self.display(&mut a.expr);
+                    }
                 }
             }
             T::Adt { type_args, fields, .. } => {
@@ -294,10 +325,127 @@ impl<'a> FnCtxt<'a> {
                 for p in parts.iter_mut() {
                     if let InterpPart::Value(x, _) = p {
                         self.fin_expr(x);
+                        self.display(x);
                     }
                 }
             }
         }
+    }
+
+    /// Is the operator built into the language for operands of type `t`?
+    fn builtin_operand(&self, t: Ty, op: BinOp) -> bool {
+        let tcx = self.tcx();
+        let t = self.resolve(t);
+        match &*tcx.kind(t) {
+            TyKind::Adt(..) if self.p.is_string(t) => matches!(op, BinOp::Add | BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge),
+            TyKind::Adt(..) => matches!(op, BinOp::Eq | BinOp::Ne) && self.is_fieldless_enum(t) && self.p.lang_trait("eq").map_or(true, |eq| !self.implements(t, eq)),
+            TyKind::Param(_) | TyKind::Dyn(_) | TyKind::Tuple(_) | TyKind::Array(..) | TyKind::Closure(..) => false,
+            _ => true,
+        }
+    }
+
+    /// Operators on types that do not have them built in call trait methods:
+    /// `a == b` is `Eq.eq(a, b)`, `a < b` is `Ord.cmp(a, b) == Ordering.Less`,
+    /// `a + b` is `Add.add(a, b)`, `-a` is `Neg.neg(a)`.
+    fn desugar_operator(&mut self, e: &mut Expr) {
+        let tcx = self.tcx();
+        let span = e.span;
+        let (op, operand_ty, is_unary) = match &e.kind {
+            T::Binary(op, a, _) if !op.is_logical() && !op.is_shift() => (Some(*op), a.ty, false),
+            T::Unary(UnOp::Neg, a) => (None, a.ty, true),
+            _ => return,
+        };
+        let t = self.resolve(operand_ty);
+        if tcx.has_error(t) || tcx.is_never(t) {
+            return;
+        }
+        if let Some(op) = op {
+            if self.builtin_operand(t, op) {
+                return;
+            }
+        } else if !matches!(&*tcx.kind(t), TyKind::Adt(..) | TyKind::Param(_) | TyKind::Dyn(_)) {
+            return;
+        }
+        let (lang, method, symbol, trait_name) = match op {
+            Some(BinOp::Eq | BinOp::Ne) => ("eq", "eq", op.unwrap().symbol(), "Eq"),
+            Some(BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge) => ("ord", "cmp", op.unwrap().symbol(), "Ord"),
+            Some(BinOp::Add) => ("add", "add", "+", "Add"),
+            Some(BinOp::Sub) => ("sub", "sub", "-", "Sub"),
+            Some(BinOp::Mul) => ("mul", "mul", "*", "Mul"),
+            Some(BinOp::Div) => ("div", "div", "/", "Div"),
+            Some(BinOp::Rem) => ("rem", "rem", "%", "Rem"),
+            None => ("neg", "neg", "-", "Neg"),
+            Some(_) => return,
+        };
+        let tr = self.p.lang_trait(lang);
+        let ok = tr.map_or(false, |tr| self.implements(t, tr));
+        if !ok {
+            let ts = self.ty_str(t);
+            let mut d = Diagnostic::error("E0303", format!("operator `{}` cannot be applied to `{}`", symbol, ts)).primary(span, "unsupported operation");
+            if matches!(&*tcx.kind(t), TyKind::Param(_)) {
+                d = d.help(format!("add the bound `{}: {}` to the type parameter", ts, trait_name));
+            } else if matches!(&*tcx.kind(t), TyKind::Adt(..)) {
+                d = d.help(format!("implement the trait `{}` for `{}` (or add `@derive({})` to its declaration)", trait_name, ts, trait_name));
+            }
+            self.err(d);
+            e.kind = T::Error;
+            return;
+        }
+        let tr = tr.unwrap();
+        let Some(m) = self.p.traits[tr.idx()].method(method) else { return };
+        let decl = m.decl;
+        let fd = self.p.func(decl);
+        let ret = tcx.subst(fd.ret, &[t]);
+        let convs: Vec<_> = fd.params.iter().map(|p| p.conv).collect();
+        let kind = std::mem::replace(&mut e.kind, T::Error);
+        let args: Vec<Expr> = match kind {
+            T::Binary(_, a, b) => vec![*a, *b],
+            T::Unary(_, a) => vec![*a],
+            _ => unreachable!(),
+        };
+        let args: Vec<CallArg> = args.into_iter().zip(convs).map(|(expr, conv)| CallArg { conv, expr }).collect();
+        let call = self.mk(T::Call { callee: Callee::Fn(decl, vec![t]), args }, ret, span);
+        if is_unary {
+            *e = call;
+            return;
+        }
+        *e = match op.unwrap() {
+            BinOp::Eq => call,
+            BinOp::Ne => self.mk(T::Unary(UnOp::Not, Box::new(call)), tcx.bool, span),
+            BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge => {
+                let Some((ord, _)) = tcx.as_adt(ret) else { return };
+                let adt = self.p.adt(ord);
+                let (variant, cmp) = match op.unwrap() {
+                    BinOp::Lt => ("Less", BinOp::Eq),
+                    BinOp::Le => ("Greater", BinOp::Ne),
+                    BinOp::Gt => ("Greater", BinOp::Eq),
+                    _ => ("Less", BinOp::Ne),
+                };
+                let v = adt.variant_index(variant).unwrap_or(0);
+                let lit = self.mk(T::Adt { adt: ord, variant: Some(v), type_args: vec![], fields: vec![] }, ret, span);
+                self.mk(T::Binary(cmp, Box::new(call), Box::new(lit)), tcx.bool, span)
+            }
+            _ => call,
+        };
+    }
+
+    /// A value formatted by `{x}` or `print(x)` whose type implements `Display` is
+    /// converted with its `to_string` method.
+    fn display(&mut self, x: &mut Expr) {
+        let t = self.resolve(x.ty);
+        if self.is_formattable(t) || self.tcx().has_error(t) {
+            return;
+        }
+        let Some(tr) = self.p.lang_trait("display") else { return };
+        if !self.implements(t, tr) {
+            return;
+        }
+        let Some(m) = self.p.traits[tr.idx()].method("to_string") else { return };
+        let decl = m.decl;
+        let span = x.span;
+        let inner = std::mem::replace(x, self.error_expr(span));
+        let st = self.p.string_ty();
+        *x = self.mk(T::Call { callee: Callee::Fn(decl, vec![t]), args: vec![CallArg { conv: Convention::Borrow, expr: inner }] }, st, span);
     }
 
     // -----------------------------------------------------------------------
@@ -325,14 +473,26 @@ impl<'a> FnCtxt<'a> {
                 if tcx.has_error(t) {
                     return;
                 }
-                if !self.is_formattable(t) {
+                let display = self.p.lang_trait("display").map_or(false, |d| self.implements(t, d));
+                if !self.is_formattable(t) && !display {
                     let mut d = Diagnostic::error("E0350", format!("a value of type `{}` cannot be formatted", self.ty_str(t)))
                         .primary(span, "not formattable")
-                        .note("NEXUL 0.1 formats integers, floats, `bool`, `char` and `String`");
+                        .note("integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted");
                     if self.tcx().as_adt(t).is_some() {
-                        d = d.help("format its fields individually, or write a method that returns a `String`");
+                        d = d.help(format!("implement `Display` for `{}`: `impl Display for {} {{ fn to_string(self) -> String {{ ... }} }}`", self.ty_str(t), self.ty_str(t)));
+                    } else if matches!(&*self.tcx().kind(t), TyKind::Param(_)) {
+                        d = d.help(format!("add the bound `{}: Display`", self.ty_str(t)));
                     }
                     self.err(d);
+                    return;
+                }
+                if display && !self.is_formattable(t) {
+                    // Formatted as the `String` returned by `to_string`.
+                    if let Some(spec) = spec {
+                        if spec.precision.is_some() || spec.kind.is_some() || spec.plus || spec.zero {
+                            self.err(Diagnostic::error("E0351", format!("invalid format for `{}`: only width and alignment apply", self.ty_str(t))).primary(spec.span, "incompatible specification"));
+                        }
+                    }
                     return;
                 }
                 if let Some(spec) = spec {
@@ -358,6 +518,10 @@ impl<'a> FnCtxt<'a> {
             Deferred::Binary { op, lhs, rhs, span } => {
                 let (a, b) = (self.resolve(lhs), self.resolve(rhs));
                 if tcx.has_error(a) || tcx.has_error(b) || tcx.is_never(a) || tcx.is_never(b) {
+                    return;
+                }
+                if !self.builtin_operand(a, op) && matches!(op, BinOp::Eq | BinOp::Ne | BinOp::Lt | BinOp::Le | BinOp::Gt | BinOp::Ge | BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem) {
+                    // Resolved to a trait method (or reported) by `desugar_operator`.
                     return;
                 }
                 let k = tcx.kind(a);
@@ -393,6 +557,9 @@ impl<'a> FnCtxt<'a> {
             Deferred::Unary { op, ty, span } => {
                 let t = self.resolve(ty);
                 if tcx.has_error(t) {
+                    return;
+                }
+                if op == UnOp::Neg && matches!(&*tcx.kind(t), TyKind::Adt(..) | TyKind::Param(_) | TyKind::Dyn(_)) {
                     return;
                 }
                 let k = tcx.kind(t);
@@ -468,6 +635,31 @@ impl<'a> FnCtxt<'a> {
                                 .help("handle it with `match`, `?` or `unwrap()`, or ignore it explicitly with `let _ = ...`"),
                         );
                     }
+                }
+            }
+            Deferred::Bound { ty, trait_id, span, what } => {
+                let t = self.resolve(ty);
+                if tcx.has_error(t) || self.implements(t, trait_id) {
+                    return;
+                }
+                let tname = self.p.traits[trait_id.idx()].name.clone();
+                let ts = self.ty_str(t);
+                let mut d = Diagnostic::error("E0249", format!("`{}` does not implement `{}`", ts, tname)).primary(span, format!("`{}` is required {}", tname, what));
+                d = if matches!(&*tcx.kind(t), TyKind::Param(_)) {
+                    d.help(format!("add the bound `{}: {}` to the type parameter", ts, tname))
+                } else {
+                    d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
+                };
+                self.err(d);
+            }
+            Deferred::NoClosure { ty, span } => {
+                let t = self.resolve(ty);
+                if tcx.has_closure(t) {
+                    self.err(
+                        Diagnostic::error("E0248", "an anonymous function cannot be stored in a value")
+                            .primary(span, format!("`{}` would hold an anonymous function", self.ty_str(t)))
+                            .note("anonymous functions only live during the call that receives them"),
+                    );
                 }
             }
             Deferred::Copyable { ty, span, what } => {

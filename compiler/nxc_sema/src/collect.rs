@@ -25,7 +25,6 @@ struct PendingImpl {
 
 /// What a function signature is resolved inside of: an `impl` block or a `trait`.
 pub(crate) struct SigOwner {
-    pub adt: Option<AdtId>,
     pub generics: Vec<String>,
     pub self_ty: Option<Ty>,
     pub bounds: Vec<Bound>,
@@ -218,6 +217,15 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
             prog.prelude.insert(name.to_string(), ItemRef::Adt(id));
         }
     }
+    // The traits of `std.core` (`Eq`, `Ord`, `Display`...) and `Ordering`.
+    if let Some(core) = prog.modules.iter().position(|m| m.path == "std.core") {
+        let items: Vec<(String, ItemRef)> = prog.modules[core].items.iter().filter(|(_, v)| v.2).map(|(k, v)| (k.clone(), v.0)).collect();
+        for (name, item) in items {
+            if matches!(item, ItemRef::Trait(_) | ItemRef::Adt(_)) {
+                prog.prelude.entry(name).or_insert(item);
+            }
+        }
+    }
     // The variants of `Option` and `Result` are in the prelude too.
     for id in [prog.lang.option, prog.lang.result].into_iter().flatten() {
         let names: Vec<String> = pending_enums
@@ -383,7 +391,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" | "export" | "cfg" | "inline" | "cold" => {}
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
                 if !is_std {
                     diags.emit(
@@ -394,7 +402,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             }
             _ => {
                 let mut d = Diagnostic::error("E0232", format!("unknown attribute `@{}`", name)).primary(a.name.span, "unknown attribute");
-                if let Some(s) = best_match(name, ["test", "link", "export", "cfg", "inline", "cold"]) {
+                if let Some(s) = best_match(name, ["test", "link", "export", "cfg", "inline", "cold", "derive"]) {
                     d = d.help(format!("did you mean `@{}`?", s));
                 }
                 diags.emit(d);
@@ -409,6 +417,8 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             ("track_caller", ItemKind::Fn(_)) => true,
             ("export" | "inline" | "cold" | "no_builtins", ItemKind::Fn(_)) => true,
             ("cfg", _) => true,
+            ("derive", ItemKind::Struct(_) | ItemKind::Enum(_)) => true,
+            ("derive", _) => false,
             ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller" | "export" | "inline" | "cold" | "no_builtins", _) => false,
             _ => true,
         };
@@ -870,7 +880,7 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
     };
     let is_std = prog.modules[module.idx()].is_std;
     let intrinsic = attrs.iter().any(|a| a.name.name == "intrinsic");
-    if decl.body.is_none() && !intrinsic {
+    if decl.body.is_none() && !intrinsic && !prog.fns[id.idx()].is_trait_decl() {
         diags.emit(
             Diagnostic::error("E0103", format!("function `{}` has no body", decl.name.name))
                 .primary(decl.name.span, "missing `{ ... }`")
@@ -993,7 +1003,7 @@ fn collect_trait(prog: &mut Program, id: TraitId, decl: &ast::TraitDecl, diags: 
             continue;
         }
         let f = Rc::new(f.clone());
-        let owner = || SigOwner { adt: None, generics: vec!["Self".to_string()], self_ty: Some(self_ty), bounds: vec![Bound { param: 0, trait_id: id }], trait_id: Some(id) };
+        let owner = || SigOwner { generics: vec!["Self".to_string()], self_ty: Some(self_ty), bounds: vec![Bound { param: 0, trait_id: id }], trait_id: Some(id) };
         let decl_id = FnId(prog.fns.len() as u32);
         let mut def = new_fn_def(&f, module, is_pub, None, &item.attrs);
         def.kind = FnKind::TraitDecl(id);
@@ -1022,23 +1032,28 @@ fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     let (adt, generics, self_ty) = if segments.len() == 1 && primitive_type(prog, &head_name.name).is_some() {
         (None, Vec::new(), primitive_type(prog, &head_name.name).unwrap())
     } else {
-        let scope = TypeScope { module: imp.module, generics: &[], self_ty: None };
-        let bare = TypeExpr { kind: TypeExprKind::Path { segments: segments.clone(), args: vec![] }, span: imp.decl.ty.span };
-        let quiet = DiagSink::new();
-        let ty = resolve_type(prog, &scope, &bare, &quiet);
-        let Some((a, _)) = prog.tcx.as_adt(ty) else {
-            let errs = quiet.take_sorted();
-            if errs.is_empty() || errs.iter().all(|d| d.code == "E0315") {
+        // The type's name, without its generic arguments.
+        let mut item = lookup_item(prog, imp.module, &segments[0].name);
+        for seg in &segments[1..] {
+            item = match item {
+                Some(ItemRef::Module(m)) => lookup_in_module(prog, imp.module, m, &seg.name, seg.span, diags),
+                _ => None,
+            };
+        }
+        let a = match item {
+            Some(ItemRef::Adt(a)) => a,
+            Some(ItemRef::Alias(al)) if prog.tcx.as_adt(prog.aliases[al.idx()].ty).is_some() => prog.tcx.as_adt(prog.aliases[al.idx()].ty).unwrap().0,
+            None => {
+                diags.emit(Diagnostic::error("E0202", format!("cannot find type `{}`", head_name.name)).primary(head_name.span, "not found"));
+                return;
+            }
+            _ => {
                 diags.emit(
                     Diagnostic::error("E0224", "a trait can be implemented for a struct, an enum or a primitive type")
                         .primary(imp.decl.ty.span, "not a struct, enum or primitive type"),
                 );
-            } else {
-                for d in errs {
-                    diags.emit(d);
-                }
+                return;
             }
-            return;
         };
         let adt_generics = prog.adts[a.idx()].generics.clone();
         let generics: Vec<String> = if args.is_empty() {
@@ -1110,7 +1125,7 @@ fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         let f = Rc::new(f);
         let id = FnId(prog.fns.len() as u32);
         prog.fns.push(new_fn_def(&f, imp.module, true, adt, &item.attrs));
-        let owner = SigOwner { adt, generics: generics.clone(), self_ty: Some(self_ty), bounds: bounds.clone(), trait_id: Some(tr) };
+        let owner = SigOwner { generics: generics.clone(), self_ty: Some(self_ty), bounds: bounds.clone(), trait_id: Some(tr) };
         resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);
         // The signature must be the trait's, with `Self` replaced by the type.
         let (dparams, dret, dgen, dself): (Vec<(Convention, Ty)>, Ty, usize, bool) = {
@@ -1252,7 +1267,7 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         let id = FnId(prog.fns.len() as u32);
         prog.fns.push(new_fn_def(&f, imp.module, item.is_pub, Some(adt_id), &item.attrs));
         let self_ty = prog.tcx.adt(adt_id, (0..owner_generics.len() as u32).map(|i| prog.tcx.param(i)).collect());
-        let owner = SigOwner { adt: Some(adt_id), generics: owner_generics.clone(), self_ty: Some(self_ty), bounds: vec![], trait_id: None };
+        let owner = SigOwner { generics: owner_generics.clone(), self_ty: Some(self_ty), bounds: vec![], trait_id: None };
         resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);
         let name = f.name.name.clone();
         let adt = &prog.adts[adt_id.idx()];

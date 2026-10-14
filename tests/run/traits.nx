@@ -1,0 +1,145 @@
+// Spec §3.9: traits, bounds, dynamic dispatch, operators and `@derive`.
+
+trait Shape {
+    fn area(self) -> f64
+    fn name(self) -> String
+
+    fn describe(self) -> String {
+        return "{self.name()} of area {self.area():.2}"
+    }
+}
+
+struct Circle {
+    radius: f64
+}
+
+struct Rect {
+    w: f64
+    h: f64
+}
+
+impl Shape for Circle {
+    fn area(self) -> f64 {
+        return 3.14159 * self.radius * self.radius
+    }
+
+    fn name(self) -> String {
+        return "circle"
+    }
+}
+
+impl Shape for Rect {
+    fn area(self) -> f64 {
+        return self.w * self.h
+    }
+
+    fn name(self) -> String {
+        return "rectangle"
+    }
+
+    fn describe(self) -> String {
+        return "{self.w} x {self.h} rectangle"
+    }
+}
+
+fn total_area[T: Shape](items: Vec[T]) -> f64 {
+    var sum = 0.0
+    for s in items {
+        sum += s.area()
+    }
+    return sum
+}
+
+@derive(Eq, Ord, Clone, Display, Hash, Default)
+struct Point {
+    x: i32
+    y: i32
+}
+
+impl Add for Point {
+    fn add(self, other: Point) -> Point {
+        return Point(x: self.x + other.x, y: self.y + other.y)
+    }
+}
+
+impl Neg for Point {
+    fn neg(self) -> Point {
+        return Point(x: -self.x, y: -self.y)
+    }
+}
+
+@derive(Eq, Ord, Display, Clone)
+enum Token {
+    Number(i64)
+    Word(String)
+    End
+}
+
+fn largest[T: Ord + Clone](items: Vec[T]) -> T {
+    var best = items[0].clone()
+    for x in items {
+        if x > best {
+            best = x.clone()
+        }
+    }
+    return best
+}
+
+fn show_all[T: Display](items: Vec[T]) -> String {
+    var out = ""
+    for x in items {
+        if out.len() > 0 {
+            out = out + ", "
+        }
+        out = out + x.to_string()
+    }
+    return "[{out}]"
+}
+
+fn zero[T: Default]() -> T {
+    return T.default()
+}
+
+fn main() {
+    let c = Circle(radius: 1.0)
+    let r = Rect(w: 2.0, h: 3.0)
+    println(c.describe())
+    println(r.describe())
+
+    var circles: Vec[Circle] = Vec.new()
+    circles.push(Circle(radius: 1.0))
+    circles.push(Circle(radius: 2.0))
+    println("total {total_area(circles):.3}")
+
+    var shapes: Vec[dyn Shape] = Vec.new()
+    shapes.push(Circle(radius: 0.5))
+    shapes.push(Rect(w: 1.0, h: 4.0))
+    shapes.push(Rect(w: 2.5, h: 2.0) as dyn Shape)
+    for s in shapes {
+        println("- {s.describe()}")
+    }
+
+    let p = Point(x: 1, y: 2)
+    let q = Point(x: 3, y: -4)
+    println("{p} + {q} = {p + q}, -p = {-p}")
+    println("{p == q} {p != q} {p < q} {q >= p} {p == p.clone()}")
+    println("{p.hash() == p.clone().hash()} {p.hash() == q.hash()}")
+    let d: Point = Default.default()
+    println("default {d} {zero[i32]()} [{zero[String]()}] {zero[bool]()}")
+
+    var words: Vec[Token] = Vec.new()
+    words.push(Token.Word("pomme"))
+    words.push(Token.Number(42))
+    words.push(Token.End)
+    words.push(Token.Word("zeste"))
+    println("{largest(words)} {Token.Number(3) < Token.Number(5)} {Token.End == Token.End}")
+    println(show_all(words))
+
+    var nums: Vec[i64] = Vec.new()
+    nums.push(7)
+    nums.push(-2)
+    nums.push(19)
+    println("{largest(nums)} {show_all(nums)}")
+    let o: Option[i32] = Some(5)
+    println("{o} {o == Some(5)} {o.clone()} {Some(1) < Some(2)}")
+}

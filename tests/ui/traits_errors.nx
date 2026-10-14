@@ -1,0 +1,53 @@
+// Errors of traits, bounds, `dyn` and anonymous functions.
+
+trait Area {
+    fn area(self) -> f64
+    fn scale(self, k: f64) -> Self
+}
+
+struct Sq {
+    side: f64
+}
+
+impl Area for Sq {
+    fn area(self) -> i32 {
+        return 0
+    }
+
+    fn perimeter(self) -> f64 {
+        return 4.0 * self.side
+    }
+}
+
+impl Sizable for Sq {
+    fn size(self) -> f64 {
+        return self.side
+    }
+}
+
+struct Pt {
+    x: i32
+}
+
+fn biggest[T](a: T, b: T) -> bool {
+    return a > b
+}
+
+fn show[T: Display](x: T) -> String {
+    return "{x}"
+}
+
+fn keep(f: fn(i32) -> i32) -> i32 {
+    return f(1)
+}
+
+fn main() {
+    let p = Pt(x: 1)
+    println(show(p))
+    let shapes: Vec[dyn Area] = Vec.new()
+    let f = fn(x: i32) => x + 1
+    var calls: Vec[fn(i32) -> i32] = Vec.new()
+    calls.push(fn(x) => x)
+    println("{shapes.len()} {keep(fn(x) => x * 2)} {biggest(1, 2)}")
+    let _ = f
+}

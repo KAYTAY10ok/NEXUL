@@ -396,22 +396,30 @@ impl<'a> Cx<'a> {
                 Convention::Borrow => {}
             }
         }
-        // Law of exclusivity between the arguments of one call.
-        let places: Vec<(usize, PlacePath)> = args
-            .iter()
-            .enumerate()
-            .filter(|(_, a)| a.conv != Convention::Owned)
-            .filter_map(|(i, a)| place_path(&a.expr).map(|p| (i, p)))
-            .collect();
-        for (i, pi) in &places {
-            if args[*i].conv != Convention::Inout {
+        // Law of exclusivity between the arguments of one call. An anonymous function
+        // accesses the variables it captures during the call.
+        let mut places: Vec<(usize, PlacePath, Convention)> = Vec::new();
+        for (i, a) in args.iter().enumerate() {
+            if a.conv != Convention::Owned {
+                if let Some(p) = place_path(&a.expr) {
+                    places.push((i, p, a.conv));
+                }
+            }
+            if let T::Closure { captures, .. } = &a.expr.kind {
+                for &(l, mutated) in captures {
+                    places.push((i, PlacePath { root: l, projs: vec![] }, if mutated { Convention::Inout } else { Convention::Borrow }));
+                }
+            }
+        }
+        for (i, pi, ci) in &places {
+            if *ci != Convention::Inout {
                 continue;
             }
-            for (j, pj) in &places {
+            for (j, pj, cj) in &places {
                 if i == j || !overlaps(pi, pj) {
                     continue;
                 }
-                if args[*j].conv == Convention::Inout && j < i {
+                if *cj == Convention::Inout && j < i {
                     continue; // reported once for the pair
                 }
                 self.diags.emit(
@@ -543,6 +551,21 @@ impl<'a> Cx<'a> {
                         self.expr(x);
                     }
                 }
+            }
+            T::Closure { captures, .. } => {
+                for &(l, mutated) in captures {
+                    let x = Expr { kind: T::Local(l), ty: self.body.locals[l as usize].ty, span: e.span };
+                    if mutated {
+                        self.write(&x, e.span, "modify", false);
+                    } else {
+                        self.read(&x);
+                    }
+                }
+            }
+            T::FnToClosure(x) => self.expr(x),
+            T::ToDyn(x) => {
+                self.expr(x);
+                self.consume(x);
             }
         }
     }

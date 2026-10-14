@@ -927,7 +927,7 @@ mod tests {
     #[test]
     fn security_and_keywords() {
         assert_eq!(errors("let a = 1 // \u{202E} hidden"), vec!["E0003"]);
-        assert_eq!(errors("let trait = 1"), vec!["E0010"]);
+        assert_eq!(errors("let yield = 1"), vec!["E0010"]);
         assert_eq!(errors("let é = 1"), vec!["E0017"]);
         assert_eq!(errors("if !x {}"), vec!["E0017"]);
     }

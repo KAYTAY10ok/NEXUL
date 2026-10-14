@@ -5,6 +5,7 @@ pub mod check;
 pub mod collect;
 pub mod consts;
 pub mod defs;
+pub mod derive;
 pub mod exhaust;
 pub mod load;
 pub mod places;

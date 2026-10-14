@@ -1,0 +1,380 @@
+/// Hash tables: `Map[K, V]` associates keys to values, `Set[T]` holds distinct values
+/// (spec chapter 09). Keys implement `Hash` and `Eq`.
+///
+/// Open addressing with linear probing; the table doubles when it is three quarters
+/// full. Iteration order is unspecified.
+
+import std.core
+import std.mem
+
+/// Slot markers (a stored hash is always at least 2).
+const EMPTY: u64 = 0
+const DELETED: u64 = 1
+
+fn slot_hash[K: Hash](key: K) -> u64 {
+    let h = key.hash()
+    if h < 2 {
+        return h + 2
+    }
+    return h
+}
+
+pub struct Map[K, V] {
+    hashes: Vec[u64]
+    keys: Vec[Option[K]]
+    values: Vec[Option[V]]
+    count: usize
+    /// Live and deleted slots.
+    used: usize
+}
+
+impl Map {
+    /// An empty map (no allocation).
+    pub fn new() -> Map[K, V] {
+        return Map(hashes: Vec.new(), keys: Vec.new(), values: Vec.new(), count: 0, used: 0)
+    }
+
+    /// Number of entries.
+    pub fn len(self) -> usize {
+        return self.count
+    }
+
+    pub fn is_empty(self) -> bool {
+        return self.count == 0
+    }
+
+    fn find(self, key: K, h: u64) -> Option[usize] where K: Eq {
+        let cap = self.hashes.len()
+        if cap == 0 {
+            return None
+        }
+        let mask = cap - 1
+        var i = (h & (mask as u64)) as usize
+        while true {
+            let sh = self.hashes[i]
+            if sh == EMPTY {
+                return None
+            }
+            if sh == h {
+                if let Some(k) = self.keys[i] {
+                    if k == key {
+                        return Some(i)
+                    }
+                }
+            }
+            i = (i + 1) & mask
+        }
+    }
+
+    /// `true` if the map has an entry for `key`.
+    pub fn contains_key(self, key: K) -> bool where K: Hash + Eq {
+        return self.find(key, slot_hash(key)).is_some()
+    }
+
+    /// A copy of the value for `key`, or `None`.
+    pub fn get(self, key: K) -> Option[V] where K: Hash + Eq, V: Clone {
+        match self.find(key, slot_hash(key)) {
+            Some(i) => {
+                if let Some(v) = self.values[i] {
+                    return Some(v.clone())
+                }
+                return None
+            }
+            None => {
+                return None
+            }
+        }
+    }
+
+    /// A copy of the value for `key`, or `default`.
+    pub fn get_or(self, key: K, owned default: V) -> V where K: Hash + Eq, V: Clone {
+        match self.get(key) {
+            Some(v) => {
+                return v
+            }
+            None => {
+                return default
+            }
+        }
+    }
+
+    /// Sets the value of `key`; returns the previous value, if any.
+    pub fn insert(inout self, owned key: K, owned value: V) -> Option[V] where K: Hash + Eq {
+        let h = slot_hash(key)
+        if let Some(i) = self.find(key, h) {
+            return mem.replace(&self.values[i], Some(value))
+        }
+        if (self.used + 1) * 4 > self.hashes.len() * 3 {
+            self.grow()
+        }
+        self.put(h, key, value)
+        return None
+    }
+
+    /// Stores a new entry (the key is not in the table and there is room).
+    fn put(inout self, h: u64, owned key: K, owned value: V) {
+        let mask = self.hashes.len() - 1
+        var i = (h & (mask as u64)) as usize
+        while self.hashes[i] >= 2 {
+            i = (i + 1) & mask
+        }
+        if self.hashes[i] == EMPTY {
+            self.used += 1
+        }
+        self.hashes[i] = h
+        self.keys[i] = Some(key)
+        self.values[i] = Some(value)
+        self.count += 1
+    }
+
+    fn grow(inout self) {
+        var new_cap: usize = 8
+        while new_cap * 3 <= (self.count + 1) * 4 * 2 {
+            new_cap *= 2
+        }
+        let old_hashes = mem.replace(&self.hashes, Vec.with_capacity(new_cap))
+        var old_keys = mem.replace(&self.keys, Vec.with_capacity(new_cap))
+        var old_values = mem.replace(&self.values, Vec.with_capacity(new_cap))
+        for _ in 0..new_cap {
+            self.hashes.push(EMPTY)
+            self.keys.push(None)
+            self.values.push(None)
+        }
+        self.count = 0
+        self.used = 0
+        for i in 0..old_hashes.len() {
+            if old_hashes[i] >= 2 {
+                let k = old_keys[i].take().unwrap()
+                let v = old_values[i].take().unwrap()
+                self.put(old_hashes[i], k, v)
+            }
+        }
+    }
+
+    /// Removes the entry for `key`; returns its value, if any.
+    pub fn remove(inout self, key: K) -> Option[V] where K: Hash + Eq {
+        match self.find(key, slot_hash(key)) {
+            Some(i) => {
+                self.hashes[i] = DELETED
+                self.keys[i] = None
+                self.count -= 1
+                return self.values[i].take()
+            }
+            None => {
+                return None
+            }
+        }
+    }
+
+    /// Modifies the value of `key` in place with `f`; `false` if there is no entry.
+    pub fn update(inout self, key: K, f: fn(inout V)) -> bool where K: Hash + Eq {
+        match self.find(key, slot_hash(key)) {
+            Some(i) => {
+                if let Some(v) = &self.values[i] {
+                    f(&v)
+                }
+                return true
+            }
+            None => {
+                return false
+            }
+        }
+    }
+
+    /// Removes every entry.
+    pub fn clear(inout self) {
+        self.hashes.clear()
+        self.keys.clear()
+        self.values.clear()
+        self.count = 0
+        self.used = 0
+    }
+
+    /// Copies of the keys.
+    pub fn keys(self) -> Vec[K] where K: Clone {
+        var out: Vec[K] = Vec.with_capacity(self.count)
+        for k in self.keys {
+            if let Some(x) = k {
+                out.push(x.clone())
+            }
+        }
+        return out
+    }
+
+    /// Copies of the values.
+    pub fn values(self) -> Vec[V] where V: Clone {
+        var out: Vec[V] = Vec.with_capacity(self.count)
+        for v in self.values {
+            if let Some(x) = v {
+                out.push(x.clone())
+            }
+        }
+        return out
+    }
+
+    /// Copies of the entries: `for (key, value) in map.entries() { ... }`.
+    pub fn entries(self) -> Vec[(K, V)] where K: Clone, V: Clone {
+        var out: Vec[(K, V)] = Vec.with_capacity(self.count)
+        for i in 0..self.hashes.len() {
+            if self.hashes[i] >= 2 {
+                if let Some(k) = self.keys[i] {
+                    if let Some(v) = self.values[i] {
+                        out.push((k.clone(), v.clone()))
+                    }
+                }
+            }
+        }
+        return out
+    }
+
+    /// Calls `f` on every entry.
+    pub fn for_each(self, f: fn(K, V)) {
+        for i in 0..self.hashes.len() {
+            if let Some(k) = self.keys[i] {
+                if let Some(v) = self.values[i] {
+                    f(k, v)
+                }
+            }
+        }
+    }
+}
+
+impl Default for Map[K, V] {
+    fn default() -> Map[K, V] {
+        return Map.new()
+    }
+}
+
+impl Clone for Map[K: Clone, V: Clone] {
+    fn clone(self) -> Map[K, V] {
+        return Map(hashes: self.hashes.clone(), keys: self.keys.clone(), values: self.values.clone(), count: self.count, used: self.used)
+    }
+}
+
+impl Display for Map[K: Display, V: Display] {
+    fn to_string(self) -> String {
+        var out = "\{"
+        var first = true
+        for i in 0..self.hashes.len() {
+            if let Some(k) = self.keys[i] {
+                if let Some(v) = self.values[i] {
+                    if not first {
+                        out.push_str(", ")
+                    }
+                    first = false
+                    out.push_str("{k}: {v}")
+                }
+            }
+        }
+        out.push_str("\}")
+        return out
+    }
+}
+
+/// A set of distinct values.
+pub struct Set[T] {
+    map: Map[T, bool]
+}
+
+impl Set {
+    /// An empty set (no allocation).
+    pub fn new() -> Set[T] {
+        return Set(map: Map.new())
+    }
+
+    pub fn len(self) -> usize {
+        return self.map.len()
+    }
+
+    pub fn is_empty(self) -> bool {
+        return self.map.is_empty()
+    }
+
+    /// Adds `value`; `false` if it was already present.
+    pub fn insert(inout self, owned value: T) -> bool where T: Hash + Eq {
+        return self.map.insert(value, true).is_none()
+    }
+
+    /// `true` if the set holds `value`.
+    pub fn contains(self, value: T) -> bool where T: Hash + Eq {
+        return self.map.contains_key(value)
+    }
+
+    /// Removes `value`; `false` if it was not present.
+    pub fn remove(inout self, value: T) -> bool where T: Hash + Eq {
+        return self.map.remove(value).is_some()
+    }
+
+    pub fn clear(inout self) {
+        self.map.clear()
+    }
+
+    /// Copies of the values.
+    pub fn items(self) -> Vec[T] where T: Clone {
+        return self.map.keys()
+    }
+
+    /// The values in `self` or in `other`.
+    pub fn union(self, other: Set[T]) -> Set[T] where T: Hash + Eq + Clone {
+        var out: Set[T] = Set.new()
+        for x in self.items() {
+            let _ = out.insert(x.clone())
+        }
+        for x in other.items() {
+            let _ = out.insert(x.clone())
+        }
+        return out
+    }
+
+    /// The values in both `self` and `other`.
+    pub fn intersection(self, other: Set[T]) -> Set[T] where T: Hash + Eq + Clone {
+        var out: Set[T] = Set.new()
+        for x in self.items() {
+            if other.contains(x) {
+                let _ = out.insert(x.clone())
+            }
+        }
+        return out
+    }
+
+    /// The values in `self` but not in `other`.
+    pub fn difference(self, other: Set[T]) -> Set[T] where T: Hash + Eq + Clone {
+        var out: Set[T] = Set.new()
+        for x in self.items() {
+            if not other.contains(x) {
+                let _ = out.insert(x.clone())
+            }
+        }
+        return out
+    }
+}
+
+impl Default for Set[T] {
+    fn default() -> Set[T] {
+        return Set.new()
+    }
+}
+
+impl Clone for Set[T: Clone] {
+    fn clone(self) -> Set[T] {
+        return Set(map: self.map.clone())
+    }
+}
+
+impl Display for Set[T: Display] {
+    fn to_string(self) -> String {
+        var out = "\{"
+        var first = true
+        for k in self.map.keys {
+            if let Some(x) = k {
+                if not first {
+                    out.push_str(", ")
+                }
+                first = false
+                out.push_str(x.to_string())
+            }
+        }
+        out.push_str("\}")
+        return out
+    }
+}

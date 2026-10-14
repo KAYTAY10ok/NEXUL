@@ -4,7 +4,7 @@ error[E0303]: operator `+` cannot be applied to `T`
 6 |     return a + b
   |            ^^^^^ unsupported operation
   |
-  = note: operations on generic types will come with traits (NEXUL 0.2)
+  = help: add the bound `T: Add` to the type parameter
 
 error[E0316]: generic function `id` cannot be used as a value
   --> generics_errors.nx:10:13
