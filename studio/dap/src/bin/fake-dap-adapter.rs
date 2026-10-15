@@ -38,11 +38,20 @@ fn main() -> io::Result<()> {
     let mut reader = BufReader::new(stdin.lock());
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    let mut pending_start = None;
     while let Some(message) = read_frame(&mut reader)? {
         let seq = message["seq"].as_i64().unwrap_or(0);
         let command = message["command"].as_str().unwrap_or_default();
         let mut body = json!({});
         match command {
+            "launch" | "attach" => {
+                pending_start = Some((seq, command.to_owned()));
+                send(
+                    &mut writer,
+                    json!({ "seq": 500, "type": "event", "event": "initialized", "body": {} }),
+                )?;
+                continue;
+            }
             "initialize" => {
                 body = json!({ "adapterID": message["arguments"]["adapterID"], "supportsConditionalBreakpoints": true, "supportsConfigurationDoneRequest": true });
             }
@@ -70,12 +79,13 @@ fn main() -> io::Result<()> {
             &mut writer,
             json!({ "seq": seq + 100, "type": "response", "request_seq": seq, "command": command, "success": true, "body": body }),
         )?;
-        if command == "initialize" {
-            send(
-                &mut writer,
-                json!({ "seq": 500, "type": "event", "event": "initialized", "body": {} }),
-            )?;
-        } else if command == "configurationDone" {
+        if command == "configurationDone" {
+            if let Some((start_seq, start_command)) = pending_start.take() {
+                send(
+                    &mut writer,
+                    json!({ "seq": start_seq + 100, "type": "response", "request_seq": start_seq, "command": start_command, "success": true, "body": {} }),
+                )?;
+            }
             send(
                 &mut writer,
                 json!({ "seq": 501, "type": "event", "event": "stopped", "body": { "reason": "breakpoint", "threadId": 7, "allThreadsStopped": true } }),

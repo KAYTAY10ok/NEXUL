@@ -1,4 +1,4 @@
-use nexul_studio_dap::{AdapterCommand, Breakpoint, DapClient};
+use nexul_studio_dap::{AdapterCommand, Breakpoint, DapClient, DapError};
 use serde_json::json;
 use std::path::Path;
 use std::time::Duration;
@@ -21,8 +21,8 @@ fn fake_adapter_exercises_dap_lifecycle_requests_and_events() {
     let initialized = client.initialize("nexul-test", "NEXUL DAP test").unwrap();
     assert!(initialized.success);
     assert_eq!(initialized.body["adapterID"], "nexul");
+    let launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
     assert!(next_event(&client, "initialized"));
-    assert!(client.launch(json!({ "program": "fake" })).unwrap().success);
     let breakpoints = [Breakpoint::new(9).condition("answer == 42")];
     assert!(
         client
@@ -31,6 +31,7 @@ fn fake_adapter_exercises_dap_lifecycle_requests_and_events() {
             .success
     );
     assert!(client.configuration_done().unwrap().success);
+    assert!(launch.wait(Duration::from_secs(1)).unwrap().success);
     assert!(next_event(&client, "stopped"));
     assert_eq!(client.threads().unwrap().body["threads"][0]["id"], 7);
     let frame = client.stack_trace(7, None, Some(5)).unwrap().body["stackFrames"][0]["id"]
@@ -55,4 +56,50 @@ fn fake_adapter_exercises_dap_lifecycle_requests_and_events() {
     assert!(client.continue_execution(7).unwrap().success);
     assert!(client.disconnect(true).unwrap().success);
     client.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn attach_can_be_configured_before_its_response() {
+    let adapter = AdapterCommand::new(env!("CARGO_BIN_EXE_fake-dap-adapter"));
+    let mut client = DapClient::spawn(&adapter).unwrap();
+    assert!(client.initialize("test", "test").unwrap().success);
+    let attach = client.begin_attach(json!({ "pid": 7 })).unwrap();
+    assert!(next_event(&client, "initialized"));
+    assert!(client.configuration_done().unwrap().success);
+    let response = attach.wait(Duration::from_secs(1)).unwrap();
+    assert!(response.success);
+    assert_eq!(response.command, "attach");
+    client.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn late_response_after_timeout_or_abandon_does_not_break_routing() {
+    let adapter = AdapterCommand::new(env!("CARGO_BIN_EXE_fake-dap-adapter"));
+    let mut client = DapClient::spawn(&adapter).unwrap();
+    assert!(client.initialize("test", "test").unwrap().success);
+    let launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
+    assert!(next_event(&client, "initialized"));
+    assert!(
+        matches!(launch.wait(Duration::from_millis(20)), Err(DapError::Timeout(command)) if command == "launch")
+    );
+    assert!(client.configuration_done().unwrap().success);
+    drop(client.begin_launch(json!({ "program": "fake" })).unwrap());
+    assert!(next_event(&client, "initialized"));
+    assert!(client.configuration_done().unwrap().success);
+    assert_eq!(client.threads().unwrap().body["threads"][0]["id"], 7);
+    client.shutdown(Duration::from_secs(1)).unwrap();
+}
+
+#[test]
+fn pending_launch_reports_adapter_exit() {
+    let adapter = AdapterCommand::new(env!("CARGO_BIN_EXE_fake-dap-adapter"));
+    let mut client = DapClient::spawn(&adapter).unwrap();
+    assert!(client.initialize("test", "test").unwrap().success);
+    let launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
+    assert!(next_event(&client, "initialized"));
+    client.shutdown(Duration::from_secs(1)).unwrap();
+    assert!(matches!(
+        launch.wait(Duration::from_secs(1)),
+        Err(DapError::AdapterExited)
+    ));
 }
