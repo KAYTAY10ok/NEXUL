@@ -22,15 +22,18 @@ mod http;
 mod old;
 #[allow(dead_code)]
 mod payload;
+mod win;
 
 use http::{json_str, read_request, write_response, Request, Response};
 use payload::Manifest;
+use win::reg::{self, Value};
+use win::shell::{Folder, Shortcut};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::io::Write;
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -93,40 +96,9 @@ pub(crate) fn hidden(cmd: &mut Command) -> &mut Command {
     cmd
 }
 
-pub(crate) fn powershell(script: &str) -> Result<String, String> {
-    // The output is written in UTF-8 bytes (paths with accents), whatever the code page.
-    let script = format!(
-        "$__r = & {{ {} }}; $__b = [Text.Encoding]::UTF8.GetBytes((@($__r | ForEach-Object {{ [string]$_ }})) -join [char]10); $__o = [Console]::OpenStandardOutput(); $__o.Write($__b, 0, $__b.Length); $__o.Flush()",
-        script
-    );
-    let out = hidden(Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script]))
-        .output()
-        .map_err(|e| e.to_string())?;
-    if !out.status.success() {
-        return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
-    }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
-}
-
-/// A string for PowerShell (single quotes).
-pub(crate) fn ps_str(s: &str) -> String {
-    format!("'{}'", s.replace('\'', "''"))
-}
-
-fn reg_add(key: &str, name: Option<&str>, value: &str, kind: &str) -> Result<(), String> {
-    let mut cmd = Command::new("reg");
-    cmd.args(["add", key]);
-    match name {
-        Some(n) => cmd.args(["/v", n]),
-        None => cmd.arg("/ve"),
-    };
-    cmd.args(["/t", kind, "/d", value, "/f"]);
-    let out = hidden(&mut cmd).output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(String::from_utf8_lossy(&out.stderr).trim().to_string())
-    }
+/// Writes a text value (`None`: the default value of the key).
+fn reg_str(key: &str, name: Option<&str>, value: &str) -> Result<(), String> {
+    reg::set(key, name, &Value::Str(value.to_string()))
 }
 
 // ---------------------------------------------------------------------------
@@ -159,7 +131,7 @@ fn log(st: &State, msg: &str) {
 fn handle_old_versions(st: &State, o: &Options) {
     let scan = st.scan.lock().unwrap().clone();
     let Some(scan) = scan else { return };
-    let mut here = vec![old::Op::Kill];
+    let mut here = Vec::new();
     let mut elevated = Vec::new();
     for (id, action) in &o.old {
         let Some(item) = scan.items.get(*id) else { continue };
@@ -173,7 +145,7 @@ fn handle_old_versions(st: &State, o: &Options) {
             here.extend(ops);
         }
     }
-    if here.len() == 1 && elevated.is_empty() {
+    if here.is_empty() && elevated.is_empty() {
         return;
     }
     log(st, "Traitement des anciennes versions");
@@ -199,10 +171,9 @@ fn install(st: &State, o: &Options) -> Result<(), String> {
     let probe = o.dir.join(".nexul-write-test");
     std::fs::write(&probe, b"ok").map_err(|e| format!("impossible d'écrire dans {} : {}\nChoisissez un autre dossier, ou lancez l'installation en tant qu'administrateur.", o.dir.display(), e))?;
     let _ = std::fs::remove_file(&probe);
-    // A previous installation is replaced: Studio must not be running.
-    if o.old.is_empty() {
-        let _ = hidden(Command::new("taskkill").args(["/F", "/IM", "NEXUL Studio.exe"])).output();
-    }
+    // A previous installation in this folder is replaced: its programs (Studio, nxc...)
+    // must not be running. Only those of this folder are stopped.
+    win::process::kill_in(&o.dir);
     let files: Vec<&payload::FileEntry> = m.files.iter().filter(|f| comps.contains(&f.component)).collect();
     let total: u64 = files.iter().map(|f| f.size).sum::<u64>().max(1);
     let mut written = 0u64;
@@ -263,28 +234,20 @@ fn install(st: &State, o: &Options) -> Result<(), String> {
     if o.path {
         log(st, "Ajout de NEXUL au PATH");
         let b = bin.display().to_string();
-        powershell(&format!(
-            "{}; [Environment]::SetEnvironmentVariable('NEXUL_HOME',{},'User')",
-            old::path_script("User", &[b.clone()], Some(&b)),
-            ps_str(&o.dir.display().to_string())
-        ))?;
+        win::env::change_path("User", std::slice::from_ref(&b), Some(&b))?;
+        win::env::set_user_var("NEXUL_HOME", &o.dir.display().to_string())?;
         options.push("path");
     }
     // Shortcuts.
+    let (home, icon) = (env_path("USERPROFILE"), o.dir.join("nexul.ico"));
     let shortcut = |lnk: &Path, target: &Path, args: &str, desc: &str| -> Result<(), String> {
-        powershell(&format!(
-            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut({l}); $s.TargetPath={t}; $s.Arguments={a}; $s.WorkingDirectory={w}; $s.IconLocation={i}; $s.Description={d}; $s.Save()",
-            l = ps_str(&lnk.display().to_string()),
-            t = ps_str(&target.display().to_string()),
-            a = ps_str(args),
-            w = ps_str(&env_path("USERPROFILE").display().to_string()),
-            i = ps_str(&format!("{},0", o.dir.join("nexul.ico").display())),
-            d = ps_str(desc)
-        ))
-        .map(|_| ())
+        let s = Shortcut { target, arguments: args, working_dir: &home, icon: &icon, icon_index: 0, description: desc };
+        win::shell::create_shortcut(lnk, &s)
     };
-    let desktop = desktop_dir();
-    let start_dir = env_path("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs\NEXUL");
+    let desktop = win::shell::known_folder(Folder::Desktop).unwrap_or_else(|| env_path("USERPROFILE").join("Desktop"));
+    let start_dir = win::shell::known_folder(Folder::Programs)
+        .unwrap_or_else(|| env_path("APPDATA").join(r"Microsoft\Windows\Start Menu\Programs"))
+        .join("NEXUL");
     if has_studio && o.desktop {
         log(st, "Raccourci sur le Bureau");
         shortcut(&desktop.join("NEXUL Studio.lnk"), &studio, "", "NEXUL Studio — l'environnement de développement de NEXUL")?;
@@ -307,26 +270,26 @@ fn install(st: &State, o: &Options) -> Result<(), String> {
     if has_studio && o.associate {
         log(st, "Association des fichiers .nx");
         let cmd = format!("\"{}\" \"%1\"", studio.display());
-        reg_add(r"HKCU\Software\Classes\.nx", None, "NEXUL.Source", "REG_SZ")?;
-        reg_add(r"HKCU\Software\Classes\NEXUL.Source", None, "Programme NEXUL", "REG_SZ")?;
-        reg_add(r"HKCU\Software\Classes\NEXUL.Source\DefaultIcon", None, &format!("{},0", o.dir.join("nexul.ico").display()), "REG_SZ")?;
-        reg_add(r"HKCU\Software\Classes\NEXUL.Source\shell\open\command", None, &cmd, "REG_SZ")?;
-        old::notify_associations();
+        reg_str(r"HKCU\Software\Classes\.nx", None, "NEXUL.Source")?;
+        reg_str(r"HKCU\Software\Classes\NEXUL.Source", None, "Programme NEXUL")?;
+        reg_str(r"HKCU\Software\Classes\NEXUL.Source\DefaultIcon", None, &format!("{},0", o.dir.join("nexul.ico").display()))?;
+        reg_str(r"HKCU\Software\Classes\NEXUL.Source\shell\open\command", None, &cmd)?;
+        win::shell::notify_associations();
         options.push("associate");
     }
     // "Programs and features" entry.
     log(st, "Enregistrement dans les applications installées");
     let size_kb: u64 = m.files.iter().filter(|f| comps.contains(&f.component)).map(|f| f.size).sum::<u64>() / 1024;
     let un = format!("\"{}\"", o.dir.join(UNINSTALL_EXE).display());
-    reg_add(UNINSTALL_KEY, Some("DisplayName"), "NEXUL", "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("DisplayVersion"), &m.version, "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("Publisher"), "NEXUL", "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("InstallLocation"), &o.dir.display().to_string(), "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("UninstallString"), &un, "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("DisplayIcon"), &o.dir.join("nexul.ico").display().to_string(), "REG_SZ")?;
-    reg_add(UNINSTALL_KEY, Some("EstimatedSize"), &size_kb.to_string(), "REG_DWORD")?;
-    reg_add(UNINSTALL_KEY, Some("NoModify"), "1", "REG_DWORD")?;
-    reg_add(UNINSTALL_KEY, Some("NoRepair"), "1", "REG_DWORD")?;
+    reg_str(UNINSTALL_KEY, Some("DisplayName"), "NEXUL")?;
+    reg_str(UNINSTALL_KEY, Some("DisplayVersion"), &m.version)?;
+    reg_str(UNINSTALL_KEY, Some("Publisher"), "NEXUL")?;
+    reg_str(UNINSTALL_KEY, Some("InstallLocation"), &o.dir.display().to_string())?;
+    reg_str(UNINSTALL_KEY, Some("UninstallString"), &un)?;
+    reg_str(UNINSTALL_KEY, Some("DisplayIcon"), &o.dir.join("nexul.ico").display().to_string())?;
+    reg::set(UNINSTALL_KEY, Some("EstimatedSize"), &Value::Dword(size_kb.min(u32::MAX as u64) as u32))?;
+    reg::set(UNINSTALL_KEY, Some("NoModify"), &Value::Dword(1))?;
+    reg::set(UNINSTALL_KEY, Some("NoRepair"), &Value::Dword(1))?;
     // What to remove at uninstallation.
     let mut record = format!("version\t{}\n", m.version);
     for c in &comps {
@@ -348,13 +311,9 @@ fn install(st: &State, o: &Options) -> Result<(), String> {
     Ok(())
 }
 
-fn desktop_dir() -> PathBuf {
-    powershell("[Environment]::GetFolderPath('Desktop')").map(PathBuf::from).unwrap_or_else(|_| env_path("USERPROFILE").join("Desktop"))
-}
-
 /// Removes an installation (`dir` holds `install.txt`).
 fn uninstall(st: &State, dir: &Path) -> Result<(), String> {
-    let _ = hidden(Command::new("taskkill").args(["/F", "/IM", "NEXUL Studio.exe"])).output();
+    win::process::kill_in(dir);
     log(st, "Retrait du PATH, des raccourcis et des associations");
     let scan = old::scan_registrations();
     let problems = old::run(&scan.detach_ops(dir), scan.elevated, &mut |_| {});
@@ -369,18 +328,10 @@ fn uninstall(st: &State, dir: &Path) -> Result<(), String> {
             p.file = file.to_string();
         })
     });
-    // This program and the folder are removed once it has exited.
+    // This program and the folder are removed once it has exited, by a copy of it.
     let me = std::env::current_exe().unwrap_or_default();
     if me.parent().map(|p| p == dir).unwrap_or(false) {
-        let script = format!(
-            "Wait-Process -Id {} -ErrorAction SilentlyContinue; Start-Sleep -Milliseconds 300; Remove-Item -LiteralPath {} -Force -ErrorAction SilentlyContinue; if(-not (Get-ChildItem -LiteralPath {d} -Force -ErrorAction SilentlyContinue)){{ Remove-Item -LiteralPath {d} -Force -ErrorAction SilentlyContinue }}",
-            std::process::id(),
-            ps_str(&me.display().to_string()),
-            d = ps_str(&dir.display().to_string())
-        );
-        let _ = hidden(Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", &script]))
-            .current_dir(std::env::temp_dir())
-            .spawn();
+        start_cleanup(&me, dir);
     }
     set_progress(st, |p| {
         p.percent = 100.0;
@@ -390,38 +341,54 @@ fn uninstall(st: &State, dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-#[cfg(windows)]
-#[link(name = "advapi32")]
-extern "system" {
-    fn RegGetValueW(hkey: isize, subkey: *const u16, value: *const u16, flags: u32, ty: *mut u32, data: *mut u16, len: *mut u32) -> i32;
-}
+/// The name of the copies of the uninstaller that finish an uninstallation (`%TEMP%`).
+const CLEANUP_PREFIX: &str = "nexul-uninstall-";
 
-/// A text value of `HKEY_CURRENT_USER`.
-#[cfg(windows)]
-fn reg_get(subkey: &str, value: &str) -> Option<String> {
-    const HKEY_CURRENT_USER: isize = 0x8000_0001u32 as i32 as isize;
-    const RRF_RT_REG_SZ: u32 = 0x2;
-    let wide = |s: &str| s.encode_utf16().chain(std::iter::once(0)).collect::<Vec<u16>>();
-    let (k, v) = (wide(subkey), wide(value));
-    let mut buf = vec![0u16; 2048];
-    let mut len = (buf.len() * 2) as u32;
-    let r = unsafe { RegGetValueW(HKEY_CURRENT_USER, k.as_ptr(), v.as_ptr(), RRF_RT_REG_SZ, std::ptr::null_mut(), buf.as_mut_ptr(), &mut len) };
-    if r != 0 {
-        return None;
+/// The uninstaller cannot remove its own program while it runs: a copy of it, started from
+/// `%TEMP%`, waits for its end, then removes it and the folder if it is empty (the files
+/// added by the user stay).
+fn start_cleanup(me: &Path, dir: &Path) {
+    let pid = std::process::id();
+    let helper = std::env::temp_dir().join(format!("{CLEANUP_PREFIX}{pid}.exe"));
+    if std::fs::copy(me, &helper).is_ok() {
+        let _ = hidden(Command::new(&helper).arg("--finish-uninstall").arg(pid.to_string()).arg(dir))
+            .current_dir(std::env::temp_dir())
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn();
     }
-    let n = (len as usize / 2).saturating_sub(1);
-    Some(String::from_utf16_lossy(&buf[..n.min(buf.len())]))
 }
 
-#[cfg(not(windows))]
-fn reg_get(_: &str, _: &str) -> Option<String> {
-    None
+/// `--finish-uninstall <pid> <dir>`: the part done by the copy of the uninstaller.
+fn finish_uninstall(pid: u32, dir: &Path) {
+    win::process::wait_exit(pid, Duration::from_secs(600));
+    let exe = dir.join(UNINSTALL_EXE);
+    for _ in 0..40 {
+        if std::fs::remove_file(&exe).is_ok() || !exe.exists() {
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(250));
+    }
+    let _ = std::fs::remove_dir(dir);
+}
+
+/// The copies left in `%TEMP%` by earlier uninstallations (a running program cannot remove
+/// itself): removed when the installer or the uninstaller starts again.
+fn remove_old_cleanup_copies() {
+    let me = std::env::current_exe().ok();
+    let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
+    for e in entries.flatten() {
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with(CLEANUP_PREFIX) && name.ends_with(".exe") && Some(e.path()) != me {
+            let _ = std::fs::remove_file(e.path()); // fails if it still runs: next time
+        }
+    }
 }
 
 /// The installation made by this installer (from its entry in the installed applications).
 fn existing_install() -> Option<PathBuf> {
-    let key = UNINSTALL_KEY.strip_prefix("HKCU\\").unwrap_or(UNINSTALL_KEY);
-    reg_get(key, "InstallLocation").map(PathBuf::from).filter(|p| p.join("install.txt").is_file())
+    reg::get_text(UNINSTALL_KEY, Some("InstallLocation")).map(PathBuf::from).filter(|p| p.join("install.txt").is_file())
 }
 
 // ---------------------------------------------------------------------------
@@ -549,17 +516,12 @@ fn api(req: &Request, st: &Arc<State>) -> Response {
         }
         ("POST", "browse") => {
             let start = req.body_text();
-            let script = format!(
-                "Add-Type -AssemblyName System.Windows.Forms; $d=New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description='Dossier d''installation de NEXUL'; $d.SelectedPath={}; $d.ShowNewFolderButton=$true; if($d.ShowDialog((New-Object System.Windows.Forms.Form -Property @{{TopMost=$true}})) -eq 'OK'){{$d.SelectedPath}}",
-                ps_str(&start)
-            );
-            match powershell(&script) {
-                Ok(p) if !p.is_empty() => {
-                    let p = PathBuf::from(p);
+            match win::shell::pick_folder("Dossier d'installation de NEXUL", Path::new(&start)) {
+                Some(p) => {
                     let p = if p.file_name().map(|n| n.to_string_lossy().eq_ignore_ascii_case("NEXUL")).unwrap_or(false) { p } else { p.join("NEXUL") };
                     Response::json(format!("{{\"path\":{}}}", json_str(&p.display().to_string())))
                 }
-                _ => Response::json("{\"path\":null}".into()),
+                None => Response::json("{\"path\":null}".into()),
             }
         }
         ("POST", "launch") => {
@@ -645,6 +607,14 @@ fn main() {
         let code = args.get(i + 1).map(|j| old::job_main(Path::new(j))).unwrap_or(2);
         std::process::exit(code);
     }
+    // The copy of the uninstaller that removes it once it has exited.
+    if let Some(i) = args.iter().position(|a| a == "--finish-uninstall") {
+        if let (Some(pid), Some(dir)) = (args.get(i + 1).and_then(|p| p.parse().ok()), args.get(i + 2)) {
+            finish_uninstall(pid, Path::new(dir));
+        }
+        std::process::exit(0);
+    }
+    remove_old_cleanup_copies();
     let exe = std::env::current_exe().unwrap_or_default();
     let (manifest, stub_len) = match payload::read(&exe) {
         Ok((m, s)) => (Some(m), s),
