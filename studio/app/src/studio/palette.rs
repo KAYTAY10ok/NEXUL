@@ -41,6 +41,7 @@ pub(super) fn commands() -> Vec<PaletteCommand> {
     use gpui_kit::component::input::GoToDefinition;
     vec![
         cmd("Fichier : Ouvrir un dossier…", OpenFolder, "projet répertoire", None),
+        cmd("Fichier : Nouveau projet…", NewProject, "créer modèle application site web", None),
         cmd("Fichier : Nouveau fichier…", NewFile, "créer", None),
         cmd("Fichier : Nouveau dossier…", NewFolder, "créer répertoire", None),
         cmd("Fichier : Enregistrer", Save, "sauvegarder", None),

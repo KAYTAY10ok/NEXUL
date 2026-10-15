@@ -162,10 +162,6 @@ impl Studio {
         free
     }
 
-    pub(super) fn finish_close_window(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
-        self.finish_leave(choice, Leave::Window, window, cx);
-    }
-
     /// Opens another folder; with unsaved changes, asks first.
     pub(super) fn request_open_root(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
         if self.ask_unsaved(Leave::Root(root.clone()), window, cx) {

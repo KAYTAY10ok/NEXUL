@@ -4,6 +4,7 @@
 mod files;
 mod lang;
 mod palette;
+mod project;
 mod safety;
 
 use crate::explorer;
@@ -97,8 +98,12 @@ pub struct Studio {
     /// Checks running.
     checking: usize,
     panel_tab: PanelTab,
-    /// The name box of the symbol to rename.
-    rename_box: Option<Subscription>,
+    /// The name box of the open dialog (symbol to rename, new project).
+    dialog_input: Option<Subscription>,
+    /// The tools found for the project templates (looked for once).
+    tools: Option<Rc<nexul_studio_templates::ToolchainRegistry>>,
+    /// The file to show once a folder opens: a project just created.
+    pending_open: Option<(PathBuf, String)>,
     /// The palette of commands or of files, when open.
     palette: Option<Palette>,
     /// Unsaved changes not yet copied to the recovery folder, since then.
@@ -142,7 +147,9 @@ impl Studio {
             problems: Vec::new(),
             checking: 0,
             panel_tab: PanelTab::Output,
-            rename_box: None,
+            dialog_input: None,
+            tools: None,
+            pending_open: None,
             palette: None,
             backup_due: None,
             last_change: None,
@@ -192,6 +199,12 @@ impl Studio {
         for rel in &session.open {
             if root.join(rel).is_file() {
                 self.open_file(rel, window, cx);
+            }
+        }
+        // The main file of a project just created.
+        if let Some((dir, rel)) = self.pending_open.take() {
+            if std::fs::canonicalize(&dir).map(|p| strip_verbatim(&p)).ok().as_ref() == Some(&root) && root.join(&rel).is_file() {
+                self.open_file(&rel, window, cx);
             }
         }
         if let Some(a) = &session.active {
@@ -931,6 +944,7 @@ impl Render for Studio {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::on_open_folder))
+            .on_action(cx.listener(Self::on_new_project))
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(Self::on_save_all))
             .on_action(cx.listener(Self::on_close_editor))
@@ -1510,11 +1524,49 @@ mod tests {
         assert!(has_dialog(cx, window));
         cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
         // « Tout enregistrer »: saved, then the window closes.
-        cx.update_window(window, |_, window, cx| studio.update(cx, |s, cx| s.finish_close_window(safety::Choice::Save, window, cx))).unwrap();
+        cx.update_window(window, |_, window, cx| studio.update(cx, |s, cx| s.finish_leave(safety::Choice::Save, safety::Leave::Window, window, cx))).unwrap();
         cx.run_until_parked();
         assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// b\n"), "saved before closing");
         studio.read_with(cx, |s, _| assert!(s.allow_close));
         assert!(cx.update_window(window, |_, _, _| ()).is_err(), "the window is closed");
+    }
+
+    #[gpui_kit::test]
+    fn a_new_project_is_created_and_opened(cx: &mut TestAppContext) {
+        let dir = project("newproject");
+        let parent = dir.with_file_name(format!("{}-new", dir.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&parent);
+        std::fs::create_dir_all(&parent).unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        let form = update(cx, window, &studio, |_, window, cx| cx.new(|cx| project::ProjectForm::new(parent.clone(), window, cx)));
+        let weak = studio.downgrade();
+        let create = |cx: &mut TestAppContext| cx.update_window(window, |_, window, cx| project::create_project(&form, &weak, window, cx)).unwrap();
+        // Before the tools are known, nothing is created.
+        create(cx);
+        assert!(!parent.join("mon-projet").exists());
+        // Only nxc: the Python template cannot be created.
+        let mut tools = nexul_studio_templates::ToolchainRegistry::default();
+        tools.insert(nexul_studio_templates::Tool::Nxc, studio.read_with(cx, |s, _| s.nxc.clone()).expect("nxc"));
+        form.update(cx, |f, cx| {
+            f.set_tools(&tools, cx);
+            f.select("python", cx);
+        });
+        create(cx);
+        assert!(!parent.join("mon-projet").exists());
+        // A NEXUL program: created, opened, its main file shown.
+        form.update(cx, |f, cx| f.select("nexul-console", cx));
+        create(cx);
+        cx.run_until_parked();
+        let made = parent.join("mon-projet");
+        assert!(made.join("src/main.nx").is_file());
+        studio.read_with(cx, |s, _| {
+            assert!(s.root.as_ref().is_some_and(|r| r.ends_with("mon-projet")));
+            assert_eq!(s.active.and_then(|i| s.docs.get(i)).map(|d| d.rel.as_str()), Some("src/main.nx"));
+        });
+        // The folder is not empty any more: a second project there is refused.
+        create(cx);
+        assert!(std::fs::read_dir(&made).unwrap().count() > 0);
+        let _ = std::fs::remove_dir_all(&parent);
     }
 
     #[gpui_kit::test]

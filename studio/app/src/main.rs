@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 actions!(
     studio,
-    [OpenFolder, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen]
+    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen]
 );
 
 // The explorer: they act on the selected entry.
@@ -68,6 +68,7 @@ fn bind_keys(cx: &mut App) {
 fn menus() -> Vec<Menu> {
     vec![
         Menu::new("Fichier").items([
+            MenuItem::action("Nouveau projet…", NewProject),
             MenuItem::action("Nouveau fichier…", NewFile),
             MenuItem::action("Nouveau dossier…", NewFolder),
             MenuItem::separator(),

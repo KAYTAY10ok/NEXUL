@@ -139,7 +139,7 @@ propriétaire applique.
 cargo test --release --workspace
 cargo test -p nexul-studio
 cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1
-cargo +stable-x86_64-pc-windows-msvc build --release --manifest-path studio/app/Cargo.toml
+cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release   # depuis studio/app : CRT statique (.cargo/config.toml)
 cargo test --manifest-path studio/syntax/Cargo.toml        # idem lsp, terminal, dap, templates
 ```
 

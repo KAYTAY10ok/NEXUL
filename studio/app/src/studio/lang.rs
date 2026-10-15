@@ -230,7 +230,7 @@ impl Studio {
                 this.rename_symbol(at, name, window, cx);
             }
         });
-        self.rename_box = Some(subscription);
+        self.dialog_input = Some(subscription);
         let first = Cell::new(true);
         window.open_dialog(cx, move |dialog, window, cx| {
             if first.replace(false) {
@@ -261,7 +261,7 @@ impl Studio {
     /// Renames the symbol at `at` of the active file: nxc gives the places; the open
     /// editors are changed (can be undone), the other files on disk.
     pub(super) fn rename_symbol(&mut self, at: Position, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.rename_box = None;
+        self.dialog_input = None;
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') || name.starts_with(|c: char| c.is_ascii_digit()) {
             return self.notify_error(&format!("« {} » n'est pas un nom valide.", name), window, cx);
         }
