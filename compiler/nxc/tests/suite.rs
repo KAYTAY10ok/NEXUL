@@ -68,7 +68,7 @@ fn run_one(nx: &Path) -> Vec<String> {
     }
     let stdin_path = nx.with_extension("in");
     let mut cmd = Command::new(&exe);
-    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    cmd.env("NEXUL_TEST_ENV", "present").env_remove("NEXUL_DOES_NOT_EXIST").env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
     if stdin_path.exists() {
         cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
     }
@@ -130,14 +130,14 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         let drive = p[..1].to_ascii_lowercase();
         let mut c = Command::new("wsl");
         c.arg("-e").arg(format!("/mnt/{}{}", drive, &p[2..]));
-        c.env("WSLENV", "NEXUL_LEAK_CHECK/u");
+        c.env("WSLENV", "NEXUL_LEAK_CHECK/u:NEXUL_TEST_ENV/u");
         c
     } else if target.os == nxc_driver::Os::None {
         return run_qemu(target, exe, stdin);
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
     };
-    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    cmd.env("NEXUL_TEST_ENV", "present").env_remove("NEXUL_DOES_NOT_EXIST").env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
     if let Some(i) = stdin {
         cmd.stdin(std::fs::File::open(i).unwrap());
     }

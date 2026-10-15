@@ -1,0 +1,22 @@
+/// Raw byte-buffer ABI for wasm32-web. Loaded automatically for this target.
+/// Allocations belong to the host until freed exactly once with nx_free.
+/// No String/Vec representation is exposed across the boundary.
+import std.mem
+import std.rt
+
+@cfg("web")
+@export("nx_abi_version")
+pub fn abi_version() -> i32 { return 1 }
+
+@cfg("web")
+@export("nx_alloc")
+pub unsafe fn alloc(len: usize) -> Ptr[u8] { return mem.alloc(len) }
+
+/// The pointer must be null or a live allocation returned by nx_alloc.
+@cfg("web")
+@export("nx_free")
+pub unsafe fn free(p: Ptr[u8]) { mem.free(p) }
+
+@cfg("web")
+@export("nx_flush")
+pub fn flush() { rt.flush() }

@@ -34,3 +34,7 @@ Aucune comparaison de vitesse C/Rust/C#/NEXUL ni inspection de code machine n'es
 ## Coordination
 
 La demande Claude pour nxc lsp et le versionnement JSON est enregistrée dans son rapport. Elle reste à traiter ; nxc ide est l'interface existante. Le choix GUI et l'installateur appartiennent à Claude.
+
+## Mise à jour — premier lot navigateur
+
+Le contrat navigateur v1 est maintenant implémenté et testé dans cette branche (voir interop-web.md). La conformité Windows, Linux/WSL et WASI a été exécutée avec les variables d'activation. Les travaux de benchmarks et d'inspection machine restent ouverts ; aucune optimisation de performance introduite.

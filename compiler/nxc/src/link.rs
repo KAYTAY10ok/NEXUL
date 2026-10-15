@@ -50,7 +50,7 @@ pub fn link(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     }
     match job.target.os {
         Os::Windows => link_windows(tc, job),
-        Os::Wasi => link_wasm(tc, job),
+        Os::Wasi | Os::Web => link_wasm(tc, job),
         Os::MacOs => link_macos(tc, job),
         Os::Linux => link_elf(tc, job),
         Os::None => link_bare(tc, job),
@@ -136,6 +136,9 @@ fn link_wasm(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     let lld = tc.linker("wasm-ld")?;
     let mut cmd = Command::new(lld);
     cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("-z").arg("stack-size=8388608");
+    if job.target.os == Os::Web {
+        cmd.arg("--export-memory");
+    }
     match job.kind {
         OutputKind::Executable => {}
         _ => {

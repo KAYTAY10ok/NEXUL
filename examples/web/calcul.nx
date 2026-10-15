@@ -1,0 +1,19 @@
+// Browser library: nxc build calcul.nx --target wasm32-web --lib --release -o calcul.wasm
+
+@link("app")
+extern "C" fn host_double(value: f64) -> f64
+@link("app")
+extern "C" fn host_text(data: Ptr[u8], len: usize)
+
+@export("calculate")
+pub fn calculate(x: f64) -> f64 {
+    return unsafe { host_double(x) } + 1.0
+}
+
+/// The caller lends valid UTF-8 bytes for this synchronous call only.
+@export("greet")
+pub unsafe fn greet(data: Ptr[u8], len: usize) {
+    let name = String.from_bytes_lossy(data, len)
+    let greeting = "Bonjour, " + name + " !"
+    host_text(greeting.as_ptr(), greeting.len())
+}
