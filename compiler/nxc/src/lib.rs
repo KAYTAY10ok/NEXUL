@@ -457,7 +457,7 @@ pub fn lib_name(stem: &str, target: &Target, kind: OutputKind) -> String {
         (Os::Windows, OutputKind::SharedLibrary) => format!("{}.dll", stem),
         (Os::Windows, _) => format!("{}.lib", stem),
         (Os::MacOs, OutputKind::SharedLibrary) => format!("lib{}.dylib", stem),
-        (Os::Wasi, _) => format!("{}.wasm", stem),
+        (Os::Wasi | Os::Web, _) => format!("{}.wasm", stem),
         (_, OutputKind::SharedLibrary) => format!("lib{}.so", stem),
         _ => format!("lib{}.a", stem),
     }

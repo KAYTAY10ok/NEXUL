@@ -1,0 +1,18 @@
+[package]
+name = "nexul-studio-syntax"
+description = "NEXUL Studio: lexical highlighting (NEXUL), without any interface dependency"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Its own Cargo workspace: neither the workspace of the compiler nor the one of
+# studio/app is touched (see docs/refonte/AGENTS.md, section 3).
+[workspace]
+
+[dependencies]
+
+[dev-dependencies]
+# The lexer of the compiler, read only: the conformance test checks that the
+# highlighting agrees with it token by token on the corpus of the repository.
+nxc_syntax = { path = "../../compiler/nxc_syntax" }

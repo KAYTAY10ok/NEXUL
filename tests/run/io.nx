@@ -22,7 +22,7 @@ fn main() {
 
     let args = system.args()
     println("{args.len()} args, second = {args[1]}")
-    println("PATH set: {system.env("PATH").is_some()}, missing: {system.env("NEXUL_DOES_NOT_EXIST").is_none()}")
+    println("test env set: {system.env("NEXUL_TEST_ENV").is_some()}, missing: {system.env("NEXUL_DOES_NOT_EXIST").is_none()}")
 
     let path = "nexul_io_test.txt"
     match io.write_file(path, "line 1\nligne 2 é\n") {

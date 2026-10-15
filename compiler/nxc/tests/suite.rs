@@ -68,7 +68,7 @@ fn run_one(nx: &Path) -> Vec<String> {
     }
     let stdin_path = nx.with_extension("in");
     let mut cmd = Command::new(&exe);
-    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    cmd.env("NEXUL_TEST_ENV", "present").env_remove("NEXUL_DOES_NOT_EXIST").env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
     if stdin_path.exists() {
         cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
     }
@@ -130,14 +130,14 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         let drive = p[..1].to_ascii_lowercase();
         let mut c = Command::new("wsl");
         c.arg("-e").arg(format!("/mnt/{}{}", drive, &p[2..]));
-        c.env("WSLENV", "NEXUL_LEAK_CHECK/u");
+        c.env("WSLENV", "NEXUL_LEAK_CHECK/u:NEXUL_TEST_ENV/u");
         c
     } else if target.os == nxc_driver::Os::None {
         return run_qemu(target, exe, stdin);
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
     };
-    cmd.env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+    cmd.env("NEXUL_TEST_ENV", "present").env_remove("NEXUL_DOES_NOT_EXIST").env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
     if let Some(i) = stdin {
         cmd.stdin(std::fs::File::open(i).unwrap());
     }
@@ -420,6 +420,7 @@ fn numerics_against_python() {
     };
     // Formatting.
     let out = Command::new(exe_of("format")).output().unwrap();
+    assert!(out.status.success(), "format failed: {}", String::from_utf8_lossy(&out.stderr));
     let txt = work.join("format.txt");
     std::fs::write(&txt, &out.stdout).unwrap();
     python(&[dir.join("format_verify.py").as_os_str(), txt.as_os_str()]);
@@ -427,10 +428,12 @@ fn numerics_against_python() {
     let (inp, expected, actual) = (work.join("parse_in.txt"), work.join("parse_expected.txt"), work.join("parse_actual.txt"));
     python(&[dir.join("parse_gen.py").as_os_str(), inp.as_os_str(), expected.as_os_str()]);
     let out = Command::new(exe_of("parse")).stdin(std::fs::File::open(&inp).unwrap()).output().unwrap();
+    assert!(out.status.success(), "parse failed: {}", String::from_utf8_lossy(&out.stderr));
     std::fs::write(&actual, &out.stdout).unwrap();
     python(&[dir.join("parse_compare.py").as_os_str(), inp.as_os_str(), expected.as_os_str(), actual.as_os_str()]);
     // Mathematical functions.
     let out = Command::new(exe_of("math")).output().unwrap();
+    assert!(out.status.success(), "math failed: {}", String::from_utf8_lossy(&out.stderr));
     let txt = work.join("math.txt");
     std::fs::write(&txt, &out.stdout).unwrap();
     python(&[dir.join("math_verify.py").as_os_str(), txt.as_os_str()]);

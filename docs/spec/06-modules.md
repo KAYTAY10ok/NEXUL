@@ -82,7 +82,7 @@ sortie se choisit avec `std.system.exit(code)`.
 | `@lang("...")`, `@intrinsic`, `@index` | bibliothèque standard uniquement | relient le compilateur aux types et opérations fondamentaux (E0231 ailleurs) |
 | `@track_caller` | bibliothèque standard uniquement | une panique dans la fonction indique la position de l'**appelant** (`v[10]`, `x.unwrap()`) |
 | `@derive(Eq, Ord, ...)` | structure, énumération | génère les implémentations des traits standards (§3.9) |
-| `@cfg("windows")` | tout élément | ne garde l'élément que si la condition est vraie pour la cible : système (`"windows"`, `"linux"`, `"macos"`, `"unix"`, `"wasi"`, `"bare"` sans système), architecture (`"x86_64"`, `"aarch64"`, `"arm"`, `"riscv"`, `"riscv32"`, `"riscv64"`, `"wasm"`, `"ptr32"`, `"ptr64"`), mode (`"debug"`, `"release"`, `"test"`), flottants (`"hard_float"`, `"soft_float"`) ; `"!linux"` (négation), `"windows\|unix"` (l'une ou l'autre) — E0234 si la condition est invalide |
+| `@cfg("windows")` | tout élément | ne garde l'élément que si la condition est vraie pour la cible : système (`"windows"`, `"linux"`, `"macos"`, `"unix"`, `"wasi"`, `"web"` (hôte JavaScript sans WASI), `"bare"` sans système), architecture (`"x86_64"`, `"aarch64"`, `"arm"`, `"riscv"`, `"riscv32"`, `"riscv64"`, `"wasm"`, `"ptr32"`, `"ptr64"`), mode (`"debug"`, `"release"`, `"test"`), flottants (`"hard_float"`, `"soft_float"`) ; `"!linux"` (négation), `"windows\|unix"` (l'une ou l'autre) — E0234 si la condition est invalide |
 | `@export` / `@export("nom")` | fonction | rend la fonction visible depuis C sous ce nom (§8.4) |
 | `@inline`, `@cold`, `@no_builtins` | fonction | indications à l'optimiseur |
 
