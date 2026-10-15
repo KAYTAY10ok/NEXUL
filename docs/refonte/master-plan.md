@@ -145,6 +145,8 @@ où les deux pannes ci-dessous se produisent. Branches `refonte/luna2-…`, PR `
 
 ### 2.6 Consignes à transmettre à chaque agent
 
+Version courte, à coller telle quelle : [taches.md](taches.md).
+
 À coller au début de la session de l'agent :
 
 - **Claude Outils / Core** : « Tu es Claude Opus 5.5 — Outils/Core sur NEXUL. Récupère
