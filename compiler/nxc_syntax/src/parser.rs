@@ -948,6 +948,22 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.bump().span;
+        // A statement that computes a value and drops it, before the end of the block, is
+        // almost always a line cut in two: `let total = a` then `- b` (audit G0, §4.1).
+        if let Some((_, before_last)) = stmts.split_last() {
+            for s in before_last {
+                if let StmtKind::Expr(e) = &s.kind {
+                    if is_inert(e) {
+                        self.diags.emit(
+                            Diagnostic::error("E0110", "this expression has no effect: its value is lost")
+                                .primary(e.span, "computed, then dropped")
+                                .help("if this line continues the previous one, end the previous line with the operator (`a -` then `b`)")
+                                .help("to compute a value and drop it on purpose, write `let _ = ...`"),
+                        );
+                    }
+                }
+            }
+        }
         Ok(Block { stmts, span: open.to(close) })
     }
 
@@ -1666,6 +1682,17 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// An expression without effect: no call, no `?`, no control flow, no block. Used as a
+/// statement, it computes a value nobody reads.
+fn is_inert(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Lit(_) | ExprKind::Interp(_) | ExprKind::Ident(_) | ExprKind::SelfValue | ExprKind::SelfType | ExprKind::Unit => true,
+        ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Cast(x, _) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Move(x) => is_inert(x),
+        ExprKind::Binary(_, a, b) | ExprKind::ArrayRepeat(a, b) => is_inert(a) && is_inert(b),
+        ExprKind::Tuple(xs) | ExprKind::Array(xs) => xs.iter().all(is_inert),
+        _ => false,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1759,6 +1786,10 @@ fn main() {
     fn error_codes() {
         assert_eq!(parse("fn f() { let x = a < b < c }").1, vec!["E0104"]);
         assert_eq!(parse("fn f() { let x = }").1, vec!["E0102"]);
+        // A value computed and dropped before the end of a block: a line cut in two.
+        assert_eq!(parse("fn f() {\n let t = a\n - b\n g()\n}").1, vec!["E0110"]);
+        assert_eq!(parse("fn f() {\n not ok\n (a + 1)\n g()\n}").1, vec!["E0110", "E0110"]);
+        assert!(parse("fn f() {\n g()\n let _ = a - b\n x = 1\n a - b\n}").1.is_empty());
         assert_eq!(parse("let x = 1").1, vec!["E0108"]);
         assert_eq!(parse("fn f() { x = { 1 } }").1, vec!["E0102"]);
         assert_eq!(parse("fn f() -> Vec<i32> { }").1, vec!["E0106"]);

@@ -35,6 +35,7 @@ const CODES: &[(&str, &str)] = &[
     ("E0107", "An import appears after other items.\n\nAll `import` declarations come first in a file."),
     ("E0108", "An item was expected at module level.\n\nA module contains `fn`, `struct`, `enum`, `trait`, `impl`, `const`, `static`, `type`\nand `extern` declarations. Variables only exist inside functions; use `const` for constants."),
     ("E0109", "A pattern was expected."),
+    ("E0110", "An expression is computed, then its value is lost.\n\nA statement such as `- b`, `not ok` or `(x + 1)` has no effect. It is almost always a line cut in two: a new line ends the statement, so\n\n    let total = a\n        - b\n\nis `let total = a` followed by the statement `-b`. To continue an expression on the next line, end the first line with the operator:\n\n    let total = a -\n        b\n\nTo compute a value and drop it on purpose, write `let _ = expression`."),
     ("E0201", "A name is declared twice in the same scope.\n\nNames must be unique within a module, a block, a parameter list or a pattern.\nShadowing is allowed in a nested block."),
     ("E0202", "A name cannot be found.\n\nCheck the spelling, and import the module that declares it: `import std.io`."),
     ("E0203", "`self` is used outside of a method.\n\nMethods are declared in `impl Type { ... }` with `self` as their first parameter."),

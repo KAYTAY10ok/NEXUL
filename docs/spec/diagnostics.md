@@ -38,6 +38,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0107` | An import appears after other items. |
 | `E0108` | An item was expected at module level. |
 | `E0109` | A pattern was expected. |
+| `E0110` | An expression is computed, then its value is lost. |
 
 ## Noms, modules et attributs (chapitres 04 et 06)
 
