@@ -130,10 +130,30 @@ installation de Python 3 (ou `NEXUL_PYTHON`) : seules la bibliothèque standard 
 et ses DLL sont copiées (`tools/make-python-runtime.py`). Par défaut, l'installateur est
 écrit sur le Bureau.
 
-Le programme d'installation (`installer/`) est un exécutable Rust sans dépendance : il
-affiche son interface (`installer/ui/index.html`) dans une fenêtre d'application de
-Microsoft Edge, servie sur `127.0.0.1` avec un jeton aléatoire. Les données sont ajoutées
-à la fin de l'exécutable ; sans elles, le même programme sert de désinstallateur.
+Le programme d'installation (`installer/`) est un exécutable Rust sans dépendance. Il
+affiche un assistant Windows natif (`installer/src/ui/`) : une fenêtre `CreateWindowExW`
+avec les contrôles standard de Windows, les mêmes pages, textes et règles que l'ancienne
+interface HTML. Il ne dépend donc plus de Microsoft Edge. Les données sont ajoutées à la
+fin de l'exécutable ; sans elles, le même programme sert de désinstallateur, avec sa propre
+fenêtre.
+
+L'assistant :
+
+- suit la résolution de chaque écran (`PerMonitorV2`, refait à l'échelle quand la fenêtre
+  change d'écran) ;
+- se pilote au clavier (Tab, Entrée pour le bouton principal, Échap pour fermer) ;
+- montre la progression aussi sur le bouton de la barre des tâches ;
+- refuse de se fermer pendant l'installation ;
+- n'a besoin ni d'icône ni de manifeste compilés (les contrôles communs version 6 sont
+  activés à l'exécution).
+
+La fenêtre mesure 860 × 600 pixels à 100 % : il lui faut un écran d'au moins 640 pixels
+de haut à l'échelle choisie (par exemple 1080 lignes à 150 %).
+
+Pendant une version, l'ancienne interface reste disponible avec `--web-ui` : la page
+`installer/ui/index.html` dans une fenêtre d'application d'Edge, servie sur `127.0.0.1`
+avec un jeton aléatoire. Elle sera retirée à l'étape 3 de
+l'[étude](../installer/docs/etude-interface-native.md).
 
 Ses opérations sur le système passent directement par l'API de Windows
 (`installer/src/win/`). Il ne lance ni PowerShell, ni `reg.exe`, ni `taskkill` : il
@@ -151,17 +171,31 @@ Tests :
 
 ```
 cargo test -p nexul-installer                                 # tests unitaires
-cargo test -p nexul-installer --features test-sandbox         # + installation complète
+cargo test -p nexul-installer --features test-sandbox         # + installation complète, fenêtre
 cargo test -p nexul-installer -- --ignored picker             # choix du dossier (ouvre une fenêtre)
 ```
 
 Le test `silent` construit un vrai installateur avec `nexul-pack`. Il l'installe, le met à
 jour par-dessus une installation précédente et une ancienne copie de NEXUL Studio, puis le
-désinstalle, et vérifie le résultat avec `reg.exe` et Windows Script Host. Tout cela se
-passe dans un **bac à sable** : la fonctionnalité `test-sandbox` et la variable
-`NEXUL_SETUP_SANDBOX` redirigent le registre sous `HKCU\Software\NEXUL-Tests\…` et le
-Bureau et le menu Démarrer dans un dossier temporaire ; les réglages réels ne sont jamais
-touchés. Cette redirection n'existe pas dans l'installateur livré.
+désinstalle, et vérifie le résultat avec `reg.exe` et Windows Script Host.
+
+Le test `ui` fait la même chose **avec la fenêtre**. L'option `--ui-selftest <dossier>`
+(présente seulement avec `test-sandbox`) ouvre l'assistant hors de l'écran et le pilote
+comme un utilisateur :
+
+- licences acceptées (Suivant reste grisé avant) ;
+- ancienne version sauvegardée ;
+- exemples décochés ;
+- dossier saisi, installation, page finale ;
+- puis le désinstallateur, avec sa propre fenêtre.
+
+Chaque page est capturée en `.bmp` et vérifiée (taille, contenu), à 100 %, 125 % et
+150 %. Pour regarder les captures : `NEXUL_SETUP_KEEP_SHOTS=<dossier>`.
+
+Tout cela se passe dans un **bac à sable** : la fonctionnalité `test-sandbox` et la
+variable `NEXUL_SETUP_SANDBOX` redirigent le registre sous `HKCU\Software\NEXUL-Tests\…`
+et le Bureau et le menu Démarrer dans un dossier temporaire ; les réglages réels ne sont
+jamais touchés. Cette redirection n'existe pas dans l'installateur livré.
 
 ## Évolutions à l'étude
 
@@ -169,7 +203,8 @@ Trois études préparent les prochaines versions de l'installation ; elles ne d�
 encore le fonctionnement actuel :
 
 - [Interface native de l'installateur](../installer/docs/etude-interface-native.md) :
-  remplacer Edge par une interface Windows native (le retrait de PowerShell, étape 1, est
-  fait), et livrer l'application native de NEXUL Studio ;
+  remplacer Edge par une interface Windows native (le retrait de PowerShell, étape 1, et
+  l'assistant natif, étape 2, sont faits ; reste le retrait de l'interface HTML), et livrer
+  l'application native de NEXUL Studio ;
 - [Distribution sous Linux et macOS](../installer/docs/etude-linux-macos.md) ;
 - [Mécanisme de mise à jour](../installer/docs/etude-mises-a-jour.md).

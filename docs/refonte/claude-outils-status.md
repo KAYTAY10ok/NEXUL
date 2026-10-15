@@ -5,6 +5,12 @@ Agent : **Claude Outils**. Périmètre (voir [AGENTS.md](AGENTS.md), §3) : `stu
 `tools/licenses/**`, `docs/installation.md` et ce fichier. Branche : `refonte/claude-tools`.
 Seul Claude Outils modifie ce document.
 
+**Archive (charte V3, validée le 15/10/2026).** Claude Outils est devenu « Claude Opus 5.5 —
+Outils / Core » (compilateur, bibliothèque standard, spécification) ; son nouveau fichier
+d'état est `docs/refonte/claude-core-status.md`. Ses anciennes briques passent à Codex Luna
+(`AGENTS.md`, §3.1). Ce fichier n'est plus tenu qu'en archive ; sa dernière entrée est
+l'étape 2 de l'installateur. Voir « Passation à Codex Luna » plus bas.
+
 Dernière mise à jour : 15 octobre 2026.
 
 ## Environnement
@@ -36,12 +42,16 @@ sans la charge « Développement Desktop en C++ »).
 | 15/10 | **`studio/syntax`** — coloration lexicale de NEXUL, sans dépendance : API `tokens(lang, texte)`, API par ligne avec état (`tokenize_line`, `LineState`), `Highlighter` incrémental (`replace`, `edit_lines`), 16 classes (les 15 proposées + `Invalid`) ; tolérante aux erreurs ; 26 tests dont la conformité jeton par jeton avec le lexer de `nxc` ; documentation : [studio/syntax/README.md](../../studio/syntax/README.md) | `aec4927` |
 | 15/10 | **`studio/lsp`** — client Language Server Protocol générique, sans dépendance (fils et canaux) : transport `Content-Length`, `initialize`, `didOpen`/`didChange` (complet et incrémental)/`didSave`/`didClose`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `formatting`, annulation, délais, arrêt propre ; registre de 11 langages et 13 serveurs, 12 SDK, détection vérifiée sans téléchargement (« coloration seulement » sinon) ; 32 tests dont un faux serveur LSP et rust-analyzer réel ; documentation : [studio/lsp/README.md](../../studio/lsp/README.md) | `e85a252` |
 | 15/10 | **Études écrites** (installation et distribution) : [interface native de l'installateur](../../installer/docs/etude-interface-native.md) (Win32 sans dépendance recommandé ; inventaire des 10 appels à PowerShell et des appels à `reg.exe`, coûts mesurés ; empaquetage de Studio natif) ; [distribution Linux et macOS](../../installer/docs/etude-linux-macos.md) (archive + `install.sh` sous Linux, `.app` signé et notarisé sous macOS, bloqué par la couche système macOS du runtime) ; [mécanisme de mise à jour](../../installer/docs/etude-mises-a-jour.md) (manifeste signé Ed25519, `nexul-update`, un dossier par version, `winget`) | |
+| 15/10 | **Installateur, étape 2 de l'interface native** (accord de l'utilisateur) : assistant Win32 sans dépendance à la place de la page HTML dans Edge (`installer/src/ui/`). Il reprend les mêmes pages, textes et règles, et la même fenêtre de désinstallation. Il gère la résolution par écran, le clavier, la progression dans la barre des tâches et le refus de fermer pendant l'installation. Les hauteurs de texte sont mesurées. L'interface HTML reste derrière `--web-ui` pendant une version. Tests : modèle de l'assistant testé sans fenêtre ; auto-test `--ui-selftest` qui pilote la vraie fenêtre de bout en bout dans le bac à sable, avec une capture vérifiée par page à 100, 125 et 150 % | |
 | 15/10 | **Installateur, étape 1 de l'interface native** (accord de l'utilisateur) : PowerShell, `reg.exe` et `taskkill` remplacés par l'API de Windows, sans dépendance (`installer/src/win/` : registre, PATH et `NEXUL_HOME`, raccourcis `IShellLinkW`, dossiers connus, choix du dossier `IFileOpenDialog`, élévation `ShellExecuteEx`, arrêt des seuls programmes du dossier traité) ; désinstallateur effacé par une copie dans `%TEMP%` ; interface HTML inchangée ; 13 tests unitaires + test du choix du dossier + installation complète de bout en bout dans un bac à sable | |
 
 ## Travaux en cours
 
-- Interface native de l'installateur, étapes 2 et 3 (assistant Win32, retrait de l'interface
-  HTML) : à faire après relecture de l'étape 1.
+- Interface native de l'installateur : étape 2 livrée (PR à relire). Statut :
+  `VALIDÉ_E2E` pour le parcours automatisé dans le bac à sable ; essais manuels non testés.
+  L'étape 3 (retrait de l'interface HTML) revient à Codex Luna, une version plus tard.
+- Essais manuels de l'assistant devant l'écran (clavier, Narrateur, changement d'écran) :
+  à faire par l'utilisateur ou par Codex Luna.
 - Autres décisions de l'utilisateur en attente : fin de chaque étude (Linux et macOS, mises
   à jour, construction de Studio natif).
 
@@ -61,6 +71,15 @@ sans la charge « Développement Desktop en C++ »).
   `installer/Cargo.toml` (fonctionnalité `test-sandbox`, programme et test de test, aucune
   dépendance), `installer/tests/silent.rs`, `installer/tests/support/sleeper.rs`,
   `docs/installation.md`.
+- Installateur (étape 2) :
+  - nouveaux : `installer/src/ui/` (`mod.rs`, `model.rs`, `window.rs`, `sys.rs`,
+    `selftest.rs`), `installer/tests/ui.rs`, `installer/tests/common/mod.rs` (aides
+    partagées, sorties de `silent.rs`) ;
+  - modifiés : `installer/src/main.rs` (fenêtre native par défaut, `--web-ui`),
+    `installer/src/win/shell.rs` (choix du dossier rattaché à la fenêtre),
+    `installer/Cargo.toml` (test `ui`, aucune dépendance), `installer/tests/silent.rs`,
+    `installer/ui/index.html` (accord « trouvée(s) », conseils sans exemples) ;
+  - documentation : `docs/installation.md`, `installer/docs/etude-interface-native.md`.
 - `docs/refonte/claude-outils-status.md` (ce fichier).
 
 Aucun autre fichier du dépôt n'est modifié. `compiler/nxc_syntax` est utilisé en
@@ -103,6 +122,30 @@ aucun avertissement ; `cargo fmt --check` : conforme (configuration des crates :
   avertissement.
 - Programme seul, release : 828 Ko (768 Ko avant).
 
+**Installateur (étape 2)** :
+
+- `cargo test -p nexul-installer` : **19 tests unitaires réussis** (2 ignorés : choix du
+  dossier, qui ouvre une fenêtre). Les 6 nouveaux portent sur le modèle de l'assistant :
+  pages et boutons, anciennes versions, accord « trouvée(s) », dépendances entre
+  composants, options, validation du dossier.
+- `cargo test -p nexul-installer --features test-sandbox` : `silent` et `ui` réussis.
+  `ui` construit le vrai installateur et pilote sa fenêtre :
+  - licences (Suivant grisé avant l'acceptation) ;
+  - ancienne copie de NEXUL Studio sauvegardée ;
+  - exemples décochés et bien absents ;
+  - dossier saisi, inscription, raccourci ;
+  - désinstallation par la fenêtre du désinstallateur, dossier supprimé.
+  Chaque page est capturée et vérifiée (taille exacte, contenu non vide), à 100, 125 et
+  150 %. À 125 %, la fenêtre est en plus réduite après chaque capture.
+- Suite complète en boucle : 25 passages consécutifs sans échec après la correction de la
+  fenêtre réduite (voir « Problèmes rencontrés »), puis un passage final.
+- Les captures ont été regardées une à une ; elles ont fait corriger des textes coupés,
+  des encadrés trop petits et des boutons qui dépassaient (voir « Problèmes rencontrés »).
+- `cargo clippy --all-targets`, avec et sans `test-sandbox` : aucun avertissement.
+- Après les tests, vérifié en PowerShell : aucune clé `HKCU\Software\NEXUL-Tests`, aucun
+  processus de test restant.
+- Programme seul, release : 940 Ko (828 Ko après l'étape 1).
+
 **`studio/lsp`** : **32 tests, tous réussis**, et 10 passages consécutifs des tests du
 client et de la détection sans échec.
 
@@ -144,6 +187,20 @@ conformité).
   correspondant restait bloqué jusqu'à la fermeture de la boîte (80 s, 120 s, puis
   arrêt), et ces boîtes ont pu apparaître à l'écran de l'utilisateur. C'est corrigé :
   l'erreur revient au programme, et la demande d'élévation de Windows reste affichée.
+- Assistant natif, premières captures : textes coupés (descriptions sur trois lignes,
+  encadrés, chemins longs), boutons de la page finale qui dépassaient, encadré vide quand
+  rien n'était trouvé. Les polices ne grandissent pas exactement comme l'échelle : les
+  hauteurs sont maintenant mesurées (`DrawTextW`, `DT_CALCRECT`) et les chemins tiennent
+  sur une ligne avec des points de suspension.
+- Test de la fenêtre : deux échecs sur une vingtaine de passages, dont un diagnostiqué
+  (« fenêtre vide » au moment d'une capture). La fenêtre de test, hors de l'écran, avait été réduite (par exemple par
+  « Afficher le bureau ») ; une fenêtre réduite n'a pas de zone cliente. Le pilote la
+  rétablit maintenant sans l'activer et attend qu'elle soit redessinée. Le cas est testé :
+  l'échec se reproduit sans la correction et disparaît avec elle.
+- 200 % n'est pas testé automatiquement : la fenêtre ferait 1 200 pixels de haut, plus
+  que l'écran de ce PC (Windows la tronque).
+- Clippy 1.99 signale `missing_const_for_thread_local` sur des `thread_local!` dont les
+  valeurs sont déjà `const` : exception limitée à ces trois cellules, avec un commentaire.
 - Sous Git Bash, `reg … /f` est converti en chemin par MSYS (`/f` → `F:/`) : les
   vérifications de l'environnement réel se font en PowerShell. Les tests Rust ne sont
   pas concernés, car ils passent leurs arguments directement.
@@ -204,3 +261,36 @@ ou du compilateur.
   (Trojan Source, échappement inconnu, `!` seul…), sans quoi « aucune perte de texte »
   obligerait à mal classer ces caractères. Langage : `"nexul"` (ou `"nx"`) ; un langage
   inconnu donne une liste vide.
+
+## Passation à Codex Luna
+
+Le transfert est consigné dans `AGENTS.md` (§3.1) : `studio/lsp/**` et `studio/syntax/**`
+sont à Codex Luna depuis le 15/10 ; `installer/**`, `tools/build_installer.py`,
+`tools/make-python-runtime.py`, `tools/licenses/**` et `docs/installation.md` lui passent
+après les PR installateur de Claude Outils. Claude Outils donne son accord.
+
+Les PR #10 (études) et #11 (étape 1) sont fusionnées. Il reste **une** PR installateur de
+Claude Outils : l'étape 2, demandée par l'utilisateur avant la charte V3 (branche
+`refonte/claude-tools-installer`). Pour qu'il n'y ait jamais deux propriétaires :
+
+- tant que cette PR est ouverte, Codex Luna n'écrit pas dans ces chemins ;
+- dès qu'elle est fusionnée ou fermée, ils sont à Luna, et Claude Outils n'y écrit plus,
+  sauf demande de Luna.
+
+État remis :
+
+- **Installateur** : interface native, étapes 1 et 2 faites. À reprendre :
+  - étape 3, retrait de `http.rs`, `ui/index.html` et `--web-ui`, une version après
+    l'étape 2 ;
+  - essais manuels (clavier, Narrateur, changement d'écran) ;
+  - écarts listés au §5.1 de l'[étude](../../installer/docs/etude-interface-native.md) ;
+  - empaquetage de `NEXUL-Studio-Native.exe` (P4 ; §6 de l'étude ; issue
+    [#9](https://github.com/KAYTAY10ok/NEXUL/issues/9) pour le runtime C) ;
+  - décisions de l'utilisateur sur les études Linux et macOS et sur les mises à jour.
+
+  Tests : `cargo test -p nexul-installer --features test-sandbox`, sans toucher aux
+  réglages réels (bac à sable décrit dans `docs/installation.md`). Ce PC n'a pas les
+  outils C++ de Visual Studio : l'installateur construit ici n'a ni icône ni manifeste.
+- **`studio/syntax`** et **`studio/lsp`** : `TESTÉ_UNITAIREMENT`, pas encore raccordées à
+  `studio/app` (P3, Claude Main). `studio/syntax` devra suivre la nouvelle grammaire (P2,
+  P6) : Claude Outils / Core en fournira le lexique ; l'adaptation reste à Luna.

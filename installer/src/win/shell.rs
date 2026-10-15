@@ -8,19 +8,19 @@ use std::marker::PhantomData;
 use std::path::{Path, PathBuf};
 
 /// A COM interface pointer, released when dropped.
-struct ComPtr<V> {
-    p: *mut c_void,
+pub(crate) struct ComPtr<V> {
+    pub(crate) p: *mut c_void,
     _vtbl: PhantomData<V>,
 }
 
 impl<V> ComPtr<V> {
     /// # Safety
     /// `p` is an interface pointer whose table starts like `V`, and its reference is ours.
-    unsafe fn from_raw(p: *mut c_void) -> Option<ComPtr<V>> {
+    pub(crate) unsafe fn from_raw(p: *mut c_void) -> Option<ComPtr<V>> {
         (!p.is_null()).then_some(ComPtr { p, _vtbl: PhantomData })
     }
 
-    fn vtbl(&self) -> &V {
+    pub(crate) fn vtbl(&self) -> &V {
         unsafe { &**(self.p as *mut *const V) }
     }
 
@@ -49,7 +49,7 @@ fn hr(code: HRESULT) -> Result<(), String> {
     }
 }
 
-fn create<V>(clsid: &GUID, iid: &GUID) -> Result<ComPtr<V>, String> {
+pub(crate) fn create<V>(clsid: &GUID, iid: &GUID) -> Result<ComPtr<V>, String> {
     let mut out = std::ptr::null_mut();
     hr(unsafe { CoCreateInstance(clsid, std::ptr::null_mut(), CLSCTX_INPROC_SERVER, iid, &mut out) })?;
     unsafe { ComPtr::from_raw(out) }.ok_or_else(|| "objet COM absent".into())
@@ -192,6 +192,12 @@ impl Drop for Owner {
 /// The folder picker of Windows (the one of the Explorer), opened on `start` or on its
 /// nearest existing parent. `None` if the user cancels.
 pub fn pick_folder(title: &str, start: &Path) -> Option<PathBuf> {
+    pick_folder_for(std::ptr::null_mut(), title, start)
+}
+
+/// [`pick_folder`] owned by the window `owner` (the wizard), or, if it is null, by an
+/// invisible window kept on top.
+pub fn pick_folder_for(owner: HWND, title: &str, start: &Path) -> Option<PathBuf> {
     let _com = Com::init();
     let dialog: ComPtr<IFileOpenDialogVtbl> = create(&CLSID_FILE_OPEN_DIALOG, &IID_IFILE_OPEN_DIALOG).ok()?;
     let vt = dialog.vtbl();
@@ -210,8 +216,9 @@ pub fn pick_folder(title: &str, start: &Path) -> Option<PathBuf> {
                 }
             }
         }
-        let owner = Owner::new();
-        if (vt.Show)(dialog.p, owner.0) != S_OK {
+        let fallback = if owner.is_null() { Some(Owner::new()) } else { None };
+        let owner = fallback.as_ref().map_or(owner, |o| o.0);
+        if (vt.Show)(dialog.p, owner) != S_OK {
             return None; // cancelled (or failed)
         }
         let mut result = std::ptr::null_mut();
