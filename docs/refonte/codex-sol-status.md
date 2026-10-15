@@ -1,6 +1,6 @@
 # État de Codex Sol — composants, outils et distribution
 
-Mis à jour le 15 octobre 2026. Mandat : `prompt-codex-sol.md` et charte « Équipe
+Mis à jour le 16 octobre 2026. Mandat : `prompt-codex-sol.md` et charte « Équipe
 réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
 
 ## Périmètre
@@ -15,15 +15,15 @@ Claude Main conserve la revue et l'intégration.
 
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
-| 0 | Sécurité extension/installateur | TESTÉ_UNITAIREMENT : 9 tests extension, 20 unitaires et 4 silent installateur réussis ; [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22), revue Main attendue |
+| 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
-| 3 | P9 — CLI et LSP | Non testé ; ADR 0009 acceptée lue intégralement, son mandat final prime |
-| 4 | L3 — installateur natif | Non testé ; après P9 |
+| 3 | P9 — CLI et LSP | Fondations VALIDÉ_E2E sur `origin/main` `85b68b9` : 6 tests unitaires, 6 fondations et 10 tests de conformité réussis; 1 test Web ignoré par défaut. Le serveur LSP est en cours de revalidation sur cette base. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. |
 
 ## Travail courant
 
-- Base : `origin/main` à `f4f42cd`, récupérée le 15 octobre 2026.
+- Base actuelle : `origin/main` à `85b68b9`, récupérée le 16 octobre 2026.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
 - Branche L1 : `refonte/sol-l1-terminal` ; L2 : `refonte/sol-l2-dap`. Worktree indépendant sous
   `files-mentioned-by-the-user-prompt/work/NEXUL-sol`.

@@ -21,6 +21,8 @@ pub struct Analysis {
     pub file: FileId,
     pub root: ModId,
     pub dir: Option<PathBuf>,
+    /// File selected as the program root (the project main when this document is imported).
+    pub program_path: PathBuf,
 }
 
 /// The edition given by `nxc ide --edition` (otherwise each file and its project say).
@@ -28,10 +30,87 @@ pub static EDITION: std::sync::OnceLock<nxc_syntax::Edition> = std::sync::OnceLo
 
 /// Analyzes `path`, with `text` as its content when given (unsaved changes).
 pub fn analyze(path: &Path, text: Option<String>) -> Option<Analysis> {
+    analyze_document(path, text, Vec::new())
+}
+
+/// Analyzes a document with unsaved source overlays for it and any imported files.
+/// If the document is reachable from a project's main file, the full project is analyzed.
+pub fn analyze_document(path: &Path, text: Option<String>, overlays: Vec<(PathBuf, String)>) -> Option<Analysis> {
+    analyze_document_with_cfg(path, text, overlays, nxc_sema::target::Cfg::default())
+}
+
+/// Like `analyze_document`, with an explicit target and build mode for `@cfg` evaluation.
+pub fn analyze_document_with_cfg(path: &Path, text: Option<String>, mut overlays: Vec<(PathBuf, String)>, cfg: nxc_sema::target::Cfg) -> Option<Analysis> {
     let text = match text {
-        Some(t) => t,
-        None => std::fs::read_to_string(path).ok()?,
+        Some(text) => {
+            set_overlay(&mut overlays, path, text.clone());
+            text
+        }
+        None => overlays.iter().find(|(candidate, _)| same_path(candidate, path)).map(|(_, text)| text.clone())
+            .or_else(|| std::fs::read_to_string(path).ok())?,
     };
+    if let Some(project) = crate::pkg::find_project(path) {
+        if let Ok(manifest) = crate::pkg::load_manifest(&project) {
+            let main_path = crate::pkg::main_file(&project, &manifest);
+            if !same_path(path, &main_path) && main_path.is_file() {
+                if let Some(main_text) = overlays.iter().find(|(candidate, _)| same_path(candidate, &main_path)).map(|(_, text)| text.clone())
+                    .or_else(|| std::fs::read_to_string(&main_path).ok()) {
+                    if let Some(mut analysis) = analyze_root(&main_path, main_text, overlays.clone(), cfg.clone()) {
+                        if let Some(file) = loaded_file_for_path(&analysis, path) {
+                            analysis.file = file;
+                            return Some(analysis);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    analyze_root(path, text, overlays, cfg)
+}
+
+fn set_overlay(overlays: &mut Vec<(PathBuf, String)>, path: &Path, text: String) {
+    if let Some((_, existing)) = overlays.iter_mut().find(|(candidate, _)| same_path(candidate, path)) {
+        *existing = text;
+    } else {
+        overlays.push((path.to_path_buf(), text));
+    }
+}
+
+fn normalized_path(path: &Path) -> PathBuf {
+    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
+    if let Ok(path) = std::fs::canonicalize(&absolute) { return path; }
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        use std::path::Component;
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => { normalized.pop(); }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn same_path(a: &Path, b: &Path) -> bool {
+    #[cfg(windows)]
+    { normalized_path(a).to_string_lossy().eq_ignore_ascii_case(&normalized_path(b).to_string_lossy()) }
+    #[cfg(not(windows))]
+    { normalized_path(a) == normalized_path(b) }
+}
+
+fn loaded_file_for_path(analysis: &Analysis, path: &Path) -> Option<FileId> {
+    analysis.prog.modules.iter().find_map(|module| {
+        let file = analysis.sm.try_get(module.file)?;
+        if file.name.starts_with('<') { return None; }
+        let source_path = Path::new(&file.name);
+        let candidate = if source_path.is_absolute() { source_path.to_path_buf() }
+            else { analysis.dir.as_deref().unwrap_or_else(|| Path::new(".")).join(source_path) };
+        same_path(&candidate, path).then_some(module.file)
+    })
+}
+
+fn analyze_root(path: &Path, text: String, overlays: Vec<(PathBuf, String)>, cfg: nxc_sema::target::Cfg) -> Option<Analysis> {
     let edition = EDITION.get().copied().unwrap_or_else(|| crate::pkg::edition_for(path, &text));
     let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
     let dir = path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() });
@@ -39,10 +118,13 @@ pub fn analyze(path: &Path, text: Option<String>) -> Option<Analysis> {
     let diags = DiagSink::new();
     let mut src = ProgramSource::new(name, text, dir.clone());
     src.edition = edition;
+    src.overlays = overlays;
+    src.deps = crate::pkg::deps_for(path).ok()?;
+    src.cfg = cfg;
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     let root = prog.root;
     let file = prog.modules.get(root.idx())?.file;
-    Some(Analysis { sm, prog, file, root, dir })
+    Some(Analysis { sm, prog, file, root, dir, program_path: path.to_path_buf() })
 }
 
 impl Analysis {
@@ -686,6 +768,12 @@ pub fn references_json(a: &Analysis, refs: &[Span]) -> String {
 pub fn rename(a: &Analysis, line: usize, col: usize, new_name: &str) -> Result<String, String> {
     if new_name.is_empty() || !new_name.chars().all(is_ident) || new_name.chars().next().map_or(true, |c| c.is_ascii_digit()) {
         return Err(format!("`{}` is not a valid name", new_name));
+    }
+    if nxc_syntax::token::keyword(new_name).is_some() {
+        return Err(format!("`{}` is a keyword and cannot be used as a name", new_name));
+    }
+    if nxc_syntax::token::RESERVED.contains(&new_name) {
+        return Err(format!("`{}` is reserved for a future version and cannot be used as a name", new_name));
     }
     let refs = references(a, line, col);
     if refs.is_empty() {
@@ -1398,4 +1486,24 @@ fn normalize_line(line: &str) -> String {
         i += 1;
     }
     out.trim_end().to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rename_rejects_keywords_and_reserved_names() {
+        let dir = std::env::temp_dir().join(format!("nxc-rename-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("main.nx");
+        let analysis = analyze(&path, Some("fn main() {}\n".into())).unwrap();
+        assert!(rename(&analysis, 1, 4, "let").unwrap_err().contains("keyword"));
+        assert!(rename(&analysis, 1, 4, "async").unwrap_err().contains("reserved"));
+        let source = "import std.vec.{Vec}\nfn main() { let xs: Vec[i32] = Vec.new() }\n";
+        let std_analysis = analyze(&path, Some(source.into())).unwrap();
+        let column = source.lines().nth(1).unwrap().find("Vec").unwrap() + 1;
+        assert!(rename(&std_analysis, 2, column, "Other").unwrap_err().contains("standard library"));
+        let _ = std::fs::remove_dir_all(dir);
+    }
 }

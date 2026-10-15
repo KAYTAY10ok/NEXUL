@@ -44,13 +44,15 @@ pub struct CompileOptions {
     pub profile: bool,
     /// Dependencies (`nxpm`): package name and source directory.
     pub deps: Vec<(String, PathBuf)>,
+    /// Unsaved imported sources, keyed by their filesystem path.
+    pub overlays: Vec<(PathBuf, String)>,
     /// The syntax of the program (ADR 0010): `--edition 0.2` (default) or `--edition 1`.
     pub edition: nxc_syntax::Edition,
 }
 
 impl CompileOptions {
     pub fn new(mode: Mode) -> CompileOptions {
-        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new(), edition: nxc_syntax::Edition::V0_2 }
+        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new(), overlays: Vec::new(), edition: nxc_syntax::Edition::V0_2 }
     }
 }
 
@@ -65,6 +67,8 @@ pub struct Compilation {
     pub tests: Vec<String>,
     /// The same diagnostics as a JSON array (for editors and tools).
     pub json: String,
+    /// Versioned diagnostic JSON (schema `nexul.diagnostics`, version 1).
+    pub json_v1: String,
 }
 
 /// Runs the whole front end and generates LLVM IR (unless `mode` is `Check`).
@@ -74,6 +78,10 @@ pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
         Ok(b) => b,
         Err(e) => {
             let msg = format!("cannot read `{}`: {}", path.display(), e);
+            let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
+            let mut sm = SourceMap::new();
+            let file = sm.add(name, "");
+            let diagnostic = Diagnostic::error("", msg.clone()).primary(Span::new(file, 0, 0), "cannot read source file");
             return Compilation {
                 diagnostics: format!("error: {}\n", msg),
                 errors: 1,
@@ -84,6 +92,7 @@ pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
                     "[{{\"level\":\"error\",\"code\":\"\",\"message\":{},\"file\":\"\",\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0,\"labels\":[],\"notes\":[]}}]",
                     json_str(&msg)
                 ),
+                json_v1: diagnostics_json_v1(&[diagnostic], &sm, path.parent(), &opts.target),
             };
         }
     };
@@ -92,6 +101,7 @@ pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
 }
 
 pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opts: &CompileOptions) -> Compilation {
+    let diagnostic_root_dir = root_dir.clone();
     let mut sm = SourceMap::new();
     let diags = DiagSink::new();
     let color = opts.color;
@@ -106,21 +116,22 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
                     .primary(Span::new(f, pos as u32, pos as u32 + 1), "invalid byte sequence")
                     .help("save the file with the UTF-8 encoding"),
             );
-            return finish(&sm, &diags, None, vec![], color);
+            return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
         }
     };
     let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
     let mut src = ProgramSource::new(name.to_string(), text, root_dir.clone());
     src.deps = opts.deps.clone();
     src.edition = opts.edition;
+    src.overlays = opts.overlays.clone();
     src.cfg = Cfg { target: opts.target.clone(), release: opts.release, test: opts.mode == Mode::Tests };
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     if diags.has_errors() {
-        return finish(&sm, &diags, None, vec![], color);
+        return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
     }
     let bodies = nxc_nir::lower_program(&prog, &sm, &diags);
     if diags.has_errors() || opts.mode == Mode::Check {
-        return finish(&sm, &diags, None, vec![], color);
+        return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
     }
     let entry = match opts.mode {
         Mode::Program => match prog.main_fn {
@@ -132,7 +143,7 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
                         .primary(Span::new(root_file, 0, 0), "the program starts with `fn main()` in this file")
                         .help("add `fn main() { ... }`, use `nxc test` to run `@test` functions, or `--lib` to build a library"),
                 );
-                return finish(&sm, &diags, None, vec![], color);
+                return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
             }
         },
         Mode::Tests => {
@@ -171,10 +182,10 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
         .unwrap_or_default();
     let gen_opts = nxc_codegen_llvm::Options { target: opts.target.clone(), debug_info: opts.debug_info, optimize: opts.release, root_dir: root, profile: opts.profile };
     let out = nxc_codegen_llvm::generate(&prog, &sm, &bodies, &entry, &gen_opts);
-    finish(&sm, &diags, Some(out), test_names, color)
+    finish(&sm, &diags, Some(out), test_names, color, diagnostic_root_dir.as_deref(), &opts.target)
 }
 
-fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<String>, color: bool) -> Compilation {
+fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<String>, color: bool, root_dir: Option<&Path>, target: &Target) -> Compilation {
     let mut list = diags.take_sorted();
     let errors = list.iter().filter(|d| d.level == Level::Error).count();
     // Warnings are often consequences of errors (code skipped by recovery): show them
@@ -184,7 +195,8 @@ fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<S
     }
     let warnings = list.len() - errors;
     let json = diagnostics_json(&list, sm);
-    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, output: if errors == 0 { output } else { None }, tests, json }
+    let json_v1 = diagnostics_json_v1(&list, sm, root_dir, target);
+    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, output: if errors == 0 { output } else { None }, tests, json, json_v1 }
 }
 
 /// A JSON string literal.
@@ -253,6 +265,65 @@ pub fn diagnostics_json(list: &[Diagnostic], sm: &SourceMap) -> String {
         ));
     }
     format!("[{}]", items.join(","))
+}
+
+fn absolute_display(path: &Path, root_dir: Option<&Path>) -> String {
+    let joined = if path.is_absolute() { path.to_path_buf() } else { root_dir.unwrap_or_else(|| Path::new(".")).join(path) };
+    let absolute = std::fs::canonicalize(&joined).unwrap_or_else(|_| {
+        if joined.is_absolute() { joined } else { std::env::current_dir().unwrap_or_default().join(joined) }
+    });
+    let rendered = absolute.to_string_lossy();
+    if let Some(unc) = rendered.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", unc)
+    } else {
+        rendered.strip_prefix(r"\\?\").unwrap_or(&rendered).to_string()
+    }
+}
+
+fn diagnostic_path(name: &str, root_dir: Option<&Path>, target: &Target) -> String {
+    if let Some(module) = name.strip_prefix("<std.").and_then(|s| s.strip_suffix('>')) {
+        let module = if module == "sys" {
+            match target.os {
+                Os::Windows => "sys/windows",
+                Os::Linux | Os::MacOs => "sys/linux",
+                Os::Wasi => "sys/wasi",
+                Os::Web => "sys/web",
+                Os::None => "sys/bare",
+            }
+        } else {
+            module
+        };
+        return format!("nexul-std:///{}.nx", module.replace('.', "/"));
+    }
+    absolute_display(Path::new(name), root_dir)
+}
+
+fn range_json(sm: &SourceMap, span: Span) -> String {
+    match sm.try_get(span.file) {
+        Some(file) if !span.is_dummy() => {
+            let (line, col) = file.line_col(span.lo);
+            let (end_line, end_col) = file.line_col(span.hi.max(span.lo));
+            format!("{{\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{}}}", line, col, end_line, end_col)
+        }
+        _ => "{\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0}".into(),
+    }
+}
+
+/// Diagnostics in the stable, versioned v1 envelope.
+pub fn diagnostics_json_v1(list: &[Diagnostic], sm: &SourceMap, root_dir: Option<&Path>, target: &Target) -> String {
+    let items: Vec<String> = list.iter().map(|d| {
+        let primary = d.primary_span().unwrap_or(Span::DUMMY);
+        let path = sm.try_get(primary.file).filter(|_| !primary.is_dummy()).map(|f| diagnostic_path(&f.name, root_dir, target)).unwrap_or_default();
+        let labels: Vec<String> = d.labels.iter().map(|label| {
+            let label_path = sm.try_get(label.span.file).filter(|_| !label.span.is_dummy()).map(|f| diagnostic_path(&f.name, root_dir, target)).unwrap_or_default();
+            format!("{{\"primary\":{},\"message\":{},\"path\":{},\"range\":{}}}", label.primary, json_str(&label.message), json_str(&label_path), range_json(sm, label.span))
+        }).collect();
+        let notes: Vec<String> = d.notes.iter().map(|n| format!("{{\"kind\":\"note\",\"message\":{}}}", json_str(n)))
+            .chain(d.helps.iter().map(|h| format!("{{\"kind\":\"help\",\"message\":{}}}", json_str(h)))).collect();
+        format!("{{\"level\":\"{}\",\"code\":{},\"message\":{},\"path\":{},\"range\":{},\"labels\":[{}],\"notes\":[{}]}}",
+            if d.level == Level::Error { "error" } else { "warning" }, json_str(d.code), json_str(&d.message), json_str(&path), range_json(sm, primary), labels.join(","), notes.join(","))
+    }).collect();
+    format!("{{\"schema\":\"nexul.diagnostics\",\"version\":1,\"compiler\":{},\"diagnostics\":[{}]}}", json_str(env!("CARGO_PKG_VERSION")), items.join(","))
 }
 
 // ---------------------------------------------------------------------------

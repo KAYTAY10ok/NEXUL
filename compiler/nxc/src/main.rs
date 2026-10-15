@@ -1,6 +1,6 @@
 //! `nxc`: the NEXUL compiler command line (spec §10.3).
 
-use nxc_driver::{build, codes, compile_file, exe_name, lib_name, optimized_ir, BuildOptions, CompileOptions, Mode, OutputKind, Target};
+use nxc_driver::{build, codes, compile_file, compile_source, exe_name, lib_name, optimized_ir, BuildOptions, CompileOptions, Mode, OutputKind, Target};
 use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
@@ -12,6 +12,7 @@ usage:
     nxc run    <file.nx> [options] [-- program arguments]   compile and run
     nxc build  <file.nx> [options]                          compile an executable or a library
     nxc check  <file.nx> [options]                          check without generating code
+                   [--stdin] reads the file's text from standard input
     nxc test   <file.nx> [name...] [options]                run the @test functions (whose name
                                                             contains one of the names)
     nxc fmt    <file.nx> [--check]                          format a file in place
@@ -23,7 +24,7 @@ usage:
                    symbols, tests, format; `nxc ide std-source <module>`
     nxc explain <code>                                      explain a diagnostic (e.g. E0402)
     nxc targets                                             list the supported targets
-    nxc version
+    nxc version [--json]
 
 options:
     -o <path>            output file
@@ -36,7 +37,9 @@ options:
     --emit llvm-ir       write the LLVM IR produced by NEXUL (after optimization)
     --no-debug           no debug information
     --link-arg <arg>     pass an argument to the linker
-    --json               print the diagnostics as JSON on stdout (for editors)
+    --json               print diagnostics as JSON v0 (for existing editors)
+    --json=1             print diagnostics using the version 1 JSON envelope
+    --stdin              read source text from stdin (for `nxc check`)
     --edition <e>        syntax of the program: 0.2 or 1 (ADR 0010); by default, `// edition: X`
                          on one of the first lines, else `edition` in nexul.toml, else 0.2
 ";
@@ -55,7 +58,8 @@ struct Args {
     kind: OutputKind,
     no_debug: bool,
     link_args: Vec<String>,
-    json: bool,
+    json_version: Option<u8>,
+    stdin: bool,
     /// `--edition`; otherwise the file and its project say (`pkg::edition_for`).
     edition: Option<nxc_syntax::Edition>,
     rest: Vec<String>,
@@ -75,7 +79,8 @@ fn parse_args() -> Args {
         kind: OutputKind::Executable,
         no_debug: false,
         link_args: vec![],
-        json: false,
+        json_version: None,
+        stdin: false,
         edition: None,
         rest: vec![],
     };
@@ -87,7 +92,10 @@ fn parse_args() -> Args {
             }
             "-o" => a.output = it.next().map(PathBuf::from),
             "--release" => a.release = true,
-            "--json" => a.json = true,
+            "--json" => a.json_version = Some(0),
+            "--json=1" => a.json_version = Some(1),
+            s if s.starts_with("--json=") => fail(&format!("unsupported JSON version `{}`", &s[7..])),
+            "--stdin" => a.stdin = true,
             "--edition" => {
                 let e = it.next().unwrap_or_default();
                 a.edition = Some(nxc_syntax::Edition::parse(&e).unwrap_or_else(|| fail(&format!("unknown edition `{}` (expected `0.2` or `1`)", e))));
@@ -149,7 +157,13 @@ fn real_main() {
     }
     let args = parse_args();
     match args.cmd.as_str() {
-        "version" | "--version" | "-V" => println!("nxc {} (NEXUL {})", env!("CARGO_PKG_VERSION"), &env!("CARGO_PKG_VERSION")[..3]),
+        "version" | "--version" | "-V" => {
+            if args.json_version.is_some() {
+                println!("{{\"nxc\":{},\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true}}", nxc_driver::json_str(env!("CARGO_PKG_VERSION")));
+            } else {
+                println!("nxc {} (NEXUL {})", env!("CARGO_PKG_VERSION"), &env!("CARGO_PKG_VERSION")[..3]);
+            }
+        }
         "help" | "--help" | "-h" => print!("{}", USAGE),
         "targets" => {
             let host = Target::host();
@@ -172,7 +186,7 @@ fn real_main() {
 
 fn compile_command(args: &Args) {
     // Without a file, the main file of the project (nexul.toml) of the current folder.
-    let file = match args.file.clone() {
+    let mut file = match args.file.clone() {
         Some(f) => f,
         None => {
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
@@ -186,6 +200,42 @@ fn compile_command(args: &Args) {
         Some(t) => Target::from_name(t).unwrap_or_else(|e| fail(&e)),
         None => Target::host(),
     };
+    if args.stdin && args.cmd != "check" {
+        fail("`--stdin` is supported only by `nxc check`");
+    }
+    if args.stdin && args.file.is_none() {
+        fail("`nxc check --stdin` requires a file path so imports can be resolved");
+    }
+    let stdin_text = if args.stdin {
+        let mut bytes = Vec::new();
+        if let Err(e) = std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes) {
+            fail(&format!("cannot read source from stdin: {}", e));
+        }
+        Some(bytes)
+    } else {
+        None
+    };
+    let requested_file = file.clone();
+    let mut overlays = Vec::new();
+    let mut stdin_is_utf8 = true;
+    if let Some(bytes) = &stdin_text {
+        match String::from_utf8(bytes.clone()) {
+            Ok(text) => overlays.push((requested_file.clone(), text)),
+            Err(_) => stdin_is_utf8 = false,
+        }
+    }
+    if args.cmd == "check" && stdin_is_utf8 {
+        if let Some(text) = overlays.first().map(|(_, text)| text.clone()).or_else(|| std::fs::read_to_string(&file).ok()) {
+            if let Some(analysis) = nxc_driver::ide::analyze_document_with_cfg(
+                &file,
+                Some(text),
+                overlays.clone(),
+                nxc_driver::Cfg { target: target.clone(), release: args.release, test: args.cmd == "test" },
+            ) {
+                file = analysis.program_path;
+            }
+        }
+    }
     if target.os == nxc_driver::Os::Web && matches!(args.cmd.as_str(), "run" | "test") {
         fail("wasm32-web runs in a JavaScript host; use `nxc build` and lib/web/nexul.mjs (see docs/refonte/interop-web.md)");
     }
@@ -196,17 +246,27 @@ fn compile_command(args: &Args) {
         _ => Mode::Program,
     };
     let mut copts = CompileOptions::new(mode);
-    copts.color = color() && !args.json;
+    copts.color = color() && args.json_version.is_none();
     copts.target = target.clone();
     copts.release = args.release;
     copts.edition = args.edition.unwrap_or_else(|| nxc_driver::pkg::edition_for(&file, &std::fs::read_to_string(&file).unwrap_or_default()));
     copts.debug_info = !args.no_debug && !args.release;
     // The dependencies of the project (nexul.toml), if the file belongs to one.
     copts.deps = nxc_driver::pkg::deps_for(&file).unwrap_or_else(|e| fail(&e));
-    let c = compile_file(&file, &copts);
-    if args.json {
+    copts.overlays = overlays;
+    let c = if stdin_text.is_some() && same_path(&file, &requested_file) {
+        let name = file.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
+        let dir = file.parent().map(Path::to_path_buf);
+        compile_source(&name, stdin_text.unwrap(), dir, &copts)
+    } else {
+        compile_file(&file, &copts)
+    };
+    if let Some(json_version) = args.json_version {
         // Machine-readable diagnostics on stdout (for editors); no code generation.
-        println!("{}", c.json);
+        let json = if json_version == 1 { c.json_v1 } else { c.json };
+        let mut stdout = std::io::stdout().lock();
+        let _ = std::io::Write::write_all(&mut stdout, format!("{}\n", json).as_bytes());
+        let _ = std::io::Write::flush(&mut stdout);
         exit(if c.errors > 0 { 1 } else { 0 });
     }
     eprint!("{}", c.diagnostics);
@@ -269,11 +329,21 @@ fn compile_command(args: &Args) {
     }
 }
 
+fn same_path(a: &Path, b: &Path) -> bool {
+    let a = std::fs::canonicalize(a).unwrap_or_else(|_| a.to_path_buf());
+    let b = std::fs::canonicalize(b).unwrap_or_else(|_| b.to_path_buf());
+    #[cfg(windows)]
+    { a.to_string_lossy().eq_ignore_ascii_case(&b.to_string_lossy()) }
+    #[cfg(not(windows))]
+    { a == b }
+}
+
 /// `nxc ide <request> <file> [line col] [--stdin] [extra]`: answers on stdout in JSON.
 fn ide_command(argv: &[String]) {
     use nxc_driver::ide;
     let stdin = argv.iter().any(|a| a == "--stdin");
     // `--edition X`: the syntax of the file (otherwise `// edition: X` or nexul.toml).
+    let json_v1 = argv.iter().any(|a| a == "--json=1");
     let mut argv: Vec<String> = argv.to_vec();
     if let Some(i) = argv.iter().position(|a| a == "--edition") {
         let e = argv.get(i + 1).cloned().unwrap_or_default();
@@ -287,6 +357,7 @@ fn ide_command(argv: &[String]) {
         let module = pos.get(1).map(|s| s.as_str()).unwrap_or("");
         let cfg = nxc_driver::Cfg::default();
         match nxc_sema::load::std_source(module, &cfg) {
+            Some(text) if json_v1 => print_ide_result(text, true, true),
             Some(text) => print!("{}", text),
             None => fail(&format!("unknown standard module `{}`", module)),
         }
@@ -304,17 +375,17 @@ fn ide_command(argv: &[String]) {
     match req {
         "format" => {
             let t = text.or_else(|| std::fs::read_to_string(&file).ok()).unwrap_or_default();
-            print!("{}", ide::format_source(&t));
+            print_ide_result(&ide::format_source(&t), json_v1, true);
             return;
         }
         "completion" => {
             let t = text.or_else(|| std::fs::read_to_string(&file).ok()).unwrap_or_default();
-            println!("{}", ide::completion(&file, &t, num(2), num(3)));
+            print_ide_result(&ide::completion(&file, &t, num(2), num(3)), json_v1, false);
             return;
         }
         _ => {}
     }
-    let Some(a) = ide::analyze(&file, text) else { fail(&format!("cannot read `{}`", file.display())) };
+    let Some(a) = ide::analyze_document(&file, text, Vec::new()) else { fail(&format!("cannot read `{}`", file.display())) };
     let out = match req {
         "hover" => ide::hover(&a, num(2), num(3)),
         "definition" => ide::definition(&a, num(2), num(3)),
@@ -330,7 +401,18 @@ fn ide_command(argv: &[String]) {
         "tests" => ide::tests(&a),
         other => fail(&format!("unknown ide request `{}`", other)),
     };
-    println!("{}", out);
+    print_ide_result(&out, json_v1, false);
+}
+
+fn print_ide_result(result: &str, json_v1: bool, raw_text: bool) {
+    if json_v1 {
+        let result = if raw_text { nxc_driver::json_str(result) } else { result.to_string() };
+        println!("{{\"schema\":\"nexul.ide\",\"version\":1,\"compiler\":{},\"result\":{}}}", nxc_driver::json_str(env!("CARGO_PKG_VERSION")), result);
+    } else if raw_text {
+        print!("{}", result);
+    } else {
+        println!("{}", result);
+    }
 }
 
 /// `nxc migrate <file>... [--write]`: rewrites NEXUL 0.2 in the syntax of edition 1. Without

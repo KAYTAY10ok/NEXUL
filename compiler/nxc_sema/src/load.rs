@@ -68,6 +68,8 @@ pub struct ProgramSource {
     /// Packages the program depends on (`nxpm`): `import name.module` is resolved under
     /// the package's source directory.
     pub deps: Vec<(String, PathBuf)>,
+    /// Unsaved user files, keyed by their filesystem path. Standard-library sources are embedded and cannot be overridden.
+    pub overlays: Vec<(PathBuf, String)>,
     /// Target and build mode, for `@cfg`.
     pub cfg: Cfg,
     /// The syntax of the program's own files (ADR 0010); the standard library stays in 0.2.
@@ -76,11 +78,35 @@ pub struct ProgramSource {
 
 impl ProgramSource {
     pub fn new(root_name: impl Into<String>, root_text: impl Into<String>, root_dir: Option<PathBuf>) -> ProgramSource {
-        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), cfg: Cfg::default(), edition: nxc_syntax::Edition::V0_2 }
+        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), overlays: Vec::new(), cfg: Cfg::default(), edition: nxc_syntax::Edition::V0_2 }
     }
 }
 
-fn read_module_file(dir: &PathBuf, path: &[String]) -> Option<(PathBuf, String)> {
+fn normalized_path(path: &std::path::Path) -> PathBuf {
+    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
+    if let Ok(path) = std::fs::canonicalize(&absolute) {
+        return path;
+    }
+    let mut normalized = PathBuf::new();
+    for component in absolute.components() {
+        use std::path::Component;
+        match component {
+            Component::CurDir => {}
+            Component::ParentDir => { normalized.pop(); }
+            other => normalized.push(other.as_os_str()),
+        }
+    }
+    normalized
+}
+
+fn paths_match(a: &std::path::Path, b: &std::path::Path) -> bool {
+    #[cfg(windows)]
+    { normalized_path(a).to_string_lossy().eq_ignore_ascii_case(&normalized_path(b).to_string_lossy()) }
+    #[cfg(not(windows))]
+    { normalized_path(a) == normalized_path(b) }
+}
+
+fn read_module_file(dir: &PathBuf, path: &[String], overlays: &[(PathBuf, String)]) -> Option<(PathBuf, String)> {
     let mut p = dir.clone();
     for (i, seg) in path.iter().enumerate() {
         if i + 1 == path.len() {
@@ -89,8 +115,11 @@ fn read_module_file(dir: &PathBuf, path: &[String]) -> Option<(PathBuf, String)>
             p.push(seg);
         }
     }
-    let bytes = std::fs::read(&p).ok()?;
-    let text = String::from_utf8(bytes).ok()?;
+    let overlay = overlays.iter().find(|(candidate, _)| paths_match(candidate, &p)).map(|(_, text)| text.clone());
+    let text = match overlay {
+        Some(text) => text,
+        None => String::from_utf8(std::fs::read(&p).ok()?).ok()?,
+    };
     let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
     Some((p, text))
 }
@@ -100,11 +129,11 @@ fn read_user_module(src: &ProgramSource, path: &[String]) -> Option<(String, Str
     // (`import pkg` alone reads `<pkg dir>/lib.nx`).
     if let Some((_, dir)) = src.deps.iter().find(|(name, _)| Some(name) == path.first()) {
         let rest: Vec<String> = if path.len() == 1 { vec!["lib".to_string()] } else { path[1..].to_vec() };
-        let (p, t) = read_module_file(dir, &rest)?;
+        let (p, t) = read_module_file(dir, &rest, &src.overlays)?;
         return Some((p.to_string_lossy().replace('\\', "/"), t));
     }
     let dir = src.root_dir.as_ref()?;
-    let (_, text) = read_module_file(dir, path)?;
+    let (_, text) = read_module_file(dir, path, &src.overlays)?;
     Some((format!("{}.nx", path.join("/")), text))
 }
 
