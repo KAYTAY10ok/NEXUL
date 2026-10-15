@@ -22,25 +22,28 @@ Plan des lots : [master-plan.md](master-plan.md).
 | 15/10 | Palette de commandes (Ctrl+Maj+P, F1) et ouverture rapide (Ctrl+P), recherche floue | `04fc2e7` |
 | 15/10 | **P1 — aucune perte de données** : Enregistrer / Ne pas enregistrer / Annuler à la fermeture d'un onglet et de la fenêtre, conflit avec un fichier changé sur disque (Écraser / Recharger), enregistrement atomique (`ReplaceFileW`), récupération après plantage, enregistrement automatique en réglage | `43ebbe5` |
 | 15/10 | Gouvernance V3 : [AGENTS.md](AGENTS.md), [master-plan.md](master-plan.md), [passation-v3.md](passation-v3.md), transferts consignés | PR #13 |
-| 15/10 | Ordres de mission de chaque agent et liste complète des améliorations (refonte et création) : [master-plan.md](master-plan.md) §2 et §3 ; mandat écrit A1 pour Codex Astral | ce lot |
+| 15/10 | Ordres de mission de chaque agent et liste complète des améliorations (refonte et création) : [master-plan.md](master-plan.md) §2 et §3 ; mandat écrit A1 pour Codex Astral | `28f69ee` |
+| 15/10 | M2 binaire sans runtime VC++ (issue #9) ; M3 coloration `studio/syntax` ; question avant de changer de dossier avec des fichiers non enregistrés | `eb490ce` |
+| 15/10 | M4 assistant Nouveau projet (modèles de Luna, outils détectés, `nxc targets`) | `0066da3` |
+| 15/10 | M10 recherche et remplacement dans les fichiers (Ctrl+Maj+F) | `030d617` |
 
 ## Travaux en cours
 
-Tâches M1 à M16 : [master-plan.md](master-plan.md) §2.1. Dans l'ordre : M1 (intégrer P1),
-M2 (binaire sans runtime VC++, issue #9), M3 (`studio/syntax`), M4 (assistant Nouveau
-projet), puis M8, M9, M10 ; M6 et M7 attendent L1 et L2 de Luna.
+Tâches M1 à M16 : [master-plan.md](master-plan.md) §2.1. Faits : M2, M3, M4, M10. Suivants :
+M1 (fusion), M8 (exécuter, construire, tester), M9 (paramètres, raccourcis), M5 (LSP des autres
+langages) ; M6 et M7 attendent L1 et L2 de Luna.
 
 ## Demandes reçues
 
 - Issue [#9](https://github.com/KAYTAY10ok/NEXUL/issues/9) (Claude Outils) : `NEXUL-Studio-Native.exe`
-  ne doit pas dépendre de `vcruntime140.dll` → tâche M2.
+  ne doit pas dépendre de `vcruntime140.dll` → réglé par M2 (`eb490ce`), à fermer après fusion.
 
 ## Tests exécutés
 
 - `cargo test -p nexul-studio` : 8 tests réussis.
 - `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1` :
-  25 tests réussis (fenêtre sans affichage, vraies frappes, vrai `nxc`).
-- `cargo test -p nexul-studio` : 9 tests réussis (dont l'enregistrement atomique).
+  29 tests réussis (fenêtre sans affichage, vraies frappes, vrai `nxc`), `030d617`.
+- `cargo test -p nexul-studio` : 12 tests réussis (dont l'enregistrement atomique et la recherche).
 - Crates de Luna : voir [master-plan.md](master-plan.md) §3.
 
 ## Problèmes rencontrés

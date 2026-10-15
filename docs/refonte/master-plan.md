@@ -48,15 +48,15 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | Tâche | Prio | Travail | Critère de fin | Statut |
 |---|---|---|---|---|
 | M1 | 1 | Intégrer P1 (PR `refonte/claude-studio`) | PR fusionnée ; 25 tests verts | TESTÉ_UNITAIREMENT |
-| M2 | 1 | Binaire natif sans dépendance au runtime VC++ (issue #9 d'Outils) | `dumpbin /dependents` sans `vcruntime140.dll` ; Studio démarre sur un Windows neuf | À FAIRE |
-| M3 | 1 | P3 — `studio/syntax` remplace la coloration provisoire (`highlight.rs`) | couleurs identiques ou meilleures, diagnostics toujours visibles, tests | À FAIRE |
-| M4 | 1 | P3 — assistant Nouveau projet (`studio/templates`) + `ToolchainProvider` (catalogue `studio/lsp`, `nxc targets`) | créer, ouvrir, construire un projet NEXUL et NEXUL + Web depuis Studio | À FAIRE |
+| M2 | 1 | Binaire natif sans dépendance au runtime VC++ (issue #9 d'Outils) | `dumpbin /dependents` sans `vcruntime140.dll` ; Studio démarre sur un Windows neuf | INTÉGRÉ (`eb490ce`) : CRT statique (`studio/app/.cargo/config.toml`), `dumpbin` sans `vcruntime140.dll` ni `api-ms-win-crt-*`, démarrage vérifié ; Windows neuf non testé |
+| M3 | 1 | P3 — `studio/syntax` remplace la coloration provisoire (`highlight.rs`) | couleurs identiques ou meilleures, diagnostics toujours visibles, tests | INTÉGRÉ (`eb490ce`) : coloration incrémentale, test d'éditions successives |
+| M4 | 1 | P3 — assistant Nouveau projet (`studio/templates`) + `ToolchainProvider` (catalogue `studio/lsp`, `nxc targets`) | créer, ouvrir, construire un projet NEXUL et NEXUL + Web depuis Studio | INTÉGRÉ (`0066da3`) : création et ouverture testées ; construction depuis Studio avec M8 |
 | M5 | 2 | P3 — `studio/lsp` pour les autres langages (serveurs détectés) ; NEXUL par `nxc ide` jusqu'à `nxc lsp` | diagnostics/survol/complétion d'un serveur réel (ex. rust-analyzer) ; absence expliquée | À FAIRE |
 | M6 | 3 | P3 — vue terminal (PTY, clavier, défilement, copie, plusieurs terminaux) | dépend de L1 ; test avec un vrai shell | À FAIRE |
 | M7 | 3 | P3 — interface de débogage (points d'arrêt, pas à pas, variables, pile) | dépend de L2 ; session réelle `lldb-dap` sur un programme NEXUL | À FAIRE |
 | M8 | 2 | Exécuter / construire / tester depuis Studio (`nxc run/build/test`, profils, explorateur de tests `nxc ide tests`) | sorties et erreurs cliquables, arrêt, tests | À FAIRE |
 | M9 | 2 | Paramètres (fenêtre) et raccourcis personnalisables ; enregistrement automatique réglable | réglages persistés, tests | À FAIRE |
-| M10 | 2 | Recherche et remplacement dans les fichiers | résultats cliquables, gros dossiers, tests | À FAIRE |
+| M10 | 2 | Recherche et remplacement dans les fichiers | résultats cliquables, gros dossiers, tests | INTÉGRÉ (`030d617`) : Ctrl+Maj+F, texte non enregistré, casse, mot entier, Tout remplacer ; gros dossiers non mesurés |
 | M11 | 3 | P11 — aperçu Web isolé (`wasm32-web`, [interop-web.md](interop-web.md)) | modèle NEXUL + Web construit et affiché dans son panneau | À FAIRE |
 | M12 | 3 | Retrait de l'ancienne interface Edge après parité, migration des préférences | liste de parité cochée et testée | À FAIRE |
 | M13 | 2 | CI GitHub (`.github/**`) : compilateur (GNU), `studio/app` (MSVC), crates séparées | décision 8 ; tous les espaces de travail testés | CONÇU |
@@ -88,7 +88,7 @@ les ADR de P5 ; elles sont détaillées au §3.
 |---|---|---|---|---|
 | L1 | 1 | `studio/terminal` sous Windows : les essais ConPTY `pty_resize_and_stop_are_reported` et `pty_runs_interactive_program_and_exits` ne se terminent jamais sur le PC de Main (MSVC) ; la chaîne GNU échoue (`dlltool`) | `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml` vert en moins d'une minute ; chaîne requise écrite dans le README ou dépendance GNU corrigée | BLOQUÉ (à corriger) |
 | L2 | 1 | `studio/dap` : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step` échoue avec `Timeout("launch")` contre `lldb-dap` de LLVM 23 | test réel vert sur Windows avec `nxc` et `lldb-dap` | BLOQUÉ (à corriger) |
-| L3 | 1 | P4 — installateur (transfert effectif) : empaqueter `NEXUL-Studio-Native.exe` (construit par Main, MSVC) comme Studio par défaut, raccourcis, association `.nx`, désinstallation, migration depuis l'ancien Studio ; étapes 2 et 3 de l'interface native (études d'Outils) | installation et désinstallation réelles testées sur Windows ; plus de Studio Edge installé par défaut | À FAIRE |
+| L3 | 1 | P4 — installateur (transfert effectif) : empaqueter `NEXUL-Studio-Native.exe` (construit avec MSVC **depuis `studio/app`** : CRT statique, issue #9 réglée) comme Studio par défaut, raccourcis, association `.nx`, désinstallation, migration depuis l'ancien Studio ; étapes 2 et 3 de l'interface native (études d'Outils) | installation et désinstallation réelles testées sur Windows ; plus de Studio Edge installé par défaut | À FAIRE |
 | L4 | 1 | P10 — ossature de l'extension VS Code `editors/vscode/**` : `package.json`, langage `.nx` et `nexul.toml`, réglage du chemin de `nxc`, commandes check/build/run/test/fmt/explain par la CLI, diagnostics de `check --json`, tâches, Workspace Trust, tests hôte, script VSIX ; coloration 0.2 marquée provisoire | VSIX installé dans un VS Code propre, diagnostics et commandes réels ; aucune grammaire finale avant l'ADR | À FAIRE |
 | L5 | 2 | `studio/templates` : documenter `ToolchainProvider` pour M4 | API décrite dans le README | suite Rust verte chez Main (§5) |
 | L6 | 3 | Maintenance `studio/syntax` et `studio/lsp` ; adaptation à la nouvelle grammaire après l'ADR ; client `nxc lsp` quand il existe | tests de conformité sur le corpus de l'ADR | À FAIRE |
@@ -270,20 +270,20 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 | ST1 | Explorateur : créer, renommer, Corbeille, couper/copier/coller, glisser-déposer, import | TESTÉ_UNITAIREMENT |
 | ST2 | Services NEXUL : diagnostics, survol, complétion, définition, renommage, formatage | TESTÉ_UNITAIREMENT |
 | ST3 | Palette de commandes et ouverture rapide | TESTÉ_UNITAIREMENT |
-| ST4 | Aucune perte : dialogue de fermeture, conflits disque, enregistrement atomique, récupération | TESTÉ_UNITAIREMENT (P1) |
+| ST4 | Aucune perte : dialogue de fermeture (onglet, fenêtre, **changement de dossier**), conflits disque, enregistrement atomique, récupération | TESTÉ_UNITAIREMENT (P1 ; changement de dossier `eb490ce`) |
 | ST5 | Cas réels : disque plein, permissions, chemins longs, UNC, liens symboliques, encodages | À FAIRE (Q3 + M) |
-| ST6 | Coloration `studio/syntax` | À FAIRE (M3) |
+| ST6 | Coloration `studio/syntax` | INTÉGRÉ (M3) |
 | ST7 | LSP multi-langage avec serveurs détectés | À FAIRE (M5) |
 | ST8 | Terminal intégré interactif | À FAIRE (L1 → M6) |
 | ST9 | Débogueur (DAP) | À FAIRE (L2 → M7) |
-| ST10 | Assistant Nouveau projet et SDK | À FAIRE (M4) |
+| ST10 | Assistant Nouveau projet et SDK | INTÉGRÉ (M4) |
 | ST11 | Exécution, construction, tests, explorateur de tests | À FAIRE (M8) |
 | ST12 | Paramètres, raccourcis personnalisables, enregistrement automatique | À FAIRE (M9) |
-| ST13 | Recherche et remplacement globaux | À FAIRE (M10) |
+| ST13 | Recherche et remplacement globaux | INTÉGRÉ (M10) |
 | ST14 | Plan du document, symboles du projet, références (`nxc ide symbols/references`) | À FAIRE |
 | ST15 | Panneaux déplaçables, dispositions, éditeurs côte à côte | À FAIRE |
 | ST16 | Performances sur gros fichiers, Unicode, accessibilité | À FAIRE |
-| ST17 | Binaire autonome (CRT statique), icône, informations de version | À FAIRE (M2) |
+| ST17 | Binaire autonome (CRT statique), icône, informations de version | CRT statique INTÉGRÉ (M2) ; icône et version À FAIRE |
 | ST18 | Réglages Linux (`$XDG_CONFIG_HOME`) et macOS ; notification de mise à jour | À FAIRE (après L7) |
 | ST19 | Retrait de l'ancienne interface Edge après parité | À FAIRE (M12) |
 | ST20 | Avancé : centre NEXUL (benchmarks, IR/assembleur, précision, simulation RT, concurrence), Git, extensions, documentation intégrée, observation des threads et échéances | À FAIRE (après stabilité) |
@@ -360,7 +360,8 @@ PC de Main.
 
 | Crate | Révision | Résultat |
 |---|---|---|
-| `studio/app` | `1387325` (MSVC) | 25 tests réussis |
+| `studio/app` | `030d617` (MSVC) | 29 tests réussis |
+| `studio/src` (`nexul-studio`) | `030d617` | 12 tests réussis |
 | `studio/syntax` | `548b1f6` | 26 tests réussis |
 | `studio/lsp` | `548b1f6` | 32 tests réussis |
 | `studio/terminal` | `548b1f6` | **ne se construit pas avec la chaîne GNU** (`dlltool` introuvable) ; avec MSVC : 3 tests réussis, **2 bloqués** (`pty_resize_and_stop_are_reported`, `pty_runs_interactive_program_and_exits`, arrêtés après 60 s) |
@@ -387,4 +388,4 @@ PC de Main.
 | `refonte/main-p0-gouvernance` | gouvernance V3 | fusionnée (PR #13) |
 | `refonte/claude-tools-installer`, `refonte/claude-tools-etudes` | installateur sur API Windows, études | fusionnées (PR #11) → transfert de `installer/**` à Luna effectif |
 | `refonte/codex-exec-wasm-template` | modèle NEXUL + Web | fusionnée (PR #12) |
-| `refonte/claude-studio` | palette, ouverture rapide, P1, ce plan | **PR à ouvrir et fusionner** (main déjà fusionné dedans, 25 tests verts) |
+| `refonte/claude-studio` | palette, ouverture rapide, P1, ce plan, M2, M3, M4, M10 | **PR à ouvrir et fusionner** (`main` déjà fusionné dedans, 29 + 12 tests verts) |
