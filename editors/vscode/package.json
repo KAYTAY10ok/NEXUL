@@ -1,0 +1,138 @@
+{
+  "name": "nexul-language",
+  "displayName": "NEXUL Language Support",
+  "description": "Coloration, outils nxc et fonctionnalités d’éditeur pour les fichiers NEXUL.",
+  "version": "0.1.0",
+  "publisher": "KAYTAY10ok",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KAYTAY10ok/NEXUL.git",
+    "directory": "editors/vscode"
+  },
+  "engines": {
+    "vscode": "^1.90.0"
+  },
+  "categories": [
+    "Programming Languages"
+  ],
+  "keywords": [
+    "NEXUL",
+    "nxc",
+    "language"
+  ],
+  "main": "./src/extension.js",
+  "activationEvents": [
+    "onLanguage:nexul",
+    "workspaceContains:nexul.toml"
+  ],
+  "contributes": {
+    "languages": [
+      {
+        "id": "nexul",
+        "aliases": [
+          "NEXUL",
+          "nexul"
+        ],
+        "extensions": [
+          ".nx"
+        ],
+        "configuration": "./language-configuration.json"
+      }
+    ],
+    "grammars": [
+      {
+        "language": "nexul",
+        "scopeName": "source.nexul",
+        "path": "./syntaxes/nexul.tmLanguage.json"
+      }
+    ],
+    "snippets": [
+      {
+        "language": "nexul",
+        "path": "./snippets/nexul.json"
+      }
+    ],
+    "commands": [
+      {
+        "command": "nexul.checkCurrentFile",
+        "title": "NEXUL: Vérifier le fichier courant"
+      },
+      {
+        "command": "nexul.buildCurrentFile",
+        "title": "NEXUL: Construire le fichier courant"
+      },
+      {
+        "command": "nexul.runCurrentFile",
+        "title": "NEXUL: Exécuter le fichier courant"
+      },
+      {
+        "command": "nexul.testCurrentFile",
+        "title": "NEXUL: Lancer les tests du fichier courant"
+      },
+      {
+        "command": "nexul.formatDocument",
+        "title": "NEXUL: Formater le document"
+      },
+      {
+        "command": "nexul.runTest",
+        "title": "NEXUL: Exécuter ce test"
+      }
+    ],
+    "taskDefinitions": [
+      {
+        "type": "nexul",
+        "required": [
+          "command"
+        ],
+        "properties": {
+          "command": {
+            "type": "string",
+            "enum": [
+              "build",
+              "run",
+              "test",
+              "check"
+            ],
+            "description": "Sous-commande nxc à exécuter."
+          },
+          "file": {
+            "type": "string",
+            "description": "Fichier .nx facultatif ; omis pour utiliser le projet nexul.toml."
+          },
+          "cwd": {
+            "type": "string",
+            "description": "Répertoire de travail de la commande."
+          }
+        }
+      }
+    ],
+    "configuration": {
+      "title": "NEXUL",
+      "properties": {
+        "nexul.nxcPath": {
+          "type": "string",
+          "default": "nxc",
+          "description": "Chemin vers l’exécutable nxc. Laissez « nxc » si le compilateur est dans PATH."
+        },
+        "nexul.checkOnSave": {
+          "type": "boolean",
+          "default": true,
+          "description": "Met à jour les diagnostics NEXUL après l’enregistrement du fichier."
+        },
+        "nexul.formatOnSave": {
+          "type": "boolean",
+          "default": false,
+          "description": "Formate le fichier NEXUL avant son enregistrement. Désactivé par défaut."
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "node --test",
+    "package": "vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
+  },
+  "devDependencies": {
+    "@vscode/vsce": "^4.0.0"
+  }
+}

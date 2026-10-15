@@ -1,0 +1,68 @@
+{
+  "Main function": {
+    "prefix": "main",
+    "body": [
+      "fn main() {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Point d’entrée d’un programme NEXUL"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:name}(${2})${3: -> ${4:i32}} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Déclare une fonction"
+  },
+  "Public function": {
+    "prefix": "pubfn",
+    "body": [
+      "pub fn ${1:name}(${2})${3: -> ${4:i32}} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Déclare une fonction publique"
+  },
+  "Struct": {
+    "prefix": "struct",
+    "body": [
+      "struct ${1:Nom} {",
+      "    ${2:champ}: ${3:i32}",
+      "}",
+      "${0}"
+    ],
+    "description": "Déclare une structure"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "@test",
+      "fn ${1:comportement_attendu}() {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Déclare un test NEXUL"
+  },
+  "Match": {
+    "prefix": "match",
+    "body": [
+      "match ${1:valeur} {",
+      "    ${2:Option.Valeur} => ${3:expression},",
+      "    _ => ${0}",
+      "}"
+    ],
+    "description": "Expression match"
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:element} in ${2:collection} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Boucle for"
+  }
+}

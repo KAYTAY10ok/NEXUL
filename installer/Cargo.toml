@@ -28,6 +28,11 @@ doc = false
 name = "silent"
 required-features = ["test-sandbox"]
 
+# The native window, driven by its self-test (`--ui-selftest`), in a sandbox.
+[[test]]
+name = "ui"
+required-features = ["test-sandbox"]
+
 [features]
 # Tests only: `NEXUL_SETUP_SANDBOX` (a folder) redirects the registry and the known
 # folders, so that the tests never touch the settings of the user. Not in the installer

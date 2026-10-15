@@ -280,7 +280,7 @@ function renderExisting() {
   const others = OLD.length - versions;
   if (!OLD.length) { el.innerHTML = ''; return; }
   const what = [versions ? `${versions} version${versions > 1 ? 's' : ''} précédente${versions > 1 ? 's' : ''}` : '', others ? `${others} élément${others > 1 ? 's' : ''} résiduel${others > 1 ? 's' : ''}` : ''].filter(Boolean).join(' et ');
-  el.innerHTML = `<div class="note">${what} de NEXUL trouvé${OLD.length > 1 ? 's' : ''} sur cet ordinateur : à l'étape suivante, vous choisirez de ${versions ? 'supprimer ou de sauvegarder chaque version' : 'les retirer ou de les conserver'}.</div>`;
+  el.innerHTML = `<div class="note">${what} de NEXUL trouvé${others ? '' : 'e'}${OLD.length > 1 ? 's' : ''} sur cet ordinateur : à l'étape suivante, vous choisirez de ${versions ? 'supprimer ou de sauvegarder chaque version' : 'les retirer ou de les conserver'}.</div>`;
 }
 
 function renderOld() {
@@ -387,10 +387,11 @@ async function poll(un) {
   }
   $('#d-sub').textContent = `Version ${INFO.version} — ${$('#dir').value}`;
   const studio = chosen.has('studio');
+  const samples = chosen.has('samples');
   $('#d-body').innerHTML = `
     <div class="tips">
-      ${studio ? 'Lancez <b>NEXUL Studio</b> depuis le Bureau ou le menu Démarrer : les exemples s\'ouvrent pour commencer.<br>' : ''}
-      Dans un nouveau terminal : <code>nxc run bonjour.nx</code> · <code>nxc test calcul.nx</code> · <code>nxpm new mon_projet</code><br>
+      ${studio ? `Lancez <b>NEXUL Studio</b> depuis le Bureau ou le menu Démarrer${samples ? ' : les exemples s\'ouvrent pour commencer' : ''}.<br>` : ''}
+      Dans un nouveau terminal : ${samples ? '<code>nxc run bonjour.nx</code> · <code>nxc test calcul.nx</code> · ' : ''}<code>nxpm new mon_projet</code><br>
       Le guide du langage est dans <code>docs\\guide.md</code> ; <code>nxc explain E0302</code> explique une erreur.
     </div>
     <div style="display:flex;gap:10px;margin-top:18px">
