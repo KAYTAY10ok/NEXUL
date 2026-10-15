@@ -10,6 +10,21 @@ Ce fichier est tenu par **Claude Main**. Pour le modifier : proposition dans vot
 d'état ou issue GitHub ; Claude Main l'intègre, l'utilisateur tranche les changements de
 cap.
 
+> **Équipe réduite — 15/10/2026 (décision de l'utilisateur).** Seuls **Claude Main** et
+> **Codex Sol 6.1** travaillent sur NEXUL. Cet encadré prime sur les tableaux des §2 et §3 :
+>
+> - **Codex Sol 6.1** possède `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`,
+>   `studio/lsp/**`, `studio/syntax/**`, `editors/vscode/**`, `installer/**`,
+>   `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`,
+>   `docs/installation.md`, `benchmarks/**`, `docs/refonte/codex-sol-status.md` ; dans
+>   `compiler/**`, seulement les parties que Main lui confie par écrit (`nxc lsp`, CLI), avec
+>   revue de Main. Branches `refonte/sol-…`, PR `[sol]`.
+> - **Claude Main** possède tout le reste, dont la conception du langage (syntaxe, ADR,
+>   spécification), le cœur sémantique du compilateur et de la sûreté, le runtime, Studio et
+>   les fichiers transversaux. Il relit et intègre chaque PR ; l'utilisateur valide les
+>   ruptures de compatibilité et les choix du §6 du plan.
+> - Les fichiers d'état d'Outils, Luna, Luna 2 et Gemma restent en archive.
+> - Tâches : [taches.md](taches.md).
 ## 1. Le projet
 
 **NEXUL** est un langage compilé, sûr et autonome :

@@ -1,70 +1,50 @@
-# NEXUL — tâches des agents (15/10/2026)
+# NEXUL — tâches des agents (équipe réduite, 15/10/2026)
 
-Version courte de [master-plan.md](master-plan.md) §2. Tenue par Claude Main.
+Depuis le 15/10, l'équipe est **Claude Main + Codex Sol 6.1**. Les autres agents (Outils,
+Luna, Luna 2, Gemma) ne travaillent plus sur NEXUL ; leurs tâches sont reprises ci-dessous.
+Les identifiants (L1, O3…) renvoient au détail de [master-plan.md](master-plan.md) §2.
 
 **Pour tous** : `git pull` sur `main`, lire [AGENTS.md](AGENTS.md). Une branche et une PR par
-tâche, tests réellement exécutés et écrits dans la PR, aucun résultat inventé. Mettre à jour
-son fichier d'état. Une question ou un blocage : à Claude Main.
+tâche, tests réellement exécutés et écrits dans la PR, aucun résultat inventé. Une question
+ou un blocage : à Claude Main, qui relit et intègre chaque PR.
 
 ---
 
-## Codex Luna 2 (ancien Astral) — terminal, débogueur, mesures
+## Codex Sol 6.1 — composants, outils, distribution
 
 ```
-Tu es Codex Luna 2 (ex-Astral) sur NEXUL, dans C:\NEXUL-core (PC de Main : MSVC, LLVM 23, lldb-dap).
-Tu possèdes studio/terminal, studio/dap, benchmarks. Lis docs/refonte/AGENTS.md et master-plan.md §2.4.
+Tu es Codex Sol 6.1 sur NEXUL, seul agent avec Claude Main (qui relit chacune de tes PR).
+Tu possèdes studio/terminal, studio/dap, studio/templates, studio/lsp, studio/syntax, editors/vscode,
+installer, benchmarks ; dans compiler/, seulement ce que Main te confie par écrit (nxc lsp, CLI).
+Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/taches.md.
 1. L1 studio/terminal : 2 tests ConPTY ne se terminent jamais (MSVC) ; build GNU en échec (dlltool).
    Fini = cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml vert en < 1 min.
-2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap.
+2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap (LLVM 23).
    Fini = lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step vert.
-3. A1 : benchmarks NEXUL/C/Rust/C# (1M/10M/100M, maths, allocations, chaînes), mesures brutes, sans toucher au compilateur.
-En plus si fini : décrire l'API terminal et DAP pour Main (README) ; lancer cargo test --release --workspace
-sur les PR Core (Outils n'a pas LLVM) et noter le résultat.
-Branche refonte/luna2-…, PR [luna2], état docs/refonte/codex-luna2-status.md.
+3. P9 nxc : champ "version" dans check --json et ide ; nxc check --stdin ; puis nxc lsp selon le contrat
+   docs/spec/lsp.md écrit par Main (pas de code lsp avant ce contrat). Tests stdio réels.
+4. L3 installateur : NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
+   comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; essais réels.
+En plus si fini : L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
+compilateur intact) ; README des API terminal et DAP pour Main.
+Branches refonte/sol-…, PR [sol], état docs/refonte/codex-sol-status.md.
 ```
 
-## Codex Luna — extension VS Code, installateur
+## Claude Main — direction, langage, Studio
 
-```
-Tu es Codex Luna sur NEXUL. Tu possèdes editors/vscode, installer, studio/templates, studio/lsp, studio/syntax
-(plus le terminal ni le DAP : Luna 2). Lis docs/refonte/AGENTS.md et master-plan.md §2.3.
-1. L4 extension VS Code : essais réels avec nxc (diagnostics, build, run, test, format), tests dans l'hôte VS Code.
-   Pas de grammaire finale avant l'ADR de syntaxe.
-2. L3 installateur : empaqueter NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
-   comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; installer et désinstaller pour de vrai.
-En plus si fini : README de ToolchainProvider (studio/templates) ; scénario F (VS Code, passation §15.2) joué et noté dans ton état.
-Branche refonte/luna-…, PR [luna], état docs/refonte/codex-luna-status.md.
-```
-
-## Claude Outils / Core — langage et compilateur
-
-```
-Tu es Claude Opus 5.5 Outils/Core sur NEXUL. Tu possèdes compiler, lib, tests du langage, docs/spec, docs/adr.
-L'installateur n'est plus à toi (Luna). Lis docs/refonte/AGENTS.md et master-plan.md §2.2.
-1. O2 (G1) : 3 propositions de syntaxe sur les 12 programmes (passation §3.2), illustratives,
-   dans docs/adr/syntaxe/g1-propositions.md. Fais relire chaque proposition par Claude Main.
-2. O3 (P9) : contrat nxc lsp (capacités, version du JSON, texte non enregistré) approuvé par Main AVANT le code,
-   puis implémentation et tests stdio.
-3. O4 : formateur (accolade fermante laissée en fin de ligne) : décider, tester.
-En plus si fini : O6 étude de la cible temps réel ; O8 inventaire du self-hosting (docs/adr/selfhost-sh0.md) ;
-O7 runtime macOS. Génération de code non testable chez toi (pas de LLVM) : demande la vérification à Luna 2.
-Branche refonte/core-…, PR [core], état docs/refonte/claude-core-status.md.
-```
-
-## Claude Main — direction et Studio
-
-1. **M19** : essai manuel de P1 dans la vraie application (fermeture, conflit, récupération,
-   changement de dossier), avec la liste de Gemma.
-2. **M18** : relire les PR #14 à #17 (fusionnées sans ma revue), demander les corrections.
-3. **M14, M15** : concevoir G1 avec Outils et relire chaque proposition ; approuver le contrat
-   `nxc lsp`.
-4. **M5** : LSP des autres langages dans Studio ; **M9** : paramètres et raccourcis.
-5. **M6, M7** : vue terminal et débogueur dès que Luna 2 livre L1 et L2.
+1. **Langage (repris d'Outils)** : G1, trois propositions de syntaxe sur les 12 programmes,
+   présentées à l'utilisateur ; puis ADR et EBNF (G2) ; contrat `docs/spec/lsp.md` pour
+   Codex Sol (avant sa tâche 3) ; conception typage, objets, concurrence, temps réel.
+2. **M19** : essai manuel de P1 dans la vraie application.
+3. **M18** : relire les PR #14 à #17.
+4. **M5, M9** : LSP des autres langages dans Studio ; paramètres et raccourcis.
+5. **M6, M7** : vue terminal et débogueur dès que Codex Sol livre L1 et L2.
+6. Revue et intégration de chaque PR de Codex Sol.
 
 En plus si nécessaire : reste de M8 (explorateur de tests, erreurs cliquables), M11 (aperçu
-Web), M13 (CI GitHub), M17 (extensions de Studio demandées par Luna).
+Web), M13 (CI GitHub), M17 (extensions de Studio), scénarios E2E (P14, repris de Gemma).
 
 ---
 
-**Pour l'utilisateur** : fusionner la PR `refonte/claude-studio`, puis coller chaque bloc
-dans la session de l'agent. Gemma : consigne au master-plan §2.6 (scénarios E2E, Q7).
+**Pour l'utilisateur** : fusionner la PR `refonte/claude-studio`, puis coller le bloc de
+Codex Sol dans sa session.
