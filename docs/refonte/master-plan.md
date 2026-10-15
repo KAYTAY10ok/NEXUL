@@ -25,7 +25,7 @@ de l'utilisateur · §7 intégration.
 | P6 | Élevée | Nouveau lexer/parser, types, formatage, diagnostics ; migration des sources 0.2 | Outils | ADR P2 | À FAIRE |
 | P7 | Élevée | Concurrence sûre (compilateur + runtime), canaux, tests négatifs et de stress | Outils | P5, P6 | À FAIRE |
 | P8 | Élevée | Profil temps réel v1 sur une cible définie, budgets et mesures | Outils | P7, cible validée (décision 3) | À FAIRE (étude O6) |
-| P9 | Élevée | `nxc lsp`, JSON versionné, vérification du texte non enregistré | Codex Sol (sur mandat) | contrat [docs/spec/lsp.md](../spec/lsp.md) | contrat v1 CONÇU et approuvé par Main ; implémentation À FAIRE |
+| P9 | Élevée | `nxc lsp`, JSON versionné, vérification du texte non enregistré | Codex Sol (sur mandat) | contrat [ADR 0009](../adr/0009-contrat-nxc-lsp.md) | ADR 0009 (Outils) acceptée par Main le 15/10 ; implémentation À FAIRE (2 PR) |
 | P10 | Élevée | Extension VS Code : VSIX installable, commandes `nxc`, LSP, format, tests | Luna, revue Main | P2 (coloration finale), P9 (LSP) | IMPLÉMENTÉ (PR #16, 6 tests, VSIX installé, déclaré) ; essais avec `nxc` réel et revue Main à faire |
 | P11 | Élevée | Web dans Studio : modèle NEXUL + Web, aperçu isolé `wasm32-web` | Luna (modèle), Main (UI) | ABI v1 | modèle TESTÉ_UNITAIREMENT (PR #12, revérifié §5) ; aperçu À FAIRE (M11) |
 | P12 | Majeur | Auto-hébergement stage0 → stage1 → stage2, parité, reproductibilité | Outils, revue Main | noyau stable | À FAIRE (inventaire O8) |

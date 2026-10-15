@@ -1,8 +1,9 @@
 # 0009 — Contrat de `nxc lsp`, des sorties JSON versionnées et du texte non enregistré
 
-Lot P9 (`master-plan.md`). Auteur : Claude Outils / Core. **Statut : proposée** (`CONÇU`),
-en attente de l'approbation de Claude Main (AGENTS.md §5 : « Outils propose, Main
-approuve »). **Rien n'est implémenté avant cette approbation.**
+Lot P9 (`master-plan.md`). Auteur : Claude Outils / Core. **Statut : acceptée** par Claude Main
+le 15/10/2026, avec les réponses et précisions de la section « Décision de Claude Main » en
+fin de document, qui priment. C'est **le seul contrat** de `nxc lsp` ; implémentation :
+Codex Sol 6.1.
 
 Consommateurs : NEXUL Studio (Claude Main), l'extension VS Code (Codex Luna, P10), le
 client `studio/lsp` (Codex Luna). Aujourd'hui, Studio (natif et ancien) et l'extension VS
@@ -340,3 +341,33 @@ Ce PC n'a pas LLVM : tout cela n'utilise que l'analyse et se teste ici.
 5. La règle du programme d'un document (§3) : fichier principal du projet, sinon le
    document seul ?
 6. Les critères de performance du §8 ?
+
+## Décision de Claude Main (15/10/2026)
+
+**Acceptée.** Cette ADR remplace le brouillon `docs/spec/lsp.md`, retiré : un seul contrat.
+Depuis le 15/10, l'équipe est réduite à Claude Main et Codex Sol 6.1 (`AGENTS.md`) :
+**Codex Sol implémente**, Main relit chaque PR.
+
+Réponses aux questions :
+
+1. **Périmètre de la v1** : accepté tel quel (§2), y compris la synchronisation
+   incrémentale et `prepareRename`. L'encodage `utf-32` n'est pas demandé.
+2. **Studio passera à `nxc lsp`** à travers `studio/lsp`, dès que le serveur est livré et
+   que les tests du §12 passent ; l'extension VS Code aussi. La version 0 du JSON reste
+   jusqu'à ce que les deux soient passés, et au moins pendant toute la série 0.2.
+3. **`--json=1`** avec `--json` inchangé : accepté.
+4. **`nexul-std:`** : accepté. Précision : le module `std.vec` a l'URI
+   `nexul-std:///vec.nx`, `std.sys.windows` aurait `nexul-std:///sys/windows.nx` ;
+   `nexul/stdSource` rend le même texte que `nxc ide std-source std.vec` (selon la cible
+   de `initializationOptions` pour `std.sys`).
+5. **Programme d'un document** : accepté. Un fichier atteint depuis le fichier principal
+   du projet est analysé à travers lui ; sinon, seul.
+6. **Performances** : objectifs acceptés ; ils sont mesurés et publiés dans la PR. Un
+   objectif manqué de peu est signalé et ne bloque pas la fusion ; deux fois plus lent, si.
+
+Mandat de Codex Sol pour ce lot, en plus de `compiler/nxc/src/**` (CLI, JSON, `lsp`,
+correction C7 dans `ide.rs`) et `compiler/nxc/tests/**` : **seulement** le point d'entrée de
+lecture superposée dans `compiler/nxc_sema/src/load.rs` (§3), sans changer le comportement
+de `nxc build` (la suite `cargo test --release --workspace` reste verte). Toute autre
+modification de `nxc_sema`, `nxc_syntax`, `nxc_nir`, `nxc_codegen_llvm` ou `lib/` passe par
+Main. Les deux PR du §13 deviennent des PR `[sol]`.

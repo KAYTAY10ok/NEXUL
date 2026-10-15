@@ -23,7 +23,6 @@ mentions « Hors 0.1 » signalent ce qui reste à venir.
 | [08 — Interopérabilité C](08-interop-c.md) | `extern "C"`, `@export`, bibliothèques, `Ptr[T]`, types compatibles |
 | [09 — Bibliothèque standard](09-bibliotheque.md) | Prélude, traits standards, `String`, `Vec`, `Map`, `Set`, `std.*` |
 | [10 — Compilateur `nxc`](10-compilateur.md) | Pipeline, IR, backend LLVM, runtime, cibles, ligne de commande, tests |
-| [Services d'éditeur](lsp.md) | Contrat v1 : `nxc version --json`, `nxc check --stdin`, serveur `nxc lsp` (en cours d'implémentation) |
 
 ## Conventions
 

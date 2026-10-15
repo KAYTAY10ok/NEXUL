@@ -50,8 +50,8 @@ NEXUL, **NEXUL Studio natif** (Rust + GPUI, remplace l'ancienne interface web) e
 | `editors/vscode/` | extension VS Code (JavaScript, VSIX) | **toi** |
 | `installer/`, `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/`, `docs/installation.md` | installateur Windows et son empaquetage | **toi** |
 | `benchmarks/` | mesures de performances (à créer) | **toi** |
-| `docs/spec/` | spécification du langage ; **`docs/spec/lsp.md` = contrat de `nxc lsp`** | Main |
-| `docs/adr/` | décisions d'architecture (syntaxe : `docs/adr/syntaxe/`) | Main |
+| `docs/spec/` | spécification du langage | Main |
+| `docs/adr/` | décisions d'architecture ; **`0009-contrat-nxc-lsp.md` = contrat de `nxc lsp`** ; syntaxe : `docs/adr/syntaxe/` | Main |
 | `docs/refonte/` | pilotage : charte, plan, tâches, fichiers d'état | Main ; le tien : `codex-sol-status.md` |
 
 Chaque crate de `studio/` (et `studio/app`) a **son propre espace de travail Cargo** : le
@@ -97,7 +97,7 @@ cd editors/vscode; npm test; npm run package                       # extension V
 2. **L2 — débogueur** (`studio/dap`) : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step`
    échoue avec `Timeout("launch")` contre le vrai `lldb-dap`. **Fini** = ce test réussit avec
    `nxc` et `lldb-dap` réels (point d'arrêt, variables, pas à pas).
-3. **P9 — `nxc`** : suivre **exactement** `docs/spec/lsp.md` (contrat v1, prêt) : découverte
+3. **P9 — `nxc`** : suivre **exactement** `docs/adr/0009-contrat-nxc-lsp.md` (acceptée ; la section « Décision de Claude Main » prime) : découverte
    des versions (`nxc version --json`), `nxc check --stdin`, puis le serveur `nxc lsp`.
    Pas de code avant d'avoir lu le contrat ; une question sur le contrat → Main, pas
    d'interprétation libre.
@@ -114,10 +114,9 @@ vue de Studio écrite par Main.
 ## Règles
 
 - Tu n'écris que dans **tes chemins** (tableau ci-dessus). Pour P9, ton mandat dans
-  `compiler/nxc/` se limite à : `src/main.rs` (options de la CLI), `src/lib.rs` (sortie
-  JSON, sans changer le format existant), nouveau `src/lsp.rs` ou `src/lsp/**`, nouveaux
-  tests `tests/lsp*.rs` ; tu peux **appeler** `src/ide.rs` et `compile_source`, pas changer
-  leur comportement. Rien dans `nxc_syntax`, `nxc_sema`, `nxc_nir`, `nxc_codegen_llvm`,
+  `compiler/nxc/` se limite à : `compiler/nxc/src/**` (CLI, JSON, `lsp`, correction C7 de
+  `ide.rs`) et `compiler/nxc/tests/**`, plus **seulement** le point d'entrée de lecture superposée
+  de `compiler/nxc_sema/src/load.rs` (ADR 0009, §3 et décision finale), sans changer `nxc build`. Rien d'autre dans `nxc_syntax`, `nxc_sema`, `nxc_nir`, `nxc_codegen_llvm`,
   `lib/`. Le compilateur n'a **aucune dépendance externe** : pas de nouvelle crate.
 - Ailleurs, tu demandes à Main (fichier d'état), sans modification surprise.
 - **Jamais** : push sur `main`, `git reset --hard`, push forcé, `git stash` (pile partagée

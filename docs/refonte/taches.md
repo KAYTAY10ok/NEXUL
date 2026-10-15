@@ -21,8 +21,8 @@ Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/tac
    Fini = cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml vert en < 1 min.
 2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap (LLVM 23).
    Fini = lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step vert.
-3. P9 nxc : suivre exactement le contrat docs/spec/lsp.md (prêt) : nxc version --json, nxc check --stdin,
-   puis nxc lsp ; les tests de son §5 avec le vrai binaire.
+3. P9 nxc : suivre exactement l'ADR docs/adr/0009-contrat-nxc-lsp.md (acceptée, voir sa décision finale) :
+   PR 1 fondations (lecture superposée, JSON v1, check --stdin, version --json), PR 2 serveur ; tests de son §12.
 4. L3 installateur : NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
    comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; essais réels.
 En plus si fini : L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
