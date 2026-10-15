@@ -17,7 +17,7 @@ Claude Main conserve la revue et l'intégration.
 |---|---|---|
 | 0 | Sécurité extension/installateur | Non testé ; priorité ajoutée par Main pendant L2, à traiter avant P9 |
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
-| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; PR en préparation |
+| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
 | 3 | P9 — CLI et LSP | Non testé ; ADR 0009 acceptée lue intégralement, son mandat final prime |
 | 4 | L3 — installateur natif | Non testé ; après P9 |
 
