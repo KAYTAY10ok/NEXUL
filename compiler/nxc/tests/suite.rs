@@ -420,6 +420,7 @@ fn numerics_against_python() {
     };
     // Formatting.
     let out = Command::new(exe_of("format")).output().unwrap();
+    assert!(out.status.success(), "format failed: {}", String::from_utf8_lossy(&out.stderr));
     let txt = work.join("format.txt");
     std::fs::write(&txt, &out.stdout).unwrap();
     python(&[dir.join("format_verify.py").as_os_str(), txt.as_os_str()]);
@@ -427,10 +428,12 @@ fn numerics_against_python() {
     let (inp, expected, actual) = (work.join("parse_in.txt"), work.join("parse_expected.txt"), work.join("parse_actual.txt"));
     python(&[dir.join("parse_gen.py").as_os_str(), inp.as_os_str(), expected.as_os_str()]);
     let out = Command::new(exe_of("parse")).stdin(std::fs::File::open(&inp).unwrap()).output().unwrap();
+    assert!(out.status.success(), "parse failed: {}", String::from_utf8_lossy(&out.stderr));
     std::fs::write(&actual, &out.stdout).unwrap();
     python(&[dir.join("parse_compare.py").as_os_str(), inp.as_os_str(), expected.as_os_str(), actual.as_os_str()]);
     // Mathematical functions.
     let out = Command::new(exe_of("math")).output().unwrap();
+    assert!(out.status.success(), "math failed: {}", String::from_utf8_lossy(&out.stderr));
     let txt = work.join("math.txt");
     std::fs::write(&txt, &out.stdout).unwrap();
     python(&[dir.join("math_verify.py").as_os_str(), txt.as_os_str()]);

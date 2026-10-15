@@ -15,7 +15,8 @@ def sci(x, p):
 bad = 0; n = 0
 for line in open(sys.argv[1]):
     parts = line.split()
-    if len(parts) != 6: continue
+    if len(parts) != 6:
+        raise SystemExit('invalid format record: ' + line.rstrip())
     bits = int(parts[0]); x = f_of(bits); n += 1
     short, f3, f0, e, e4 = parts[1:]
     errs = []
@@ -29,4 +30,5 @@ for line in open(sys.argv[1]):
         bad += 1
         if bad <= 15: print(bits, repr(x), errs)
 print('checked', n, 'values,', bad, 'mismatches')
+if n == 0: raise SystemExit('no format samples')
 sys.exit(1 if bad else 0)

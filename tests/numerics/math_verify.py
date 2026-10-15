@@ -13,7 +13,9 @@ def safe(fn, over):
 names = ['sin','cos','tan','atan','asin','acos','exp','ln','log2','log10','pow','atan2','hypot','floor','ceil','round','fmod']
 worst = {n: (0, None) for n in names}; count = 0
 for line in open(sys.argv[1]):
-    p = line.split(); x = f(p[0]); y = f(p[1]); a = abs(x); vals = [f(v) for v in p[2:]]
+    p = line.split()
+    if len(p) != len(names) + 2: raise SystemExit('invalid math record')
+    x = f(p[0]); y = f(p[1]); a = abs(x); vals = [f(v) for v in p[2:]]
     ref = [math.sin(x), math.cos(x), math.tan(x), math.atan(x), safe(lambda: math.asin(x/1e9), 0), safe(lambda: math.acos(x/1e9), 0),
            safe(lambda: math.exp(x/100), math.inf), math.log(a) if a > 0 else -math.inf, math.log2(a) if a > 0 else -math.inf, math.log10(a) if a > 0 else -math.inf,
            safe(lambda: math.pow(a, y), math.inf), math.atan2(x, y), math.hypot(x, y), float(math.floor(x)), float(math.ceil(x)),
@@ -22,6 +24,7 @@ for line in open(sys.argv[1]):
     for n, v, r in zip(names, vals, ref):
         u = ulps(v, r)
         if u > worst[n][0]: worst[n] = (u, (x, y, v, r))
+if count != 40000: raise SystemExit(f'expected 40000 samples, got {count}')
 print(count, 'samples')
 for n in names: print('%-6s max %s ulp %s' % (n, worst[n][0], '' if worst[n][0] <= 1 else worst[n][1]))
 sys.exit(1 if any(worst[n][0] > 1 for n in names) else 0)
