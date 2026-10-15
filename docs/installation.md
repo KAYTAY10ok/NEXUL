@@ -124,3 +124,14 @@ Le programme d'installation (`installer/`) est un exécutable Rust sans dépenda
 affiche son interface (`installer/ui/index.html`) dans une fenêtre d'application de
 Microsoft Edge, servie sur `127.0.0.1` avec un jeton aléatoire. Les données sont ajoutées
 à la fin de l'exécutable ; sans elles, le même programme sert de désinstallateur.
+
+## Évolutions à l'étude
+
+Trois études préparent les prochaines versions de l'installation ; elles ne décrivent pas
+encore le fonctionnement actuel :
+
+- [Interface native de l'installateur](../installer/docs/etude-interface-native.md) :
+  remplacer Edge et PowerShell par l'interface et les API de Windows, et livrer
+  l'application native de NEXUL Studio ;
+- [Distribution sous Linux et macOS](../installer/docs/etude-linux-macos.md) ;
+- [Mécanisme de mise à jour](../installer/docs/etude-mises-a-jour.md).

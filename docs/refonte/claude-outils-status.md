@@ -20,25 +20,28 @@ sans la charge « Développement Desktop en C++ »).
   `stable-x86_64-pc-windows-gnu` par défaut (même version que l'autre PC), la chaîne
   `stable-x86_64-pc-windows-msvc` (inutilisable ici sans `link.exe`), GitHub CLI 2.102.0,
   le composant `rust-analyzer` (pour essayer le client LSP contre un vrai serveur).
-- Branches : une par brique, comme Codex Luna. `refonte/claude-tools` porte
-  `studio/syntax` (PR #6) ; `refonte/claude-tools-lsp`, partie de celle-ci, porte
-  `studio/lsp` (PR empilée sur #6 : à fusionner après elle).
+- Branches : une par brique, comme Codex Luna. `refonte/claude-tools` a porté
+  `studio/syntax` (PR #6, fusionnée) ; `refonte/claude-tools-lsp` a porté `studio/lsp`
+  (PR #8, fusionnée) ; `refonte/claude-tools-etudes` porte les études écrites.
 - Conséquence pour plus tard : l'installateur doit empaqueter `NEXUL-Studio-Native.exe`,
   construit avec la chaîne MSVC. Sur ce PC, il faudra soit installer les outils C++ de
   Visual Studio et le Windows SDK (accord de l'utilisateur nécessaire), soit utiliser
-  l'exécutable construit sur l'autre PC.
+  l'exécutable construit sur l'autre PC. Sans LLVM (`llvm-rc`), l'installateur construit
+  ici n'a ni icône ni manifeste (`installer/build.rs`).
 
 ## Travaux réalisés
 
 | Date | Travail | Commit |
 |---|---|---|
 | 15/10 | **`studio/syntax`** — coloration lexicale de NEXUL, sans dépendance : API `tokens(lang, texte)`, API par ligne avec état (`tokenize_line`, `LineState`), `Highlighter` incrémental (`replace`, `edit_lines`), 16 classes (les 15 proposées + `Invalid`) ; tolérante aux erreurs ; 26 tests dont la conformité jeton par jeton avec le lexer de `nxc` ; documentation : [studio/syntax/README.md](../../studio/syntax/README.md) | `aec4927` |
-| 15/10 | **`studio/lsp`** — client Language Server Protocol générique, sans dépendance (fils et canaux) : transport `Content-Length`, `initialize`, `didOpen`/`didChange` (complet et incrémental)/`didSave`/`didClose`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `formatting`, annulation, délais, arrêt propre ; registre de 11 langages et 13 serveurs, 12 SDK, détection vérifiée sans téléchargement (« coloration seulement » sinon) ; 32 tests dont un faux serveur LSP et rust-analyzer réel ; documentation : [studio/lsp/README.md](../../studio/lsp/README.md) | |
+| 15/10 | **`studio/lsp`** — client Language Server Protocol générique, sans dépendance (fils et canaux) : transport `Content-Length`, `initialize`, `didOpen`/`didChange` (complet et incrémental)/`didSave`/`didClose`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `formatting`, annulation, délais, arrêt propre ; registre de 11 langages et 13 serveurs, 12 SDK, détection vérifiée sans téléchargement (« coloration seulement » sinon) ; 32 tests dont un faux serveur LSP et rust-analyzer réel ; documentation : [studio/lsp/README.md](../../studio/lsp/README.md) | `e85a252` |
+| 15/10 | **Études écrites** (installation et distribution) : [interface native de l'installateur](../../installer/docs/etude-interface-native.md) (Win32 sans dépendance recommandé ; inventaire des 10 appels à PowerShell et des appels à `reg.exe`, coûts mesurés ; empaquetage de Studio natif) ; [distribution Linux et macOS](../../installer/docs/etude-linux-macos.md) (archive + `install.sh` sous Linux, `.app` signé et notarisé sous macOS, bloqué par la couche système macOS du runtime) ; [mécanisme de mise à jour](../../installer/docs/etude-mises-a-jour.md) (manifeste signé Ed25519, `nexul-update`, un dossier par version, `winget`) | |
 
 ## Travaux en cours
 
-- Installation et distribution (troisième brique) : l'installateur doit empaqueter
-  l'application native ; voir « Environnement » pour la chaîne MSVC.
+- **En attente des décisions de l'utilisateur** listées à la fin de chaque étude, avant de
+  coder l'installateur. L'étape 1 de l'interface native (retirer PowerShell, `reg.exe` et
+  `taskkill`) peut se faire et se tester sur ce PC.
 
 ## Fichiers modifiés
 
@@ -49,6 +52,8 @@ sans la charge « Développement Desktop en C++ »).
   `README.md`, `src/lib.rs`, `src/json.rs`, `src/rpc.rs`, `src/types.rs`, `src/client.rs`,
   `src/registry.rs`, `src/bin/fake_server.rs`, `tests/common/mod.rs`, `tests/client.rs`,
   `tests/detect.rs`, `tests/real_servers.rs`.
+- `installer/docs/` (nouveau) : `etude-interface-native.md`, `etude-linux-macos.md`,
+  `etude-mises-a-jour.md` ; `docs/installation.md` (renvoi vers ces études).
 - `docs/refonte/claude-outils-status.md` (ce fichier).
 
 Aucun autre fichier du dépôt n'est modifié. `compiler/nxc_syntax` est utilisé en
@@ -100,8 +105,27 @@ conformité).
 
 ## Demandes aux autres agents
 
-Aucune pour l'instant. `studio/syntax` n'a eu besoin d'aucune information lexicale absente
-de la spécification ou du compilateur.
+**Ouverte** :
+
+1. **Claude Studio** — vérifier si `NEXUL-Studio-Native.exe` dépend de
+   `vcruntime140.dll` (`dumpbin /dependents`), et dans ce cas le construire avec
+   `-C target-feature=+crt-static`. Un Windows neuf n'a pas ce runtime, et l'installateur
+   doit pouvoir livrer Studio seul. Issue : [#9](https://github.com/KAYTAY10ok/NEXUL/issues/9).
+
+**Envisagées**, à ouvrir selon les décisions de l'utilisateur sur les études :
+
+- **Claude Studio** : réglages de Studio dans les emplacements de Linux
+  (`$XDG_CONFIG_HOME`) et de macOS (`~/Library/Application Support`) ; notification et
+  bouton de mise à jour dans Studio (`nexul-update --check/--apply`).
+- **Codex Astra** :
+  - dépendance de vérification Ed25519 dans `installer/` (workspace racine) ;
+  - cache de `nxc` et `nxpm` aux emplacements XDG et macOS ;
+  - matrice d'intégration continue Linux et macOS (`.github/**`) ;
+  - la couche système macOS du runtime, déjà relevée dans `audit-core.md`, conditionne
+    toute distribution sur Mac.
+
+`studio/syntax` n'a eu besoin d'aucune information lexicale absente de la spécification
+ou du compilateur.
 
 ## Briques prêtes (pour Claude Studio)
 
