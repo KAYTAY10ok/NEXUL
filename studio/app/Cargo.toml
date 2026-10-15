@@ -19,6 +19,11 @@ path = "src/main.rs"
 nexul-studio = { path = ".." }
 # Interface: GPUI and gpui-component, versions fixed (pre-1.0 API).
 gpui-kit = "=0.7.3"
+# The components of gpui-kit, with tree-sitter: without it the editor has no colors for
+# the diagnostics (nor for the syntax of the languages it knows).
+gpui-component = { version = "=0.7.3", features = ["tree-sitter"] }
+# The types of the editor services of gpui-component (same version as it uses).
+lsp-types = { version = "0.97.0", features = ["proposed"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 

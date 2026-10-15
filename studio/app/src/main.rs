@@ -7,6 +7,8 @@
 
 mod assets;
 mod explorer;
+mod highlight;
+mod ide;
 mod settings;
 mod studio;
 
@@ -24,6 +26,9 @@ actions!(
     explorer,
     [NewFile, NewFolder, RenameEntry, DeleteEntry, CopyEntry, CutEntry, PasteEntry, RevealEntry, CopyPath, CopyRelativePath, RefreshExplorer, CollapseExplorer]
 );
+
+// The NEXUL services (nxc) in the editor.
+actions!(code, [FormatDocument, RenameSymbol, ShowProblems]);
 
 /// Shortcuts, close to those of Visual Studio Code.
 fn bind_keys(cx: &mut App) {
@@ -49,6 +54,11 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-alt-r", RevealEntry, Some("Explorer")),
         KeyBinding::new("shift-alt-c", CopyPath, Some("Explorer")),
         KeyBinding::new("ctrl-shift-alt-c", CopyRelativePath, Some("Explorer")),
+        KeyBinding::new("shift-alt-f", FormatDocument, Some("CodeEditor")),
+        KeyBinding::new("f2", RenameSymbol, Some("CodeEditor")),
+        KeyBinding::new("f12", gpui_kit::component::input::GoToDefinition, Some("CodeEditor")),
+        KeyBinding::new("ctrl-space", gpui_kit::component::input::ShowCompletions, Some("CodeEditor")),
+        KeyBinding::new("ctrl-shift-m", ShowProblems, None),
     ]);
 }
 
@@ -74,6 +84,13 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Mode minimaliste", ToggleMinimal),
             MenuItem::separator(),
             MenuItem::action("Thème clair ou sombre", ToggleTheme),
+        ]),
+        Menu::new("Code").items([
+            MenuItem::action("Mettre en forme le document", FormatDocument),
+            MenuItem::action("Renommer le symbole…", RenameSymbol),
+            MenuItem::action("Aller à la définition", gpui_kit::component::input::GoToDefinition),
+            MenuItem::separator(),
+            MenuItem::action("Problèmes", ShowProblems),
         ]),
         Menu::new("Exécution").items([MenuItem::action("Exécuter", Run), MenuItem::action("Arrêter", Stop)]),
     ]

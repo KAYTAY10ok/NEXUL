@@ -225,6 +225,9 @@ impl Studio {
     pub(super) fn moved(&mut self, old: &str, new: &str, cx: &mut Context<Self>) {
         for doc in &mut self.docs {
             if let Some(rel) = remap(&doc.rel, old, new) {
+                if let Some(root) = &self.root {
+                    *doc.file.borrow_mut() = root.join(&rel);
+                }
                 doc.name = name_of(&rel).to_string().into();
                 let lang = explorer::language_of(&doc.name);
                 if lang != doc.lang {

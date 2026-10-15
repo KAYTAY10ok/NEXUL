@@ -2,8 +2,10 @@
 //! editors in tabs, output panel and status bar.
 
 mod files;
+mod lang;
 
 use crate::explorer;
+use crate::ide;
 use crate::settings::Settings;
 use crate::*;
 use gpui_kit::component::{
@@ -22,10 +24,13 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use files::{Clip, Dragged, Naming};
+use lang::PanelTab;
 use nexul_studio::workspace::Kind;
 use nexul_studio::{compiler, runner, watch, workspace};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::cell::RefCell;
+use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -36,6 +41,8 @@ struct Doc {
     name: SharedString,
     lang: &'static str,
     editor: Entity<EditorState>,
+    /// Its full path, shared with the services of nxc.
+    file: ide::FileRef,
     encoding: &'static str,
     dirty: bool,
     /// Hash of the text on disk, to tell real changes from reloads.
@@ -72,6 +79,13 @@ pub struct Studio {
     naming: Option<Naming>,
     /// Entries copied or cut in the explorer.
     clip: Option<Clip>,
+    /// Diagnostics of `nxc check`, with the file whose check found them.
+    problems: Vec<(String, ide::Problem)>,
+    /// Checks running.
+    checking: usize,
+    panel_tab: PanelTab,
+    /// The name box of the symbol to rename.
+    rename_box: Option<Subscription>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -104,6 +118,10 @@ impl Studio {
             menu_bar: AppMenuBar::new(cx),
             naming: None,
             clip: None,
+            problems: Vec::new(),
+            checking: 0,
+            panel_tab: PanelTab::Output,
+            rename_box: None,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -264,9 +282,19 @@ impl Studio {
                 }
             }
         });
-        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, encoding, dirty: false, saved_hash, reloading: false, _changes: changes });
+        let file: ide::FileRef = Rc::new(RefCell::new(root.join(rel)));
+        if lang == "nexul" {
+            editor.update(cx, |e, cx| e.set_highlighter_factory(crate::highlight::factory(), cx));
+            self.attach_services(&editor, &file, cx);
+        }
+        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, file, encoding, dirty: false, saved_hash, reloading: false, _changes: changes });
         self.activate(self.docs.len() - 1, window, cx);
         self.save_session();
+        if lang == "nexul" {
+            self.check_file(rel, window, cx);
+        } else {
+            self.show_diagnostics(cx);
+        }
     }
 
     fn activate(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -287,6 +315,8 @@ impl Studio {
                 doc.encoding = encoding;
                 doc.saved_hash = text_hash(&text);
                 doc.dirty = false;
+                let rel = doc.rel.clone();
+                self.check_file(&rel, window, cx);
                 cx.notify();
                 true
             }
@@ -533,6 +563,18 @@ impl Studio {
         self.save_session();
     }
 
+    fn on_format_document(&mut self, _: &FormatDocument, window: &mut Window, cx: &mut Context<Self>) {
+        self.format_active(window, cx);
+    }
+
+    fn on_rename_symbol(&mut self, _: &RenameSymbol, window: &mut Window, cx: &mut Context<Self>) {
+        self.ask_rename_symbol(window, cx);
+    }
+
+    fn on_show_problems(&mut self, _: &ShowProblems, _: &mut Window, cx: &mut Context<Self>) {
+        self.show_panel(PanelTab::Problems, cx);
+    }
+
     fn on_escape(&mut self, _: &Escape, window: &mut Window, cx: &mut Context<Self>) {
         if !self.cancel_naming(window, cx) {
             cx.propagate();
@@ -724,7 +766,7 @@ impl Studio {
             .size_full()
             .bg(theme.background)
             .child(tabs)
-            .child(div().flex_1().min_h_0().child(Editor::new(&doc.editor).bordered(false).h_full()))
+            .child(div().key_context("CodeEditor").flex_1().min_h_0().child(Editor::new(&doc.editor).bordered(false).h_full()))
     }
 
     fn render_output(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -737,11 +779,25 @@ impl Studio {
             .child(
                 h_flex()
                     .h(px(30.))
-                    .px_3()
+                    .px_1()
                     .gap_2()
                     .text_xs()
                     .text_color(theme.muted_foreground)
-                    .child("SORTIE")
+                    .child(
+                        TabBar::new("panel-tabs")
+                            .underline()
+                            .xsmall()
+                            .selected_index(if self.panel_tab == PanelTab::Problems { 1 } else { 0 })
+                            .child(Tab::new().label("SORTIE"))
+                            .child(Tab::new().label(match self.problems.len() {
+                                0 => "PROBLÈMES".to_string(),
+                                n => format!("PROBLÈMES ({})", n),
+                            }))
+                            .on_click(cx.listener(|this, ix: &usize, _, cx| {
+                                this.panel_tab = if *ix == 1 { PanelTab::Problems } else { PanelTab::Output };
+                                cx.notify();
+                            })),
+                    )
                     .child(div().flex_1())
                     .when(self.run.is_some(), |this| {
                         this.child(
@@ -754,7 +810,10 @@ impl Studio {
                         )
                     }),
             )
-            .child(div().flex_1().min_h_0().child(Editor::new(&self.output).bordered(false).readonly(true).h_full()))
+            .child(div().flex_1().min_h_0().map(|this| match self.panel_tab {
+                PanelTab::Output => this.child(Editor::new(&self.output).bordered(false).readonly(true).h_full()).into_any_element(),
+                PanelTab::Problems => this.child(self.render_problems(cx)).into_any_element(),
+            }))
     }
 
     fn render_status(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -777,9 +836,19 @@ impl Studio {
             None => (String::new(), "", ""),
         };
         let nxc = if self.nxc.is_some() { "nxc ✓" } else { "nxc introuvable" };
-        let running = if self.run.is_some() { "Exécution…" } else { "" };
+        let running = if self.run.is_some() { "Exécution…" } else if self.checking > 0 { "Vérification…" } else { "" };
+        let (errors, warnings) = self.problem_counts();
+        let counts = h_flex()
+            .id("problem-counts")
+            .gap_1()
+            .cursor_pointer()
+            .child(gpui_kit::component::Icon::new(IconName::CircleX).xsmall())
+            .child(errors.to_string())
+            .child(gpui_kit::component::Icon::new(IconName::TriangleAlert).xsmall())
+            .child(warnings.to_string())
+            .on_click(cx.listener(|this, _, _, cx| this.show_panel(PanelTab::Problems, cx)));
         StatusBar::new()
-            .left(h_flex().gap_3().text_xs().child("NEXUL").child(running))
+            .left(h_flex().gap_3().text_xs().child("NEXUL").child(counts).child(running))
             .right(h_flex().gap_4().text_xs().child(pos).child(enc).child(lang).child(nxc))
     }
 }
@@ -833,6 +902,9 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_refresh_explorer))
             .on_action(cx.listener(Self::on_collapse_explorer))
             .on_action(cx.listener(Self::on_escape))
+            .on_action(cx.listener(Self::on_format_document))
+            .on_action(cx.listener(Self::on_rename_symbol))
+            .on_action(cx.listener(Self::on_show_problems))
             .when(!minimal, |this| {
                 this.child(TitleBar::new().child(self.menu_bar.clone()).child(div().flex_1()).child(div().text_xs().text_color(cx.theme().muted_foreground).pr_4().child(title)))
             })
@@ -935,6 +1007,7 @@ mod tests {
     // The glob import of gpui_kit brings GPUI's `test` macro: Rust's own is put back.
     #[allow(unused_imports)]
     use core::prelude::v1::test;
+    use gpui_kit::component::input::Position;
     use gpui_kit::test::TestWindowExt as _;
     use gpui_kit::TestAppContext;
 
@@ -1206,6 +1279,86 @@ mod tests {
         update(cx, window, &studio, |s, window, cx| s.trash_entries(&["brouillon.txt".to_string()], window, cx));
         assert!(!dir.join("brouillon.txt").exists());
         studio.read_with(cx, |s, _| assert!(s.docs.is_empty(), "its editor is closed"));
+    }
+
+    /// A NEXUL project with a type error; `None` when nxc is not installed here.
+    fn nexul_project(tag: &str) -> Option<PathBuf> {
+        compiler::find_nxc()?;
+        let dir = project(tag);
+        std::fs::write(dir.join("main.nx"), "fn carre(x: i32) -> i32 {\n    return x * x\n}\n\nfn main() {\n    let v: String = carre(4)\n    println(v)\n}\n").unwrap();
+        Some(dir)
+    }
+
+    #[gpui_kit::test]
+    fn shows_the_diagnostics_of_nxc(cx: &mut TestAppContext) {
+        let Some(dir) = nexul_project("diag") else { return eprintln!("nxc introuvable : test sauté") };
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        cx.run_until_parked();
+        studio.read_with(cx, |s, cx| {
+            assert_eq!(s.checking, 0);
+            assert_eq!(s.problem_counts().0, 1, "{:?}", s.problems);
+            let p = &s.problems[0].1;
+            assert_eq!((p.range.start.line, p.range.start.character), (5, 20), "{:?}", p);
+            assert!(p.message.contains("mismatched types"), "{}", p.message);
+            let shown = s.docs[0].editor.read(cx).diagnostics().map(|d| d.len());
+            assert_eq!(shown, Some(1), "underlined in the editor");
+        });
+        // Ctrl+Shift+M shows them.
+        keys(cx, window, |window, cx| window.press("ctrl-shift-m", cx));
+        studio.read_with(cx, |s, _| assert_eq!(s.panel_tab, PanelTab::Problems));
+        // Corrected and saved: no more problems.
+        update(cx, window, &studio, |s, window, cx| {
+            s.docs[0].editor.update(cx, |e, cx| e.set_value("fn main() {\n    println(\"ok\")\n}\n", window, cx));
+            s.save_doc(0, window, cx);
+        });
+        cx.run_until_parked();
+        studio.read_with(cx, |s, _| assert!(s.problems.is_empty(), "{:?}", s.problems));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui_kit::test]
+    fn renames_a_symbol_and_formats(cx: &mut TestAppContext) {
+        let Some(dir) = nexul_project("symbol") else { return eprintln!("nxc introuvable : test sauté") };
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("main.nx", window, cx);
+            s.rename_symbol(Position::new(0, 4), "square".into(), window, cx);
+        });
+        studio.read_with(cx, |s, cx| {
+            let text = s.docs[0].editor.read(cx).value().to_string();
+            assert!(text.starts_with("fn square(x: i32)") && text.contains("= square(4)"), "{}", text);
+            assert!(s.docs[0].dirty, "a change to save");
+        });
+        // An invalid name changes nothing.
+        update(cx, window, &studio, |s, window, cx| s.rename_symbol(Position::new(0, 4), "2x".into(), window, cx));
+        studio.read_with(cx, |s, cx| assert!(s.docs[0].editor.read(cx).value().starts_with("fn square(")));
+        // Formatting (Shift+Alt+F).
+        update(cx, window, &studio, |s, window, cx| s.docs[0].editor.update(cx, |e, cx| e.set_value("fn main(){\n  println(\"ok\")}\n", window, cx)));
+        keys(cx, window, |window, cx| window.press("shift-alt-f", cx));
+        cx.run_until_parked();
+        // The text given by `nxc ide format` (its layout is the compiler's business).
+        let expected = ide::format(&compiler::find_nxc().unwrap(), &dir.join("main.nx"), "fn main(){\n  println(\"ok\")}\n".into()).unwrap();
+        assert!(expected.starts_with("fn main() {\n    println"), "{:?}", expected);
+        studio.read_with(cx, |s, cx| assert_eq!(s.docs[0].editor.read(cx).value().as_ref(), expected));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn answers_of_nxc_ide() {
+        let Some(nxc) = compiler::find_nxc() else { return eprintln!("nxc introuvable : test sauté") };
+        let dir = project("ide");
+        let file = dir.join("main.nx");
+        let text = "fn carre(x: i32) -> i32 {\n    return x * x\n}\n\nfn main() {\n    let s = \"abc\"\n    println(carre(4))\n}\n".to_string();
+        let hover = ide::ide(&nxc, "hover", &file, Some((7, 14)), None, text.clone()).expect("hover");
+        assert!(hover["code"].as_str().unwrap().starts_with("fn carre"), "{}", hover);
+        let def = ide::ide(&nxc, "definition", &file, Some((7, 14)), None, text.clone()).expect("definition");
+        assert_eq!(ide::location_path(&def, &file).as_deref(), Some(file.as_path()));
+        assert_eq!(ide::range_of(&def).start, Position::new(0, 3));
+        let members = ide::ide(&nxc, "completion", &file, Some((7, 7)), None, text.replace("    println(carre(4))", "    s.")).expect("completion");
+        let labels: Vec<&str> = members.as_array().unwrap().iter().filter_map(|c| c["label"].as_str()).collect();
+        assert!(labels.contains(&"chars"), "{:?}", labels);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[gpui_kit::test]
