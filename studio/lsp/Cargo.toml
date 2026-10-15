@@ -1,0 +1,21 @@
+[package]
+name = "nexul-studio-lsp"
+description = "NEXUL Studio: generic Language Server Protocol client, server and SDK discovery, without any interface dependency"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Its own Cargo workspace: neither the workspace of the compiler nor the one of
+# studio/app is touched (see docs/refonte/AGENTS.md, section 3).
+[workspace]
+
+[dependencies]
+
+# A fake language server, for the tests only (integration tests find it through
+# CARGO_BIN_EXE_fake-lsp-server; it is not built when the crate is a dependency).
+[[bin]]
+name = "fake-lsp-server"
+path = "src/bin/fake_server.rs"
+test = false
+doc = false
