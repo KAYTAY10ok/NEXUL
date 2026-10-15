@@ -22,6 +22,7 @@ mod http;
 mod old;
 #[allow(dead_code)]
 mod payload;
+mod ui;
 mod win;
 
 use http::{json_str, read_request, write_response, Request, Response};
@@ -41,38 +42,38 @@ use std::time::{Duration, Instant};
 use std::os::windows::process::CommandExt;
 
 const UI: &str = include_str!("../ui/index.html");
-const ICON: &[u8] = include_bytes!("../../studio/assets/nexul-studio.ico");
+pub(crate) const ICON: &[u8] = include_bytes!("../../studio/assets/nexul-studio.ico");
 pub(crate) const UNINSTALL_EXE: &str = "Désinstaller NEXUL.exe";
 const UNINSTALL_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NEXUL";
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 
 #[derive(Default, Clone)]
-struct Progress {
-    running: bool,
-    done: bool,
-    error: Option<String>,
-    percent: f64,
-    step: String,
-    file: String,
-    log: Vec<String>,
+pub(crate) struct Progress {
+    pub(crate) running: bool,
+    pub(crate) done: bool,
+    pub(crate) error: Option<String>,
+    pub(crate) percent: f64,
+    pub(crate) step: String,
+    pub(crate) file: String,
+    pub(crate) log: Vec<String>,
     /// What could not be done (the installation goes on).
-    warnings: Vec<String>,
+    pub(crate) warnings: Vec<String>,
     /// Earlier versions were backed up.
-    backups: bool,
+    pub(crate) backups: bool,
 }
 
-struct State {
-    token: String,
-    port: u16,
-    exe: PathBuf,
-    manifest: Option<Manifest>,
-    stub_len: u64,
-    uninstall_mode: bool,
-    progress: Mutex<Progress>,
-    last_ping: Mutex<Option<Instant>>,
-    installed_dir: Mutex<Option<PathBuf>>,
+pub(crate) struct State {
+    pub(crate) token: String,
+    pub(crate) port: u16,
+    pub(crate) exe: PathBuf,
+    pub(crate) manifest: Option<Manifest>,
+    pub(crate) stub_len: u64,
+    pub(crate) uninstall_mode: bool,
+    pub(crate) progress: Mutex<Progress>,
+    pub(crate) last_ping: Mutex<Option<Instant>>,
+    pub(crate) installed_dir: Mutex<Option<PathBuf>>,
     /// The earlier versions found when the window was opened.
-    scan: Mutex<Option<old::Scan>>,
+    pub(crate) scan: Mutex<Option<old::Scan>>,
 }
 
 fn random_token() -> String {
@@ -82,11 +83,11 @@ fn random_token() -> String {
     format!("{:016x}{:016x}", h.finish(), RandomState::new().build_hasher().finish())
 }
 
-fn env_path(var: &str) -> PathBuf {
+pub(crate) fn env_path(var: &str) -> PathBuf {
     std::env::var_os(var).map(PathBuf::from).unwrap_or_else(std::env::temp_dir)
 }
 
-fn default_dir() -> PathBuf {
+pub(crate) fn default_dir() -> PathBuf {
     env_path("LOCALAPPDATA").join("Programs").join("NEXUL")
 }
 
@@ -104,18 +105,18 @@ fn reg_str(key: &str, name: Option<&str>, value: &str) -> Result<(), String> {
 // ---------------------------------------------------------------------------
 // Installation
 
-struct Options {
-    dir: PathBuf,
-    components: Vec<String>,
-    path: bool,
-    desktop: bool,
-    start_menu: bool,
-    associate: bool,
+pub(crate) struct Options {
+    pub(crate) dir: PathBuf,
+    pub(crate) components: Vec<String>,
+    pub(crate) path: bool,
+    pub(crate) desktop: bool,
+    pub(crate) start_menu: bool,
+    pub(crate) associate: bool,
     /// The choices about the earlier versions: (item of the scan, `remove`/`backup`/`keep`).
-    old: Vec<(usize, String)>,
+    pub(crate) old: Vec<(usize, String)>,
 }
 
-fn set_progress(st: &State, f: impl FnOnce(&mut Progress)) {
+pub(crate) fn set_progress(st: &State, f: impl FnOnce(&mut Progress)) {
     let mut p = st.progress.lock().unwrap();
     f(&mut p);
 }
@@ -161,7 +162,7 @@ fn handle_old_versions(st: &State, o: &Options) {
     set_progress(st, |p| p.warnings.extend(problems));
 }
 
-fn install(st: &State, o: &Options) -> Result<(), String> {
+pub(crate) fn install(st: &State, o: &Options) -> Result<(), String> {
     let m = st.manifest.as_ref().ok_or("aucune donnée d'installation")?;
     let mut comps: Vec<String> = m.components.iter().filter(|c| c.required || o.components.contains(&c.id)).map(|c| c.id.clone()).collect();
     comps.dedup();
@@ -312,7 +313,7 @@ fn install(st: &State, o: &Options) -> Result<(), String> {
 }
 
 /// Removes an installation (`dir` holds `install.txt`).
-fn uninstall(st: &State, dir: &Path) -> Result<(), String> {
+pub(crate) fn uninstall(st: &State, dir: &Path) -> Result<(), String> {
     win::process::kill_in(dir);
     log(st, "Retrait du PATH, des raccourcis et des associations");
     let scan = old::scan_registrations();
@@ -387,7 +388,7 @@ fn remove_old_cleanup_copies() {
 }
 
 /// The installation made by this installer (from its entry in the installed applications).
-fn existing_install() -> Option<PathBuf> {
+pub(crate) fn existing_install() -> Option<PathBuf> {
     reg::get_text(UNINSTALL_KEY, Some("InstallLocation")).map(PathBuf::from).filter(|p| p.join("install.txt").is_file())
 }
 
@@ -688,6 +689,16 @@ fn main() {
         std::process::exit(code);
     }
 
+    // The native window (default). `--web-ui`: the HTML page in Edge, kept for one version.
+    if !args.iter().any(|a| a == "--web-ui") {
+        // `--ui-selftest <folder>`: the window driven by the tests (feature `test-sandbox`).
+        let selftest = if cfg!(feature = "test-sandbox") {
+            args.iter().position(|a| a == "--ui-selftest").and_then(|i| args.get(i + 1)).map(PathBuf::from)
+        } else {
+            None
+        };
+        std::process::exit(ui::run(st, selftest));
+    }
     let listener = TcpListener::bind(("127.0.0.1", 0)).expect("cannot listen on 127.0.0.1");
     let port = listener.local_addr().unwrap().port();
     let st = Arc::new(State { port, ..Arc::try_unwrap(st).ok().unwrap() });

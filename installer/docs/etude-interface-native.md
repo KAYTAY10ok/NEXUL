@@ -180,11 +180,42 @@ mesurer).
 | Étape | Contenu | Gain | Vérification |
 |---|---|---|---|
 | 1 — **fait** (15/10, `installer/src/win/`) | Remplacer PowerShell, `reg.exe` et `taskkill` par les appels natifs (§4.1), en gardant l'interface HTML | plus de blocage en mode restreint ni par les antivirus ; 2 à 3 s gagnées | 13 tests unitaires, test du choix du dossier, installation, mise à jour et désinstallation `--silent` réelles dans un bac à sable |
-| 2 | Assistant natif ; l'interface HTML reste disponible derrière `--web-ui` pendant une version | plus de dépendance à Edge | `--ui-selftest`, essais manuels (DPI 100–200 %, clavier, Narrateur) |
+| 2 — **fait** (15/10, `installer/src/ui/`) | Assistant natif ; l'interface HTML reste disponible derrière `--web-ui` pendant une version | plus de dépendance à Edge | `--ui-selftest` de bout en bout (installation et désinstallation) avec captures à 100, 125 et 150 % ; essais manuels encore à faire (clavier, Narrateur, changement d'écran) |
 | 3 | Retrait de `http.rs`, `index.html` et `--web-ui` | code plus simple | tests |
 
 Les étapes 1 et 3 se construisent et se testent **sur ce PC** (`windows-gnu`, sans outils
 C++). L'étape 2 aussi pour le code ; seul l'essai visuel demande quelqu'un devant l'écran.
+
+### 5.1 Bilan de l'étape 2
+
+Ce qui a été fait :
+
+- `installer/src/ui/model.rs` : l'état de l'assistant, sans Windows. Il porte les pages,
+  les règles et les textes de l'interface HTML : licences, choix par ancienne version,
+  dépendances entre composants, validation du dossier, résumé. Il est couvert par des
+  tests unitaires.
+- `installer/src/ui/window.rs` : la fenêtre, ses pages et le fil d'installation ;
+  `sys.rs` : les déclarations Win32 ; `selftest.rs` : le pilote des tests.
+- Les hauteurs de texte sont **mesurées** (`DrawTextW` avec `DT_CALCRECT`) plutôt que
+  fixées. Les polices ne grandissent pas exactement comme l'échelle : avec des hauteurs
+  fixes, des lignes étaient coupées à 150 %, ce que les captures ont montré.
+- Test `installer/tests/ui.rs` : le vrai installateur, construit par `nexul-pack`, piloté
+  dans le bac à sable ; chaque page est capturée et vérifiée.
+
+Écarts par rapport au §4.2, à reprendre si l'utilisateur le souhaite :
+
+- pas de thème sombre (la fenêtre suit le thème clair) ;
+- pas de raccourcis soulignés ;
+- police Segoe UI fixée plutôt que lue dans `NONCLIENTMETRICS` ;
+- la fenêtre ne se réduit pas sur un écran de moins de 640 pixels logiques de haut ;
+- 200 % n'est pas testé automatiquement : la fenêtre ferait alors 1 200 pixels de haut,
+  plus que l'écran de ce PC (Windows la tronque).
+
+Essais manuels restant à faire devant l'écran :
+
+- navigation au clavier ;
+- lecture par le Narrateur ;
+- déplacement de la fenêtre entre deux écrans d'échelles différentes.
 
 ## 6. Lancer Studio sans Edge : empaqueter l'application native
 
