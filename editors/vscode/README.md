@@ -27,6 +27,14 @@ Exemple Windows dans settings.json :
 
 "nexul.nxcPath": "C:\\NEXUL\\target\\release\\nxc.exe"
 
+Le chemin peut être défini dans les paramètres utilisateur ou remplacé par un espace
+de travail approuvé. En mode restreint (Workspace Trust), VS Code ignore les valeurs
+de `nexul.nxcPath` définies par le dossier ou l’espace de travail. La coloration et les
+snippets restent disponibles ; diagnostics, fonctionnalités `nxc ide`, formatage,
+commandes et tâches n’exécutent aucun compilateur avant l’approbation. Une fois la
+confiance accordée, les diagnostics des documents ouverts reprennent automatiquement
+si `nexul.checkOnSave` est activé.
+
 ## Construire et installer le VSIX
 
 Depuis le répertoire editors/vscode :
