@@ -3,6 +3,7 @@
 
 mod files;
 mod lang;
+mod palette;
 
 use crate::explorer;
 use crate::ide;
@@ -25,6 +26,7 @@ use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use files::{Clip, Dragged, Naming};
 use lang::PanelTab;
+use palette::{Palette, PaletteMode};
 use nexul_studio::workspace::Kind;
 use nexul_studio::{compiler, runner, watch, workspace};
 use std::collections::HashSet;
@@ -86,6 +88,8 @@ pub struct Studio {
     panel_tab: PanelTab,
     /// The name box of the symbol to rename.
     rename_box: Option<Subscription>,
+    /// The palette of commands or of files, when open.
+    palette: Option<Palette>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -122,6 +126,7 @@ impl Studio {
             checking: 0,
             panel_tab: PanelTab::Output,
             rename_box: None,
+            palette: None,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -571,6 +576,14 @@ impl Studio {
         self.ask_rename_symbol(window, cx);
     }
 
+    fn on_show_commands(&mut self, _: &ShowCommands, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette(PaletteMode::Commands, window, cx);
+    }
+
+    fn on_quick_open(&mut self, _: &QuickOpen, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette(PaletteMode::Files, window, cx);
+    }
+
     fn on_show_problems(&mut self, _: &ShowProblems, _: &mut Window, cx: &mut Context<Self>) {
         self.show_panel(PanelTab::Problems, cx);
     }
@@ -861,6 +874,7 @@ impl Focusable for Studio {
 
 impl Render for Studio {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.render_palette(cx);
         let minimal = self.settings.minimal;
         let sidebar = self.settings.sidebar && !minimal;
         let panel = self.settings.panel && !minimal;
@@ -905,6 +919,8 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_format_document))
             .on_action(cx.listener(Self::on_rename_symbol))
             .on_action(cx.listener(Self::on_show_problems))
+            .on_action(cx.listener(Self::on_show_commands))
+            .on_action(cx.listener(Self::on_quick_open))
             .when(!minimal, |this| {
                 this.child(TitleBar::new().child(self.menu_bar.clone()).child(div().flex_1()).child(div().text_xs().text_color(cx.theme().muted_foreground).pr_4().child(title)))
             })
@@ -916,6 +932,7 @@ impl Render for Studio {
                     .child(div().flex_1().h_full().child(main)),
             )
             .when(!minimal, |this| this.child(self.render_status(cx)))
+            .children(palette)
     }
 }
 
@@ -1359,6 +1376,39 @@ mod tests {
         let labels: Vec<&str> = members.as_array().unwrap().iter().filter_map(|c| c["label"].as_str()).collect();
         assert!(labels.contains(&"chars"), "{:?}", labels);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[gpui_kit::test]
+    fn palette_runs_commands_and_opens_files(cx: &mut TestAppContext) {
+        let dir = project("palette");
+        let (window, studio) = open(cx, dir);
+        let dark = studio.read_with(cx, |s, _| s.settings.theme.clone());
+        // Ctrl+Shift+P, a few letters, Enter: the command runs and the palette closes.
+        keys(cx, window, |window, cx| window.press("ctrl-shift-p", cx));
+        studio.read_with(cx, |s, _| assert_eq!(s.palette.as_ref().map(|p| p.mode), Some(PaletteMode::Commands)));
+        keys(cx, window, |window, cx| window.input("thème", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| {
+            assert!(s.palette.is_none(), "closed after the choice");
+            assert_ne!(s.settings.theme, dark, "the theme command ran");
+        });
+        keys(cx, window, |window, cx| {
+            window.press("ctrl-shift-p", cx);
+            window.input("thème", cx);
+            window.press("enter", cx);
+        });
+        // Ctrl+P: the file found by a part of its name.
+        keys(cx, window, |window, cx| window.press("ctrl-p", cx));
+        keys(cx, window, |window, cx| window.input("calc", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| {
+            assert!(s.palette.is_none());
+            assert_eq!(s.docs.last().map(|d| d.rel.as_str()), Some("src/calcul.nx"));
+        });
+        // Escape closes it without doing anything.
+        keys(cx, window, |window, cx| window.press("ctrl-p", cx));
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        studio.read_with(cx, |s, _| assert!(s.palette.is_none(), "Escape closes the palette"));
     }
 
     #[gpui_kit::test]

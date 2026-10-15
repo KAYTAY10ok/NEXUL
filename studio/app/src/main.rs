@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 actions!(
     studio,
-    [OpenFolder, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit]
+    [OpenFolder, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen]
 );
 
 // The explorer: they act on the selected entry.
@@ -46,6 +46,9 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("alt-f4", Quit, None),
         KeyBinding::new("ctrl-n", NewFile, None),
+        KeyBinding::new("ctrl-shift-p", ShowCommands, None),
+        KeyBinding::new("f1", ShowCommands, None),
+        KeyBinding::new("ctrl-p", QuickOpen, None),
         KeyBinding::new("f2", RenameEntry, Some("Explorer")),
         KeyBinding::new("delete", DeleteEntry, Some("Explorer")),
         KeyBinding::new("ctrl-c", CopyEntry, Some("Explorer")),
@@ -70,6 +73,7 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Nouveau dossier…", NewFolder),
             MenuItem::separator(),
             MenuItem::action("Ouvrir un dossier…", OpenFolder),
+            MenuItem::action("Aller au fichier…", QuickOpen),
             MenuItem::separator(),
             MenuItem::action("Enregistrer", Save),
             MenuItem::action("Tout enregistrer", SaveAll),
@@ -79,6 +83,8 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Quitter", Quit),
         ]),
         Menu::new("Affichage").items([
+            MenuItem::action("Palette de commandes…", ShowCommands),
+            MenuItem::separator(),
             MenuItem::action("Explorateur", ToggleSidebar),
             MenuItem::action("Sortie", TogglePanel),
             MenuItem::action("Mode minimaliste", ToggleMinimal),
