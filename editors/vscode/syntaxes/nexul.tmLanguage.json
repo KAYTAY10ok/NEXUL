@@ -1,0 +1,157 @@
+{
+  "scopeName": "source.nexul",
+  "patterns": [
+    { "include": "#comments" },
+    { "include": "#attributes" },
+    { "include": "#strings" },
+    { "include": "#characters" },
+    { "include": "#numbers" },
+    { "include": "#controlKeywords" },
+    { "include": "#keywords" },
+    { "include": "#literalKeywords" },
+    { "include": "#constants" },
+    { "include": "#primitiveTypes" },
+    { "include": "#declaredTypes" },
+    { "include": "#declaredFunctions" },
+    { "include": "#calls" },
+    { "include": "#typeNames" },
+    { "include": "#operators" },
+    { "include": "#punctuation" }
+  ],
+  "repository": {
+    "comments": {
+      "patterns": [
+        {
+          "name": "comment.line.documentation.nexul",
+          "match": "///.*$"
+        },
+        {
+          "name": "comment.line.double-slash.nexul",
+          "match": "//.*$"
+        },
+        { "include": "#blockComment" }
+      ]
+    },
+    "blockComment": {
+      "name": "comment.block.nexul",
+      "begin": "/\\*",
+      "end": "\\*/",
+      "patterns": [
+        { "include": "#blockComment" }
+      ]
+    },
+    "attributes": {
+      "name": "entity.other.attribute-name.nexul",
+      "match": "@([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "entity.name.function.nexul" }
+      }
+    },
+    "strings": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.raw.nexul",
+          "begin": "r\"",
+          "end": "\""
+        },
+        {
+          "name": "string.quoted.double.nexul",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.nexul",
+              "match": "\\\\(?:[nrt0\\\\'\"{}]|u\\{[0-9A-Fa-f]{1,6}\\})"
+            },
+            {
+              "name": "meta.interpolation.nexul",
+              "begin": "\\{",
+              "end": "\\}",
+              "patterns": [
+                { "include": "$self" }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    "characters": {
+      "name": "string.quoted.single.nexul",
+      "match": "'(?:\\\\.|[^'\\\\])'"
+    },
+    "numbers": {
+      "patterns": [
+        {
+          "name": "constant.numeric.integer.hexadecimal.nexul",
+          "match": "\\b0[xX][A-Fa-f0-9](?:_?[A-Fa-f0-9])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.octal.nexul",
+          "match": "\\b0[oO][0-7](?:_?[0-7])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.binary.nexul",
+          "match": "\\b0[bB][01](?:_?[01])*\\b"
+        },
+        {
+          "name": "constant.numeric.float.nexul",
+          "match": "\\b[0-9](?:_?[0-9])*\\.[0-9](?:_?[0-9])*(?:[eE][+-]?[0-9](?:_?[0-9])*)?\\b|\\b[0-9](?:_?[0-9])*[eE][+-]?[0-9](?:_?[0-9])*\\b"
+        },
+        {
+          "name": "constant.numeric.integer.decimal.nexul",
+          "match": "\\b[0-9](?:_?[0-9])*\\b"
+        }
+      ]
+    },
+    "controlKeywords": {
+      "name": "keyword.control.nexul",
+      "match": "\\b(?:break|continue|else|for|if|match|return|while)\\b"
+    },
+    "keywords": {
+      "name": "keyword.other.nexul",
+      "match": "\\b(?:and|as|async|await|class|const|defer|dyn|enum|extern|fn|impl|import|in|indirect|inout|interface|let|loop|macro|module|move|not|or|owned|pub|ref|self|Self|static|struct|trait|try|type|unsafe|var|where|yield)\\b"
+    },
+    "literalKeywords": {
+      "name": "constant.language.boolean.nexul",
+      "match": "\\b(?:false|true)\\b"
+    },
+    "constants": {
+      "name": "constant.other.nexul",
+      "match": "\\b[A-Z][A-Z0-9_]+\\b"
+    },
+    "primitiveTypes": {
+      "name": "storage.type.primitive.nexul",
+      "match": "\\b(?:Never|bool|char|f32|f64|i8|i16|i32|i64|isize|u8|u16|u32|u64|usize)\\b"
+    },
+    "declaredTypes": {
+      "match": "\\b(struct|enum|trait|type)\\s+([A-Z][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.other.nexul" },
+        "2": { "name": "entity.name.type.nexul" }
+      }
+    },
+    "declaredFunctions": {
+      "match": "\\b(fn)\\s+([A-Za-z_][A-Za-z0-9_]*)",
+      "captures": {
+        "1": { "name": "keyword.other.nexul" },
+        "2": { "name": "entity.name.function.nexul" }
+      }
+    },
+    "calls": {
+      "name": "entity.name.function.call.nexul",
+      "match": "\\b[A-Za-z_][A-Za-z0-9_]*(?=\\s*(?:\\(|\\[[^\\]]*\\]\\s*\\())"
+    },
+    "typeNames": {
+      "name": "entity.name.type.nexul",
+      "match": "\\b[A-Z][A-Za-z0-9_]*\\b"
+    },
+    "operators": {
+      "name": "keyword.operator.nexul",
+      "match": "(?:<<=|>>=|\\+%=|-%=|\\*%=|\\.\\.=|\\.\\.|->|=>|==|!=|<=|>=|<<|>>|\\+=|-=|\\*=|/=|%=|&=|\\|=|\\^=|\\+%|-%|\\*%|\\+|-|\\*|/|%|&|\\||\\^|~|=|<|>|\\?)"
+    },
+    "punctuation": {
+      "name": "punctuation.separator.nexul",
+      "match": "[()\\[\\]{},;.:@]"
+    }
+  }
+}
