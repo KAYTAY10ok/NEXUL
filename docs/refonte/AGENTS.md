@@ -1,273 +1,164 @@
-# NEXUL — consignes pour les agents (Codex Astra, Codex Luna, Claude Studio, Claude Outils)
+# NEXUL — charte des agents (V3)
 
-Document de coordination rédigé à la demande de l'utilisateur (15 octobre 2026). Lisez-le
-**en entier avant de commencer**. Il complète la mission « Refonte majeure du langage et
-de NEXUL Studio » donnée par l'utilisateur ; en cas de doute, la mission fait foi.
-Seul l'utilisateur (ou Claude Studio à sa demande) modifie ce fichier : proposez vos
-changements dans votre fichier d'état ou par une issue.
+Charte de coordination de la refonte de NEXUL, **version 3, validée par l'utilisateur le
+15 octobre 2026**. Elle applique la passation [passation-v3.md](passation-v3.md) (cahier
+des charges complet : langage, Studio, auto-hébergement, extension VS Code) et remplace
+les versions précédentes de ce fichier. Lisez-la **en entier avant tout code**, puis
+[master-plan.md](master-plan.md) (lots, propriétaires, statuts) et les fichiers d'état.
+
+Ce fichier est tenu par **Claude Main**. Pour le modifier : proposition dans votre fichier
+d'état ou issue GitHub ; Claude Main l'intègre, l'utilisateur tranche les changements de
+cap.
 
 ## 1. Le projet
 
-**NEXUL** est un langage de programmation compilé, sûr et autonome :
+**NEXUL** est un langage compilé, sûr et autonome :
 
 ```
-code NEXUL → analyse NEXUL → NIR → IR LLVM → code machine (LLD)
+code NEXUL → analyse NEXUL → NIR → IR LLVM → code machine (LLD) ou WebAssembly
 ```
 
-- `compiler/` : le compilateur `nxc` (Rust, aucune dépendance) — syntaxe, sémantique,
-  NIR, génération d'IR LLVM, pilote, `nxpm` (paquets), services d'éditeur (`nxc ide`).
-- `lib/std/` : bibliothèque standard **et runtime, écrits en NEXUL** (pas de C).
-- `studio/` : **NEXUL Studio**, l'IDE officiel.
-  - `studio/src/` : services Rust partagés (bibliothèque `nexul_studio` : fichiers,
-    surveillance du dossier, exécution, débogueur, localisation de `nxc`) et l'ancienne
-    interface (serveur HTTP local + pages web affichées par Edge) ;
-  - `studio/ui/` : pages de l'ancienne interface (à retirer à la parité) ;
-  - `studio/app/` : **la nouvelle application native** (GPUI + gpui-component, choix
-    validé par l'utilisateur), dans son propre espace de travail Cargo.
-- `installer/` : le programme d'installation Windows `NEXUL Setup.exe`.
-- `docs/` : spécification (`docs/spec/`), guide, feuille de route, ADR, documentation
-  de Studio (`docs/studio/`), coordination de la refonte (`docs/refonte/`).
+La refonte vise une **version majeure complète** : syntaxe propre et reconnaissable,
+typage fort renforcé, orientation objet complète, concurrence sûre, profil temps réel
+vérifié sur une cible définie, performances et précision mesurées, **compilateur
+auto-hébergé** (stage0 → stage1 → stage2), **NEXUL Studio natif** professionnel et
+**extension officielle VS Code**. Détails et critères de fin : passation, §0 à §15.
 
-**GitHub** : https://github.com/KAYTAY10ok/NEXUL (public). `main` = NEXUL 0.2.0
-(tag `v0.2.0`, release avec `NEXUL-Setup.exe`).
+- `compiler/` : `nxc` (Rust, sans dépendance), `nxpm`, services d'éditeur (`nxc ide`).
+- `lib/std/` : bibliothèque standard et runtime **écrits en NEXUL** ; `lib/web/` : chargeur
+  JavaScript du WebAssembly navigateur.
+- `studio/` : NEXUL Studio — `studio/app` (application native GPUI), `studio/src`
+  (services partagés `nexul_studio` et ancienne interface web), `studio/ui` (ancienne
+  interface), crates sans GPUI : `syntax`, `lsp`, `terminal`, `dap`, `templates`.
+- `installer/` : programme d'installation Windows. `editors/vscode/` : extension VS Code
+  (à créer). `docs/` : spécification, guide, feuille de route, ADR, Studio, refonte.
 
-**Sur ce PC** (même dépôt Git, un *worktree* par agent) :
+**GitHub** : https://github.com/KAYTAY10ok/NEXUL (public). On ne pousse jamais sur `main` :
+tout passe par une PR. Référence de la passation : `main` à `548b1f6` (PR #1, #3 à #8
+fusionnées).
 
-| Emplacement | Branche | Agent |
+## 2. Gouvernance : Claude Main dirige cinq agents
+
+| Agent | Rôle | Autorité |
 |---|---|---|
-| `C:\NEXUL` | `nexul-0.2-autonomie` (= `main`) | personne : **ne pas y travailler** |
-| `C:\NEXUL-core` | `refonte/codex-core` | **Codex Astra** (cœur du langage) |
-| `C:\NEXUL\.claude\worktrees\claude-studio` | `refonte/claude-studio` | **Claude Studio** |
-| `C:\NEXUL-tools` (à créer) | `refonte/claude-tools` | **Claude Outils** |
-| `C:\NEXUL-exec` (à créer) | `refonte/codex-exec` | **Codex Luna** (terminal, débogage, projets) |
+| **Claude Opus 5.5 — Main** (ancien « Claude Studio ») | Chef de projet technique, architecte en chef, intégrateur principal, responsable de NEXUL Studio, codécideur du langage | Ordre des travaux, arbitrages techniques, **revue obligatoire et veto sécurité/compatibilité** sur tout changement de langage, intégration des PR, tests transversaux. Seul auteur de l'interface GPUI. |
+| **Claude Opus 5.5 — Outils / Core** | Ingénieur principal du compilateur et de la sûreté | Seul auteur régulier du compilateur, du runtime, de la spécification et des tests du langage. Conçoit avec Main syntaxe, typage, OOP, concurrence, temps réel, auto-hébergement ; implémente par étapes revues. |
+| **Codex Astral** | Expert ponctuel LLVM, analyse, performances | Revues, mesures et notes **sur mandat écrit** de Main ou d'Outils. Lecture seule ailleurs. Patch du noyau seulement avec périmètre écrit, branche dédiée et revue des deux Opus. |
+| **Codex Luna** | Composants Studio sans GPUI, intégrations, extension VS Code, distribution | Terminal, DAP, modèles, `lsp`/`syntax` (maintenance), extension VS Code, installateur. Fournit des API et des preuves à Main. Aucun accès au langage critique. |
+| **Gemma 4:31B (Claude Code)** | QA, documentation, corpus, tâches non critiques | Checklists, guides, matrices, exemples proposés, tests de fumée isolés. Pas de fusion, pas de code du compilateur ni de sûreté, pas de spécification normative sans revue d'un Opus. |
 
-Création des worktrees de Claude Outils et de Codex Luna :
+**Claude Main est le point d'entrée unique** : livrables, rapports, risques et demandes
+lui sont adressés. Il propose les arbitrages ; **l'utilisateur décide** des changements de
+cap majeurs et des fusions.
 
-```
-git -C C:\NEXUL worktree add C:\NEXUL-tools -b refonte/claude-tools origin/main
-git -C C:\NEXUL worktree add C:\NEXUL-exec -b refonte/codex-exec origin/main
-```
+Changement de langage (syntaxe, sémantique, sûreté, mémoire, concurrence, temps réel) :
+**Outils propose et implémente, Main approuve** (deux revues), plus validation de
+l'utilisateur pour toute rupture de compatibilité ou nouveau mot-clé fondamental.
 
-## 2. Règles communes
+## 3. Propriété des fichiers — un seul propriétaire par chemin
 
-1. Chacun travaille **uniquement dans son worktree et sur sa branche**, et ne modifie
-   **que les fichiers de son périmètre** (§3). Lire les autres branches est permis
-   (`git show refonte/codex-core:chemin`), les modifier non.
-2. **Jamais** de push sur `main`, de `git reset --hard`, de push forcé, de suppression
-   du travail d'un autre. La pile `git stash` est **partagée** entre les worktrees : ne
-   l'utilisez pas (préférez un commit temporaire).
-3. Livraison par **pull request** vers `main` (titre préfixé `[core]`, `[studio]`,
-   `[outils]` ou `[exec]`), avec : changements, fichiers, tests exécutés et résultats, limites,
-   changements d'API. Une PR n'est fusionnée qu'après les tests et la résolution des
-   conflits ; l'utilisateur décide.
-4. Chaque agent tient **son fichier d'état** dans `docs/refonte/` (réalisé, en cours,
-   fichiers modifiés, tests, problèmes, demandes aux autres, changements d'interface).
-5. Une demande à un autre agent = une entrée « Demandes » dans votre fichier d'état
-   **et** une issue GitHub (besoin, comportement attendu, critères de validation). Ne
-   faites jamais vous-même le travail d'un autre.
-6. **Aucun résultat inventé** : rien n'est « fait » sans compilation et tests. Une
-   fonction partielle est annoncée partielle. Pas de fonctionnalité factice.
-7. `Cargo.toml` et `Cargo.lock` **racine** appartiennent à Codex Astra. `studio/app/` a son
-   propre `Cargo.toml` / `Cargo.lock` (Claude Studio). Ne modifiez pas un `Cargo.lock`
-   qui n'est pas à vous.
-8. Ne touchez pas aux réglages réels de l'utilisateur dans les tests
-   (`%APPDATA%\NEXUL Studio` : utilisez `NEXUL_STUDIO_CONFIG` pour l'application native).
+| Propriétaire | Chemins |
+|---|---|
+| **Claude Main** | `studio/app/**`, `studio/src/**`, `studio/ui/**`, `studio/plugins/**`, `studio/assets/**`, `studio/Cargo.toml`, `studio/README.md`, `docs/studio/**`, `docs/refonte/claude-main-status.md`, `docs/refonte/master-plan.md`, `docs/refonte/AGENTS.md`, `docs/refonte/passation-v3.md` ; **fichiers transversaux** : `Cargo.toml` et `Cargo.lock` racine, `README.md` racine, `CHANGELOG.md`, `.github/**` |
+| **Claude Outils / Core** | `compiler/**`, `lib/**`, `tests/run/**`, `tests/ui/**`, `tests/numerics/**`, `tests/web/**`, `examples/**`, `docs/spec/**`, `docs/guide.md`, `docs/roadmap.md`, `docs/adr/**` (langage), `tools/wasi-run.mjs`, `docs/refonte/interop-web.md`, `docs/refonte/audit-core.md`, `docs/refonte/claude-core-status.md`, et les sources du compilateur auto-hébergé (`selfhost/**` ou `compiler/selfhost/**`, choix par ADR) |
+| **Codex Astral** | `docs/refonte/reviews/astral/**`, `benchmarks/astral/**` (sur mandat), `docs/refonte/codex-status.md` ; lecture seule ailleurs |
+| **Codex Luna** | `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`, `studio/lsp/**`, `studio/syntax/**`, `editors/vscode/**`, `installer/**`, `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`, `docs/installation.md`, `docs/refonte/codex-luna-status.md` |
+| **Gemma** | `docs/refonte/gemma/**`, `docs/refonte/gemma-status.md`, `tests/manual/**` |
 
-## 3. Répartition des responsabilités
+Les fichiers d'état historiques (`claude-outils-status.md`, `codex-exec-status.md`)
+restent à leur auteur comme archives ; chacun ouvre son nouveau fichier d'état V3.
 
-### Codex Astra — compilateur, runtime, performances, WebAssembly
+Pour toucher un chemin qui n'est pas à vous : demande au propriétaire (fichier d'état +
+issue GitHub), jamais de modification surprise. Gemma rédige des propositions que le
+propriétaire applique.
 
-**Fichiers** : `compiler/**`, `lib/**`, `tests/**`, `examples/**`, `docs/spec/**`,
-`docs/guide.md`, `docs/roadmap.md`, `docs/adr/**`, `Cargo.toml` et `Cargo.lock` racine,
-`README.md`, `CHANGELOG.md`, `.github/**`, `tools/wasi-run.mjs`,
-`docs/refonte/codex-status.md`, `docs/refonte/audit-core.md`,
-`docs/refonte/interop-web.md`.
+### 3.1 Transferts consignés (V3, 15/10/2026)
 
-**Tâches** (mission, parties 3.1 à 3.6) : audit du compilateur ; benchmarks
-reproductibles C / Rust / C# / NEXUL (médianes, variabilité, versions documentées) ;
-précision numérique (f32/f64, NaN, arrondis, mode strict / mode rapide optionnel) ;
-optimisations LLVM justifiées par les mesures ; cible WebAssembly **navigateur**
-(exports, imports hôte, chaînes, chargeur, exemples) et le contrat `interop-web.md`.
+| Chemins | Ancien propriétaire | Nouveau | Effet |
+|---|---|---|---|
+| `compiler/**`, `lib/**`, `tests/**` (langage), `examples/**`, `docs/spec/**`, `docs/guide.md`, `docs/roadmap.md`, `docs/adr/**`, `tools/wasi-run.mjs`, `interop-web.md`, `audit-core.md` | Codex Astral | Claude Outils / Core | **Immédiat** : la branche `refonte/codex-core` est entièrement fusionnée (PR #1). Astral n'y écrit plus sans mandat. |
+| `Cargo.toml`, `Cargo.lock` racine, `README.md`, `CHANGELOG.md`, `.github/**` | Codex Astral | Claude Main | **Immédiat** : intégration par Main, après les PR des propriétaires concernés. |
+| `studio/lsp/**`, `studio/syntax/**` | Claude Outils | Codex Luna | **Immédiat** : PR #6 et #8 fusionnées. Maintenance uniquement ; l'adaptateur GPUI reste à Main. |
+| `installer/**`, `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`, `docs/installation.md` | Claude Outils | Codex Luna | **Après** la PR d'Outils pour ses branches `refonte/claude-tools-installer` et `refonte/claude-tools-etudes` (non fusionnées). D'ici là, personne d'autre n'y écrit. |
+| `editors/vscode/**` | — | Codex Luna | Nouveau dossier. |
+| `docs/refonte/gemma/**`, `gemma-status.md`, `tests/manual/**` | — | Gemma | Nouveaux chemins. |
 
-**Demandes de Studio en attente** (voir `docs/refonte/claude-status.md`) :
-1. `nxc lsp` : serveur Language Server Protocol (stdio) sur les services de `nxc ide`.
-2. Champ de version dans les sorties JSON de `nxc check --json` et `nxc ide`.
-3. Contrat WebAssembly validé (cible réellement implémentée, exemple, chargeur, tests).
-4. Décision : intégrer `studio/app` au workspace racine, ou le laisser séparé.
+## 4. Règles communes
 
-### Claude Studio — l'application NEXUL Studio
+1. Chacun travaille dans **son clone ou worktree**, sur **une branche par lot**
+   (`refonte/main-…`, `refonte/core-…`, `refonte/astral-…`, `refonte/luna-…`,
+   `refonte/gemma-…` ; les branches existantes terminent leur lot sous leur nom actuel).
+2. **Jamais** de push sur `main`, de `git reset --hard`, de push forcé, de suppression du
+   travail d'un autre. La pile `git stash` est partagée entre worktrees : ne l'utilisez
+   pas (commit temporaire à la place).
+3. Livraison par **PR courte** vers `main`, titre préfixé `[main]`, `[core]`, `[astral]`,
+   `[luna]` ou `[gemma]`, avec : changements, fichiers, **tests réellement exécutés** et
+   résultats, limites, impact sur l'existant, preuves, demande de revue. Claude Main revoit
+   et intègre ; l'utilisateur fusionne.
+4. Chacun tient **son fichier d'état** et le met à jour après chaque PR ; Claude Main tient
+   [master-plan.md](master-plan.md).
+5. Une demande à un autre agent = une entrée « Demandes » dans votre fichier d'état **et**
+   une issue GitHub (besoin, comportement attendu, critères de validation).
+6. **Aucun résultat inventé** : un outil absent ou une preuve manquante s'écrit
+   « non testé ». Statuts obligatoires (passation §14) : `CONÇU`, `IMPLÉMENTÉ`,
+   `TESTÉ_UNITAIREMENT`, `INTÉGRÉ`, `VALIDÉ_E2E`, `LIVRÉ`, `BLOQUÉ`. Jamais « terminé »
+   sur la foi d'une capture, d'un extrait ou d'un test ignoré.
+7. Aucune syntaxe nouvelle n'est présentée comme officielle avant l'ADR approuvée (passation
+   §3.2) ; les esquisses sont marquées **illustratives**.
+8. Ne touchez pas aux réglages réels de l'utilisateur dans les tests (`NEXUL_STUDIO_CONFIG`
+   pour l'application native).
+9. Chaque crate sous `studio/` (hors `studio/app` et `studio/src`) a son propre espace de
+   travail Cargo (`[workspace]` vide, son `Cargo.lock`) ; `studio/app` aussi. Le
+   `cargo test --workspace` racine ne les teste pas.
 
-**Fichiers** : `studio/src/**`, `studio/ui/**`, `studio/app/**`, `studio/plugins/**`,
-`studio/Cargo.toml`, `studio/README.md`, `studio/assets/**`, `docs/studio/**`,
-`docs/refonte/claude-status.md` — **sauf** les nouveaux dossiers attribués à Claude Outils
-et à Codex Luna ci-dessous.
+## 5. Interfaces entre les agents
 
-**Tâches** : l'application native `studio/app` — explorateur (créer, renommer,
-supprimer, déplacer, glisser-déposer via `workspace.rs`), éditeur et onglets, panneau de
-diagnostics (`nxc check --json`), palette de commandes, paramètres et raccourcis
-personnalisables, thèmes, mode minimaliste, dispositions mémorisées, services NEXUL dans
-l'éditeur (`nxc ide` : survol, complétion, définition, références, renommage, mise en
-forme), aperçu web isolé ; puis **l'interface graphique des briques des autres agents** :
-coloration et LSP (Claude Outils), terminal, débogueur et assistant « Nouveau projet »
-(Codex Luna), et la future interface WebAssembly de Codex Astra ; parité, puis retrait de
-l'ancienne interface web.
-
-### Claude Outils — briques de Studio, installation et distribution
-
-**Fichiers** (nouveaux dossiers, rien d'autre) :
-- `studio/syntax/**` : nouvelle crate **sans dépendance à GPUI** ;
-- `studio/lsp/**` : nouvelle crate **sans dépendance à GPUI** ;
-- `installer/**`, `tools/build_installer.py`, `tools/make-python-runtime.py`,
-  `tools/licenses/**`, `docs/installation.md` ;
-- `docs/refonte/claude-outils-status.md`.
-
-**Tâches** :
-1. **`studio/syntax`** — coloration lexicale :
-   - NEXUL : tokenisation en Rust pur d'après `docs/spec/01-lexique.md` et
-     `02-grammaire.md` (mots-clés, types, nombres, chaînes avec interpolation `{…}`,
-     caractères, commentaires dont `///`, attributs `@…`, opérateurs), **tolérante aux
-     erreurs** (texte en cours de frappe) et incrémentale ou rapide (100 000 lignes) ;
-   - API proposée : `fn tokens(lang: &str, text: &str) -> Vec<Token { range: Range<usize>, kind: Kind }>`
-     avec `Kind` ∈ {Keyword, Control, Type, Function, Variable, Constant, String,
-     Escape, Interpolation, Number, Comment, DocComment, Attribute, Operator,
-     Punctuation} ;
-   - tests : tous les fichiers `examples/*.nx` et `tests/run/*.nx` (lecture seule)
-     doivent être tokenisés sans erreur et sans perte de texte ;
-   - ne modifiez pas le compilateur : s'il manque une information lexicale, demandez à
-     Codex Astra.
-2. **`studio/lsp`** — client Language Server Protocol générique :
-   - transport JSON-RPC sur stdio (en-têtes `Content-Length`), `initialize`,
-     `didOpen` / `didChange` / `didSave` / `didClose`, `publishDiagnostics`, `hover`,
-     `completion`, `definition`, `references`, `rename`, `formatting`, arrêt propre ;
-   - registre des serveurs et **détection** de ceux installés (sans rien télécharger) :
-     rust-analyzer, clangd, pyright ou pylsp, typescript-language-server, serveurs
-     HTML/CSS/JSON de VS Code, csharp-ls ou OmniSharp, serveurs SQL ; et des SDK
-     (Python, Node, gcc/clang/cl, dotnet, cargo) ; chaque langage indique clairement
-     « coloration seulement » quand aucun serveur n'est trouvé ;
-   - API sans GPUI (fils + canaux), documentée dans `studio/lsp/README.md`, testée avec
-     un faux serveur LSP ;
-   - NEXUL n'en fait pas partie tant que `nxc lsp` n'existe pas (Claude Studio garde
-     `nxc ide`).
-3. **Installation et distribution** :
-   - l'installateur empaquette la **nouvelle application native**
-     (`studio/app`, construite avec la chaîne MSVC) sous le nom `NEXUL Studio.exe`
-     (raccourcis, association `.nx`, désinstallation, gestion des anciennes versions déjà
-     en place : à conserver et à re-tester) ; l'ancienne interface peut rester livrée
-     sous un autre nom pendant la transition ;
-   - le lancement de Studio ne doit plus dépendre d'Edge ; étudier une interface native
-     pour l'installateur lui-même (il affiche aujourd'hui ses pages dans Edge) ;
-   - `installer/` est membre du workspace racine (fichiers de Codex Astra) : **n'y ajoutez pas
-     de dépendance** sans demande à Codex Astra ;
-   - étude écrite de la distribution Linux et macOS, et d'un mécanisme de mise à jour.
-
-### Codex Luna — terminal, débogage et projets
-
-**Fichiers** (nouveaux dossiers, rien d'autre) :
-- `studio/terminal/**` : nouvelle crate **sans dépendance à GPUI** ;
-- `studio/dap/**` : nouvelle crate **sans dépendance à GPUI** ;
-- `studio/templates/**` : modèles de projets et leur crate d'instanciation ;
-- `docs/refonte/codex-exec-status.md`.
-
-**Tâches** :
-1. **`studio/terminal`** — terminal intégré :
-   - pseudo-console **ConPTY** sous Windows (pty sous Linux/macOS) : lancer un shell
-     (PowerShell par défaut, configurable : cmd, Git Bash, WSL), écrire l'entrée,
-     redimensionner, arrêter proprement ;
-   - émulation VT/ANSI vers un **modèle d'écran** (grille de cellules avec caractère,
-     couleurs, gras/italique/souligné, curseur, historique défilant, sélection), en
-     réutilisant une bibliothèque mûre (par exemple `alacritty_terminal` ou `vte`) plutôt
-     qu'un émulateur écrit de zéro ;
-   - API sans GPUI : `Terminal::spawn(shell, cwd, cols, rows)`, `write`, `resize`,
-     `snapshot()`, événements (sortie, titre, fin) ; plusieurs terminaux à la fois ;
-   - tests : `echo`, couleurs ANSI, redimensionnement, Unicode (accents, CJK, emoji),
-     programme interactif, fin du processus.
-2. **`studio/dap`** — client Debug Adapter Protocol :
-   - transport stdio, `initialize`, `launch` / `attach`, `setBreakpoints` (avec
-     conditions), `configurationDone`, `threads`, `stackTrace`, `scopes`, `variables`,
-     `continue`, `next`, `stepIn`, `stepOut`, `pause`, `evaluate`, `disconnect`,
-     événements (`stopped`, `output`, `terminated`…) ;
-   - registre des adaptateurs et **détection** (sans téléchargement) : `lldb-dap`
-     (NEXUL, C, C++, Rust ; livré avec NEXUL dans `llvm\bin`), `debugpy` (Python),
-     `netcoredbg` (C#), débogueur de Node ;
-   - pour NEXUL : `nxc build` en mode debug produit l'exécutable et sa PDB ; s'inspirer de
-     `studio/src/debug.rs` et de la logique DAP de `studio/ui/ide.js` (lecture seule) ;
-   - API sans GPUI, testée avec `lldb-dap` sur un petit programme NEXUL (point d'arrêt,
-     variables, pas à pas).
-3. **`studio/templates`** — modèles de projets **fonctionnels** :
-   - NEXUL console, bibliothèque NEXUL, projet `nxpm` avec dépendance, site
-     HTML/CSS/JavaScript ; Python, C, C++, Rust, C# quand l'outil correspondant est
-     détecté ; NEXUL + WebAssembly + JavaScript **seulement** quand le contrat de Codex Astra
-     sera validé ;
-   - chaque modèle : fichiers, commandes de construction/exécution, outils requis ; un
-     test vérifie que chaque modèle disponible se construit et s'exécute ;
-   - la détection des SDK vient de `studio/lsp` (Claude Outils) : utilisez son API, ne la
-     dupliquez pas.
-
-### Interfaces entre les agents
-
-| Interface | Fournisseur | Utilisateur |
+| Interface | Fournisseur | Utilisateurs |
 |---|---|---|
-| CLI `nxc` (`check --json`, `ide`, `fmt`, `explain`, `run`, `test`, `build`, `targets`), `nxpm list --json` | Codex Astra | Studio |
-| `docs/refonte/interop-web.md` (WebAssembly) | Codex Astra | Studio |
-| `nexul_studio` (`studio/src`) : `workspace`, `watch`, `runner`, `compiler`, `debug` | Claude Studio | Claude Outils (lecture seule) |
-| `studio/syntax`, `studio/lsp` (API Rust) | Claude Outils | Claude Studio (adaptateurs GPUI dans `studio/app`) ; Codex Luna (détection des SDK) |
-| `studio/terminal`, `studio/dap`, `studio/templates` (API Rust) | Codex Luna | Claude Studio (vues GPUI dans `studio/app`) |
-| `studio/app/target/release/NEXUL-Studio-Native.exe` | Claude Studio | Claude Outils (installateur) |
+| CLI `nxc` (`check --json`, `ide … --stdin`, `fmt`, `explain`, `run`, `test`, `build`, `targets`), `nxpm list --json` ; futur `nxc lsp`, JSON versionné | Outils / Core | Main (Studio), Luna (VS Code, modèles) |
+| `docs/refonte/interop-web.md` (ABI web v1, `lib/web/nexul.mjs`) | Outils / Core | Main (aperçu), Luna (modèle NEXUL + Web) |
+| `nexul_studio` (`studio/src`) : `workspace`, `watch`, `runner`, `compiler`, `debug` | Main | Luna (lecture seule) |
+| `studio/syntax`, `studio/lsp`, `studio/terminal`, `studio/dap`, `studio/templates` (API Rust sans GPUI) | Luna | Main (vues et adaptateurs GPUI dans `studio/app`) |
+| `NEXUL-Studio-Native.exe` (construit avec MSVC) | Main | Luna (installateur) |
+| Contrat `nxc lsp` (capacités, version, texte non enregistré) | Outils propose | **Main approuve** ; Studio et VS Code consomment |
 
-Quand une crate de Claude Outils ou de Codex Luna est prête, son auteur le
-signale dans son fichier d'état ; **Claude Studio** ajoute la dépendance dans
-`studio/app/Cargo.toml`. Les crates `studio/syntax`, `studio/lsp`, `studio/terminal`,
-`studio/dap` et `studio/templates` ont chacune leur propre espace de travail Cargo
-(section `[workspace]` vide dans leur `Cargo.toml`, leur propre `Cargo.lock`) pour ne
-toucher ni au workspace racine ni à celui de `studio/app`.
+## 6. Environnements
 
-## 4. Environnement de ce PC
-
-- Windows 11. Rust 1.99 (rustup) : `stable-x86_64-pc-windows-gnu` par défaut (workspace
-  du compilateur), `stable-x86_64-pc-windows-msvc` pour l'application native.
-- Visual Studio Community 2026 avec « Développement Desktop en C++ » et le Windows SDK
-  (nécessaires à GPUI : shaders HLSL compilés par `fxc.exe`).
-- LLVM 23 dans `C:\Program Files\LLVM` (`LLVM-C.dll`, LLD, `lldb-dap`, `llvm-dlltool`).
-- Python 3.14, Node, WSL (Ubuntu), QEMU (`C:\Program Files\qemu`).
-
-Commandes :
+- **PC de Main** (Windows 11) : `C:\NEXUL` (ne pas y travailler), worktrees
+  `C:\NEXUL\.claude\worktrees\claude-studio` (Main) et `C:\NEXUL-core` (Astral). Rust 1.99 :
+  `stable-x86_64-pc-windows-gnu` par défaut (compilateur), `stable-x86_64-pc-windows-msvc`
+  pour `studio/app` (Visual Studio 2026 « Développement Desktop en C++ » + Windows SDK).
+  LLVM 23 dans `C:\Program Files\LLVM` (`LLVM-C.dll`, LLD, `lldb-dap`), Python 3.14, Node,
+  WSL, QEMU.
+- **Autre PC** (Outils, Luna) : clones GitHub (`C:\NEXUL-tools`…) ; sans outils C++ de
+  Visual Studio ni LLVM à ce jour (voir leurs fichiers d'état).
+- Commandes (passation §15.1) :
 
 ```
-cargo test --release --workspace                         # compilateur + services de Studio + installateur (racine)
-cargo test -p nexul-studio                               # services de Studio
+cargo test --release --workspace
+cargo test -p nexul-studio
 cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1
 cargo +stable-x86_64-pc-windows-msvc build --release --manifest-path studio/app/Cargo.toml
-python -I tools/build_installer.py "chemin\NEXUL Setup.exe"
+cargo test --manifest-path studio/syntax/Cargo.toml        # idem lsp, terminal, dap, templates
 ```
 
-Pièges connus : les crates d'interface (GPUI, Slint…) **ne se construisent pas** avec
-la chaîne `windows-gnu` de rustup (import `raw-dylib`, bibliothèques d'importation
-manquantes) : utilisez MSVC pour `studio/app`. La première construction de `studio/app`
-prend ~6 min.
+Pièges : GPUI ne se construit pas avec `windows-gnu` (MSVC obligatoire pour `studio/app`) ;
+sans la fonction `tree-sitter` de gpui-component, les diagnostics de l'éditeur n'ont pas de
+couleur.
 
-## 5. État au 15 octobre 2026
+## 7. Premiers pas de chaque agent (V3)
 
-- **main** : NEXUL 0.2.0 publié.
-- **Codex Astra** (`refonte/codex-core`, local) : audit initial (`docs/refonte/audit-core.md`),
-  vérificateurs numériques corrigés et testés, contrat WebAssembly initial (inventaire,
-  **pas encore** un feu vert pour le navigateur).
-- **Claude Studio** (`refonte/claude-studio`) : création et renommage de fichiers
-  réparés dans l'ancienne interface, glisser-déposer, couper/copier/coller, Corbeille
-  rapide, surveillance du dossier, encodages (UTF-8, BOM, UTF-16, Windows-1252),
-  services en bibliothèque ; audit et comparatif des boîtes à outils
-  (`docs/studio/audit-phase0.md`, `architecture-native.md`) ; **première version de
-  l'application native** (`studio/app`) avec 6 tests fonctionnels.
-- **Claude Outils** : à démarrer.
-- **Codex Luna** : à démarrer.
-
-## 6. Premiers pas des nouveaux agents
-
-1. Créer son worktree (§1) ; lire ce fichier, la mission, `docs/studio/audit-phase0.md`,
-   `docs/studio/architecture-native.md`, `docs/refonte/claude-status.md`,
-   `docs/refonte/codex-status.md` (branche de Codex Astra).
-2. Créer son fichier d'état : `docs/refonte/claude-outils-status.md` ou
-   `docs/refonte/codex-exec-status.md`.
-3. Claude Outils : `studio/syntax`, puis `studio/lsp`, puis l'installateur.
-   Codex Luna : `studio/terminal`, puis `studio/dap`, puis `studio/templates`.
-   Chaque brique avec ses tests.
-4. Une PR par brique.
+1. Récupérer `main`, lire la passation, cette charte, [master-plan.md](master-plan.md) et les
+   fichiers d'état ; confirmer son identité.
+2. Ouvrir son nouveau fichier d'état (§3) avec : périmètre, lots en cours, statuts, demandes.
+3. Travaux immédiats (passation §13) :
+   - **Main** : P1 protection des données de Studio, P3 raccordement des cinq crates, puis
+     pilotage de P2 (syntaxe) avec Outils ;
+   - **Outils / Core** : P2 G0 (audit des usages de NEXUL 0.2) et préparation de l'ADR de
+     syntaxe, du modèle de types et de la conception concurrence/temps réel ; P9 (`nxc lsp`,
+     JSON versionné, texte non enregistré) ; PR des branches installateur avant transfert ;
+   - **Luna** : ossature de l'extension VS Code (sans grammaire finale avant l'ADR),
+     modèle NEXUL + WebAssembly, installateur après transfert ;
+   - **Astral** : rien sans mandat écrit ; disponible pour mesures sur base figée ;
+   - **Gemma** : matrice des preuves, écarts code/documentation, scénarios de test manuels.
+4. Une PR par lot, revue par Main.
