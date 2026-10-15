@@ -41,6 +41,26 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// What F5 and the menu Exécution start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Task {
+    Run,
+    Build,
+    BuildRelease,
+    Test,
+}
+
+impl Task {
+    /// The command of nxc and nxpm.
+    fn verb(self) -> &'static str {
+        match self {
+            Task::Run => "run",
+            Task::Build | Task::BuildRelease => "build",
+            Task::Test => "test",
+        }
+    }
+}
+
 /// An open file.
 struct Doc {
     rel: String,
@@ -420,29 +440,49 @@ impl Studio {
 
     // -------------------------------------------------------------- running
 
-    fn run_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ix) = self.active else { return };
-        if !self.save_doc(ix, window, cx) {
-            return;
-        }
-        let (Some(root), Some(doc)) = (self.root.clone(), self.docs.get(ix)) else { return };
-        if doc.lang != "nexul" {
-            return self.notify_error("F5 exécute un programme NEXUL (fichier .nx).", window, cx);
-        }
+    /// Runs, builds or tests: the project of the folder with nxpm when it has a
+    /// `nexul.toml`, else the active NEXUL file with nxc. The files are saved first.
+    pub(super) fn start_task(&mut self, task: Task, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return self.notify_error("Ouvrez d'abord un dossier.", window, cx);
+        };
         let Some(nxc) = self.nxc.clone() else {
             return self.notify_error("Compilateur nxc introuvable : installez NEXUL ou définissez NEXUL_NXC.", window, cx);
         };
+        let project = root.join("nexul.toml").is_file();
+        // A project builds every file: all are saved; a file alone, itself.
+        let to_save: Vec<usize> = if project { (0..self.docs.len()).filter(|&i| self.is_modified(i, cx)).collect() } else { self.active.into_iter().collect() };
+        for ix in to_save {
+            if !self.save_doc(ix, window, cx) {
+                return;
+            }
+        }
+        let (program, mut args, shown) = if project {
+            let Some(nxpm) = compiler::nxpm_of(&nxc) else {
+                return self.notify_error("nxpm introuvable à côté de nxc : le projet (nexul.toml) ne peut pas être construit.", window, cx);
+            };
+            (nxpm, vec![task.verb().to_string()], format!("nxpm {}", task.verb()))
+        } else {
+            let Some(doc) = self.active.and_then(|i| self.docs.get(i)).filter(|d| d.lang == "nexul") else {
+                return self.notify_error("Ouvrez un fichier NEXUL (.nx), ou un projet avec nexul.toml.", window, cx);
+            };
+            let file = root.join(&doc.rel).to_string_lossy().to_string();
+            (nxc, vec![task.verb().to_string(), file], format!("nxc {} {}", task.verb(), doc.rel))
+        };
+        if task == Task::BuildRelease {
+            args.push("--release".into());
+        }
         if let Some(id) = self.run.take() {
             self.runs.kill(id);
         }
-        let file = root.join(&doc.rel).to_string_lossy().to_string();
         let step = runner::Step {
-            banner: format!("▶ nxc run {}\n", doc.rel),
-            cmd: runner::command(&nxc, &["run".into(), file], &root),
+            banner: format!("▶ {}{}\n", shown, if task == Task::BuildRelease { " --release" } else { "" }),
+            cmd: runner::command(&program, &args, &root),
             interactive: false,
             report: None,
         };
         self.run = Some(self.runs.start(vec![step], Vec::new()));
+        self.panel_tab = PanelTab::Output;
         self.settings.panel = true;
         self.settings.save();
         cx.notify();
@@ -548,7 +588,19 @@ impl Studio {
     }
 
     fn on_run(&mut self, _: &Run, window: &mut Window, cx: &mut Context<Self>) {
-        self.run_active(window, cx);
+        self.start_task(Task::Run, window, cx);
+    }
+
+    fn on_build(&mut self, _: &Build, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::Build, window, cx);
+    }
+
+    fn on_build_release(&mut self, _: &BuildRelease, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::BuildRelease, window, cx);
+    }
+
+    fn on_run_tests(&mut self, _: &RunTests, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::Test, window, cx);
     }
 
     fn on_stop(&mut self, _: &Stop, _: &mut Window, cx: &mut Context<Self>) {
@@ -963,6 +1015,9 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_new_project))
             .on_action(cx.listener(Self::on_find_in_files))
+            .on_action(cx.listener(Self::on_build))
+            .on_action(cx.listener(Self::on_build_release))
+            .on_action(cx.listener(Self::on_run_tests))
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(Self::on_save_all))
             .on_action(cx.listener(Self::on_close_editor))
@@ -1621,6 +1676,54 @@ mod tests {
         // A result opens its file at the match.
         update(cx, window, &studio, |s, window, cx| s.open_hit("src/calcul.nx", 0, 4, window, cx));
         studio.read_with(cx, |s, _| assert_eq!(s.active.and_then(|i| s.docs.get(i)).map(|d| d.rel.as_str()), Some("src/calcul.nx")));
+    }
+
+    /// Waits for the end of the run started from Studio; its output.
+    fn wait_task(cx: &mut TestAppContext, window: AnyWindowHandle, studio: &Entity<Studio>) -> String {
+        for _ in 0..600 {
+            std::thread::sleep(Duration::from_millis(100));
+            if update(cx, window, studio, |s, window, cx| {
+                s.update_output(window, cx);
+                s.run.is_none()
+            }) {
+                break;
+            }
+        }
+        studio.read_with(cx, |s, cx| s.output.read(cx).value().to_string())
+    }
+
+    #[gpui_kit::test]
+    fn build_run_and_test_from_studio(cx: &mut TestAppContext) {
+        if compiler::find_nxc().is_none() {
+            return eprintln!("nxc introuvable : test sauté");
+        }
+        // A file alone: nxc, on the active file.
+        let dir = project("tasks");
+        std::fs::write(dir.join("src/calcul.nx"), "pub fn double(x: i32) -> i32 {\n    return x * 2\n}\n\n@test\nfn double_works() {\n    assert(double(2) == 4)\n}\n").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("src/calcul.nx", window, cx);
+            s.start_task(Task::Test, window, cx);
+        });
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxc test src/calcul.nx") && out.contains("1 passed") && out.contains("terminé (code 0)"), "{out}");
+        // A project (nexul.toml): nxpm, whatever the active file; unsaved files are saved first.
+        let proj = project("tasks-nxpm");
+        std::fs::write(proj.join("nexul.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n").unwrap();
+        std::fs::write(proj.join("src/main.nx"), "fn main() {\n    println(\"bonjour\")\n}\n").unwrap();
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_root(proj.clone(), window, cx);
+            s.open_file("src/main.nx", window, cx);
+        });
+        type_at_end(cx, window, "// fin\n");
+        update(cx, window, &studio, |s, window, cx| s.start_task(Task::Run, window, cx));
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxpm run") && out.contains("bonjour") && out.contains("terminé (code 0)"), "{out}");
+        assert!(std::fs::read_to_string(proj.join("src/main.nx")).unwrap().ends_with("// fin\n"), "saved before");
+        // Building an optimized program.
+        update(cx, window, &studio, |s, window, cx| s.start_task(Task::BuildRelease, window, cx));
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxpm build --release") && out.contains("terminé (code 0)"), "{out}");
     }
 
     #[gpui_kit::test]

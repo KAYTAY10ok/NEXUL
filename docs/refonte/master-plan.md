@@ -54,7 +54,7 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | M5 | 2 | P3 — `studio/lsp` pour les autres langages (serveurs détectés) ; NEXUL par `nxc ide` jusqu'à `nxc lsp` | diagnostics/survol/complétion d'un serveur réel (ex. rust-analyzer) ; absence expliquée | À FAIRE |
 | M6 | 3 | P3 — vue terminal (PTY, clavier, défilement, copie, plusieurs terminaux) | dépend de L1 ; test avec un vrai shell | À FAIRE |
 | M7 | 3 | P3 — interface de débogage (points d'arrêt, pas à pas, variables, pile) | dépend de L2 ; session réelle `lldb-dap` sur un programme NEXUL | À FAIRE |
-| M8 | 2 | Exécuter / construire / tester depuis Studio (`nxc run/build/test`, profils, explorateur de tests `nxc ide tests`) | sorties et erreurs cliquables, arrêt, tests | À FAIRE |
+| M8 | 2 | Exécuter / construire / tester depuis Studio (`nxc run/build/test`, profils, explorateur de tests `nxc ide tests`) | sorties et erreurs cliquables, arrêt, tests | en partie INTÉGRÉ : Exécuter, Construire (Ctrl+Maj+B), version optimisée, tests ; `nxpm` si `nexul.toml`, sinon fichier actif ; enregistrement avant ; reste : explorateur de tests, erreurs cliquables dans la sortie, profils des autres langages |
 | M9 | 2 | Paramètres (fenêtre) et raccourcis personnalisables ; enregistrement automatique réglable | réglages persistés, tests | À FAIRE |
 | M10 | 2 | Recherche et remplacement dans les fichiers | résultats cliquables, gros dossiers, tests | INTÉGRÉ (`030d617`) : Ctrl+Maj+F, texte non enregistré, casse, mot entier, Tout remplacer ; gros dossiers non mesurés |
 | M11 | 3 | P11 — aperçu Web isolé (`wasm32-web`, [interop-web.md](interop-web.md)) | modèle NEXUL + Web construit et affiché dans son panneau | À FAIRE |
@@ -277,7 +277,7 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 | ST8 | Terminal intégré interactif | À FAIRE (L1 → M6) |
 | ST9 | Débogueur (DAP) | À FAIRE (L2 → M7) |
 | ST10 | Assistant Nouveau projet et SDK | INTÉGRÉ (M4) |
-| ST11 | Exécution, construction, tests, explorateur de tests | À FAIRE (M8) |
+| ST11 | Exécution, construction, tests, explorateur de tests | en partie INTÉGRÉ (M8) |
 | ST12 | Paramètres, raccourcis personnalisables, enregistrement automatique | À FAIRE (M9) |
 | ST13 | Recherche et remplacement globaux | INTÉGRÉ (M10) |
 | ST14 | Plan du document, symboles du projet, références (`nxc ide symbols/references`) | À FAIRE |

@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 actions!(
     studio,
-    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen, FindInFiles]
+    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen, FindInFiles, Build, BuildRelease, RunTests]
 );
 
 // The explorer: they act on the selected entry.
@@ -43,6 +43,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-k z", ToggleMinimal, None),
         KeyBinding::new("f5", Run, None),
         KeyBinding::new("shift-f5", Stop, None),
+        KeyBinding::new("ctrl-shift-b", Build, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("ctrl-n", NewFile, None),
         KeyBinding::new("ctrl-shift-p", ShowCommands, None),
@@ -100,7 +101,14 @@ fn menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Problèmes", ShowProblems),
         ]),
-        Menu::new("Exécution").items([MenuItem::action("Exécuter", Run), MenuItem::action("Arrêter", Stop)]),
+        Menu::new("Exécution").items([
+            MenuItem::action("Exécuter", Run),
+            MenuItem::action("Arrêter", Stop),
+            MenuItem::separator(),
+            MenuItem::action("Construire", Build),
+            MenuItem::action("Construire (version optimisée)", BuildRelease),
+            MenuItem::action("Lancer les tests", RunTests),
+        ]),
     ]
 }
 
