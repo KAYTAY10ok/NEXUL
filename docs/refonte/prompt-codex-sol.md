@@ -88,6 +88,9 @@ cd editors/vscode; npm test; npm run package                       # extension V
 
 ## Tes tâches, dans l'ordre
 
+0. **Sécurité** (`docs/refonte/revues-main.md`, PR #16 et #14) : `nexul.nxcPath` ne doit pas pouvoir être
+   défini par un dossier non approuvé (`scope`, `untrustedWorkspaces`) ; le processus élevé de
+   l'installateur refait son inventaire au lieu d'exécuter le `job.txt` écrit dans `%TEMP%`. Un test pour chacun.
 1. **L1 — terminal** (`studio/terminal`) : sous Windows avec MSVC,
    `pty_resize_and_stop_are_reported` et `pty_runs_interactive_program_and_exits` ne se
    terminent jamais (ConPTY réel) ; avec la chaîne GNU, la crate ne se construit pas

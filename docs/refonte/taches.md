@@ -17,6 +17,8 @@ Tu es Codex Sol 6.1 sur NEXUL, seul agent avec Claude Main (qui relit chacune de
 Tu possèdes studio/terminal, studio/dap, studio/templates, studio/lsp, studio/syntax, editors/vscode,
 installer, benchmarks ; dans compiler/, seulement ce que Main te confie par écrit (nxc lsp, CLI).
 Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/taches.md.
+0. Sécurité (docs/refonte/revues-main.md) : editors/vscode — nexul.nxcPath non modifiable par un dossier non approuvé ;
+   installer — le processus élevé refait son inventaire au lieu d'exécuter job.txt de %TEMP%. Tests à l'appui.
 1. L1 studio/terminal : 2 tests ConPTY ne se terminent jamais (MSVC) ; build GNU en échec (dlltool).
    Fini = cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml vert en < 1 min.
 2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap (LLVM 23).

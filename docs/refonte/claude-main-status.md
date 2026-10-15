@@ -27,6 +27,7 @@ Plan des lots : [master-plan.md](master-plan.md).
 | 15/10 | M4 assistant Nouveau projet (modèles de Luna, outils détectés, `nxc targets`) | `0066da3` |
 | 15/10 | M10 recherche et remplacement dans les fichiers (Ctrl+Maj+F) | `030d617` |
 | 15/10 | M8 (en partie) : Exécuter, Construire, version optimisée, tests (`nxpm` si `nexul.toml`) | `af55669` |
+| 15/10 | ADR 0009 (`nxc lsp`) acceptée ; relecture des PR #14 à #17 ([revues-main.md](revues-main.md)) ; `E0110` (ligne coupée en deux) dans le parser ; **G1 : trois propositions de syntaxe** ([g1-propositions.md](../adr/syntaxe/g1-propositions.md)) | ce lot |
 
 ## Travaux en cours
 
