@@ -30,11 +30,13 @@ pub struct Response {
     pub status: u16,
     pub content_type: String,
     pub body: Vec<u8>,
+    /// Other headers.
+    pub headers: Vec<(String, String)>,
 }
 
 impl Response {
     pub fn new(status: u16, content_type: &str, body: impl Into<Vec<u8>>) -> Response {
-        Response { status, content_type: content_type.to_string(), body: body.into() }
+        Response { status, content_type: content_type.to_string(), body: body.into(), headers: Vec::new() }
     }
 
     pub fn json(body: String) -> Response {
@@ -141,12 +143,14 @@ pub fn read_request(stream: &TcpStream) -> Option<Request> {
 }
 
 pub fn write_response(mut stream: &TcpStream, r: &Response) {
+    let extra: String = r.headers.iter().map(|(k, v)| format!("{}: {}\r\n", k, v)).collect();
     let head = format!(
-        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n",
+        "HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\n{}Connection: close\r\n\r\n",
         r.status,
         reason(r.status),
         r.content_type,
-        r.body.len()
+        r.body.len(),
+        extra
     );
     let _ = stream.write_all(head.as_bytes());
     let _ = stream.write_all(&r.body);

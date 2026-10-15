@@ -11,16 +11,16 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod debug;
 mod http;
-mod runner;
+
+use nexul_studio::{debug, runner, watch, workspace};
 
 use http::{json_field, json_str, mime, read_request, write_response, Request, Response};
 use runner::{command, Runs, Step};
 use std::collections::hash_map::RandomState;
 use std::hash::{BuildHasher, Hasher};
 use std::net::{TcpListener, TcpStream};
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant, SystemTime};
@@ -34,7 +34,7 @@ const IDE_JS: &str = include_str!("../ui/ide.js");
 const PLUGINS_JS: &str = include_str!("../ui/plugins.js");
 
 /// Directories never shown nor searched.
-const IGNORED: &[&str] = &[".git", "target", "node_modules", ".nxc-cache", ".vs", ".idea", "__pycache__"];
+const IGNORED: &[&str] = watch::IGNORED;
 
 struct State {
     token: String,
@@ -48,6 +48,10 @@ struct State {
     debugger: Mutex<Option<debug::Debugger>>,
     /// A file to open at start (given on the command line), relative to `root`.
     start_file: Mutex<Option<String>>,
+    /// The watch of the open folder, and the changes it reported: (version, path).
+    watcher: Mutex<Option<watch::Watcher>>,
+    tree_version: AtomicU64,
+    changes: Mutex<Vec<(u64, String)>>,
 }
 
 fn random_token() -> String {
@@ -69,31 +73,7 @@ fn config_dir() -> PathBuf {
     dir
 }
 
-/// Finds the NEXUL compiler: next to the Studio (installation), then the environment
-/// and a development checkout.
-fn find_nxc() -> Option<PathBuf> {
-    let mut candidates: Vec<PathBuf> = Vec::new();
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("nxc.exe"));
-            candidates.push(dir.join("bin").join("nxc.exe"));
-        }
-    }
-    if let Some(p) = std::env::var_os("NEXUL_NXC") {
-        candidates.push(PathBuf::from(p));
-    }
-    if let Some(home) = std::env::var_os("NEXUL_HOME") {
-        candidates.push(Path::new(&home).join("bin").join("nxc.exe"));
-        candidates.push(Path::new(&home).join("target").join("release").join("nxc.exe"));
-    }
-    if let Some(path) = std::env::var_os("PATH") {
-        candidates.extend(std::env::split_paths(&path).map(|d| d.join("nxc.exe")));
-    }
-    // A build of the repository (developers).
-    candidates.push(PathBuf::from(r"C:\NEXUL\target\release\nxc.exe"));
-    candidates.push(PathBuf::from(r"C:\NEXUL\target\debug\nxc.exe"));
-    candidates.into_iter().find(|p| p.is_file())
-}
+use nexul_studio::compiler::find_nxc;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
@@ -116,13 +96,16 @@ fn main() {
         tmp_counter: AtomicU64::new(0),
         debugger: Mutex::new(None),
         start_file: Mutex::new(None),
+        watcher: Mutex::new(None),
+        tree_version: AtomicU64::new(1),
+        changes: Mutex::new(Vec::new()),
     });
     // `NEXUL Studio.exe <folder>` or `<file>`: open it (file association of `.nx`).
     if let Some(arg) = args.iter().skip(1).find(|a| !a.starts_with("--") && a.parse::<u16>().is_err()) {
         let p = PathBuf::from(arg);
         let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
         if p.is_dir() {
-            *state.root.lock().unwrap() = Some(p);
+            set_root(&state, Some(p));
         } else if p.is_file() {
             if let (Some(dir), Some(name)) = (p.parent(), p.file_name()) {
                 // The project of the file (nexul.toml), else its folder.
@@ -138,7 +121,7 @@ fn main() {
                     }
                 }
                 let rel = p.strip_prefix(&root).map(|r| r.to_string_lossy().replace('\\', "/")).unwrap_or_else(|_| name.to_string_lossy().to_string());
-                *state.root.lock().unwrap() = Some(root);
+                set_root(&state, Some(root));
                 *state.start_file.lock().unwrap() = Some(rel);
             }
         }
@@ -161,25 +144,6 @@ fn main() {
             }
         });
     }
-    // External file changes also reload the live preview.
-    {
-        let st = state.clone();
-        std::thread::spawn(move || {
-            let mut last = 0u128;
-            loop {
-                std::thread::sleep(Duration::from_millis(700));
-                let root = st.root.lock().unwrap().clone();
-                if let Some(root) = root {
-                    let stamp = newest_mtime(&root, 0);
-                    if last != 0 && stamp != last {
-                        st.live_version.fetch_add(1, Ordering::SeqCst);
-                    }
-                    last = stamp;
-                }
-            }
-        });
-    }
-
     if no_window {
         println!("NEXUL Studio: {}", url);
     } else {
@@ -216,26 +180,33 @@ fn open_window(url: &str) {
     let _ = std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn();
 }
 
-fn newest_mtime(dir: &Path, depth: usize) -> u128 {
-    if depth > 8 {
-        return 0;
+/// Opens a folder (or none): the explorer, the editors and the web preview follow the
+/// changes made to its files, inside or outside of Studio.
+fn set_root(st: &Arc<State>, root: Option<PathBuf>) {
+    *st.watcher.lock().unwrap() = None;
+    st.changes.lock().unwrap().clear();
+    st.tree_version.fetch_add(1, Ordering::SeqCst);
+    if let Some(r) = &root {
+        let weak = Arc::downgrade(st);
+        let w = watch::Watcher::start(r, move |paths| {
+            let Some(st) = weak.upgrade() else { return };
+            let v = st.tree_version.fetch_add(1, Ordering::SeqCst) + 1;
+            st.live_version.fetch_add(1, Ordering::SeqCst);
+            let mut ch = st.changes.lock().unwrap();
+            if paths.is_empty() {
+                ch.push((v, String::new()));
+            }
+            for p in paths {
+                ch.push((v, p));
+            }
+            let n = ch.len();
+            if n > 2000 {
+                ch.drain(..n - 1000);
+            }
+        });
+        *st.watcher.lock().unwrap() = w.ok();
     }
-    let mut best = 0u128;
-    let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
-    for e in rd.flatten() {
-        let name = e.file_name().to_string_lossy().to_string();
-        if IGNORED.contains(&name.as_str()) {
-            continue;
-        }
-        let Ok(md) = e.metadata() else { continue };
-        if md.is_dir() {
-            best = best.max(newest_mtime(&e.path(), depth + 1));
-        } else if let Ok(m) = md.modified() {
-            let t = m.duration_since(SystemTime::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-            best = best.max(t);
-        }
-    }
-    best
+    *st.root.lock().unwrap() = root;
 }
 
 fn handle(stream: TcpStream, st: Arc<State>) {
@@ -252,7 +223,7 @@ fn host_ok(req: &Request, st: &State) -> bool {
     }
 }
 
-fn route(req: &Request, st: &State) -> Response {
+fn route(req: &Request, st: &Arc<State>) -> Response {
     if !host_ok(req, st) {
         return Response::text(403, "forbidden host");
     }
@@ -300,19 +271,23 @@ const FAVICON: &[u8] = include_bytes!("../assets/nexul-studio.ico");
 // ---------------------------------------------------------------------------
 // Workspace paths
 
+/// The open folder.
+fn root_of(st: &State) -> Result<PathBuf, Response> {
+    st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "Aucun dossier n'est ouvert."))
+}
+
 /// Resolves a path relative to the open folder, refusing anything outside of it.
 fn resolve(st: &State, rel: &str) -> Result<PathBuf, Response> {
-    let root = st.root.lock().unwrap().clone().ok_or_else(|| Response::error(400, "aucun dossier ouvert"))?;
-    let rel = rel.replace('\\', "/");
-    let mut out = root.clone();
-    for comp in Path::new(rel.trim_start_matches('/')).components() {
-        match comp {
-            Component::Normal(c) => out.push(c),
-            Component::CurDir => {}
-            _ => return Err(Response::error(400, "chemin invalide")),
-        }
-    }
-    Ok(out)
+    workspace::resolve(&root_of(st)?, rel).map_err(fs_error)
+}
+
+fn fs_error(e: workspace::FsError) -> Response {
+    Response::error(e.status, &e.message)
+}
+
+/// The paths of a request, one per line (names never contain line breaks).
+fn path_list(text: &str) -> Vec<String> {
+    text.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect()
 }
 
 fn rel_of(st: &State, p: &Path) -> String {
@@ -376,7 +351,7 @@ fn state_json(st: &State) -> String {
 // ---------------------------------------------------------------------------
 // API
 
-fn api(req: &Request, st: &State) -> Response {
+fn api(req: &Request, st: &Arc<State>) -> Response {
     let route = &req.path[5..];
     let result: Result<Response, Response> = (|| {
         Ok(match (req.method.as_str(), route) {
@@ -385,6 +360,22 @@ fn api(req: &Request, st: &State) -> Response {
                 Response::json("{}".into())
             }
             ("GET", "state") => Response::json(state_json(st)),
+            // What changed in the open folder since `since` (a version given by a
+            // previous call): `paths` is null when everything must be read again.
+            ("GET", "changes") => {
+                let since: u64 = req.q("since").parse().unwrap_or(0);
+                let version = st.tree_version.load(Ordering::SeqCst);
+                let ch = st.changes.lock().unwrap();
+                let complete = ch.first().map(|(v, _)| *v <= since + 1).unwrap_or(true);
+                let mut paths: Vec<&str> = ch.iter().filter(|(v, _)| *v > since).map(|(_, p)| p.as_str()).collect();
+                paths.dedup();
+                let list = if !complete || paths.iter().any(|p| p.is_empty()) {
+                    "null".to_string()
+                } else {
+                    format!("[{}]", paths.iter().map(|p| json_str(p)).collect::<Vec<_>>().join(","))
+                };
+                Response::json(format!("{{\"version\":{},\"paths\":{}}}", version, list))
+            }
             // The interface's settings and sessions, kept in a file so that they do not
             // depend on the port (the browser's storage is per origin).
             ("GET", "kv") => {
@@ -409,7 +400,7 @@ fn api(req: &Request, st: &State) -> Response {
                     return Err(Response::error(400, "ce dossier n'existe pas"));
                 }
                 let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
-                *st.root.lock().unwrap() = Some(p);
+                set_root(st, Some(p));
                 Response::json(state_json(st))
             }
             ("POST", "create-project") => {
@@ -422,11 +413,11 @@ fn api(req: &Request, st: &State) -> Response {
                 }
                 std::fs::create_dir_all(&p).map_err(|e| Response::error(500, &format!("création impossible : {}", e)))?;
                 let p = std::fs::canonicalize(&p).map(|c| strip_verbatim(&c)).unwrap_or(p);
-                *st.root.lock().unwrap() = Some(p);
+                set_root(st, Some(p));
                 Response::json(state_json(st))
             }
             ("POST", "close-folder") => {
-                *st.root.lock().unwrap() = None;
+                set_root(st, None);
                 Response::json(state_json(st))
             }
             ("POST", "set-nxc") => {
@@ -444,54 +435,59 @@ fn api(req: &Request, st: &State) -> Response {
                 if bytes.len() > 8 * 1024 * 1024 {
                     return Err(Response::error(413, "fichier trop volumineux pour l'éditeur (8 Mo maximum)"));
                 }
-                if bytes.iter().take(8000).any(|&b| b == 0) {
-                    return Err(Response::error(400, "fichier binaire"));
-                }
-                Response::new(200, "text/plain; charset=utf-8", bytes)
+                // The text in UTF-8; its encoding on disk is kept for saving.
+                let (text, encoding) = workspace::decode_text(&bytes).ok_or_else(|| Response::error(400, "fichier binaire"))?;
+                let mut r = Response::new(200, "text/plain; charset=utf-8", text);
+                r.headers.push(("X-Nexul-Encoding".into(), encoding.into()));
+                r
             }
+            // Saving in the encoding of the file (`encoding`, UTF-8 by default).
             ("POST", "file") => {
-                let p = resolve(st, &req.q("path"))?;
-                if let Some(parent) = p.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                std::fs::write(&p, &req.body).map_err(|e| Response::error(500, &format!("écriture impossible : {}", e)))?;
+                let (bytes, encoding) = workspace::encode_text(&req.body_text(), &req.q("encoding"));
+                workspace::save(&root_of(st)?, &req.q("path"), &bytes).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
-                Response::json("{}".into())
+                Response::json(format!("{{\"encoding\":{}}}", json_str(encoding)))
             }
             ("POST", "new") => {
-                let p = resolve(st, &req.q("path"))?;
-                if p.exists() {
-                    return Err(Response::error(400, "ce nom existe déjà"));
-                }
-                if req.q("kind") == "dir" {
-                    std::fs::create_dir_all(&p).map_err(|e| Response::error(500, &e.to_string()))?;
-                } else {
-                    if let Some(parent) = p.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-                    std::fs::write(&p, &req.body).map_err(|e| Response::error(500, &e.to_string()))?;
-                }
+                let kind = if req.q("kind") == "dir" { workspace::Kind::Dir } else { workspace::Kind::File };
+                workspace::create(&root_of(st)?, &req.q("path"), kind, &req.body).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
             }
             ("POST", "rename") => {
                 let body = req.body_text();
-                let from = resolve(st, &json_field(&body, "from").unwrap_or_default())?;
-                let to = resolve(st, &json_field(&body, "to").unwrap_or_default())?;
-                if to.exists() {
-                    return Err(Response::error(400, "ce nom existe déjà"));
-                }
-                std::fs::rename(&from, &to).map_err(|e| Response::error(500, &e.to_string()))?;
+                let (from, to) = (json_field(&body, "from").unwrap_or_default(), json_field(&body, "to").unwrap_or_default());
+                workspace::rename(&root_of(st)?, &from, &to).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
             }
             ("POST", "delete") => {
-                let p = resolve(st, &req.q("path"))?;
-                if p == st.root.lock().unwrap().clone().unwrap_or_default() {
-                    return Err(Response::error(400, "impossible de supprimer le dossier ouvert"));
-                }
-                recycle(&p)?;
+                workspace::trash(&root_of(st)?, &req.q("path")).map_err(fs_error)?;
                 st.live_version.fetch_add(1, Ordering::SeqCst);
                 Response::json(state_json(st))
+            }
+            // Drag and drop, cut and paste: `items` (one path per line) into `to`.
+            ("POST", "move") => {
+                let body = req.body_text();
+                let items = path_list(&json_field(&body, "items").unwrap_or_default());
+                let moved = workspace::move_into(&root_of(st)?, &items, &json_field(&body, "to").unwrap_or_default()).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                let pairs: Vec<String> = moved.iter().map(|(a, b)| format!("[{},{}]", json_str(a), json_str(b))).collect();
+                Response::json(format!("{{\"moved\":[{}],\"state\":{}}}", pairs.join(","), state_json(st)))
+            }
+            ("POST", "copy") => {
+                let body = req.body_text();
+                let items = path_list(&json_field(&body, "items").unwrap_or_default());
+                let created = workspace::copy_into(&root_of(st)?, &items, &json_field(&body, "to").unwrap_or_default()).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                let list: Vec<String> = created.iter().map(|c| json_str(c)).collect();
+                Response::json(format!("{{\"created\":[{}],\"state\":{}}}", list.join(","), state_json(st)))
+            }
+            // A file dropped from the Explorer: its content, into the folder `dir`.
+            ("POST", "import") => {
+                let path = workspace::import(&root_of(st)?, &req.q("dir"), &req.q("name"), &req.body).map_err(fs_error)?;
+                st.live_version.fetch_add(1, Ordering::SeqCst);
+                Response::json(format!("{{\"path\":{}}}", json_str(&path)))
             }
             ("GET", "search") => search(st, &req.q("q"), req.q("case") == "1")?,
             ("POST", "check") => check(st, &req.q("path"))?,
@@ -605,28 +601,6 @@ fn strip_verbatim(p: &Path) -> PathBuf {
     match s.strip_prefix(r"\\?\") {
         Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
         _ => p.to_path_buf(),
-    }
-}
-
-/// Sends a file or folder to the recycle bin (Windows), so that it can be restored.
-fn recycle(p: &Path) -> Result<(), Response> {
-    let method = if p.is_dir() { "DeleteDirectory" } else { "DeleteFile" };
-    let script = format!(
-        "Add-Type -AssemblyName Microsoft.VisualBasic; [Microsoft.VisualBasic.FileIO.FileSystem]::{}($env:NX_TARGET, 'OnlyErrorDialogs', 'SendToRecycleBin')",
-        method
-    );
-    let mut cmd = std::process::Command::new("powershell");
-    cmd.args(["-NoProfile", "-NonInteractive", "-Command", &script]).env("NX_TARGET", p);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        cmd.creation_flags(0x0800_0000);
-    }
-    let out = cmd.output().map_err(|e| Response::error(500, &e.to_string()))?;
-    if out.status.success() && !p.exists() {
-        Ok(())
-    } else {
-        Err(Response::error(500, &format!("suppression impossible : {}", String::from_utf8_lossy(&out.stderr).trim())))
     }
 }
 
