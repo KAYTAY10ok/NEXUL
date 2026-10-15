@@ -89,7 +89,17 @@ Depuis *Applications installées*, le menu Démarrer (*NEXUL → Désinstaller N
 fenêtre). Sont retirés : les fichiers installés, l'entrée du PATH et `NEXUL_HOME`, les
 raccourcis, l'association des fichiers `.nx` et l'inscription. Ne sont pas touchés : vos
 projets, les réglages de NEXUL Studio (`%APPDATA%\NEXUL Studio`), le cache de compilation
-et les paquets téléchargés (`%LOCALAPPDATA%\nexul`), les sauvegardes d'anciennes versions.
+et les paquets téléchargés (`%LOCALAPPDATA%\nexul`), les sauvegardes d'anciennes versions,
+ni les fichiers que vous avez ajoutés dans le dossier d'installation (il est conservé s'il
+n'est pas vide).
+
+Avant de remplacer ou de retirer une installation, les programmes qui tournent **depuis son
+dossier** (NEXUL Studio, `nxc`, le débogueur) sont arrêtés ; ceux d'une autre copie de
+NEXUL ne sont pas touchés. Un programme ne pouvant pas s'effacer pendant qu'il tourne, le
+désinstallateur laisse une copie de lui-même dans `%TEMP%`
+(`nexul-uninstall-<numéro>.exe`). Cette copie attend sa fin, efface
+`Désinstaller NEXUL.exe` et le dossier, puis est elle-même supprimée au prochain lancement
+de l'installateur ou du désinstallateur.
 
 ## Depuis les sources
 
@@ -124,3 +134,42 @@ Le programme d'installation (`installer/`) est un exécutable Rust sans dépenda
 affiche son interface (`installer/ui/index.html`) dans une fenêtre d'application de
 Microsoft Edge, servie sur `127.0.0.1` avec un jeton aléatoire. Les données sont ajoutées
 à la fin de l'exécutable ; sans elles, le même programme sert de désinstallateur.
+
+Ses opérations sur le système passent directement par l'API de Windows
+(`installer/src/win/`). Il ne lance ni PowerShell, ni `reg.exe`, ni `taskkill` : il
+fonctionne donc aussi quand les scripts sont bloqués (stratégie d'exécution, mode de
+langage restreint, AppLocker). Ces opérations sont :
+
+- registre (inscription, association des `.nx`) ;
+- PATH et `NEXUL_HOME` (forme brute conservée, programmes prévenus du changement) ;
+- raccourcis (`IShellLinkW`) et dossiers connus (Bureau, menu Démarrer) ;
+- choix du dossier (la boîte de l'Explorateur) ;
+- droits d'administrateur pour les anciennes versions (`ShellExecuteEx`, verbe `runas`) ;
+- arrêt des programmes d'un dossier.
+
+Tests :
+
+```
+cargo test -p nexul-installer                                 # tests unitaires
+cargo test -p nexul-installer --features test-sandbox         # + installation complète
+cargo test -p nexul-installer -- --ignored picker             # choix du dossier (ouvre une fenêtre)
+```
+
+Le test `silent` construit un vrai installateur avec `nexul-pack`. Il l'installe, le met à
+jour par-dessus une installation précédente et une ancienne copie de NEXUL Studio, puis le
+désinstalle, et vérifie le résultat avec `reg.exe` et Windows Script Host. Tout cela se
+passe dans un **bac à sable** : la fonctionnalité `test-sandbox` et la variable
+`NEXUL_SETUP_SANDBOX` redirigent le registre sous `HKCU\Software\NEXUL-Tests\…` et le
+Bureau et le menu Démarrer dans un dossier temporaire ; les réglages réels ne sont jamais
+touchés. Cette redirection n'existe pas dans l'installateur livré.
+
+## Évolutions à l'étude
+
+Trois études préparent les prochaines versions de l'installation ; elles ne décrivent pas
+encore le fonctionnement actuel :
+
+- [Interface native de l'installateur](../installer/docs/etude-interface-native.md) :
+  remplacer Edge par une interface Windows native (le retrait de PowerShell, étape 1, est
+  fait), et livrer l'application native de NEXUL Studio ;
+- [Distribution sous Linux et macOS](../installer/docs/etude-linux-macos.md) ;
+- [Mécanisme de mise à jour](../installer/docs/etude-mises-a-jour.md).
