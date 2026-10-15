@@ -184,7 +184,7 @@ impl Studio {
     pub(super) fn format_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(nxc) = self.nxc.clone() else { return };
         let Some(doc) = self.active.and_then(|i| self.docs.get(i)) else { return };
-        if doc.lang != "nexul" {
+        if !ide::is_nexul(doc.lang) {
             return;
         }
         let (editor, file) = (doc.editor.clone(), doc.file.borrow().clone());
@@ -211,7 +211,7 @@ impl Studio {
     /// Asks the new name of the symbol under the cursor, then renames it everywhere.
     pub(super) fn ask_rename_symbol(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(doc) = self.active.and_then(|i| self.docs.get(i)) else { return };
-        if doc.lang != "nexul" || self.nxc.is_none() {
+        if !ide::is_nexul(doc.lang) || self.nxc.is_none() {
             return;
         }
         let (word, at) = {

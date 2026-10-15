@@ -37,7 +37,8 @@ options:
     --no-debug           no debug information
     --link-arg <arg>     pass an argument to the linker
     --json               print the diagnostics as JSON on stdout (for editors)
-    --edition <e>        syntax of the program: 0.2 (default) or 1 (ADR 0010)
+    --edition <e>        syntax of the program: 0.2 or 1 (ADR 0010); by default, `// edition: X`
+                         on one of the first lines, else `edition` in nexul.toml, else 0.2
 ";
 
 /// The WASI runner for Node.js (`tools/wasi-run.mjs`).
@@ -55,7 +56,8 @@ struct Args {
     no_debug: bool,
     link_args: Vec<String>,
     json: bool,
-    edition: nxc_syntax::Edition,
+    /// `--edition`; otherwise the file and its project say (`pkg::edition_for`).
+    edition: Option<nxc_syntax::Edition>,
     rest: Vec<String>,
 }
 
@@ -74,7 +76,7 @@ fn parse_args() -> Args {
         no_debug: false,
         link_args: vec![],
         json: false,
-        edition: nxc_syntax::Edition::V0_2,
+        edition: None,
         rest: vec![],
     };
     while let Some(arg) = it.next() {
@@ -88,7 +90,7 @@ fn parse_args() -> Args {
             "--json" => a.json = true,
             "--edition" => {
                 let e = it.next().unwrap_or_default();
-                a.edition = nxc_syntax::Edition::parse(&e).unwrap_or_else(|| fail(&format!("unknown edition `{}` (expected `0.2` or `1`)", e)));
+                a.edition = Some(nxc_syntax::Edition::parse(&e).unwrap_or_else(|| fail(&format!("unknown edition `{}` (expected `0.2` or `1`)", e))));
             }
             "--lib" => a.kind = OutputKind::SharedLibrary,
             "--staticlib" => a.kind = OutputKind::StaticLibrary,
@@ -197,7 +199,7 @@ fn compile_command(args: &Args) {
     copts.color = color() && !args.json;
     copts.target = target.clone();
     copts.release = args.release;
-    copts.edition = args.edition;
+    copts.edition = args.edition.unwrap_or_else(|| nxc_driver::pkg::edition_for(&file, &std::fs::read_to_string(&file).unwrap_or_default()));
     copts.debug_info = !args.no_debug && !args.release;
     // The dependencies of the project (nexul.toml), if the file belongs to one.
     copts.deps = nxc_driver::pkg::deps_for(&file).unwrap_or_else(|e| fail(&e));
@@ -271,6 +273,14 @@ fn compile_command(args: &Args) {
 fn ide_command(argv: &[String]) {
     use nxc_driver::ide;
     let stdin = argv.iter().any(|a| a == "--stdin");
+    // `--edition X`: the syntax of the file (otherwise `// edition: X` or nexul.toml).
+    let mut argv: Vec<String> = argv.to_vec();
+    if let Some(i) = argv.iter().position(|a| a == "--edition") {
+        let e = argv.get(i + 1).cloned().unwrap_or_default();
+        let ed = nxc_syntax::Edition::parse(&e).unwrap_or_else(|| fail(&format!("unknown edition `{}` (expected `0.2` or `1`)", e)));
+        let _ = nxc_driver::ide::EDITION.set(ed);
+        argv.drain(i..(i + 2).min(argv.len()));
+    }
     let pos: Vec<&String> = argv.iter().filter(|a| !a.starts_with("--")).collect();
     let req = pos.first().map(|s| s.as_str()).unwrap_or("");
     if req == "std-source" {

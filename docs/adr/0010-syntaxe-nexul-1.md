@@ -544,8 +544,8 @@ test "le dépassement panique" expects panic {
 
 Le reste ne change pas. La migration part de l'AST, qui garde les positions (G0 §6) ;
 commentaires et mise en page sont conservés. La 0.2 reste compilable sous `--edition 0.2`
-pendant toute la transition ; l'édition se choisit par `edition = "1"` dans `nexul.toml`
-ou `--edition 1`.
+pendant toute la transition ; l'édition se choisit par `edition = "1"` dans `nexul.toml`, par
+`// edition: 1` en tête du fichier, ou par `--edition 1`.
 
 ## Plan d'implémentation (G3)
 
@@ -598,9 +598,17 @@ Mesures : les 33 programmes 0.2 de `tests/run` (un seul fichier) migrés donnent
 sortie et le même code de sortie** ; les 21 fichiers de `lib/` et les 8 exemples migrent sans
 rien à reprendre ; les 7 exemples migrés compilent sans avertissement (tests `migrated_programs_behave_the_same`, `migrated_examples_and_library`).
 
+**Tranche 3, 16/10/2026** : l'édition se choisit sans option : `--edition` s'il est donné,
+sinon `// edition: X` sur l'une des trois premières lignes du fichier, sinon `edition = "1"`
+dans le `nexul.toml` du projet, sinon 0.2 (`nxc check/build/run/test`, `nxc ide`, `nxpm`).
+`studio/syntax` colore l'édition 1 (langage `nexul1` : mots, `!`, `===`, `|>`, `#`,
+type rendu avant le nom), vérifié jeton par jeton contre le lexer de l'édition 1 ; NEXUL Studio
+choisit l'édition de chaque fichier de la même façon et change de coloration dès qu'on écrit
+`// edition: 1`.
+
 Reste : le repli `else`, `===`, `in`, types distincts et contraints,
-`expects panic`, `nxc ide` et `nxpm` avec l'édition, formateur, coloration de Studio et de
-l'extension, puis la migration de `lib/` et des tests.
+`expects panic`, formateur, coloration de l'extension VS Code, puis la migration effective de
+`lib/` et des tests.
 
 ## Conséquences
 

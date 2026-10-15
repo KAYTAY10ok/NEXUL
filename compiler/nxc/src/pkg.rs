@@ -34,6 +34,8 @@ pub struct Manifest {
     pub version: String,
     pub description: String,
     pub main: Option<String>,
+    /// `edition = "1"`: the syntax of the project's files (ADR 0010).
+    pub edition: Option<String>,
     pub deps: BTreeMap<String, Source>,
 }
 
@@ -97,7 +99,7 @@ fn parse_inline(s: &str) -> Option<BTreeMap<String, String>> {
 }
 
 pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
-    let mut m = Manifest { name: String::new(), version: "0.1.0".into(), description: String::new(), main: None, deps: BTreeMap::new() };
+    let mut m = Manifest { name: String::new(), version: "0.1.0".into(), description: String::new(), main: None, edition: None, deps: BTreeMap::new() };
     let mut section = String::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split(" #").next().unwrap_or("").trim();
@@ -118,6 +120,12 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                     "version" => m.version = s,
                     "description" => m.description = s,
                     "main" => m.main = Some(s),
+                    "edition" => {
+                        if nxc_syntax::Edition::parse(&s).is_none() {
+                            return Err(format!("{}:{}: unknown edition `{}` (expected `0.2` or `1`)", MANIFEST, i + 1, s));
+                        }
+                        m.edition = Some(s)
+                    }
                     _ => {}
                 }
             }
@@ -156,6 +164,9 @@ pub fn write_manifest(m: &Manifest) -> String {
     }
     if let Some(main) = &m.main {
         s.push_str(&format!("main = {}\n", quote(main)));
+    }
+    if let Some(e) = &m.edition {
+        s.push_str(&format!("edition = {}\n", quote(e)));
     }
     s.push_str("\n[dependencies]\n");
     for (name, src) in &m.deps {
@@ -293,6 +304,21 @@ fn strip_verbatim(p: &Path) -> PathBuf {
         Some(rest) if !rest.starts_with("UNC") => PathBuf::from(rest),
         _ => p.to_path_buf(),
     }
+}
+
+/// The syntax a file is written in (ADR 0010): `// edition: X` on one of its first three
+/// lines, else the `edition` of the `nexul.toml` of its project, else 0.2.
+pub fn edition_for(file: &Path, text: &str) -> nxc_syntax::Edition {
+    for l in text.lines().take(3) {
+        if let Some(e) = l.trim().strip_prefix("// edition:").and_then(|e| nxc_syntax::Edition::parse(e.trim())) {
+            return e;
+        }
+    }
+    find_project(file)
+        .and_then(|p| load_manifest(&p).ok())
+        .and_then(|m| m.edition)
+        .and_then(|e| nxc_syntax::Edition::parse(&e))
+        .unwrap_or_default()
 }
 
 pub fn load_manifest(project: &Path) -> Result<Manifest, String> {
@@ -478,7 +504,7 @@ pub fn new_project(dir: &Path, name: &str) -> Result<(), String> {
         return Err(format!("`{}` already contains a {}", dir.display(), MANIFEST));
     }
     std::fs::create_dir_all(dir.join("src")).map_err(|e| e.to_string())?;
-    let m = Manifest { name: name.to_string(), version: "0.1.0".into(), description: String::new(), main: None, deps: BTreeMap::new() };
+    let m = Manifest { name: name.to_string(), version: "0.1.0".into(), description: String::new(), main: None, edition: None, deps: BTreeMap::new() };
     std::fs::write(dir.join(MANIFEST), write_manifest(&m)).map_err(|e| e.to_string())?;
     let main = dir.join("src").join("main.nx");
     if !main.exists() {

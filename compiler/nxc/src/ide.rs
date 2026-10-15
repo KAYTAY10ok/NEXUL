@@ -23,17 +23,22 @@ pub struct Analysis {
     pub dir: Option<PathBuf>,
 }
 
+/// The edition given by `nxc ide --edition` (otherwise each file and its project say).
+pub static EDITION: std::sync::OnceLock<nxc_syntax::Edition> = std::sync::OnceLock::new();
+
 /// Analyzes `path`, with `text` as its content when given (unsaved changes).
 pub fn analyze(path: &Path, text: Option<String>) -> Option<Analysis> {
     let text = match text {
         Some(t) => t,
         None => std::fs::read_to_string(path).ok()?,
     };
+    let edition = EDITION.get().copied().unwrap_or_else(|| crate::pkg::edition_for(path, &text));
     let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
     let dir = path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() });
     let mut sm = SourceMap::new();
     let diags = DiagSink::new();
-    let src = ProgramSource::new(name, text, dir.clone());
+    let mut src = ProgramSource::new(name, text, dir.clone());
+    src.edition = edition;
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     let root = prog.root;
     let file = prog.modules.get(root.idx())?.file;

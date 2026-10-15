@@ -132,7 +132,12 @@ pub struct Language {
 }
 
 /// The languages this crate highlights.
-pub const LANGUAGES: &[Language] = &[Language { id: "nexul", name: "NEXUL", extensions: &["nx"] }];
+pub const LANGUAGES: &[Language] = &[
+    Language { id: "nexul", name: "NEXUL", extensions: &["nx"] },
+    // Edition 1 of the syntax (ADR 0010): the same files; the editor chooses it from the
+    // project (`edition = "1"`) or the first lines of the file (`// edition: 1`).
+    Language { id: "nexul1", name: "NEXUL (édition 1)", extensions: &[] },
+];
 
 /// The language of a file, from its extension (case-insensitive).
 pub fn language_for_path(path: &Path) -> Option<&'static Language> {
@@ -185,12 +190,15 @@ pub fn tokenize_line(lang: &str, line: &str, state: LineState) -> (Vec<Token>, L
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
 enum Lang {
     Nexul,
+    Nexul1,
 }
 
 impl Lang {
     fn from_id(id: &str) -> Option<Lang> {
         if id.eq_ignore_ascii_case("nexul") || id.eq_ignore_ascii_case("nx") {
             Some(Lang::Nexul)
+        } else if id.eq_ignore_ascii_case("nexul1") {
+            Some(Lang::Nexul1)
         } else {
             None
         }
@@ -199,13 +207,15 @@ impl Lang {
     fn id(self) -> &'static str {
         match self {
             Lang::Nexul => "nexul",
+            Lang::Nexul1 => "nexul1",
         }
     }
 
     /// Appends the tokens of `line` (without its `'\n'`), shifted by `base`.
     fn line(self, line: &str, state: LineState, base: usize, first_line: bool, out: &mut Vec<Token>) -> LineState {
         match self {
-            Lang::Nexul => LineState(nexul::tokenize(line, state.0, base, first_line, out)),
+            Lang::Nexul => LineState(nexul::tokenize(line, state.0, base, first_line, false, out)),
+            Lang::Nexul1 => LineState(nexul::tokenize(line, state.0, base, first_line, true, out)),
         }
     }
 }

@@ -35,6 +35,10 @@ fn range(t: &CToken) -> Range<usize> {
 
 fn allowed(kind: &K) -> &'static [Kind] {
     match kind {
+        // The words of edition 1 are names in 0.2 and after a `.`, keywords otherwise.
+        K::Ident(n) if nexul_studio_syntax::nexul::EDITION1_CONTROL.contains(&n.as_str()) || nexul_studio_syntax::nexul::EDITION1_KEYWORDS.contains(&n.as_str()) => {
+            &[Kind::Variable, Kind::Function, Kind::Type, Kind::Constant, Kind::Keyword, Kind::Control]
+        }
         K::Ident(_) => &[Kind::Variable, Kind::Function, Kind::Type, Kind::Constant],
         K::Int(_) | K::Float(_) => &[Kind::Number],
         K::True | K::False => &[Kind::Constant],
@@ -77,6 +81,7 @@ fn allowed(kind: &K) -> &'static [Kind] {
         | K::Dot
         | K::Colon
         | K::Semi
+        | K::Hash
         | K::At => &[Kind::Punctuation],
         _ => &[Kind::Operator],
     }
@@ -118,18 +123,17 @@ fn agrees_with_the_compiler_lexer() {
     let (mut checked, mut skipped, mut atoms_checked, mut errors_checked) = (0, Vec::new(), 0, 0);
     for path in &files {
         let text = read(path);
-        // Edition 1 (ADR 0010) is not highlighted yet: its files are checked once it is.
-        if text.lines().take(3).any(|l| l.trim() == "// edition: 1") {
-            continue;
-        }
+        // A file of edition 1 (ADR 0010) is compared with the lexer of edition 1.
+        let ed1 = text.lines().take(3).any(|l| l.trim() == "// edition: 1");
+        let lang = if ed1 { "nexul1" } else { "nexul" };
         let mut sm = SourceMap::new();
         let file = sm.add(path.display().to_string(), text.clone());
         let diags = DiagSink::new();
-        let ctoks = lexer::lex(&text, file, &diags);
+        let ctoks = lexer::lex_in(&text, file, &diags, if ed1 { nxc_syntax::Edition::V1 } else { nxc_syntax::Edition::V0_2 });
         if !diags.is_empty() {
             // Diagnostics tests with lexical errors on purpose: the errors that the
             // highlighting shows are flagged where the compiler reports them.
-            let mine = tokens("nexul", &text);
+            let mine = tokens(lang, &text);
             for d in diags.take_sorted() {
                 let Some(span) = d.primary_span() else { continue };
                 if SHOWN.contains(&d.code) {
@@ -150,7 +154,7 @@ fn agrees_with_the_compiler_lexer() {
         }
         let mut expected = Expected { atoms: Vec::new(), literals: Vec::new() };
         collect(&ctoks, &mut expected);
-        let mine = tokens("nexul", &text);
+        let mine = tokens(lang, &text);
         let by_range: HashMap<Range<usize>, Kind> = mine.iter().map(|t| (t.range.clone(), t.kind)).collect();
         let at = |r: &Range<usize>| {
             format!("{}:{}: {:?}", path.display(), text[..r.start].matches('\n').count() + 1, &text[r.clone()])

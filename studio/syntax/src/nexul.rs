@@ -22,6 +22,13 @@ pub const CONTROL: &[&str] = &["break", "continue", "else", "for", "if", "match"
 pub const RESERVED: &[&str] =
     &["async", "await", "class", "defer", "interface", "loop", "macro", "ref", "try", "yield"];
 
+/// Edition 1 (ADR 0010): words that are control flow ([`Kind::Control`]) and other keywords
+/// ([`Kind::Keyword`]). After a `.`, they are names (`s.repeat(3)`).
+pub const EDITION1_CONTROL: &[&str] = &["when", "then", "loop", "repeat"];
+pub const EDITION1_KEYWORDS: &[&str] = &[
+    "is", "interface", "extend", "any", "distinct", "it", "test", "expects", "requires", "ensures", "with", "every", "within", "spawn",
+];
+
 /// Keywords that are values ([`Kind::Constant`]).
 pub const LITERAL_KEYWORDS: &[&str] = &["true", "false"];
 
@@ -39,9 +46,9 @@ const MAX_NESTING: u32 = 64;
 /// Appends the tokens of `line` (without `'\n'`; a final `'\r'` is ignored), shifted by
 /// `base`, given the depth of block comments open at its start; returns the depth at its
 /// end.
-pub(crate) fn tokenize(line: &str, depth: u32, base: usize, first_line: bool, out: &mut Vec<Token>) -> u32 {
+pub(crate) fn tokenize(line: &str, depth: u32, base: usize, first_line: bool, ed1: bool, out: &mut Vec<Token>) -> u32 {
     let end = if line.ends_with('\r') { line.len() - 1 } else { line.len() };
-    let mut lx = Lexer { s: line, b: line.as_bytes(), pos: 0, end, base, out, prev: Prev::Other };
+    let mut lx = Lexer { s: line, b: line.as_bytes(), pos: 0, end, base, out, prev: Prev::Other, ed1 };
     if first_line && line[..end].starts_with('\u{FEFF}') {
         lx.pos = '\u{FEFF}'.len_utf8();
     }
@@ -69,6 +76,8 @@ struct Lexer<'a> {
     base: usize,
     out: &'a mut Vec<Token>,
     prev: Prev,
+    /// Edition 1 of the syntax (ADR 0010).
+    ed1: bool,
 }
 
 fn is_ident_start(c: u8) -> bool {
@@ -245,20 +254,26 @@ impl Lexer<'_> {
             self.pos += 1;
         }
         let word = &self.s[lo..self.pos];
+        let after_dot = self.prev == Prev::Dot;
         let kind = match keyword_kind(word) {
+            _ if self.ed1 && !after_dot && EDITION1_CONTROL.contains(&word) => Kind::Control,
             Some(k) => k,
+            None if self.ed1 && !after_dot && EDITION1_KEYWORDS.contains(&word) => Kind::Keyword,
             None => self.identifier_kind(word),
         };
         self.push(lo, self.pos, kind);
         self.prev = match word {
             "fn" => Prev::Fn,
             "struct" | "enum" | "trait" | "type" => Prev::TypeDecl,
+            "interface" | "extend" if self.ed1 && !after_dot => Prev::TypeDecl,
             _ => Prev::Other,
         };
     }
 
     fn identifier_kind(&self, word: &str) -> Kind {
         match self.prev {
+            // Edition 1: `fn i32 carre(…)`: before the name comes the returned type.
+            Prev::Fn if self.ed1 && !self.called() => return Kind::Type,
             Prev::Fn => return Kind::Function,
             Prev::TypeDecl => return Kind::Type,
             _ => {}
@@ -405,6 +420,11 @@ impl Lexer<'_> {
         let lo = self.pos;
         let (c, c1, c2) = (self.b[lo], self.at(1), self.at(2));
         let (len, kind) = match (c, c1, c2) {
+            (b'=', b'=', b'=') | (b'!', b'=', b'=') if self.ed1 => (3, Kind::Operator),
+            _ if self.ed1 && ((c, c1) == (b'|', b'>')) => (2, Kind::Operator),
+            // Edition 1: `x!` (modified here) and `#label`.
+            _ if self.ed1 && c == b'!' && c1 != b'=' => (1, Kind::Operator),
+            _ if self.ed1 && c == b'#' => (1, Kind::Punctuation),
             (b'<', b'<', b'=')
             | (b'>', b'>', b'=')
             | (b'+', b'%', b'=')
@@ -789,6 +809,23 @@ mod tests {
         assert_eq!(kinds("impl Self"), vec![Keyword, Type]);
         // A comment between `fn` and the name does not hide the declaration.
         assert_eq!(kinds("fn /* x */ f"), vec![Keyword, Comment, Function]);
+    }
+
+    #[test]
+    fn edition_1() {
+        let k = |src: &str| -> Vec<Kind> { crate::tokens("nexul1", src).into_iter().map(|t| t.kind).collect() };
+        // The returned type before the name, the function after it.
+        assert_eq!(k("fn i32 carre(i32 x) = x * x"), vec![Keyword, Type, Function, Punctuation, Type, Variable, Punctuation, Operator, Variable, Operator, Variable]);
+        assert_eq!(k("when c {"), vec![Control, Variable, Punctuation]);
+        assert_eq!(k(".Rouge then 1"), vec![Punctuation, Type, Control, Number]);
+        assert_eq!(k("c!.deposer(1)"), vec![Variable, Operator, Punctuation, Function, Punctuation, Number, Punctuation]);
+        assert_eq!(k("a === b |> f"), vec![Variable, Operator, Variable, Operator, Variable]);
+        assert_eq!(k("#fin loop {"), vec![Punctuation, Variable, Control, Punctuation]);
+        assert_eq!(k("type C is Forme {"), vec![Keyword, Type, Keyword, Type, Punctuation]);
+        // After a dot, a word of edition 1 is a method of the library.
+        assert_eq!(k("s.repeat(3)"), vec![Variable, Punctuation, Function, Punctuation, Number, Punctuation]);
+        // In 0.2, they are names and `!` is invalid.
+        assert_eq!(crate::tokens("nexul", "when!").into_iter().map(|t| t.kind).collect::<Vec<_>>(), vec![Variable, Invalid]);
     }
 
     #[test]

@@ -334,7 +334,11 @@ impl Studio {
             return self.notify_error(&format!("« {} » est un fichier binaire.", rel), window, cx);
         };
         let name: SharedString = rel.rsplit('/').next().unwrap_or(rel).to_string().into();
-        let lang = explorer::language_of(&name);
+        let mut lang = explorer::language_of(&name);
+        // Edition 1 of the syntax (ADR 0010): the file or its project says so.
+        if lang == "nexul" && ide::edition_1(&root.join(rel), &text) {
+            lang = "nexul1";
+        }
         let saved_hash = text_hash(&text);
         let disk_hash = bytes_hash(&bytes);
         let editor = cx.new(|cx| EditorState::new(window, cx).language(lang).line_number(true).searchable(true).default_value(text));
@@ -359,7 +363,7 @@ impl Studio {
             }
         });
         let file: ide::FileRef = Rc::new(RefCell::new(root.join(rel)));
-        if lang == "nexul" {
+        if ide::is_nexul(lang) {
             editor.update(cx, |e, cx| e.set_highlighter_factory(crate::highlight::factory(), cx));
             self.attach_services(&editor, &file, cx);
         }
@@ -368,7 +372,7 @@ impl Studio {
         self.restore_backup(self.docs.len() - 1, window, cx);
         self.activate(self.docs.len() - 1, window, cx);
         self.save_session();
-        if lang == "nexul" {
+        if ide::is_nexul(lang) {
             self.check_file(rel, window, cx);
         } else {
             self.show_diagnostics(cx);
@@ -463,7 +467,7 @@ impl Studio {
             };
             (nxpm, vec![task.verb().to_string()], format!("nxpm {}", task.verb()))
         } else {
-            let Some(doc) = self.active.and_then(|i| self.docs.get(i)).filter(|d| d.lang == "nexul") else {
+            let Some(doc) = self.active.and_then(|i| self.docs.get(i)).filter(|d| ide::is_nexul(d.lang)) else {
                 return self.notify_error("Ouvrez un fichier NEXUL (.nx), ou un projet avec nexul.toml.", window, cx);
             };
             let file = root.join(&doc.rel).to_string_lossy().to_string();
@@ -1724,6 +1728,22 @@ mod tests {
         update(cx, window, &studio, |s, window, cx| s.start_task(Task::BuildRelease, window, cx));
         let out = wait_task(cx, window, &studio);
         assert!(out.contains("nxpm build --release") && out.contains("terminé (code 0)"), "{out}");
+    }
+
+    #[gpui_kit::test]
+    fn files_of_edition_1_are_recognized(cx: &mut TestAppContext) {
+        let dir = project("edition1");
+        std::fs::write(dir.join("nexul.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"1\"\n\n[dependencies]\n").unwrap();
+        std::fs::write(dir.join("src/calcul.nx"), "// edition: 0.2\npub fn f() {}\n").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("main.nx", window, cx);
+            s.open_file("src/calcul.nx", window, cx);
+        });
+        studio.read_with(cx, |s, _| {
+            assert_eq!(s.docs[0].lang, "nexul1", "the project is in edition 1");
+            assert_eq!(s.docs[1].lang, "nexul", "the first line of the file overrides the project");
+        });
     }
 
     #[gpui_kit::test]
