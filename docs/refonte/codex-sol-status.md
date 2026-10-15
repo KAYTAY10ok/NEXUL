@@ -15,7 +15,7 @@ Claude Main conserve la revue et l'intégration.
 
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
-| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; PR en préparation |
+| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | Non testé ; après L1 |
 | 3 | P9 — CLI et LSP | Non testé ; lecture du contrat de Main obligatoire avant tout code |
 | 4 | L3 — installateur natif | Non testé ; après P9 |
