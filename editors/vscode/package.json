@@ -26,6 +26,13 @@
     "onLanguage:nexul",
     "workspaceContains:nexul.toml"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "La coloration et les snippets restent disponibles. Les outils nxc nécessitent un espace de travail approuvé.",
+      "restrictedConfigurations": ["nexul.nxcPath"]
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -56,27 +63,33 @@
     "commands": [
       {
         "command": "nexul.checkCurrentFile",
-        "title": "NEXUL: Vérifier le fichier courant"
+        "title": "NEXUL: Vérifier le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.buildCurrentFile",
-        "title": "NEXUL: Construire le fichier courant"
+        "title": "NEXUL: Construire le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.runCurrentFile",
-        "title": "NEXUL: Exécuter le fichier courant"
+        "title": "NEXUL: Exécuter le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.testCurrentFile",
-        "title": "NEXUL: Lancer les tests du fichier courant"
+        "title": "NEXUL: Lancer les tests du fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.formatDocument",
-        "title": "NEXUL: Formater le document"
+        "title": "NEXUL: Formater le document",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.runTest",
-        "title": "NEXUL: Exécuter ce test"
+        "title": "NEXUL: Exécuter ce test",
+        "enablement": "isWorkspaceTrusted"
       }
     ],
     "taskDefinitions": [
@@ -113,6 +126,7 @@
         "nexul.nxcPath": {
           "type": "string",
           "default": "nxc",
+          "scope": "machine-overridable",
           "description": "Chemin vers l’exécutable nxc. Laissez « nxc » si le compilateur est dans PATH."
         },
         "nexul.checkOnSave": {
