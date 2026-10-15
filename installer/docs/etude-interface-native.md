@@ -179,7 +179,7 @@ mesurer).
 
 | Étape | Contenu | Gain | Vérification |
 |---|---|---|---|
-| 1 | Remplacer PowerShell, `reg.exe` et `taskkill` par les appels natifs (§4.1), en gardant l'interface HTML | plus de blocage en mode restreint ni par les antivirus ; 2 à 3 s gagnées | tests §4.4 + installation et désinstallation `--silent` réelles |
+| 1 — **fait** (15/10, `installer/src/win/`) | Remplacer PowerShell, `reg.exe` et `taskkill` par les appels natifs (§4.1), en gardant l'interface HTML | plus de blocage en mode restreint ni par les antivirus ; 2 à 3 s gagnées | 13 tests unitaires, test du choix du dossier, installation, mise à jour et désinstallation `--silent` réelles dans un bac à sable |
 | 2 | Assistant natif ; l'interface HTML reste disponible derrière `--web-ui` pendant une version | plus de dépendance à Edge | `--ui-selftest`, essais manuels (DPI 100–200 %, clavier, Narrateur) |
 | 3 | Retrait de `http.rs`, `index.html` et `--web-ui` | code plus simple | tests |
 
