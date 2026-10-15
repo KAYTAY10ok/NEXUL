@@ -1,0 +1,160 @@
+// Charge de calcul scientifique adaptée du benchmark NEXUL 0.1 fourni avec la tâche.
+import std.system
+import std.time
+
+struct BenchResult {
+    sum_x: f64
+    sum_x2: f64
+    harmonic: f64
+    basel: f64
+    ln2: f64
+    pi_leibniz: f64
+    pi_integral: f64
+    quarter_circle: f64
+    sqrt_integral: f64
+    inverse_sqrt_integral: f64
+    e_approx: f64
+    sin_approx: f64
+    cos_approx: f64
+    position: f64
+    velocity: f64
+    population: f64
+    energy: f64
+    error_squared: f64
+}
+
+fn compute(n: i64) -> BenchResult {
+    let nf = n as f64
+    let dt = 1.0 / nf
+
+    var sum_x = 0.0
+    var sum_x2 = 0.0
+    var harmonic = 0.0
+    var basel = 0.0
+    var ln2 = 0.0
+    var pi_leibniz = 0.0
+    var pi_integral = 0.0
+    var quarter_circle = 0.0
+    var sqrt_integral = 0.0
+    var inverse_sqrt_integral = 0.0
+    var term_e = 1.0
+    var e_approx = 1.0
+    var term_sin = 1.0
+    var sin_approx = 1.0
+    var term_cos = 1.0
+    var cos_approx = 1.0
+    var position = 1.0
+    var velocity = 0.0
+    var population = 1.0
+    var energy = 0.0
+    var error_squared = 0.0
+
+    for i in 1..=n {
+        let k = i as f64
+        let x = k * dt
+        let x2 = x * x
+        sum_x += x
+        sum_x2 += x2
+        harmonic += 1.0 / k
+        basel += 1.0 / (k * k)
+        if i % 2 == 1 {
+            ln2 += 1.0 / k
+            pi_leibniz += 4.0 / (2.0 * k - 1.0)
+        } else {
+            ln2 -= 1.0 / k
+            pi_leibniz -= 4.0 / (2.0 * k - 1.0)
+        }
+        pi_integral += 4.0 / (1.0 + x2) * dt
+        quarter_circle += 4.0 * (1.0 - x2).sqrt() * dt
+        sqrt_integral += x.sqrt() * dt
+        inverse_sqrt_integral += 1.0 / (1.0 + x).sqrt() * dt
+
+        term_e /= k
+        e_approx += term_e
+        term_sin = -term_sin / ((2.0 * k) * (2.0 * k + 1.0))
+        sin_approx += term_sin
+        term_cos = -term_cos / ((2.0 * k - 1.0) * (2.0 * k))
+        cos_approx += term_cos
+
+        let acceleration = -4.0 * position - 0.1 * velocity
+        velocity += acceleration * dt
+        position += velocity * dt
+        population -= 0.7 * population * dt
+        energy += (0.5 * velocity * velocity + 2.0 * position * position) * dt
+        let error = x * (x + dt) - x2
+        error_squared += error * error
+    }
+
+    return BenchResult(
+        sum_x: sum_x,
+        sum_x2: sum_x2,
+        harmonic: harmonic,
+        basel: basel,
+        ln2: ln2,
+        pi_leibniz: pi_leibniz,
+        pi_integral: pi_integral,
+        quarter_circle: quarter_circle,
+        sqrt_integral: sqrt_integral,
+        inverse_sqrt_integral: inverse_sqrt_integral,
+        e_approx: e_approx,
+        sin_approx: sin_approx,
+        cos_approx: cos_approx,
+        position: position,
+        velocity: velocity,
+        population: population,
+        energy: energy,
+        error_squared: error_squared,
+    )
+}
+
+fn emit(r: BenchResult) {
+    println("sum_x={r.sum_x:.10}")
+    println("sum_x2={r.sum_x2:.10}")
+    println("harmonic={r.harmonic:.10}")
+    println("basel={r.basel:.10}")
+    println("ln2={r.ln2:.10}")
+    println("pi_leibniz={r.pi_leibniz:.10}")
+    println("pi_integral={r.pi_integral:.10}")
+    println("quarter_circle={r.quarter_circle:.10}")
+    println("sqrt_integral={r.sqrt_integral:.10}")
+    println("inverse_sqrt_integral={r.inverse_sqrt_integral:.10}")
+    println("e_approx={r.e_approx:.10}")
+    println("sin_approx={r.sin_approx:.10}")
+    println("cos_approx={r.cos_approx:.10}")
+    println("position={r.position:.10}")
+    println("velocity={r.velocity:.10}")
+    println("population={r.population:.10}")
+    println("energy={r.energy:.10}")
+    println("error_squared={r.error_squared:.10}")
+}
+
+fn main() {
+    let args = system.args()
+    if args.len() < 2 {
+        println("usage: scientific <iterations>")
+        system.exit(2)
+    }
+    let n = match args[1].trim().parse_int() {
+        Some(value) => value
+        None => {
+            println("iterations must be a positive integer")
+            system.exit(2)
+        }
+    }
+    if n <= 0 {
+        println("iterations must be a positive integer")
+        system.exit(2)
+    }
+    let warm_n = if n < 100_000 { n } else { 100_000 }
+    var warm_checksum = 0.0
+    for _ in 0..10 {
+        let warm = compute(warm_n)
+        warm_checksum += warm.sum_x + warm.harmonic + warm.energy
+    }
+    let start = time.monotonic_ns()
+    let result = compute(n)
+    let elapsed_ns = time.monotonic_ns() - start
+    println("elapsed_ns={elapsed_ns}")
+    println("warmup_checksum={warm_checksum:.10}")
+    emit(result)
+}
