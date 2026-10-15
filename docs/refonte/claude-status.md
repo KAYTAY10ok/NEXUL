@@ -1,7 +1,9 @@
 # État des travaux de Claude — NEXUL Studio
 
-Périmètre : `studio/**`, `installer/**`, `docs/studio/**` et ce fichier. Branche :
-`refonte/claude-studio` (worktree séparé). Seul Claude modifie ce document.
+Agent : **Claude Studio**. Périmètre (voir [AGENTS.md](AGENTS.md)) : `studio/src/**`,
+`studio/ui/**`, `studio/app/**`, `studio/plugins/**`, `docs/studio/**` et ce fichier ;
+`installer/**`, `studio/syntax/**` et `studio/lsp/**` sont à Claude Outils. Branche :
+`refonte/claude-studio` (worktree séparé). Seul Claude Studio modifie ce document.
 
 Dernière mise à jour : 15 octobre 2026. Répartition des rôles (Codex, Claude Studio,
 Claude Outils) : [AGENTS.md](AGENTS.md).
@@ -41,11 +43,11 @@ Aucun fichier de Codex n'a été modifié (`compiler/`, `lib/`, `tests/`, `docs/
 
 ## Problèmes rencontrés
 
-- Machine de développement sans compilateur C/C++ : les dépendances qui compilent du
-  C/C++ ne se construisent pas. Les crates `windows` récentes (raw-dylib) exigent un
-  `dlltool` fonctionnel avec la chaîne `windows-gnu` : celui de rustup n'a pas
-  d'assembleur ; `llvm-dlltool` (fourni avec LLVM) convient
-  (`-C dlltool=C:/Program Files/LLVM/bin/llvm-dlltool.exe`).
+- Les crates d'interface (GPUI, Slint) ne se construisent pas avec la chaîne
+  `windows-gnu` de rustup (import `raw-dylib`, bibliothèques d'importation manquantes) ;
+  GPUI exige aussi `fxc.exe` du Windows SDK. Les outils C++ de Visual Studio et le
+  Windows SDK ont été installés (accord de l'utilisateur) : `studio/app` se construit
+  avec la chaîne MSVC.
 
 ## Dépendances envers Codex (demandes)
 
