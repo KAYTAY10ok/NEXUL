@@ -6,8 +6,9 @@ pub mod ide;
 pub mod link;
 pub mod llvm;
 pub mod migrate;
-pub mod pkg;
+pub mod lsp;
 mod objsyms;
+pub mod pkg;
 pub mod toolchain;
 
 pub use link::OutputKind;
@@ -40,6 +41,8 @@ pub struct CompileOptions {
     pub color: bool,
     pub target: Target,
     pub release: bool,
+    /// Set `@cfg(test)` without requesting test code generation (used by `nxc lsp`).
+    pub test_cfg: bool,
     pub debug_info: bool,
     pub profile: bool,
     /// Dependencies (`nxpm`): package name and source directory.
@@ -52,7 +55,18 @@ pub struct CompileOptions {
 
 impl CompileOptions {
     pub fn new(mode: Mode) -> CompileOptions {
-        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new(), overlays: Vec::new(), edition: nxc_syntax::Edition::V0_2 }
+        CompileOptions {
+            mode,
+            color: false,
+            target: Target::host(),
+            release: false,
+            test_cfg: false,
+            debug_info: true,
+            profile: false,
+            deps: Vec::new(),
+            overlays: Vec::new(),
+            edition: nxc_syntax::Edition::V0_2,
+        }
     }
 }
 
@@ -73,15 +87,22 @@ pub struct Compilation {
 
 /// Runs the whole front end and generates LLVM IR (unless `mode` is `Check`).
 pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
-    let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "main.nx".into());
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
         Err(e) => {
             let msg = format!("cannot read `{}`: {}", path.display(), e);
-            let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
+            let name = path
+                .file_name()
+                .map(|s| s.to_string_lossy().to_string())
+                .unwrap_or_else(|| "main.nx".into());
             let mut sm = SourceMap::new();
             let file = sm.add(name, "");
-            let diagnostic = Diagnostic::error("", msg.clone()).primary(Span::new(file, 0, 0), "cannot read source file");
+            let diagnostic = Diagnostic::error("", msg.clone())
+                .primary(Span::new(file, 0, 0), "cannot read source file");
             return Compilation {
                 diagnostics: format!("error: {}\n", msg),
                 errors: 1,
@@ -96,11 +117,22 @@ pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
             };
         }
     };
-    let root_dir = path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() });
+    let root_dir = path.parent().map(|p| {
+        if p.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            p.to_path_buf()
+        }
+    });
     compile_source(&name, bytes, root_dir, opts)
 }
 
-pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opts: &CompileOptions) -> Compilation {
+pub fn compile_source(
+    name: &str,
+    bytes: Vec<u8>,
+    root_dir: Option<PathBuf>,
+    opts: &CompileOptions,
+) -> Compilation {
     let diagnostic_root_dir = root_dir.clone();
     let mut sm = SourceMap::new();
     let diags = DiagSink::new();
@@ -113,25 +145,59 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
             let f = sm.add(name, lossy);
             diags.emit(
                 Diagnostic::error("E0001", "source file is not valid UTF-8")
-                    .primary(Span::new(f, pos as u32, pos as u32 + 1), "invalid byte sequence")
+                    .primary(
+                        Span::new(f, pos as u32, pos as u32 + 1),
+                        "invalid byte sequence",
+                    )
                     .help("save the file with the UTF-8 encoding"),
             );
-            return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
+            return finish(
+                &sm,
+                &diags,
+                None,
+                vec![],
+                color,
+                diagnostic_root_dir.as_deref(),
+                &opts.target,
+            );
         }
     };
-    let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
+    let text = text
+        .strip_prefix('\u{feff}')
+        .map(|s| s.to_string())
+        .unwrap_or(text);
     let mut src = ProgramSource::new(name.to_string(), text, root_dir.clone());
     src.deps = opts.deps.clone();
     src.edition = opts.edition;
     src.overlays = opts.overlays.clone();
-    src.cfg = Cfg { target: opts.target.clone(), release: opts.release, test: opts.mode == Mode::Tests };
+    src.cfg = Cfg {
+        target: opts.target.clone(),
+        release: opts.release,
+        test: opts.test_cfg || opts.mode == Mode::Tests,
+    };
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     if diags.has_errors() {
-        return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
+        return finish(
+            &sm,
+            &diags,
+            None,
+            vec![],
+            color,
+            diagnostic_root_dir.as_deref(),
+            &opts.target,
+        );
     }
     let bodies = nxc_nir::lower_program(&prog, &sm, &diags);
     if diags.has_errors() || opts.mode == Mode::Check {
-        return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
+        return finish(
+            &sm,
+            &diags,
+            None,
+            vec![],
+            color,
+            diagnostic_root_dir.as_deref(),
+            &opts.target,
+        );
     }
     let entry = match opts.mode {
         Mode::Program => match prog.main_fn {
@@ -143,7 +209,15 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
                         .primary(Span::new(root_file, 0, 0), "the program starts with `fn main()` in this file")
                         .help("add `fn main() { ... }`, use `nxc test` to run `@test` functions, or `--lib` to build a library"),
                 );
-                return finish(&sm, &diags, None, vec![], color, diagnostic_root_dir.as_deref(), &opts.target);
+                return finish(
+                    &sm,
+                    &diags,
+                    None,
+                    vec![],
+                    color,
+                    diagnostic_root_dir.as_deref(),
+                    &opts.target,
+                );
             }
         },
         Mode::Tests => {
@@ -178,14 +252,40 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
     };
     let root = root_dir
         .and_then(|d| std::fs::canonicalize(&d).ok().or(Some(d)))
-        .map(|d| d.to_string_lossy().trim_start_matches(r"\\?\").replace('\\', "/"))
+        .map(|d| {
+            d.to_string_lossy()
+                .trim_start_matches(r"\\?\")
+                .replace('\\', "/")
+        })
         .unwrap_or_default();
-    let gen_opts = nxc_codegen_llvm::Options { target: opts.target.clone(), debug_info: opts.debug_info, optimize: opts.release, root_dir: root, profile: opts.profile };
+    let gen_opts = nxc_codegen_llvm::Options {
+        target: opts.target.clone(),
+        debug_info: opts.debug_info,
+        optimize: opts.release,
+        root_dir: root,
+        profile: opts.profile,
+    };
     let out = nxc_codegen_llvm::generate(&prog, &sm, &bodies, &entry, &gen_opts);
-    finish(&sm, &diags, Some(out), test_names, color, diagnostic_root_dir.as_deref(), &opts.target)
+    finish(
+        &sm,
+        &diags,
+        Some(out),
+        test_names,
+        color,
+        diagnostic_root_dir.as_deref(),
+        &opts.target,
+    )
 }
 
-fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<String>, color: bool, root_dir: Option<&Path>, target: &Target) -> Compilation {
+fn finish(
+    sm: &SourceMap,
+    diags: &DiagSink,
+    output: Option<Output>,
+    tests: Vec<String>,
+    color: bool,
+    root_dir: Option<&Path>,
+    target: &Target,
+) -> Compilation {
     let mut list = diags.take_sorted();
     let errors = list.iter().filter(|d| d.level == Level::Error).count();
     // Warnings are often consequences of errors (code skipped by recovery): show them
@@ -196,7 +296,15 @@ fn finish(sm: &SourceMap, diags: &DiagSink, output: Option<Output>, tests: Vec<S
     let warnings = list.len() - errors;
     let json = diagnostics_json(&list, sm);
     let json_v1 = diagnostics_json_v1(&list, sm, root_dir, target);
-    Compilation { diagnostics: render_all(&list, sm, color), errors, warnings, output: if errors == 0 { output } else { None }, tests, json, json_v1 }
+    Compilation {
+        diagnostics: render_all(&list, sm, color),
+        errors,
+        warnings,
+        output: if errors == 0 { output } else { None },
+        tests,
+        json,
+        json_v1,
+    }
 }
 
 /// A JSON string literal.
@@ -249,7 +357,12 @@ pub fn diagnostics_json(list: &[Diagnostic], sm: &SourceMap) -> String {
                 lec
             ));
         }
-        let notes: Vec<String> = d.notes.iter().map(|n| json_str(&format!("note: {}", n))).chain(d.helps.iter().map(|h| json_str(&format!("help: {}", h)))).collect();
+        let notes: Vec<String> = d
+            .notes
+            .iter()
+            .map(|n| json_str(&format!("note: {}", n)))
+            .chain(d.helps.iter().map(|h| json_str(&format!("help: {}", h))))
+            .collect();
         items.push(format!(
             "{{\"level\":\"{}\",\"code\":{},\"message\":{},\"file\":{},\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{},\"labels\":[{}],\"notes\":[{}]}}",
             if d.level == Level::Error { "error" } else { "warning" },
@@ -268,15 +381,26 @@ pub fn diagnostics_json(list: &[Diagnostic], sm: &SourceMap) -> String {
 }
 
 fn absolute_display(path: &Path, root_dir: Option<&Path>) -> String {
-    let joined = if path.is_absolute() { path.to_path_buf() } else { root_dir.unwrap_or_else(|| Path::new(".")).join(path) };
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        root_dir.unwrap_or_else(|| Path::new(".")).join(path)
+    };
     let absolute = std::fs::canonicalize(&joined).unwrap_or_else(|_| {
-        if joined.is_absolute() { joined } else { std::env::current_dir().unwrap_or_default().join(joined) }
+        if joined.is_absolute() {
+            joined
+        } else {
+            std::env::current_dir().unwrap_or_default().join(joined)
+        }
     });
     let rendered = absolute.to_string_lossy();
     if let Some(unc) = rendered.strip_prefix(r"\\?\UNC\") {
         format!(r"\\{}", unc)
     } else {
-        rendered.strip_prefix(r"\\?\").unwrap_or(&rendered).to_string()
+        rendered
+            .strip_prefix(r"\\?\")
+            .unwrap_or(&rendered)
+            .to_string()
     }
 }
 
@@ -303,14 +427,22 @@ fn range_json(sm: &SourceMap, span: Span) -> String {
         Some(file) if !span.is_dummy() => {
             let (line, col) = file.line_col(span.lo);
             let (end_line, end_col) = file.line_col(span.hi.max(span.lo));
-            format!("{{\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{}}}", line, col, end_line, end_col)
+            format!(
+                "{{\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{}}}",
+                line, col, end_line, end_col
+            )
         }
         _ => "{\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0}".into(),
     }
 }
 
 /// Diagnostics in the stable, versioned v1 envelope.
-pub fn diagnostics_json_v1(list: &[Diagnostic], sm: &SourceMap, root_dir: Option<&Path>, target: &Target) -> String {
+pub fn diagnostics_json_v1(
+    list: &[Diagnostic],
+    sm: &SourceMap,
+    root_dir: Option<&Path>,
+    target: &Target,
+) -> String {
     let items: Vec<String> = list.iter().map(|d| {
         let primary = d.primary_span().unwrap_or(Span::DUMMY);
         let path = sm.try_get(primary.file).filter(|_| !primary.is_dummy()).map(|f| diagnostic_path(&f.name, root_dir, target)).unwrap_or_default();
@@ -323,7 +455,11 @@ pub fn diagnostics_json_v1(list: &[Diagnostic], sm: &SourceMap, root_dir: Option
         format!("{{\"level\":\"{}\",\"code\":{},\"message\":{},\"path\":{},\"range\":{},\"labels\":[{}],\"notes\":[{}]}}",
             if d.level == Level::Error { "error" } else { "warning" }, json_str(d.code), json_str(&d.message), json_str(&path), range_json(sm, primary), labels.join(","), notes.join(","))
     }).collect();
-    format!("{{\"schema\":\"nexul.diagnostics\",\"version\":1,\"compiler\":{},\"diagnostics\":[{}]}}", json_str(env!("CARGO_PKG_VERSION")), items.join(","))
+    format!(
+        "{{\"schema\":\"nexul.diagnostics\",\"version\":1,\"compiler\":{},\"diagnostics\":[{}]}}",
+        json_str(env!("CARGO_PKG_VERSION")),
+        items.join(",")
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -341,11 +477,19 @@ pub struct BuildOptions {
 
 impl BuildOptions {
     pub fn new(target: Target, release: bool) -> BuildOptions {
-        BuildOptions { target, release, opt_level: None, debug_info: !release, kind: OutputKind::Executable, link_args: Vec::new() }
+        BuildOptions {
+            target,
+            release,
+            opt_level: None,
+            debug_info: !release,
+            kind: OutputKind::Executable,
+            link_args: Vec::new(),
+        }
     }
 
     fn level(&self) -> char {
-        self.opt_level.unwrap_or(if self.release { '2' } else { '0' })
+        self.opt_level
+            .unwrap_or(if self.release { '2' } else { '0' })
     }
 }
 
@@ -363,7 +507,9 @@ fn cache_dir() -> Option<PathBuf> {
     } else if let Some(d) = std::env::var_os("XDG_CACHE_HOME") {
         Path::new(&d).join("nexul")
     } else {
-        Path::new(&std::env::var_os("HOME")?).join(".cache").join("nexul")
+        Path::new(&std::env::var_os("HOME")?)
+            .join(".cache")
+            .join("nexul")
     };
     std::fs::create_dir_all(&dir).ok()?;
     Some(dir)
@@ -388,7 +534,9 @@ fn cache_key(parts: &[&str]) -> String {
 
 /// Keeps the most recent cached outputs only.
 fn trim_cache(dir: &Path, keep: usize) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     let mut entries: Vec<(std::time::SystemTime, PathBuf)> = rd
         .flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with("nx-"))
@@ -406,7 +554,11 @@ fn trim_cache(dir: &Path, keep: usize) {
 fn unique_suffix() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
-    format!("{}-{}", std::process::id(), N.fetch_add(1, Ordering::Relaxed))
+    format!(
+        "{}-{}",
+        std::process::id(),
+        N.fetch_add(1, Ordering::Relaxed)
+    )
 }
 
 /// Object file extension of a target.
@@ -431,7 +583,14 @@ fn code_model(t: &Target) -> i32 {
 pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(), String> {
     let tc = Toolchain::find();
     let t = &opts.target;
-    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows, code_model: code_model(t) };
+    let cg = llvm::CodegenOptions {
+        triple: &t.llvm_triple,
+        cpu: &t.cpu,
+        features: &t.features,
+        opt_level: opts.level(),
+        pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows,
+        code_model: code_model(t),
+    };
     llvm::compile(&tc, &output.ir, obj, &cg, false).map(|_| ())
 }
 
@@ -439,7 +598,14 @@ pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(
 pub fn optimized_ir(output: &Output, opts: &BuildOptions) -> Result<String, String> {
     let tc = Toolchain::find();
     let t = &opts.target;
-    let cg = llvm::CodegenOptions { triple: &t.llvm_triple, cpu: &t.cpu, features: &t.features, opt_level: opts.level(), pic: false, code_model: code_model(t) };
+    let cg = llvm::CodegenOptions {
+        triple: &t.llvm_triple,
+        cpu: &t.cpu,
+        features: &t.features,
+        opt_level: opts.level(),
+        pic: false,
+        code_model: code_model(t),
+    };
     llvm::compile(&tc, &output.ir, Path::new(""), &cg, true).map(|s| s.unwrap_or_default())
 }
 
@@ -448,10 +614,27 @@ pub fn optimized_ir(output: &Output, opts: &BuildOptions) -> Result<String, Stri
 /// Outputs are cached by content: building the same program again (same IR, options,
 /// target and libraries) copies the cached file instead of running LLVM and the linker.
 pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), String> {
-    let dir = out.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() }).unwrap_or_else(|| PathBuf::from("."));
-    std::fs::create_dir_all(&dir).map_err(|e| format!("cannot create `{}`: {}", dir.display(), e))?;
-    let ext = out.extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
-    let imports: Vec<String> = output.imports.iter().map(|(a, b)| format!("{}:{}", a, b)).collect();
+    let dir = out
+        .parent()
+        .map(|p| {
+            if p.as_os_str().is_empty() {
+                PathBuf::from(".")
+            } else {
+                p.to_path_buf()
+            }
+        })
+        .unwrap_or_else(|| PathBuf::from("."));
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("cannot create `{}`: {}", dir.display(), e))?;
+    let ext = out
+        .extension()
+        .map(|e| format!(".{}", e.to_string_lossy()))
+        .unwrap_or_default();
+    let imports: Vec<String> = output
+        .imports
+        .iter()
+        .map(|(a, b)| format!("{}:{}", a, b))
+        .collect();
     let cached = cache_dir().map(|d| {
         let key = cache_key(&[
             env!("CARGO_PKG_VERSION"),
@@ -466,7 +649,13 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
             &imports.join(","),
             &opts.link_args.join(" "),
             // With debug information, the executable names its `.pdb` file.
-            &if opts.debug_info { out.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default() } else { String::new() },
+            &if opts.debug_info {
+                out.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            },
             &output.ir,
         ]);
         (d.clone(), d.join(format!("nx-{}{}", key, ext)))
@@ -478,17 +667,24 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
                 let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
             }
             // Recently used outputs are the last ones removed from the cache.
-            let _ = std::fs::File::options().write(true).open(file).and_then(|f| f.set_modified(std::time::SystemTime::now()));
+            let _ = std::fs::File::options()
+                .write(true)
+                .open(file)
+                .and_then(|f| f.set_modified(std::time::SystemTime::now()));
             return Ok(());
         }
     }
     let work = std::env::temp_dir().join(format!("nexul-build-{}", unique_suffix()));
-    std::fs::create_dir_all(&work).map_err(|e| format!("cannot create `{}`: {}", work.display(), e))?;
+    std::fs::create_dir_all(&work)
+        .map_err(|e| format!("cannot create `{}`: {}", work.display(), e))?;
     let result = (|| -> Result<(), String> {
         let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
         emit_object(output, &obj, opts)?;
         let target_path = match &cached {
-            Some(_) => work.join(out.file_name().unwrap_or_else(|| std::ffi::OsStr::new("program"))),
+            Some(_) => work.join(
+                out.file_name()
+                    .unwrap_or_else(|| std::ffi::OsStr::new("program")),
+            ),
             None => out.to_path_buf(),
         };
         let tc = Toolchain::find();
@@ -513,7 +709,8 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
                 let _ = std::fs::copy(&pdb, file.with_extension("pdb"));
                 let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
             }
-            std::fs::copy(&target_path, out).map_err(|e| format!("cannot write `{}`: {}", out.display(), e))?;
+            std::fs::copy(&target_path, out)
+                .map_err(|e| format!("cannot write `{}`: {}", out.display(), e))?;
             trim_cache(d, 200);
         }
         Ok(())

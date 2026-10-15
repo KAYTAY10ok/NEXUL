@@ -18,7 +18,7 @@ Claude Main conserve la revue et l'intégration.
 | 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
-| 3 | P9 — CLI et LSP | Fondations VALIDÉ_E2E sur `origin/main` `85b68b9` : 6 tests unitaires, 6 fondations et 10 tests de conformité réussis; 1 test Web ignoré par défaut. Le serveur LSP est en cours de revalidation sur cette base. |
+| 3 | P9 — CLI et LSP | VALIDÉ_E2E sur `origin/main` `85b68b9` : `cargo +stable-x86_64-pc-windows-msvc test -p nxc` passe avec 11 tests unitaires, 6 fondations, 5 LSP et 10 de conformité; le test LSP de latence passe; le test Web reste ignoré par défaut. |
 | 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. |
 
 ## Travail courant
@@ -30,7 +30,7 @@ Claude Main conserve la revue et l'intégration.
 - Main a remplacé le brouillon `docs/spec/lsp.md` par
   `docs/adr/0009-contrat-nxc-lsp.md`, seul contrat accepté. Le prompt et les tâches
   actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
-- Aucun changement dans les worktrees de Main ni dans le cœur du compilateur.
+- Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
 
 ## Preuves L1
 

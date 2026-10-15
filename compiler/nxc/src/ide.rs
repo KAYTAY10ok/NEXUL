@@ -1,13 +1,17 @@
 //! Editor services (`nxc ide`, and the language server `nxc lsp`): information on
 //! hover, go to definition, completion, outline, references and rename, formatting.
 //!
-//! Every request analyzes the program again (the front end takes a few milliseconds),
-//! from the text being edited when it is not saved yet. Positions are 1-based lines and
-//! columns counted in Unicode scalar values, like the diagnostics.
+//! One-shot CLI requests analyze the program per invocation. The LSP server retains the
+//! resulting analysis while its open-document snapshots remain unchanged. Positions are
+//! 1-based lines and columns counted in Unicode scalar values, like the diagnostics.
 
 use crate::json_str;
-use nxc_sema::defs::{AdtId, AdtKind, ConstId, FnId, FnKind, ItemRef, ModId, Program, StaticId, TraitId};
-use nxc_sema::thir::{self, Block, Body, Callee, Expr, ExprKind as T, LocalId, LocalKind, Pat, PatKind, StmtKind as S};
+use nxc_sema::defs::{
+    AdtId, AdtKind, ConstId, FnId, FnKind, ItemRef, ModId, Program, StaticId, TraitId,
+};
+use nxc_sema::thir::{
+    self, Block, Body, Callee, Expr, ExprKind as T, LocalId, LocalKind, Pat, PatKind, StmtKind as S,
+};
 use nxc_sema::ty::{Ty, TyKind};
 use nxc_sema::ProgramSource;
 use nxc_syntax::ast::Convention;
@@ -23,6 +27,11 @@ pub struct Analysis {
     pub dir: Option<PathBuf>,
     /// File selected as the program root (the project main when this document is imported).
     pub program_path: PathBuf,
+    /// The document requested by the editor, which can differ from `program_path`.
+    pub document_path: PathBuf,
+    /// Unsaved source overlays used to build this analysis.
+    pub overlays: Vec<(PathBuf, String)>,
+    pub cfg: nxc_sema::target::Cfg,
 }
 
 /// The edition given by `nxc ide --edition` (otherwise each file and its project say).
@@ -35,29 +44,48 @@ pub fn analyze(path: &Path, text: Option<String>) -> Option<Analysis> {
 
 /// Analyzes a document with unsaved source overlays for it and any imported files.
 /// If the document is reachable from a project's main file, the full project is analyzed.
-pub fn analyze_document(path: &Path, text: Option<String>, overlays: Vec<(PathBuf, String)>) -> Option<Analysis> {
+pub fn analyze_document(
+    path: &Path,
+    text: Option<String>,
+    overlays: Vec<(PathBuf, String)>,
+) -> Option<Analysis> {
     analyze_document_with_cfg(path, text, overlays, nxc_sema::target::Cfg::default())
 }
 
 /// Like `analyze_document`, with an explicit target and build mode for `@cfg` evaluation.
-pub fn analyze_document_with_cfg(path: &Path, text: Option<String>, mut overlays: Vec<(PathBuf, String)>, cfg: nxc_sema::target::Cfg) -> Option<Analysis> {
+pub fn analyze_document_with_cfg(
+    path: &Path,
+    text: Option<String>,
+    mut overlays: Vec<(PathBuf, String)>,
+    cfg: nxc_sema::target::Cfg,
+) -> Option<Analysis> {
     let text = match text {
         Some(text) => {
             set_overlay(&mut overlays, path, text.clone());
             text
         }
-        None => overlays.iter().find(|(candidate, _)| same_path(candidate, path)).map(|(_, text)| text.clone())
+        None => overlays
+            .iter()
+            .find(|(candidate, _)| same_path(candidate, path))
+            .map(|(_, text)| text.clone())
             .or_else(|| std::fs::read_to_string(path).ok())?,
     };
     if let Some(project) = crate::pkg::find_project(path) {
         if let Ok(manifest) = crate::pkg::load_manifest(&project) {
             let main_path = crate::pkg::main_file(&project, &manifest);
             if !same_path(path, &main_path) && main_path.is_file() {
-                if let Some(main_text) = overlays.iter().find(|(candidate, _)| same_path(candidate, &main_path)).map(|(_, text)| text.clone())
-                    .or_else(|| std::fs::read_to_string(&main_path).ok()) {
-                    if let Some(mut analysis) = analyze_root(&main_path, main_text, overlays.clone(), cfg.clone()) {
+                if let Some(main_text) = overlays
+                    .iter()
+                    .find(|(candidate, _)| same_path(candidate, &main_path))
+                    .map(|(_, text)| text.clone())
+                    .or_else(|| std::fs::read_to_string(&main_path).ok())
+                {
+                    if let Some(mut analysis) =
+                        analyze_root(&main_path, main_text, overlays.clone(), cfg.clone())
+                    {
                         if let Some(file) = loaded_file_for_path(&analysis, path) {
                             analysis.file = file;
+                            analysis.document_path = path.to_path_buf();
                             return Some(analysis);
                         }
                     }
@@ -70,7 +98,10 @@ pub fn analyze_document_with_cfg(path: &Path, text: Option<String>, mut overlays
 }
 
 fn set_overlay(overlays: &mut Vec<(PathBuf, String)>, path: &Path, text: String) {
-    if let Some((_, existing)) = overlays.iter_mut().find(|(candidate, _)| same_path(candidate, path)) {
+    if let Some((_, existing)) = overlays
+        .iter_mut()
+        .find(|(candidate, _)| same_path(candidate, path))
+    {
         *existing = text;
     } else {
         overlays.push((path.to_path_buf(), text));
@@ -78,14 +109,22 @@ fn set_overlay(overlays: &mut Vec<(PathBuf, String)>, path: &Path, text: String)
 }
 
 fn normalized_path(path: &Path) -> PathBuf {
-    let absolute = if path.is_absolute() { path.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(path) };
-    if let Ok(path) = std::fs::canonicalize(&absolute) { return path; }
+    let absolute = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        std::env::current_dir().unwrap_or_default().join(path)
+    };
+    if let Ok(path) = std::fs::canonicalize(&absolute) {
+        return path;
+    }
     let mut normalized = PathBuf::new();
     for component in absolute.components() {
         use std::path::Component;
         match component {
             Component::CurDir => {}
-            Component::ParentDir => { normalized.pop(); }
+            Component::ParentDir => {
+                normalized.pop();
+            }
             other => normalized.push(other.as_os_str()),
         }
     }
@@ -94,37 +133,76 @@ fn normalized_path(path: &Path) -> PathBuf {
 
 fn same_path(a: &Path, b: &Path) -> bool {
     #[cfg(windows)]
-    { normalized_path(a).to_string_lossy().eq_ignore_ascii_case(&normalized_path(b).to_string_lossy()) }
+    {
+        normalized_path(a)
+            .to_string_lossy()
+            .eq_ignore_ascii_case(&normalized_path(b).to_string_lossy())
+    }
     #[cfg(not(windows))]
-    { normalized_path(a) == normalized_path(b) }
+    {
+        normalized_path(a) == normalized_path(b)
+    }
 }
 
 fn loaded_file_for_path(analysis: &Analysis, path: &Path) -> Option<FileId> {
     analysis.prog.modules.iter().find_map(|module| {
         let file = analysis.sm.try_get(module.file)?;
-        if file.name.starts_with('<') { return None; }
+        if file.name.starts_with('<') {
+            return None;
+        }
         let source_path = Path::new(&file.name);
-        let candidate = if source_path.is_absolute() { source_path.to_path_buf() }
-            else { analysis.dir.as_deref().unwrap_or_else(|| Path::new(".")).join(source_path) };
+        let candidate = if source_path.is_absolute() {
+            source_path.to_path_buf()
+        } else {
+            analysis
+                .dir
+                .as_deref()
+                .unwrap_or_else(|| Path::new("."))
+                .join(source_path)
+        };
         same_path(&candidate, path).then_some(module.file)
     })
 }
 
-fn analyze_root(path: &Path, text: String, overlays: Vec<(PathBuf, String)>, cfg: nxc_sema::target::Cfg) -> Option<Analysis> {
+fn analyze_root(
+    path: &Path,
+    text: String,
+    overlays: Vec<(PathBuf, String)>,
+    cfg: nxc_sema::target::Cfg,
+) -> Option<Analysis> {
     let edition = EDITION.get().copied().unwrap_or_else(|| crate::pkg::edition_for(path, &text));
-    let name = path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| "main.nx".into());
-    let dir = path.parent().map(|p| if p.as_os_str().is_empty() { PathBuf::from(".") } else { p.to_path_buf() });
+    let name = path
+        .file_name()
+        .map(|s| s.to_string_lossy().to_string())
+        .unwrap_or_else(|| "main.nx".into());
+    let dir = path.parent().map(|p| {
+        if p.as_os_str().is_empty() {
+            PathBuf::from(".")
+        } else {
+            p.to_path_buf()
+        }
+    });
     let mut sm = SourceMap::new();
     let diags = DiagSink::new();
     let mut src = ProgramSource::new(name, text, dir.clone());
     src.edition = edition;
-    src.overlays = overlays;
-    src.deps = crate::pkg::deps_for(path).ok()?;
-    src.cfg = cfg;
+    src.overlays = overlays.clone();
+    src.deps = crate::pkg::deps_for_lsp(path).ok()?;
+    src.cfg = cfg.clone();
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     let root = prog.root;
     let file = prog.modules.get(root.idx())?.file;
-    Some(Analysis { sm, prog, file, root, dir, program_path: path.to_path_buf() })
+    Some(Analysis {
+        sm,
+        prog,
+        file,
+        root,
+        dir,
+        program_path: path.to_path_buf(),
+        document_path: path.to_path_buf(),
+        overlays,
+        cfg,
+    })
 }
 
 impl Analysis {
@@ -142,7 +220,11 @@ impl Analysis {
             Some(f) if !span.is_dummy() => {
                 let (l1, c1) = f.line_col(span.lo);
                 let (l2, c2) = f.line_col(span.hi.max(span.lo));
-                let path = if span.file == self.file { String::new() } else { f.name.clone() };
+                let path = if span.file == self.file {
+                    String::new()
+                } else {
+                    f.name.clone()
+                };
                 format!(
                     "{{\"file\":{},\"line\":{},\"col\":{},\"end_line\":{},\"end_col\":{},\"std\":{}}}",
                     json_str(&path),
@@ -225,7 +307,9 @@ fn word_at(text: &str, offset: usize) -> Option<(usize, usize)> {
 
 /// The `///` comment lines above the line of `span`, skipping attributes.
 pub fn doc_comment(sm: &SourceMap, span: Span) -> String {
-    let Some(f) = sm.try_get(span.file) else { return String::new() };
+    let Some(f) = sm.try_get(span.file) else {
+        return String::new();
+    };
     if span.is_dummy() {
         return String::new();
     }
@@ -275,12 +359,16 @@ pub fn walk_block<'a>(b: &'a Block, f: &mut dyn FnMut(Node<'a>)) {
                 walk_expr(cond, f);
                 walk_block(body, f);
             }
-            S::ForRange { start, end, body, .. } => {
+            S::ForRange {
+                start, end, body, ..
+            } => {
                 walk_expr(start, f);
                 walk_expr(end, f);
                 walk_block(body, f);
             }
-            S::ForEach { pat, iter, body, .. } => {
+            S::ForEach {
+                pat, iter, body, ..
+            } => {
                 walk_expr(iter, f);
                 walk_pat(pat, f);
                 walk_block(body, f);
@@ -296,7 +384,9 @@ fn walk_pat<'a>(p: &'a Pat, f: &mut dyn FnMut(Node<'a>)) {
     f(Node::Pat(p));
     match &p.kind {
         PatKind::Tuple(ps) | PatKind::Or(ps) => ps.iter().for_each(|q| walk_pat(q, f)),
-        PatKind::Variant { fields, .. } | PatKind::Struct { fields, .. } => fields.iter().for_each(|q| walk_pat(q, f)),
+        PatKind::Variant { fields, .. } | PatKind::Struct { fields, .. } => {
+            fields.iter().for_each(|q| walk_pat(q, f))
+        }
         _ => {}
     }
 }
@@ -304,7 +394,14 @@ fn walk_pat<'a>(p: &'a Pat, f: &mut dyn FnMut(Node<'a>)) {
 fn walk_expr<'a>(e: &'a Expr, f: &mut dyn FnMut(Node<'a>)) {
     f(Node::Expr(e));
     match &e.kind {
-        T::Unary(_, x) | T::Cast(x) | T::Field(x, _) | T::Try(x, _) | T::Move(x) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => walk_expr(x, f),
+        T::Unary(_, x)
+        | T::Cast(x)
+        | T::Field(x, _)
+        | T::Try(x, _)
+        | T::Move(x)
+        | T::ArrayRepeat(x, _)
+        | T::FnToClosure(x)
+        | T::ToDyn(x) => walk_expr(x, f),
         T::Binary(_, a, b) | T::Index(a, b) => {
             walk_expr(a, f);
             walk_expr(b, f);
@@ -319,7 +416,9 @@ fn walk_expr<'a>(e: &'a Expr, f: &mut dyn FnMut(Node<'a>)) {
             }
             args.iter().for_each(|a| walk_expr(&a.expr, f));
         }
-        T::Adt { fields: xs, .. } | T::Tuple(xs) | T::Array(xs) => xs.iter().for_each(|x| walk_expr(x, f)),
+        T::Adt { fields: xs, .. } | T::Tuple(xs) | T::Array(xs) => {
+            xs.iter().for_each(|x| walk_expr(x, f))
+        }
         T::If { cond, then, else_ } => {
             walk_expr(cond, f);
             walk_block(then, f);
@@ -327,7 +426,13 @@ fn walk_expr<'a>(e: &'a Expr, f: &mut dyn FnMut(Node<'a>)) {
                 walk_expr(x, f);
             }
         }
-        T::IfLet { pat, scrutinee, then, else_, .. } => {
+        T::IfLet {
+            pat,
+            scrutinee,
+            then,
+            else_,
+            ..
+        } => {
             walk_expr(scrutinee, f);
             walk_pat(pat, f);
             walk_block(then, f);
@@ -335,7 +440,9 @@ fn walk_expr<'a>(e: &'a Expr, f: &mut dyn FnMut(Node<'a>)) {
                 walk_expr(x, f);
             }
         }
-        T::Match { scrutinee, arms, .. } => {
+        T::Match {
+            scrutinee, arms, ..
+        } => {
             walk_expr(scrutinee, f);
             for a in arms {
                 walk_pat(&a.pat, f);
@@ -383,7 +490,8 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
     let word = &text[ws..we];
     let p = &a.prog;
     let mut best: Option<(Target, Span, Option<Ty>)> = None;
-    let consider = |t: Target, span: Span, ty: Option<Ty>, best: &mut Option<(Target, Span, Option<Ty>)>| {
+    let consider =
+        |t: Target, span: Span, ty: Option<Ty>, best: &mut Option<(Target, Span, Option<Ty>)>| {
         if span.file != a.file || span.lo > offset || span.hi < offset {
             return;
         }
@@ -395,8 +503,17 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
     for body in a.user_bodies() {
         // Declarations of locals and parameters.
         for (i, l) in body.locals.iter().enumerate() {
-            if l.span.file == a.file && l.span.lo as usize <= ws && we <= l.span.hi as usize && l.name == word {
-                consider(Target::Local(body.fn_id, i as LocalId), l.span, Some(l.ty), &mut best);
+            if l.span.file == a.file
+                && l.span.lo as usize <= ws
+                && we <= l.span.hi as usize
+                && l.name == word
+            {
+                consider(
+                    Target::Local(body.fn_id, i as LocalId),
+                    l.span,
+                    Some(l.ty),
+                    &mut best,
+                );
             }
         }
         let mut visit = |n: Node| match n {
@@ -405,12 +522,26 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
                     return;
                 }
                 match &e.kind {
-                    T::Local(l) if body.locals[*l as usize].name == word => consider(Target::Local(body.fn_id, *l), e.span, Some(e.ty), &mut best),
-                    T::Call { callee: Callee::Fn(f, _), .. } if p.func(*f).name == word => consider(Target::Fn(*f), wspan, None, &mut best),
-                    T::FnRef(f) if p.func(*f).name == word => consider(Target::Fn(*f), e.span, Some(e.ty), &mut best),
+                    T::Local(l) if body.locals[*l as usize].name == word => {
+                        consider(Target::Local(body.fn_id, *l), e.span, Some(e.ty), &mut best)
+                    }
+                    T::Call {
+                        callee: Callee::Fn(f, _),
+                        ..
+                    } if p.func(*f).name == word => {
+                        consider(Target::Fn(*f), wspan, None, &mut best)
+                    }
+                    T::FnRef(f) if p.func(*f).name == word => {
+                        consider(Target::Fn(*f), e.span, Some(e.ty), &mut best)
+                    }
                     T::Field(base, i) => {
                         if let Some((adt, _)) = p.tcx.as_adt(base.ty) {
-                            if p.adt(adt).fields().get(*i as usize).map_or(false, |fd| fd.name == word) && !(base.span.lo as usize <= ws && we <= base.span.hi as usize) {
+                            if p.adt(adt)
+                                .fields()
+                                .get(*i as usize)
+                                .map_or(false, |fd| fd.name == word)
+                                && !(base.span.lo as usize <= ws && we <= base.span.hi as usize)
+                            {
                                 consider(Target::Field(adt, *i), wspan, Some(e.ty), &mut best);
                             }
                         }
@@ -418,20 +549,33 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
                     T::Adt { adt, variant, .. } => {
                         let d = p.adt(*adt);
                         match variant {
-                            Some(v) if d.variants()[*v as usize].name == word => consider(Target::Variant(*adt, *v), wspan, Some(e.ty), &mut best),
-                            _ if d.name == word => consider(Target::Adt(*adt), wspan, Some(e.ty), &mut best),
+                            Some(v) if d.variants()[*v as usize].name == word => {
+                                consider(Target::Variant(*adt, *v), wspan, Some(e.ty), &mut best)
+                            }
+                            _ if d.name == word => {
+                                consider(Target::Adt(*adt), wspan, Some(e.ty), &mut best)
+                            }
                             _ => {}
                         }
                     }
-                    T::Const(c) if p.consts[c.idx()].name == word => consider(Target::Const(*c), e.span, Some(e.ty), &mut best),
-                    T::Static(s) if p.statics[s.idx()].name == word => consider(Target::Static(*s), e.span, Some(e.ty), &mut best),
+                    T::Const(c) if p.consts[c.idx()].name == word => {
+                        consider(Target::Const(*c), e.span, Some(e.ty), &mut best)
+                    }
+                    T::Static(s) if p.statics[s.idx()].name == word => {
+                        consider(Target::Static(*s), e.span, Some(e.ty), &mut best)
+                    }
                     _ => {}
                 }
             }
             Node::Pat(pt) => {
                 if let PatKind::Binding(l) = pt.kind {
                     if body.locals[l as usize].name == word {
-                        consider(Target::Local(body.fn_id, l), pt.span, Some(pt.ty), &mut best);
+                        consider(
+                            Target::Local(body.fn_id, l),
+                            pt.span,
+                            Some(pt.ty),
+                            &mut best,
+                        );
                     }
                 }
                 if let PatKind::Variant { adt, variant, .. } = pt.kind {
@@ -458,11 +602,19 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
         }
         for (j, fd) in d.fields().iter().enumerate() {
             if fd.span.file == a.file && fd.span.lo as usize <= ws && we <= fd.span.hi as usize {
-                return Some((Target::Field(AdtId(i as u32), j as u32), fd.span, Some(fd.ty)));
+                return Some((
+                    Target::Field(AdtId(i as u32), j as u32),
+                    fd.span,
+                    Some(fd.ty),
+                ));
             }
         }
         for (j, v) in d.variants().iter().enumerate() {
-            if v.span.file == a.file && v.span.lo as usize <= ws && we <= v.span.hi as usize && v.name == word {
+            if v.span.file == a.file
+                && v.span.lo as usize <= ws
+                && we <= v.span.hi as usize
+                && v.name == word
+            {
                 return Some((Target::Variant(AdtId(i as u32), j as u32), v.span, None));
             }
         }
@@ -494,7 +646,11 @@ pub fn target_at(a: &Analysis, offset: u32) -> Option<(Target, Span, Option<Ty>)
 pub fn definition_span(a: &Analysis, t: Target) -> Span {
     let p = &a.prog;
     match t {
-        Target::Local(f, l) => p.bodies.get(&f).map(|b| b.locals[l as usize].span).unwrap_or(Span::DUMMY),
+        Target::Local(f, l) => p
+            .bodies
+            .get(&f)
+            .map(|b| b.locals[l as usize].span)
+            .unwrap_or(Span::DUMMY),
         Target::Fn(f) => p.func(f).span,
         Target::Field(d, i) => p.adt(d).fields()[i as usize].span,
         Target::Adt(d) => p.adt(d).span,
@@ -521,8 +677,17 @@ pub fn fn_signature(p: &Program, f: FnId) -> String {
         let mut gs = Vec::new();
         for (k, g) in own.iter().enumerate() {
             let idx = (fd.n_owner_generics + k) as u32;
-            let bounds: Vec<String> = fd.bounds.iter().filter(|b| b.param == idx).map(|b| p.traits[b.trait_id.idx()].name.clone()).collect();
-            gs.push(if bounds.is_empty() { g.to_string() } else { format!("{}: {}", g, bounds.join(" + ")) });
+            let bounds: Vec<String> = fd
+                .bounds
+                .iter()
+                .filter(|b| b.param == idx)
+                .map(|b| p.traits[b.trait_id.idx()].name.clone())
+                .collect();
+            gs.push(if bounds.is_empty() {
+                g.to_string()
+            } else {
+                format!("{}: {}", g, bounds.join(" + "))
+            });
         }
         s.push_str(&format!("[{}]", gs.join(", ")));
     }
@@ -556,7 +721,9 @@ pub fn describe(a: &Analysis, t: Target, ty: Option<Ty>) -> (String, String) {
     let doc_of = |span: Span| doc_comment(&a.sm, span);
     match t {
         Target::Local(f, l) => {
-            let Some(b) = p.bodies.get(&f) else { return (String::new(), String::new()) };
+            let Some(b) = p.bodies.get(&f) else {
+                return (String::new(), String::new());
+            };
             let d = &b.locals[l as usize];
             let names = &p.func(f).generics;
             let kw = match d.kind {
@@ -567,21 +734,56 @@ pub fn describe(a: &Analysis, t: Target, ty: Option<Ty>) -> (String, String) {
                 LocalKind::RefMut => "var ",
                 _ => "let ",
             };
-            let what = if matches!(d.kind, LocalKind::Param(_)) { "parameter" } else { "variable" };
-            (format!("{}{}: {}", kw, d.name, p.ty_str_with(ty.unwrap_or(d.ty), names)), what.to_string())
+            let what = if matches!(d.kind, LocalKind::Param(_)) {
+                "parameter"
+            } else {
+                "variable"
+            };
+            (
+                format!(
+                    "{}{}: {}",
+                    kw,
+                    d.name,
+                    p.ty_str_with(ty.unwrap_or(d.ty), names)
+                ),
+                what.to_string(),
+            )
         }
         Target::Fn(f) => (fn_signature(p, f), doc_of(p.func(f).span)),
         Target::Field(d, i) => {
             let adt = p.adt(d);
             let fd = &adt.fields()[i as usize];
-            (format!("{}{}: {}    (field of {})", if fd.is_pub { "pub " } else { "" }, fd.name, p.ty_str_with(fd.ty, &adt.generics), adt.name), doc_of(fd.span))
+            (
+                format!(
+                    "{}{}: {}    (field of {})",
+                    if fd.is_pub { "pub " } else { "" },
+                    fd.name,
+                    p.ty_str_with(fd.ty, &adt.generics),
+                    adt.name
+                ),
+                doc_of(fd.span),
+            )
         }
         Target::Adt(d) => {
             let adt = p.adt(d);
-            let gen = if adt.generics.is_empty() { String::new() } else { format!("[{}]", adt.generics.join(", ")) };
+            let gen = if adt.generics.is_empty() {
+                String::new()
+            } else {
+                format!("[{}]", adt.generics.join(", "))
+            };
             let body = match &adt.kind {
                 AdtKind::Struct { fields } => {
-                    let fs: Vec<String> = fields.iter().map(|f| format!("    {}{}: {}", if f.is_pub { "pub " } else { "" }, f.name, p.ty_str_with(f.ty, &adt.generics))).collect();
+                    let fs: Vec<String> = fields
+                        .iter()
+                        .map(|f| {
+                            format!(
+                                "    {}{}: {}",
+                                if f.is_pub { "pub " } else { "" },
+                                f.name,
+                                p.ty_str_with(f.ty, &adt.generics)
+                            )
+                        })
+                        .collect();
                     format!("struct {}{} {{\n{}\n}}", adt.name, gen, fs.join("\n"))
                 }
                 AdtKind::Enum { variants } => {
@@ -591,7 +793,15 @@ pub fn describe(a: &Analysis, t: Target, ty: Option<Ty>) -> (String, String) {
                             if v.fields.is_empty() {
                                 format!("    {}", v.name)
                             } else {
-                                format!("    {}({})", v.name, v.fields.iter().map(|&t| p.ty_str_with(t, &adt.generics)).collect::<Vec<_>>().join(", "))
+                                format!(
+                                    "    {}({})",
+                                    v.name,
+                                    v.fields
+                                        .iter()
+                                        .map(|&t| p.ty_str_with(t, &adt.generics))
+                                        .collect::<Vec<_>>()
+                                        .join(", ")
+                                )
                             }
                         })
                         .collect();
@@ -603,25 +813,80 @@ pub fn describe(a: &Analysis, t: Target, ty: Option<Ty>) -> (String, String) {
         Target::Variant(d, v) => {
             let adt = p.adt(d);
             let var = &adt.variants()[v as usize];
-            let fields = if var.fields.is_empty() { String::new() } else { format!("({})", var.fields.iter().map(|&t| p.ty_str_with(t, &adt.generics)).collect::<Vec<_>>().join(", ")) };
-            (format!("{}.{}{}", adt.name, var.name, fields), doc_of(var.span))
+            let fields = if var.fields.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    "({})",
+                    var.fields
+                        .iter()
+                        .map(|&t| p.ty_str_with(t, &adt.generics))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                )
+            };
+            (
+                format!("{}.{}{}", adt.name, var.name, fields),
+                doc_of(var.span),
+            )
         }
         Target::Const(c) => {
             let cd = &p.consts[c.idx()];
-            let v = p.const_values.get(&c).map(|v| format!(" = {}", const_text(v))).unwrap_or_default();
-            (format!("const {}: {}{}", cd.name, p.ty_str(cd.ty), v), doc_of(cd.span))
+            let v = p
+                .const_values
+                .get(&c)
+                .map(|v| format!(" = {}", const_text(v)))
+                .unwrap_or_default();
+            (
+                format!("const {}: {}{}", cd.name, p.ty_str(cd.ty), v),
+                doc_of(cd.span),
+            )
         }
         Target::Static(s) => {
             let sd = &p.statics[s.idx()];
-            (format!("static {}{}: {}", if sd.mutable { "var " } else { "" }, sd.name, p.ty_str(sd.ty)), doc_of(sd.span))
+            (
+                format!(
+                    "static {}{}: {}",
+                    if sd.mutable { "var " } else { "" },
+                    sd.name,
+                    p.ty_str(sd.ty)
+                ),
+                doc_of(sd.span),
+            )
         }
         Target::Trait(t) => {
             let td = &p.traits[t.idx()];
-            let sup = if td.supertraits.is_empty() { String::new() } else { format!(": {}", td.supertraits.iter().map(|s| p.traits[s.idx()].name.clone()).collect::<Vec<_>>().join(" + ")) };
-            let ms: Vec<String> = td.methods.iter().map(|m| format!("    {}", fn_signature(p, m.decl).replacen(&format!("{}.", td.name), "", 1))).collect();
-            (format!("trait {}{} {{\n{}\n}}", td.name, sup, ms.join("\n")), doc_of(td.span))
+            let sup = if td.supertraits.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ": {}",
+                    td.supertraits
+                        .iter()
+                        .map(|s| p.traits[s.idx()].name.clone())
+                        .collect::<Vec<_>>()
+                        .join(" + ")
+                )
+            };
+            let ms: Vec<String> = td
+                .methods
+                .iter()
+                .map(|m| {
+                    format!(
+                        "    {}",
+                        fn_signature(p, m.decl).replacen(&format!("{}.", td.name), "", 1)
+                    )
+                })
+                .collect();
+            (
+                format!("trait {}{} {{\n{}\n}}", td.name, sup, ms.join("\n")),
+                doc_of(td.span),
+            )
         }
-        Target::Module(m) => (format!("module {}", p.modules[m.idx()].path), module_doc(a, m)),
+        Target::Module(m) => (
+            format!("module {}", p.modules[m.idx()].path),
+            module_doc(a, m),
+        ),
     }
 }
 
@@ -657,7 +922,11 @@ pub fn hover(a: &Analysis, line: usize, col: usize) -> String {
     match target_at(a, off) {
         Some((t, _, ty)) => {
             let (code, doc) = describe(a, t, ty);
-            format!("{{\"code\":{},\"doc\":{}}}", json_str(&code), json_str(&doc))
+            format!(
+                "{{\"code\":{},\"doc\":{}}}",
+                json_str(&code),
+                json_str(&doc)
+            )
         }
         None => "null".into(),
     }
@@ -675,7 +944,9 @@ pub fn definition(a: &Analysis, line: usize, col: usize) -> String {
 /// of the program (not the standard library).
 pub fn references(a: &Analysis, line: usize, col: usize) -> Vec<Span> {
     let off = a.offset(line, col);
-    let Some((t, _, _)) = target_at(a, off) else { return vec![] };
+    let Some((t, _, _)) = target_at(a, off) else {
+        return vec![];
+    };
     let p = &a.prog;
     let mut out = vec![definition_span(a, t)];
     let name_span = |sm: &SourceMap, span: Span, name: &str| -> Option<Span> {
@@ -703,19 +974,45 @@ pub fn references(a: &Analysis, line: usize, col: usize) -> Vec<Span> {
         let mut visit = |n: Node| match n {
             Node::Expr(e) => {
                 let hit = match (&e.kind, t) {
-                    (T::Local(l), Target::Local(f, m)) => body.fn_id == f && *l == m || closure_shares(p, body.fn_id, f) && *l == m,
-                    (T::Call { callee: Callee::Fn(g, _), .. }, Target::Fn(f)) => *g == f,
+                    (T::Local(l), Target::Local(f, m)) => {
+                        body.fn_id == f && *l == m || closure_shares(p, body.fn_id, f) && *l == m
+                    }
+                    (
+                        T::Call {
+                            callee: Callee::Fn(g, _),
+                            ..
+                        },
+                        Target::Fn(f),
+                    ) => *g == f,
                     (T::FnRef(g), Target::Fn(f)) => *g == f,
-                    (T::Field(base, i), Target::Field(d, j)) => *i == j && p.tcx.as_adt(base.ty).map(|x| x.0) == Some(d),
-                    (T::Adt { adt, variant: None, .. }, Target::Adt(d)) => *adt == d,
-                    (T::Adt { adt, variant: Some(v), .. }, Target::Variant(d, w)) => *adt == d && *v == w,
+                    (T::Field(base, i), Target::Field(d, j)) => {
+                        *i == j && p.tcx.as_adt(base.ty).map(|x| x.0) == Some(d)
+                    }
+                    (
+                        T::Adt {
+                            adt, variant: None, ..
+                        },
+                        Target::Adt(d),
+                    ) => *adt == d,
+                    (
+                        T::Adt {
+                            adt,
+                            variant: Some(v),
+                            ..
+                        },
+                        Target::Variant(d, w),
+                    ) => *adt == d && *v == w,
                     (T::Const(c), Target::Const(d)) => *c == d,
                     (T::Static(s), Target::Static(d)) => *s == d,
                     _ => false,
                 };
                 if hit {
                     let name = match t {
-                        Target::Local(f, l) => p.bodies.get(&f).map(|b| b.locals[l as usize].name.clone()).unwrap_or_default(),
+                        Target::Local(f, l) => p
+                            .bodies
+                            .get(&f)
+                            .map(|b| b.locals[l as usize].name.clone())
+                            .unwrap_or_default(),
                         Target::Fn(f) => p.func(f).name.clone(),
                         Target::Field(d, i) => p.adt(d).fields()[i as usize].name.clone(),
                         Target::Adt(d) => p.adt(d).name.clone(),
@@ -749,9 +1046,15 @@ pub fn references(a: &Analysis, line: usize, col: usize) -> Vec<Span> {
 fn closure_shares(p: &Program, body_fn: FnId, f: FnId) -> bool {
     let a = p.func(body_fn);
     let b = p.func(f);
-    (matches!(a.kind, FnKind::Closure { .. }) || matches!(b.kind, FnKind::Closure { .. })) && a.span.file == b.span.file && {
+    (matches!(a.kind, FnKind::Closure { .. }) || matches!(b.kind, FnKind::Closure { .. }))
+        && a.span.file == b.span.file
+        && {
         // The closure is inside the function (or the reverse).
-        let (outer, inner) = if matches!(a.kind, FnKind::Closure { .. }) { (f, body_fn) } else { (body_fn, f) };
+            let (outer, inner) = if matches!(a.kind, FnKind::Closure { .. }) {
+                (f, body_fn)
+            } else {
+                (body_fn, f)
+            };
         match (p.bodies.get(&outer), p.bodies.get(&inner)) {
             (Some(o), Some(i)) => o.span.lo <= i.span.lo && i.span.hi <= o.span.hi,
             _ => false,
@@ -760,20 +1063,33 @@ fn closure_shares(p: &Program, body_fn: FnId, f: FnId) -> bool {
 }
 
 pub fn references_json(a: &Analysis, refs: &[Span]) -> String {
-    let items: Vec<String> = refs.iter().filter(|s| !a.sm.get(s.file).name.starts_with('<')).map(|s| a.pos_json(*s)).collect();
+    let items: Vec<String> = refs
+        .iter()
+        .filter(|s| !a.sm.get(s.file).name.starts_with('<'))
+        .map(|s| a.pos_json(*s))
+        .collect();
     format!("[{}]", items.join(","))
 }
 
 /// The edits renaming the entity at the position.
 pub fn rename(a: &Analysis, line: usize, col: usize, new_name: &str) -> Result<String, String> {
-    if new_name.is_empty() || !new_name.chars().all(is_ident) || new_name.chars().next().map_or(true, |c| c.is_ascii_digit()) {
+    if new_name.is_empty()
+        || !new_name.chars().all(is_ident)
+        || new_name.chars().next().map_or(true, |c| c.is_ascii_digit())
+    {
         return Err(format!("`{}` is not a valid name", new_name));
     }
     if nxc_syntax::token::keyword(new_name).is_some() {
-        return Err(format!("`{}` is a keyword and cannot be used as a name", new_name));
+        return Err(format!(
+            "`{}` is a keyword and cannot be used as a name",
+            new_name
+        ));
     }
     if nxc_syntax::token::RESERVED.contains(&new_name) {
-        return Err(format!("`{}` is reserved for a future version and cannot be used as a name", new_name));
+        return Err(format!(
+            "`{}` is reserved for a future version and cannot be used as a name",
+            new_name
+        ));
     }
     let refs = references(a, line, col);
     if refs.is_empty() {
@@ -783,6 +1099,22 @@ pub fn rename(a: &Analysis, line: usize, col: usize, new_name: &str) -> Result<S
         return Err("names of the standard library cannot be renamed".into());
     }
     Ok(references_json(a, &refs))
+}
+
+/// The name and source span an editor may use for a rename operation.
+pub fn prepare_rename(a: &Analysis, line: usize, col: usize) -> Option<(String, Span)> {
+    let offset = a.offset(line, col);
+    let (target, span, _) = target_at(a, offset)?;
+    let definition = definition_span(a, target);
+    if definition.is_dummy()
+        || a.sm
+            .try_get(definition.file)
+            .map_or(true, |file| file.name.starts_with('<'))
+    {
+        return None;
+    }
+    let name = a.sm.snippet(span).to_string();
+    (!name.is_empty()).then_some((name, span))
 }
 
 // ---------------------------------------------------------------------------
@@ -797,14 +1129,35 @@ pub fn symbols(a: &Analysis) -> String {
     };
     let sym = |name: &str, kind: &str, detail: &str, s: Span, children: String| {
         let (l, c) = pos(s);
-        format!("{{\"name\":{},\"kind\":\"{}\",\"detail\":{},\"line\":{},\"col\":{},\"children\":{}}}", json_str(name), kind, json_str(detail), l, c, children)
+        format!(
+            "{{\"name\":{},\"kind\":\"{}\",\"detail\":{},\"line\":{},\"col\":{},\"children\":{}}}",
+            json_str(name),
+            kind,
+            json_str(detail),
+            l,
+            c,
+            children
+        )
     };
     for (i, f) in p.fns.iter().enumerate() {
-        if f.span.file != a.file || f.owner.is_some() || f.self_ty.is_some() || matches!(f.kind, FnKind::Closure { .. }) {
+        if f.span.file != a.file
+            || f.owner.is_some()
+            || f.self_ty.is_some()
+            || matches!(f.kind, FnKind::Closure { .. })
+        {
             continue;
         }
         let kind = if f.is_test { "test" } else { "function" };
-        items.push((f.span.lo, sym(&f.name, kind, &fn_signature(p, FnId(i as u32)), f.span, "[]".into())));
+        items.push((
+            f.span.lo,
+            sym(
+                &f.name,
+                kind,
+                &fn_signature(p, FnId(i as u32)),
+                f.span,
+                "[]".into(),
+            ),
+        ));
     }
     for (i, d) in p.adts.iter().enumerate() {
         if d.span.file != a.file {
@@ -812,39 +1165,102 @@ pub fn symbols(a: &Analysis) -> String {
         }
         let mut kids: Vec<(u32, String)> = Vec::new();
         for f in d.fields() {
-            kids.push((f.span.lo, sym(&f.name, "field", &p.ty_str_with(f.ty, &d.generics), f.span, "[]".into())));
+            kids.push((
+                f.span.lo,
+                sym(
+                    &f.name,
+                    "field",
+                    &p.ty_str_with(f.ty, &d.generics),
+                    f.span,
+                    "[]".into(),
+                ),
+            ));
         }
         for v in d.variants() {
             kids.push((v.span.lo, sym(&v.name, "variant", "", v.span, "[]".into())));
         }
         for (j, f) in p.fns.iter().enumerate() {
-            if f.owner == Some(AdtId(i as u32)) && f.span.file == a.file && !matches!(f.kind, FnKind::Closure { .. }) {
-                kids.push((f.span.lo, sym(&f.name, "method", &fn_signature(p, FnId(j as u32)), f.span, "[]".into())));
+            if f.owner == Some(AdtId(i as u32))
+                && f.span.file == a.file
+                && !matches!(f.kind, FnKind::Closure { .. })
+            {
+                kids.push((
+                    f.span.lo,
+                    sym(
+                        &f.name,
+                        "method",
+                        &fn_signature(p, FnId(j as u32)),
+                        f.span,
+                        "[]".into(),
+                    ),
+                ));
             }
         }
         kids.sort_by_key(|k| k.0);
-        let children = format!("[{}]", kids.into_iter().map(|k| k.1).collect::<Vec<_>>().join(","));
-        items.push((d.span.lo, sym(&d.name, if d.is_enum() { "enum" } else { "struct" }, "", d.span, children)));
+        let children = format!(
+            "[{}]",
+            kids.into_iter().map(|k| k.1).collect::<Vec<_>>().join(",")
+        );
+        items.push((
+            d.span.lo,
+            sym(
+                &d.name,
+                if d.is_enum() { "enum" } else { "struct" },
+                "",
+                d.span,
+                children,
+            ),
+        ));
     }
     for t in &p.traits {
         if t.span.file != a.file {
             continue;
         }
-        let kids: Vec<String> = t.methods.iter().map(|m| sym(&m.name, "method", &fn_signature(p, m.decl), p.func(m.decl).span, "[]".into())).collect();
-        items.push((t.span.lo, sym(&t.name, "trait", "", t.span, format!("[{}]", kids.join(",")))));
+        let kids: Vec<String> = t
+            .methods
+            .iter()
+            .map(|m| {
+                sym(
+                    &m.name,
+                    "method",
+                    &fn_signature(p, m.decl),
+                    p.func(m.decl).span,
+                    "[]".into(),
+                )
+            })
+            .collect();
+        items.push((
+            t.span.lo,
+            sym(
+                &t.name,
+                "trait",
+                "",
+                t.span,
+                format!("[{}]", kids.join(",")),
+            ),
+        ));
     }
     for c in &p.consts {
         if c.span.file == a.file {
-            items.push((c.span.lo, sym(&c.name, "constant", &p.ty_str(c.ty), c.span, "[]".into())));
+            items.push((
+                c.span.lo,
+                sym(&c.name, "constant", &p.ty_str(c.ty), c.span, "[]".into()),
+            ));
         }
     }
     for s in &p.statics {
         if s.span.file == a.file {
-            items.push((s.span.lo, sym(&s.name, "static", &p.ty_str(s.ty), s.span, "[]".into())));
+            items.push((
+                s.span.lo,
+                sym(&s.name, "static", &p.ty_str(s.ty), s.span, "[]".into()),
+            ));
         }
     }
     items.sort_by_key(|i| i.0);
-    format!("[{}]", items.into_iter().map(|i| i.1).collect::<Vec<_>>().join(","))
+    format!(
+        "[{}]",
+        items.into_iter().map(|i| i.1).collect::<Vec<_>>().join(",")
+    )
 }
 
 /// The `@test` functions of the file: name and line.
@@ -853,22 +1269,33 @@ pub fn tests(a: &Analysis) -> String {
     for f in &a.prog.fns {
         if f.is_test && f.span.file == a.file {
             let (l, _) = a.sm.get(a.file).line_col(f.span.lo);
-            v.push((f.span.lo, format!("{{\"name\":{},\"line\":{}}}", json_str(&f.name), l)));
+            v.push((
+                f.span.lo,
+                format!("{{\"name\":{},\"line\":{}}}", json_str(&f.name), l),
+            ));
         }
     }
     v.sort_by_key(|x| x.0);
-    format!("[{}]", v.into_iter().map(|x| x.1).collect::<Vec<_>>().join(","))
+    format!(
+        "[{}]",
+        v.into_iter().map(|x| x.1).collect::<Vec<_>>().join(",")
+    )
 }
 
 // ---------------------------------------------------------------------------
 // Completion
 
 const KEYWORDS: &[&str] = &[
-    "fn", "let", "var", "if", "else", "while", "for", "in", "match", "return", "break", "continue", "struct", "enum", "trait", "impl", "pub", "import",
-    "const", "static", "type", "extern", "unsafe", "inout", "owned", "move", "and", "or", "not", "true", "false", "self", "Self", "dyn", "where", "indirect",
+    "fn", "let", "var", "if", "else", "while", "for", "in", "match", "return", "break", "continue",
+    "struct", "enum", "trait", "impl", "pub", "import", "const", "static", "type", "extern",
+    "unsafe", "inout", "owned", "move", "and", "or", "not", "true", "false", "self", "Self", "dyn",
+    "where", "indirect",
 ];
 
-const PRIMS: &[&str] = &["i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool", "char", "Never"];
+const PRIMS: &[&str] = &[
+    "i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool",
+    "char", "Never",
+];
 
 const INT_METHODS: &[(&str, &str)] = &[
     ("abs", "fn abs(self) -> Self"),
@@ -885,13 +1312,47 @@ const INT_METHODS: &[(&str, &str)] = &[
 ];
 
 const FLOAT_METHODS: &[&str] = &[
-    "sqrt", "floor", "ceil", "round", "trunc", "sin", "cos", "tan", "asin", "acos", "atan", "exp", "ln", "log10", "log2", "abs", "powf", "atan2", "min", "max",
-    "hypot", "copysign", "to_bits", "is_nan", "is_infinite", "is_finite", "to_string",
+    "sqrt",
+    "floor",
+    "ceil",
+    "round",
+    "trunc",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "exp",
+    "ln",
+    "log10",
+    "log2",
+    "abs",
+    "powf",
+    "atan2",
+    "min",
+    "max",
+    "hypot",
+    "copysign",
+    "to_bits",
+    "is_nan",
+    "is_infinite",
+    "is_finite",
+    "to_string",
 ];
 
 const CHAR_METHODS: &[&str] = &[
-    "is_ascii_digit", "is_ascii_alphabetic", "is_ascii_alphanumeric", "is_whitespace", "is_ascii_uppercase", "is_ascii_lowercase", "is_ascii",
-    "to_ascii_uppercase", "to_ascii_lowercase", "len_utf8", "to_string",
+    "is_ascii_digit",
+    "is_ascii_alphabetic",
+    "is_ascii_alphanumeric",
+    "is_whitespace",
+    "is_ascii_uppercase",
+    "is_ascii_lowercase",
+    "is_ascii",
+    "to_ascii_uppercase",
+    "to_ascii_lowercase",
+    "len_utf8",
+    "to_string",
 ];
 
 struct Item {
@@ -906,7 +1367,15 @@ fn items_json(items: Vec<Item>) -> String {
     let v: Vec<String> = items
         .into_iter()
         .filter(|i| seen.insert((i.label.clone(), i.kind)))
-        .map(|i| format!("{{\"label\":{},\"kind\":\"{}\",\"detail\":{},\"doc\":{}}}", json_str(&i.label), i.kind, json_str(&i.detail), json_str(&i.doc)))
+        .map(|i| {
+            format!(
+                "{{\"label\":{},\"kind\":\"{}\",\"detail\":{},\"doc\":{}}}",
+                json_str(&i.label),
+                i.kind,
+                json_str(&i.detail),
+                json_str(&i.doc)
+            )
+        })
         .collect();
     format!("[{}]", v.join(","))
 }
@@ -946,6 +1415,14 @@ fn receiver_start(text: &str, end: usize) -> usize {
 
 /// Completion at a position of `text` (the file `path`).
 pub fn completion(path: &Path, text: &str, line: usize, col: usize) -> String {
+    let Some(analysis) = analyze(path, Some(text.to_string())) else {
+        return "[]".into();
+    };
+    completion_with_analysis(&analysis, text, line, col)
+}
+
+/// Completion against a program analysis already built by an editor or the language server.
+pub fn completion_with_analysis(a: &Analysis, text: &str, line: usize, col: usize) -> String {
     let off = offset_of(text, line, col) as usize;
     let b = text.as_bytes();
     let mut ps = off.min(b.len());
@@ -956,6 +1433,20 @@ pub fn completion(path: &Path, text: &str, line: usize, col: usize) -> String {
         let dot = ps - 1;
         let rs = receiver_start(text, dot);
         let receiver = text[rs..dot].to_string();
+        if let Some(ty) = local_type_for_completion(a, &receiver, rs as u32) {
+            let items = type_members(a, ty);
+            if !items.is_empty() {
+                return items_json(items);
+            }
+        }
+        if !receiver.is_empty() {
+            if let Some((_, _, Some(ty))) = target_at(a, (rs + receiver.len() - 1) as u32) {
+                let items = type_members(a, ty);
+                if !items.is_empty() {
+                    return items_json(items);
+                }
+            }
+        }
         // Analyze the text without the member being written (`.name(args)`): the receiver
         // becomes a complete expression.
         let mut tail = off.min(b.len());
@@ -981,11 +1472,42 @@ pub fn completion(path: &Path, text: &str, line: usize, col: usize) -> String {
             }
         }
         let edited = format!("{}{}", &text[..dot], &text[tail..]);
-        let Some(a) = analyze(path, Some(edited)) else { return "[]".into() };
-        return items_json(member_items(&a, rs as u32, dot as u32, &receiver));
+        let mut overlays = a.overlays.clone();
+        set_overlay(&mut overlays, &a.document_path, edited.clone());
+        let Some(edited_analysis) =
+            analyze_document_with_cfg(&a.document_path, Some(edited), overlays, a.cfg.clone())
+        else {
+            return "[]".into();
+        };
+        return items_json(member_items(
+            &edited_analysis,
+            rs as u32,
+            dot as u32,
+            &receiver,
+        ));
     }
-    let Some(a) = analyze(path, Some(text.to_string())) else { return "[]".into() };
-    items_json(scope_items(&a, off as u32))
+    items_json(scope_items(a, off as u32))
+}
+
+fn local_type_for_completion(a: &Analysis, name: &str, offset: u32) -> Option<Ty> {
+    if name.is_empty() || !name.chars().all(is_ident) {
+        return None;
+    }
+    let mut best: Option<(u32, Ty)> = None;
+    for body in a.user_bodies() {
+        for local in &body.locals {
+            if local.name == name
+                && local.span.file == a.file
+                && local.span.lo <= offset
+                && best
+                    .as_ref()
+                    .map_or(true, |(start, _)| local.span.lo >= *start)
+            {
+                best = Some((local.span.lo, local.ty));
+            }
+        }
+    }
+    best.map(|(_, ty)| ty)
 }
 
 fn member_items(a: &Analysis, start: u32, end: u32, receiver: &str) -> Vec<Item> {
@@ -996,7 +1518,12 @@ fn member_items(a: &Analysis, start: u32, end: u32, receiver: &str) -> Vec<Item>
     for body in a.user_bodies() {
         let mut visit = |n: Node| {
             if let Node::Expr(e) = n {
-                if e.span.file == a.file && e.span.hi == end && e.span.lo >= start && e.span.len() <= best_len && e.span.lo == start {
+                if e.span.file == a.file
+                    && e.span.hi == end
+                    && e.span.lo >= start
+                    && e.span.len() <= best_len
+                    && e.span.lo == start
+                {
                     best_len = e.span.len();
                     found = Some(e.ty);
                 }
@@ -1030,24 +1557,46 @@ fn path_items(a: &Analysis, it: ItemRef) -> Vec<Item> {
                 }
                 let (kind, detail) = match item {
                     ItemRef::Fn(f) => ("function", fn_signature(p, *f)),
-                    ItemRef::Adt(d) => (if p.adt(*d).is_enum() { "enum" } else { "struct" }, String::new()),
+                    ItemRef::Adt(d) => (
+                        if p.adt(*d).is_enum() {
+                            "enum"
+                        } else {
+                            "struct"
+                        },
+                        String::new(),
+                    ),
                     ItemRef::Const(c) => ("constant", p.ty_str(p.consts[c.idx()].ty)),
                     ItemRef::Static(s) => ("static", p.ty_str(p.statics[s.idx()].ty)),
                     ItemRef::Trait(_) => ("trait", String::new()),
                     ItemRef::Alias(_) => ("type", String::new()),
                     _ => ("module", String::new()),
                 };
-                v.push(Item { label: name.clone(), kind, detail, doc: doc_comment(&a.sm, *span) });
+                v.push(Item {
+                    label: name.clone(),
+                    kind,
+                    detail,
+                    doc: doc_comment(&a.sm, *span),
+                });
             }
             v.sort_by(|x, y| x.label.cmp(&y.label));
             v
         }
         ItemRef::Adt(d) => {
             let adt = p.adt(d);
-            let ty = p.tcx.adt(d, (0..adt.generics.len() as u32).map(|i| p.tcx.param(i)).collect());
+            let ty = p.tcx.adt(
+                d,
+                (0..adt.generics.len() as u32)
+                    .map(|i| p.tcx.param(i))
+                    .collect(),
+            );
             let mut v = Vec::new();
             for var in adt.variants() {
-                v.push(Item { label: var.name.clone(), kind: "variant", detail: String::new(), doc: doc_comment(&a.sm, var.span) });
+                v.push(Item {
+                    label: var.name.clone(),
+                    kind: "variant",
+                    detail: String::new(),
+                    doc: doc_comment(&a.sm, var.span),
+                });
             }
             v.extend(type_assoc_items(a, ty));
             v
@@ -1056,7 +1605,12 @@ fn path_items(a: &Analysis, it: ItemRef) -> Vec<Item> {
             .methods
             .iter()
             .filter(|m| !p.func(m.decl).has_self)
-            .map(|m| Item { label: m.name.clone(), kind: "function", detail: fn_signature(p, m.decl), doc: doc_comment(&a.sm, p.func(m.decl).span) })
+            .map(|m| Item {
+                label: m.name.clone(),
+                kind: "function",
+                detail: fn_signature(p, m.decl),
+                doc: doc_comment(&a.sm, p.func(m.decl).span),
+            })
             .collect(),
         ItemRef::Alias(al) => type_assoc_items(a, p.aliases[al.idx()].ty),
         _ => vec![],
@@ -1073,14 +1627,24 @@ fn type_assoc_items(a: &Analysis, ty: Ty) -> Vec<Item> {
         for (name, &f) in ms {
             let fd = p.func(f);
             if !fd.has_self && (fd.is_pub || fd.module == a.root) {
-                v.push(Item { label: name.clone(), kind: "function", detail: fn_signature(p, f), doc: doc_comment(&a.sm, fd.span) });
+                v.push(Item {
+                    label: name.clone(),
+                    kind: "function",
+                    detail: fn_signature(p, f),
+                    doc: doc_comment(&a.sm, fd.span),
+                });
             }
         }
     }
     for (_, f) in trait_methods(p, ty) {
         let fd = p.func(f);
         if !fd.has_self {
-            v.push(Item { label: fd.name.clone(), kind: "function", detail: fn_signature(p, f), doc: doc_comment(&a.sm, fd.span) });
+            v.push(Item {
+                label: fd.name.clone(),
+                kind: "function",
+                detail: fn_signature(p, f),
+                doc: doc_comment(&a.sm, fd.span),
+            });
         }
     }
     v
@@ -1117,41 +1681,80 @@ fn type_members(a: &Analysis, ty: Ty) -> Vec<Item> {
             let adt = p.adt(*d);
             for f in adt.fields() {
                 if f.is_pub || adt.module == a.root {
-                    v.push(Item { label: f.name.clone(), kind: "field", detail: p.ty_str(p.tcx.subst(f.ty, args)), doc: doc_comment(&a.sm, f.span) });
+                    v.push(Item {
+                        label: f.name.clone(),
+                        kind: "field",
+                        detail: p.ty_str(p.tcx.subst(f.ty, args)),
+                        doc: doc_comment(&a.sm, f.span),
+                    });
                 }
             }
             let mut ms: Vec<(&String, &FnId)> = adt.methods.iter().collect();
             ms.sort();
             for (name, &f) in ms {
                 let fd = p.func(f);
-                if fd.has_self && (fd.is_pub || fd.module == a.root) && Some(f) != adt.drop_fn && Some(f) != adt.index_fn {
-                    v.push(Item { label: name.clone(), kind: "method", detail: fn_signature(p, f), doc: doc_comment(&a.sm, fd.span) });
+                if fd.has_self
+                    && (fd.is_pub || fd.module == a.root)
+                    && Some(f) != adt.drop_fn
+                    && Some(f) != adt.index_fn
+                {
+                    v.push(Item {
+                        label: name.clone(),
+                        kind: "method",
+                        detail: fn_signature(p, f),
+                        doc: doc_comment(&a.sm, fd.span),
+                    });
                 }
             }
         }
         TyKind::Int(_) => {
             for (m, sig) in INT_METHODS {
-                v.push(Item { label: m.to_string(), kind: "method", detail: sig.to_string(), doc: String::new() });
+                v.push(Item {
+                    label: m.to_string(),
+                    kind: "method",
+                    detail: sig.to_string(),
+                    doc: String::new(),
+                });
             }
         }
         TyKind::Float(_) => {
             for m in FLOAT_METHODS {
-                v.push(Item { label: m.to_string(), kind: "method", detail: String::new(), doc: String::new() });
+                v.push(Item {
+                    label: m.to_string(),
+                    kind: "method",
+                    detail: String::new(),
+                    doc: String::new(),
+                });
             }
         }
         TyKind::Char => {
             for m in CHAR_METHODS {
-                v.push(Item { label: m.to_string(), kind: "method", detail: String::new(), doc: String::new() });
+                v.push(Item {
+                    label: m.to_string(),
+                    kind: "method",
+                    detail: String::new(),
+                    doc: String::new(),
+                });
             }
         }
         TyKind::Ptr(_) => {
             for m in ["is_null", "addr", "offset", "sub", "read", "write", "cast"] {
-                v.push(Item { label: m.to_string(), kind: "method", detail: String::new(), doc: String::new() });
+                v.push(Item {
+                    label: m.to_string(),
+                    kind: "method",
+                    detail: String::new(),
+                    doc: String::new(),
+                });
             }
         }
         TyKind::Tuple(ts) => {
             for (i, t) in ts.iter().enumerate() {
-                v.push(Item { label: i.to_string(), kind: "field", detail: p.ty_str(*t), doc: String::new() });
+                v.push(Item {
+                    label: i.to_string(),
+                    kind: "field",
+                    detail: p.ty_str(*t),
+                    doc: String::new(),
+                });
             }
         }
         _ => {}
@@ -1159,7 +1762,12 @@ fn type_members(a: &Analysis, ty: Ty) -> Vec<Item> {
     for (_, f) in trait_methods(p, ty) {
         let fd = p.func(f);
         if fd.has_self {
-            v.push(Item { label: fd.name.clone(), kind: "method", detail: fn_signature(p, f), doc: doc_comment(&a.sm, fd.span) });
+            v.push(Item {
+                label: fd.name.clone(),
+                kind: "method",
+                detail: fn_signature(p, f),
+                doc: doc_comment(&a.sm, fd.span),
+            });
         }
     }
     v
@@ -1171,15 +1779,28 @@ fn scope_items(a: &Analysis, off: u32) -> Vec<Item> {
     // Locals of the innermost function containing the position, declared before it.
     let mut inner: Option<&Body> = None;
     for b in a.user_bodies() {
-        if b.span.file == a.file && b.span.lo <= off && off <= b.span.hi && inner.map_or(true, |i| b.span.len() < i.span.len()) {
+        if b.span.file == a.file
+            && b.span.lo <= off
+            && off <= b.span.hi
+            && inner.map_or(true, |i| b.span.len() < i.span.len())
+        {
             inner = Some(b);
         }
     }
     if let Some(b) = inner {
         let names = &p.func(b.fn_id).generics;
         for l in b.locals.iter().rev() {
-            if l.span.file == a.file && l.span.lo < off && !l.name.starts_with('$') && l.kind != LocalKind::Hidden {
-                v.push(Item { label: l.name.clone(), kind: "variable", detail: p.ty_str_with(l.ty, names), doc: String::new() });
+            if l.span.file == a.file
+                && l.span.lo < off
+                && !l.name.starts_with('$')
+                && l.kind != LocalKind::Hidden
+            {
+                v.push(Item {
+                    label: l.name.clone(),
+                    kind: "variable",
+                    detail: p.ty_str_with(l.ty, names),
+                    doc: String::new(),
+                });
             }
         }
     }
@@ -1194,10 +1815,20 @@ fn scope_items(a: &Analysis, off: u32) -> Vec<Item> {
         v.push(item_completion(a, name, *item, Span::DUMMY));
     }
     for k in KEYWORDS {
-        v.push(Item { label: k.to_string(), kind: "keyword", detail: String::new(), doc: String::new() });
+        v.push(Item {
+            label: k.to_string(),
+            kind: "keyword",
+            detail: String::new(),
+            doc: String::new(),
+        });
     }
     for t in PRIMS {
-        v.push(Item { label: t.to_string(), kind: "type", detail: String::new(), doc: String::new() });
+        v.push(Item {
+            label: t.to_string(),
+            kind: "type",
+            detail: String::new(),
+            doc: String::new(),
+        });
     }
     v
 }
@@ -1206,16 +1837,37 @@ fn item_completion(a: &Analysis, name: &str, item: ItemRef, span: Span) -> Item 
     let p = &a.prog;
     let (kind, detail, dspan) = match item {
         ItemRef::Fn(f) => ("function", fn_signature(p, f), p.func(f).span),
-        ItemRef::Adt(d) => (if p.adt(d).is_enum() { "enum" } else { "struct" }, String::new(), p.adt(d).span),
+        ItemRef::Adt(d) => (
+            if p.adt(d).is_enum() { "enum" } else { "struct" },
+            String::new(),
+            p.adt(d).span,
+        ),
         ItemRef::Variant(d, _) => ("variant", p.adt(d).name.clone(), span),
-        ItemRef::Const(c) => ("constant", p.ty_str(p.consts[c.idx()].ty), p.consts[c.idx()].span),
-        ItemRef::Static(s) => ("static", p.ty_str(p.statics[s.idx()].ty), p.statics[s.idx()].span),
+        ItemRef::Const(c) => (
+            "constant",
+            p.ty_str(p.consts[c.idx()].ty),
+            p.consts[c.idx()].span,
+        ),
+        ItemRef::Static(s) => (
+            "static",
+            p.ty_str(p.statics[s.idx()].ty),
+            p.statics[s.idx()].span,
+        ),
         ItemRef::Trait(t) => ("trait", String::new(), p.traits[t.idx()].span),
         ItemRef::Module(m) => ("module", p.modules[m.idx()].path.clone(), span),
-        ItemRef::Alias(al) => ("type", p.ty_str(p.aliases[al.idx()].ty), p.aliases[al.idx()].span),
+        ItemRef::Alias(al) => (
+            "type",
+            p.ty_str(p.aliases[al.idx()].ty),
+            p.aliases[al.idx()].span,
+        ),
         ItemRef::Builtin(b) => ("function", format!("{}(...)", b.name()), span),
     };
-    Item { label: name.to_string(), kind, detail, doc: doc_comment(&a.sm, dspan) }
+    Item {
+        label: name.to_string(),
+        kind,
+        detail,
+        doc: doc_comment(&a.sm, dspan),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1253,8 +1905,14 @@ pub fn format_source(text: &str) -> String {
         }
         let normalized = normalize_line(line);
         let (_, bc, code) = scan(&normalized, 0);
-        let brackets: Vec<char> = code.chars().filter(|c| matches!(c, '{' | '(' | '[' | '}' | ')' | ']')).collect();
-        let leading = normalized.chars().take_while(|c| matches!(c, '}' | ')' | ']')).count();
+        let brackets: Vec<char> = code
+            .chars()
+            .filter(|c| matches!(c, '{' | '(' | '[' | '}' | ')' | ']'))
+            .collect();
+        let leading = normalized
+            .chars()
+            .take_while(|c| matches!(c, '}' | ')' | ']'))
+            .count();
         fn close(levels: &mut Vec<u32>) {
             if let Some(top) = levels.last_mut() {
                 *top -= 1;
@@ -1306,7 +1964,10 @@ pub fn format_source(text: &str) -> String {
 
 /// A line ending with a binary operator continues on the next line.
 fn depth_neutral_continuation(code: &str) -> bool {
-    const OPS: &[&str] = &["+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", "and", "or", "&", "|", "^", "<<", ">>", "->", "=>"];
+    const OPS: &[&str] = &[
+        "+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", "and", "or", "&", "|", "^",
+        "<<", ">>", "->", "=>",
+    ];
     let t = code.trim_end();
     if t.ends_with("=>") || t.ends_with("->") {
         return false;
@@ -1498,12 +2159,18 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("main.nx");
         let analysis = analyze(&path, Some("fn main() {}\n".into())).unwrap();
-        assert!(rename(&analysis, 1, 4, "let").unwrap_err().contains("keyword"));
-        assert!(rename(&analysis, 1, 4, "async").unwrap_err().contains("reserved"));
+        assert!(rename(&analysis, 1, 4, "let")
+            .unwrap_err()
+            .contains("keyword"));
+        assert!(rename(&analysis, 1, 4, "async")
+            .unwrap_err()
+            .contains("reserved"));
         let source = "import std.vec.{Vec}\nfn main() { let xs: Vec[i32] = Vec.new() }\n";
         let std_analysis = analyze(&path, Some(source.into())).unwrap();
         let column = source.lines().nth(1).unwrap().find("Vec").unwrap() + 1;
-        assert!(rename(&std_analysis, 2, column, "Other").unwrap_err().contains("standard library"));
+        assert!(rename(&std_analysis, 2, column, "Other")
+            .unwrap_err()
+            .contains("standard library"));
         let _ = std::fs::remove_dir_all(dir);
     }
 }
