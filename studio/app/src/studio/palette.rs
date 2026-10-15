@@ -49,6 +49,7 @@ pub(super) fn commands() -> Vec<PaletteCommand> {
         cmd("Fichier : Fermer l'éditeur", CloseEditor, "onglet", None),
         cmd("Fichier : Aller au fichier…", QuickOpen, "ouvrir rechercher", None),
         cmd("Affichage : Explorateur", ToggleSidebar, "barre latérale arbre", None),
+        cmd("Rechercher dans les fichiers…", FindInFiles, "chercher trouver remplacer texte", None),
         cmd("Affichage : Panneau du bas (sortie, problèmes)", TogglePanel, "console", None),
         cmd("Affichage : Problèmes", ShowProblems, "erreurs diagnostics avertissements", None),
         cmd("Affichage : Mode minimaliste", ToggleMinimal, "zen concentration", None),

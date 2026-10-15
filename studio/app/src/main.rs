@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 actions!(
     studio,
-    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen]
+    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen, FindInFiles]
 );
 
 // The explorer: they act on the selected entry.
@@ -48,6 +48,7 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-shift-p", ShowCommands, None),
         KeyBinding::new("f1", ShowCommands, None),
         KeyBinding::new("ctrl-p", QuickOpen, None),
+        KeyBinding::new("ctrl-shift-f", FindInFiles, None),
         KeyBinding::new("f2", RenameEntry, Some("Explorer")),
         KeyBinding::new("delete", DeleteEntry, Some("Explorer")),
         KeyBinding::new("ctrl-c", CopyEntry, Some("Explorer")),
@@ -86,6 +87,7 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Palette de commandes…", ShowCommands),
             MenuItem::separator(),
             MenuItem::action("Explorateur", ToggleSidebar),
+            MenuItem::action("Rechercher dans les fichiers", FindInFiles),
             MenuItem::action("Sortie", TogglePanel),
             MenuItem::action("Mode minimaliste", ToggleMinimal),
             MenuItem::separator(),

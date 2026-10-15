@@ -2,6 +2,7 @@
 //! editors in tabs, output panel and status bar.
 
 mod files;
+mod find;
 mod lang;
 mod palette;
 mod project;
@@ -27,6 +28,7 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use files::{Clip, Dragged, Naming};
+use find::{Find, SideView};
 use lang::PanelTab;
 use palette::{Palette, PaletteMode};
 use nexul_studio::workspace::Kind;
@@ -100,6 +102,10 @@ pub struct Studio {
     panel_tab: PanelTab,
     /// The name box of the open dialog (symbol to rename, new project).
     dialog_input: Option<Subscription>,
+    /// « Rechercher dans les fichiers », once opened.
+    find: Option<Find>,
+    /// The view of the side bar.
+    side_view: SideView,
     /// The tools found for the project templates (looked for once).
     tools: Option<Rc<nexul_studio_templates::ToolchainRegistry>>,
     /// The file to show once a folder opens: a project just created.
@@ -149,6 +155,8 @@ impl Studio {
             panel_tab: PanelTab::Output,
             dialog_input: None,
             tools: None,
+            find: None,
+            side_view: SideView::Explorer,
             pending_open: None,
             palette: None,
             backup_due: None,
@@ -259,6 +267,7 @@ impl Studio {
                     }
                     this.update_output(window, cx);
                     this.tick_safety(window, cx);
+                    this.tick_find(cx);
                 })
                 .is_ok();
             if !alive {
@@ -662,9 +671,17 @@ impl Studio {
                 Button::new("act-explorer")
                     .ghost()
                     .icon(IconName::Folder)
-                    .selected(self.settings.sidebar)
+                    .selected(self.settings.sidebar && self.side_view == SideView::Explorer)
                     .tooltip("Explorateur (Ctrl+B)")
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
+                    .on_click(cx.listener(|this, _, window, cx| this.show_side_view(SideView::Explorer, window, cx))),
+            )
+            .child(
+                Button::new("act-search")
+                    .ghost()
+                    .icon(IconName::Search)
+                    .selected(self.settings.sidebar && self.side_view == SideView::Search)
+                    .tooltip("Rechercher dans les fichiers (Ctrl+Maj+F)")
+                    .on_click(cx.listener(|this, _, window, cx| this.show_side_view(SideView::Search, window, cx))),
             )
             .child(
                 Button::new("act-run")
@@ -934,7 +951,7 @@ impl Render for Studio {
             .child(resizable_panel().child(self.render_editors(cx)))
             .child(resizable_panel().size(px(220.)).size_range(px(80.)..px(900.)).visible(panel).child(self.render_output(cx)));
         let main = h_resizable("main")
-            .child(resizable_panel().size(px(260.)).size_range(px(160.)..px(600.)).visible(sidebar).child(self.render_explorer(cx)))
+            .child(resizable_panel().size(px(260.)).size_range(px(160.)..px(600.)).visible(sidebar).child(if self.side_view == SideView::Search { self.render_find(cx).into_any_element() } else { self.render_explorer(cx).into_any_element() }))
             .child(resizable_panel().child(center));
         v_flex()
             .id("studio")
@@ -945,6 +962,7 @@ impl Render for Studio {
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::on_open_folder))
             .on_action(cx.listener(Self::on_new_project))
+            .on_action(cx.listener(Self::on_find_in_files))
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(Self::on_save_all))
             .on_action(cx.listener(Self::on_close_editor))
@@ -1567,6 +1585,42 @@ mod tests {
         create(cx);
         assert!(std::fs::read_dir(&made).unwrap().count() > 0);
         let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[gpui_kit::test]
+    fn find_and_replace_in_files(cx: &mut TestAppContext) {
+        let dir = project("find");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// fn\n");
+        // Ctrl+Maj+F, the text, Enter.
+        keys(cx, window, |window, cx| window.press("ctrl-shift-f", cx));
+        keys(cx, window, |window, cx| window.input("fn", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        cx.run_until_parked();
+        studio.read_with(cx, |s, _| {
+            assert_eq!(s.side_view, SideView::Search);
+            let found = s.find.as_ref().and_then(|f| f.found.as_ref()).expect("searched");
+            let places: Vec<(&str, usize, usize)> = found.hits.iter().map(|h| (h.rel.as_str(), h.line, h.start)).collect();
+            // The open editor is searched with its unsaved text.
+            assert_eq!(places, vec![("src/calcul.nx", 0, 4), ("main.nx", 0, 0), ("main.nx", 3, 3)]);
+        });
+        // Tout remplacer: the open editor changes (not its file), the other file is saved.
+        update(cx, window, &studio, |s, window, cx| {
+            let replace = s.find.as_ref().unwrap().replace.clone();
+            replace.update(cx, |i, cx| i.set_value("fonction", window, cx));
+            s.replace_all_found(window, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), "pub fonction f() {}\n");
+        assert!(!std::fs::read_to_string(dir.join("main.nx")).unwrap().contains("fonction"));
+        studio.read_with(cx, |s, cx| {
+            assert!(s.docs[0].editor.read(cx).value().starts_with("fonction main()"));
+            assert!(s.find.as_ref().and_then(|f| f.found.as_ref()).is_some_and(|f| f.hits.is_empty()), "searched again");
+        });
+        // A result opens its file at the match.
+        update(cx, window, &studio, |s, window, cx| s.open_hit("src/calcul.nx", 0, 4, window, cx));
+        studio.read_with(cx, |s, _| assert_eq!(s.active.and_then(|i| s.docs.get(i)).map(|d| d.rel.as_str()), Some("src/calcul.nx")));
     }
 
     #[gpui_kit::test]
