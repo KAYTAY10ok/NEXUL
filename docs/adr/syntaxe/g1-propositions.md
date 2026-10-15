@@ -85,7 +85,7 @@ pub struct Compte {
 }
 
 impl Compte {
-    pub fn ouvrir(titulaire: String) -> Compte {
+    pub fn ouvrir(owned titulaire: String) -> Compte {
         return Compte(titulaire: titulaire, solde: 0)
     }
 
@@ -371,7 +371,7 @@ pub struct Compte
     titulaire: String                         // privé : seul ce module y accède
     solde: i64
 
-    pub func ouvrir(titulaire: String) -> Compte do
+    pub func ouvrir(owned titulaire: String) -> Compte do
         return Compte(titulaire: titulaire, solde: 0)
     end
 
@@ -643,7 +643,7 @@ pub struct Compte {
 }
 
 impl Compte {
-    pub fn ouvrir(titulaire: String) -> Compte = Compte(titulaire = titulaire, solde = 0)
+    pub fn ouvrir(owned titulaire: String) -> Compte = Compte(titulaire = titulaire, solde = 0)
 
     pub fn deposer!(self, montant: i64) requires montant > 0 {
         self.solde += montant
