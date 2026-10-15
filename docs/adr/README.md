@@ -13,3 +13,11 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0006](0006-debordements-toujours-verifies.md) | Débordements arithmétiques toujours vérifiés |
 | [0007](0007-identificateurs-ascii.md) | Identificateurs ASCII et caractères bidirectionnels interdits |
 | [0008](0008-backend-llvm-et-runtime-nexul.md) | Backend LLVM et runtime écrit en NEXUL, sans C |
+
+## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
+
+Études préalables à l'ADR de la nouvelle syntaxe ; elles ne décident rien.
+
+| Étape | Document |
+|---|---|
+| G0 | [Audit des usages de la syntaxe 0.2](syntaxe/g0-audit.md) et son [recensement](syntaxe/g0-recensement.md) |
