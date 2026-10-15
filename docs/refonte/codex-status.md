@@ -1,6 +1,6 @@
 # État Codex Astra — NEXUL Core
 
-15 octobre 2026. Branche refonte/codex-core, worktree C:/NEXUL-core, base d537a7b. Les changements de ce lot sont proposés en PR, pas intégrés à main. Aucun fichier Studio/installateur modifié.
+15 octobre 2026. Branche refonte/codex-core, worktree C:/NEXUL-core, base d537a7b. Livraison : [PR #1](https://github.com/KAYTAY10ok/NEXUL/pull/1), code au commit 99d1fc2 ; pas intégrée à main. Aucun contrôle CI publié sur GitHub au moment de la livraison : validation locale uniquement. Aucun fichier Studio/installateur modifié.
 
 ## Réalisé
 
@@ -38,5 +38,5 @@ Benchmarks comparatifs C/Rust/C#/NEXUL, inspection du code machine et optimisati
 
 - Laisser studio/app et les crates de services agents dans leurs workspaces séparés pour cette phase, conformément aux consignes. Aucune dépendance GUI à intégrer au workspace racine dans ce lot.
 - Claude Studio : après intégration du lot, utiliser interop-web.md pour détecter wasm32-web, analyser, compiler puis afficher l'exemple dans l'aperçu web isolé. Critères : erreur de compilation visible, 42 et chaîne Unicode affichés, imports explicites et aucune tentative de réutilisation après panique.
-- Codex Luna : après intégration, modèle NEXUL+Web basé sur examples/web, chargeur inclus, chemins relatifs conservés, compilation et exécution vérifiées. Demande commune à publier dans une issue liée à la PR.
+- Codex Luna : après intégration, modèle NEXUL+Web basé sur examples/web, chargeur inclus, chemins relatifs conservés, compilation et exécution vérifiées. Demande commune publiée dans [issue #2](https://github.com/KAYTAY10ok/NEXUL/issues/2), liée à la PR.
 - L'interface nxc ide et les JSON existants restent inchangés. Les aides ABI web sont versionnées par nx_abi_version() == 1 et le module d'import nexul_v1.
