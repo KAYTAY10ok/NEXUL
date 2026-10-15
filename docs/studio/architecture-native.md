@@ -1,6 +1,6 @@
 # NEXUL Studio natif — choix de la boîte à outils et architecture
 
-Statut : **proposition à valider** (phase 2). Aucune migration irréversible n'est
+Statut : **proposition à valider** (phase 2) — prototypes mesurés, recommandation au §5. Aucune migration irréversible n'est
 engagée avant la validation de ce choix par l'utilisateur.
 
 ## 1. Objectif et contraintes
@@ -58,18 +58,83 @@ séparée ou navigateur du système), sans que l'interface principale en dépend
 
 ## 4. Prototypes
 
-Deux prototypes minimaux (fenêtre, texte Unicode, éditeur) ont été construits sur la
-machine de développement, hors du dépôt, pour mesurer la construction et l'exécution.
+Deux prototypes (fenêtre native, éditeur de texte chargé avec un fichier de 100 000
+lignes et du texte Unicode) ont été construits sur la machine de développement, hors du
+dépôt, pour mesurer la construction et l'exécution.
 
-RÉSULTATS : voir §4.1 (complété après mesure).
+### 4.0 Chaîne de construction
+
+Constat sur la machine de développement (Rust `windows-gnu`, sans compilateur C/C++) :
+- les crates `windows` récentes importent les fonctions du système en `raw-dylib`, ce qui
+  exige un `dlltool` complet : celui de rustup n'a pas d'assembleur ; `llvm-dlltool`
+  convient pour les appels simples ;
+- la MinGW minimale de rustup n'a pas toutes les bibliothèques d'importation
+  (`shlwapi`, `d3d11`, `dwrite`…) ; en les générant depuis les DLL du système, le
+  prototype Slint se construit mais **plante au démarrage** (exécution d'une adresse
+  invalide : imports mal liés) ;
+- GPUI compile ses shaders HLSL pendant la construction avec `fxc.exe`, fourni par le
+  **Windows SDK**.
+
+Conclusion : l'application native se construit avec la chaîne **MSVC** (outils C++ de
+Visual Studio et Windows SDK), configuration standard des applications Rust de bureau
+sous Windows. Le compilateur NEXUL n'est pas concerné (il n'a aucune dépendance).
+
+RÉSULTATS : voir §4.1.
 
 ### 4.1 Mesures
 
-(à compléter)
+Machine : Windows 11, chaîne MSVC 14.51, Rust 1.99, profil `release`. Démarrage =
+temps jusqu'à l'apparition de la fenêtre ; mémoire = mémoire privée 3 à 4 s après.
+Pendant les mesures, l'installateur de Visual Studio tournait encore : les temps de
+démarrage sont pessimistes.
+
+| | Slint 1.18 (`TextEdit`) | GPUI + gpui-component 0.7 (`Editor`) |
+|---|---|---|
+| Construction (à froid) | 3 min 49 s | 5 min 51 s |
+| Taille de l'exécutable | 13,7 Mo | 22,5 Mo |
+| Démarrage, petit texte | 3,4 s | 1,5 s |
+| Mémoire, petit texte | 32 Mo privés (77 Mo de *working set*) | 66 Mo privés (112 Mo) |
+| Démarrage, fichier de 100 000 lignes (2,2 Mo) | 6,2 s | 0,9 s |
+| Mémoire, 100 000 lignes | **650 Mo** privés | **71 Mo** privés |
+| Accents, CJK, emoji en couleur | corrects | corrects |
+| Arabe (écriture de droite à gauche) | lettres liées et ordre correct | lettres liées mais **ordre de gauche à droite** : pas de réordonnancement bidirectionnel |
+| Éditeur | zone de texte simple : police proportionnelle, ni numéros de ligne, ni coloration, ni curseurs multiples | éditeur de code : police à chasse fixe, numéros de ligne, guides d'indentation, tampon en corde (gros fichiers), curseurs multiples, recherche et remplacement, repliement, fournisseurs LSP |
+
+Images des prototypes : non versionnées (machine de développement). Non mesuré : latence
+de frappe et saisie IME (à vérifier sur le prototype de l'application avant la parité).
 
 ## 5. Recommandation
 
-(à compléter après mesure)
+**GPUI + gpui-component** (Apache-2.0), sous réserve de validation.
+
+Raisons :
+1. C'est la seule option qui fournit un **éditeur de code complet** (curseurs multiples,
+   recherche/remplacement, repliement, LSP, gros fichiers) : la mission demande de
+   réutiliser un composant mûr plutôt que de refaire un moteur de texte. Avec Slint ou
+   iced, cet éditeur serait à écrire.
+2. La **mise en page d'IDE** existe : panneaux ancrables et redimensionnables, onglets
+   déplaçables, dispositions sérialisables, listes virtualisées, menus, dialogues,
+   thèmes.
+3. Mesures nettement meilleures sur les gros fichiers (71 Mo contre 650 Mo, 0,9 s contre
+   6,2 s) et démarrage plus rapide.
+4. Licence Apache-2.0, sans obligation d'attribution visible (Slint : GPL ou mention
+   « Made with Slint »).
+5. Rust pur côté application, rendu GPU (DirectX 11 sous Windows), multiplateforme.
+
+Risques et parades :
+- **Pré-1.0** : API qui change (GPUI via `gpui-pre`, figé par gpui-kit). Parade : versions
+  figées dans `Cargo.lock`, services dans `studio/core` sans dépendance à GPUI, mises à
+  jour regroupées.
+- **Texte de droite à gauche** non réordonné dans l'éditeur. Parade : signaler la
+  limite ; demande en amont ; impact faible pour du code (chaînes en arabe ou en hébreu).
+- **Accessibilité** annoncée (AccessKit) mais à vérifier avec le Narrateur de Windows.
+- **Construction** : chaîne MSVC + Windows SDK (shaders HLSL), 6 min à froid, exécutable
+  de 22 Mo.
+- Dépendance à deux projets (Zed pour GPUI, Longbridge pour les composants). Parade :
+  code de l'interface isolé dans `studio/app`, remplaçable sans toucher aux services.
+
+Repli : Slint (mûr, accessible, réordonnancement bidirectionnel correct), au prix d'un
+éditeur de code à écrire.
 
 ## 6. Architecture cible
 
