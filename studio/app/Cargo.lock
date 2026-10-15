@@ -4263,9 +4263,14 @@ dependencies = [
  "gpui-kit",
  "lsp-types",
  "nexul-studio",
+ "nexul-studio-syntax",
  "serde",
  "serde_json",
 ]
+
+[[package]]
+name = "nexul-studio-syntax"
+version = "0.3.0"
 
 [[package]]
 name = "nix"

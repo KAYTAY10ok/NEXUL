@@ -473,7 +473,7 @@ impl Studio {
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(mut paths))) = paths.await {
                 if let Some(p) = paths.pop() {
-                    let _ = this.update_in(cx, |this, window, cx| this.open_root(p, window, cx));
+                    let _ = this.update_in(cx, |this, window, cx| this.request_open_root(p, window, cx));
                 }
             }
         })
@@ -1515,6 +1515,32 @@ mod tests {
         assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// b\n"), "saved before closing");
         studio.read_with(cx, |s, _| assert!(s.allow_close));
         assert!(cx.update_window(window, |_, _, _| ()).is_err(), "the window is closed");
+    }
+
+    #[gpui_kit::test]
+    fn opening_another_folder_asks_for_unsaved_files(cx: &mut TestAppContext) {
+        let dir = project("otherroot");
+        let other = project("otherroot2");
+        let original = std::fs::read_to_string(dir.join("main.nx")).unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// c\n");
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(other.clone(), window, cx));
+        assert!(has_dialog(cx, window), "Enregistrer / Ne pas enregistrer / Annuler");
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1, "still in the first folder"));
+        // Annuler: nothing changes.
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(dir.file_name().unwrap()))));
+        // Ne pas enregistrer: the other folder, the file unchanged.
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(other.clone(), window, cx));
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        update(cx, window, &studio, |s, window, cx| s.finish_leave(safety::Choice::Discard, safety::Leave::Root(other.clone()), window, cx));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(other.file_name().unwrap()))));
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), original);
+        // No change: opened at once.
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(dir.clone(), window, cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(dir.file_name().unwrap()))));
     }
 
     #[gpui_kit::test]

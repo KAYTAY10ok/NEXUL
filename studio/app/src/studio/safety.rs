@@ -41,6 +41,13 @@ fn backup_path(root: &Path, rel: &str) -> PathBuf {
     settings::dir().join("recovery").join(format!("{:016x}.json", stable_hash(&key)))
 }
 
+/// Where Studio goes once the unsaved changes are dealt with.
+#[derive(Clone, Debug)]
+pub(super) enum Leave {
+    Window,
+    Root(PathBuf),
+}
+
 /// A question with three answers, in a dialog: Enter gives the first, Escape cancels.
 pub(super) fn ask(window: &mut Window, cx: &mut App, title: String, body: String, first: &'static str, second: &'static str, on_choice: impl Fn(Choice, &mut Window, &mut App) + 'static) {
     let on_choice = Rc::new(on_choice);
@@ -140,7 +147,7 @@ impl Studio {
         }
     }
 
-    // -------------------------------------------------------------- closing the window
+    // -------------------------------------------------------------- leaving the folder
 
     /// Asked by the system before the window closes (title bar, Alt+F4) and by Quit.
     /// With unsaved changes: `false`, and a dialog that closes the window itself.
@@ -148,16 +155,40 @@ impl Studio {
         if self.allow_close {
             return true;
         }
+        let free = self.ask_unsaved(Leave::Window, window, cx);
+        if free {
+            self.save_session();
+        }
+        free
+    }
+
+    pub(super) fn finish_close_window(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+        self.finish_leave(choice, Leave::Window, window, cx);
+    }
+
+    /// Opens another folder; with unsaved changes, asks first.
+    pub(super) fn request_open_root(&mut self, root: PathBuf, window: &mut Window, cx: &mut Context<Self>) {
+        if self.ask_unsaved(Leave::Root(root.clone()), window, cx) {
+            self.open_root(root, window, cx);
+        }
+    }
+
+    /// `true` when no editor has unsaved changes; else asks what to do with them and
+    /// `false`: the answer leaves (or not) by itself.
+    fn ask_unsaved(&mut self, leave: Leave, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let modified = self.modified_docs(cx);
         if modified.is_empty() {
-            self.save_session();
             return true;
         }
         let names: Vec<String> = modified.iter().map(|&i| self.docs[i].rel.clone()).collect();
+        let when = match leave {
+            Leave::Window => "avant de fermer",
+            Leave::Root(_) => "avant de changer de dossier",
+        };
         let (title, first) = if names.len() == 1 {
-            (format!("Enregistrer les modifications de « {} » avant de fermer ?", files::name_of(&names[0])), "Enregistrer")
+            (format!("Enregistrer les modifications de « {} » {} ?", files::name_of(&names[0]), when), "Enregistrer")
         } else {
-            (format!("Enregistrer les modifications de {} fichiers avant de fermer ?", names.len()), "Tout enregistrer")
+            (format!("Enregistrer les modifications de {} fichiers {} ?", names.len(), when), "Tout enregistrer")
         };
         let mut body = String::new();
         if names.len() > 1 {
@@ -170,18 +201,20 @@ impl Studio {
         }
         body.push_str("Les modifications non enregistrées seront perdues si vous ne les enregistrez pas.");
         let studio = cx.entity().downgrade();
+        let leave = Rc::new(leave);
         ask(window, cx, title, body, first, "Ne pas enregistrer", move |choice, window, cx| {
-            let _ = studio.update(cx, |this, cx| this.finish_close_window(choice, window, cx));
+            let leave = (*leave).clone();
+            let _ = studio.update(cx, |this, cx| this.finish_leave(choice, leave, window, cx));
         });
         false
     }
 
-    pub(super) fn finish_close_window(&mut self, choice: Choice, window: &mut Window, cx: &mut Context<Self>) {
+    pub(super) fn finish_leave(&mut self, choice: Choice, leave: Leave, window: &mut Window, cx: &mut Context<Self>) {
         let modified = self.modified_docs(cx);
         match choice {
             Choice::Save => {
                 for ix in modified {
-                    // A failure or a conflict keeps the window open.
+                    // A failure or a conflict stays here.
                     if !self.save_doc(ix, window, cx) {
                         return;
                     }
@@ -195,11 +228,21 @@ impl Studio {
             }
             Choice::Cancel => return,
         }
-        self.save_session();
-        self.allow_close = true;
-        window.remove_window();
+        match leave {
+            Leave::Window => {
+                self.save_session();
+                self.allow_close = true;
+                window.remove_window();
+            }
+            Leave::Root(root) => {
+                // Discarded changes must not count as modified any more.
+                for d in &mut self.docs {
+                    d.dirty = false;
+                }
+                self.open_root(root, window, cx);
+            }
+        }
     }
-
     pub(super) fn on_quit(&mut self, _: &Quit, window: &mut Window, cx: &mut Context<Self>) {
         if self.window_should_close(window, cx) {
             self.allow_close = true;
