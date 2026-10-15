@@ -108,7 +108,8 @@ Dans l'ordre : la variable `NEXUL_LLVM` (dossier de LLVM, ou ses sous-dossiers `
 |---|---|---|
 | `x86_64-windows`, `aarch64-windows` | `*-pc-windows-msvc` | Windows (DLL du système, sans bibliothèque C) |
 | `x86_64-linux`, `aarch64-linux`, `riscv64-linux` | `*-unknown-linux-gnu` | Linux (exécutable statique, appels système directs) |
-| `x86_64-macos`, `aarch64-macos` | `*-apple-macosx11.0.0` | macOS |
+| `x86_64-macos`, `aarch64-macos` | `*-apple-macosx11.0.0` | macOS (runtime système non validé ; voir audit Core) |
+| `wasm32-web` | `wasm32-unknown-unknown` | WebAssembly navigateur, imports JavaScript explicites, sans WASI |
 | `wasm32-wasi` | `wasm32-unknown-wasi` | WebAssembly + WASI (Node, Wasmtime, navigateurs avec WASI) |
 | `thumbv7em-none`, `thumbv7m-none` | `thumbv7em-none-eabihf`, `thumbv7m-none-eabi` | ARM Cortex-M4F / Cortex-M3, sans système |
 | `riscv32-none`, `riscv64-none`, `aarch64-none` | `*-unknown-none(-elf)` | RISC-V et ARM64 sans système |

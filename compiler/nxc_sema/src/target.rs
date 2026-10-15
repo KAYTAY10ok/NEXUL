@@ -12,6 +12,8 @@ pub enum Os {
     MacOs,
     /// WebAssembly System Interface.
     Wasi,
+    /// WebAssembly with explicit JavaScript host imports (no WASI).
+    Web,
     /// No operating system (firmware, bare metal).
     None,
 }
@@ -23,6 +25,7 @@ impl Os {
             Os::Linux => "linux",
             Os::MacOs => "macos",
             Os::Wasi => "wasi",
+            Os::Web => "web",
             Os::None => "none",
         }
     }
@@ -89,6 +92,7 @@ const TARGETS: &[(&str, &str, Os, Arch, u32, &str, &str, bool, bool)] = &[
     ("x86_64-macos", "x86_64-apple-macosx11.0.0", Os::MacOs, Arch::X86_64, 64, "x86-64", "", true, true),
     ("aarch64-macos", "arm64-apple-macosx11.0.0", Os::MacOs, Arch::Aarch64, 64, "apple-m1", "", true, true),
     ("wasm32-wasi", "wasm32-unknown-wasi", Os::Wasi, Arch::Wasm32, 32, "generic", "+bulk-memory,+mutable-globals,+sign-ext,+nontrapping-fptoint", true, true),
+    ("wasm32-web", "wasm32-unknown-unknown", Os::Web, Arch::Wasm32, 32, "generic", "+bulk-memory,+mutable-globals,+sign-ext,+nontrapping-fptoint", true, true),
     // Microcontrollers and bare-metal boards (spec §7).
     ("thumbv7em-none", "thumbv7em-none-eabihf", Os::None, Arch::Arm, 32, "cortex-m4", "+vfp4d16sp,+thumb-mode", false, false),
     ("thumbv7m-none", "thumbv7m-none-eabi", Os::None, Arch::Arm, 32, "cortex-m3", "+soft-float,+thumb-mode", false, false),
@@ -99,7 +103,7 @@ const TARGETS: &[(&str, &str, Os, Arch, u32, &str, &str, bool, bool)] = &[
 
 /// Every `@cfg` predicate name (spec §6.8).
 pub const CFG_NAMES: &[&str] = &[
-    "windows", "linux", "macos", "wasi", "bare", "unix", "x86_64", "aarch64", "arm", "riscv64", "riscv32", "riscv", "wasm32", "wasm",
+    "windows", "linux", "macos", "wasi", "web", "bare", "unix", "x86_64", "aarch64", "arm", "riscv64", "riscv32", "riscv", "wasm32", "wasm",
     "ptr32", "ptr64", "debug", "release", "test", "hard_float", "soft_float",
 ];
 
@@ -184,7 +188,7 @@ impl Target {
         match self.os {
             Os::Windows => ObjectFormat::Coff,
             Os::MacOs => ObjectFormat::MachO,
-            Os::Wasi => ObjectFormat::Wasm,
+            Os::Wasi | Os::Web => ObjectFormat::Wasm,
             _ if self.arch == Arch::Wasm32 => ObjectFormat::Wasm,
             _ => ObjectFormat::Elf,
         }
@@ -198,7 +202,7 @@ impl Target {
     pub fn exe_name(&self, stem: &str) -> String {
         match self.os {
             Os::Windows => format!("{}.exe", stem),
-            Os::Wasi => format!("{}.wasm", stem),
+            Os::Wasi | Os::Web => format!("{}.wasm", stem),
             Os::None => format!("{}.elf", stem),
             _ => stem.to_string(),
         }
@@ -228,6 +232,7 @@ impl Cfg {
             "linux" => t.os == Os::Linux,
             "macos" => t.os == Os::MacOs,
             "wasi" => t.os == Os::Wasi,
+            "web" => t.os == Os::Web,
             "bare" => t.os == Os::None,
             "unix" => matches!(t.os, Os::Linux | Os::MacOs),
             "x86_64" => t.arch == Arch::X86_64,
@@ -276,6 +281,11 @@ mod tests {
         assert_eq!(Target::from_name("x86_64-linux-gnu").unwrap().name, "x86_64-linux");
         assert_eq!(Target::from_name("aarch64-unknown-linux-gnu").unwrap().name, "aarch64-linux");
         assert_eq!(Target::from_name("wasm32-wasi").unwrap().os, Os::Wasi);
+        assert_eq!(Target::from_name("wasm32-unknown-unknown").unwrap().os, Os::Web);
+        let web = Cfg { target: Target::from_name("wasm32-web").unwrap(), ..Cfg::default() };
+        assert_eq!(web.eval("web"), Ok(true));
+        assert_eq!(web.eval("wasi|bare"), Ok(false));
+        assert_eq!(web.target.exe_name("a"), "a.wasm");
         assert_eq!(Target::from_name("x86_64-pc-windows-msvc").unwrap().name, "x86_64-windows");
         assert!(Target::from_name("sparc-solaris").is_err());
     }

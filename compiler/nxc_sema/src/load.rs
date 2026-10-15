@@ -25,6 +25,8 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.time", include_str!("../../../lib/std/time.nx"), false),
     ("std.random", include_str!("../../../lib/std/random.nx"), false),
     ("std.math", include_str!("../../../lib/std/math.nx"), false),
+    ("std.web", include_str!("../../../lib/std/web.nx"), true),
+    ("std.wasm", include_str!("../../../lib/std/wasm.nx"), true),
     ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
 ];
 
@@ -41,6 +43,7 @@ pub fn std_source(path: &str, cfg: &Cfg) -> Option<&'static str> {
             Os::Windows => SYS_WINDOWS,
             Os::Linux | Os::MacOs => SYS_LINUX,
             Os::Wasi => SYS_WASI,
+            Os::Web => include_str!("../../../lib/std/sys/web.nx"),
             Os::None => SYS_BARE,
         });
     }
@@ -228,7 +231,11 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
         Some(id)
     };
 
-    for p in ALWAYS_LOADED {
+    let mut preloaded = ALWAYS_LOADED.to_vec();
+    if src.cfg.target.os == Os::Web {
+        preloaded.push("std.web");
+    }
+    for p in preloaded {
         let segs: Vec<String> = p.split('.').map(|s| s.to_string()).collect();
         load_module(&mut prog, &mut by_path, &mut queue, sm, &segs, None);
     }

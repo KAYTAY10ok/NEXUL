@@ -7,6 +7,7 @@
 import std.mem
 import std.rt
 import std.heap
+import std.wasm
 
 @link("wasi_snapshot_preview1")
 extern "C" fn fd_write(fd: i32, iovs: Ptr[u8], iovs_len: i32, written: Ptr[i32]) -> i32
@@ -38,13 +39,6 @@ extern "C" fn random_get(buf: Ptr[u8], len: i32) -> i32
 extern "C" fn poll_oneoff(subscriptions: Ptr[u8], events: Ptr[u8], count: i32, nevents: Ptr[i32]) -> i32
 @link("wasi_snapshot_preview1")
 extern "C" fn proc_exit(code: i32) -> Never
-
-/// Grows the linear memory by `pages` pages of 64 KiB; returns the previous size in pages,
-/// or -1.
-@intrinsic
-unsafe fn wasm_memory_grow(pages: usize) -> isize
-
-const PAGE: usize = 65536
 
 // ---------------------------------------------------------------------------
 // Process
@@ -79,42 +73,8 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-/// Freed large regions, reused first (linear memory cannot shrink): each region starts
-/// with [size, next].
-static var FREE_REGIONS: Ptr[u8] = Ptr.null()
-
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
-    // First fit among the freed regions.
-    var prev: Ptr[u8] = Ptr.null()
-    var r = FREE_REGIONS
-    while not r.is_null() {
-        let rsize = r.cast[usize]().read()
-        let next = r.offset(4).cast[Ptr[u8]]().read()
-        if rsize >= size {
-            if prev.is_null() {
-                FREE_REGIONS = next
-            } else {
-                prev.offset(4).cast[Ptr[u8]]().write(next)
-            }
-            mem.set_bytes(r, 0, size)
-            return r
-        }
-        prev = r
-        r = next
-    }
-    let pages = (size + PAGE - 1) / PAGE
-    let old = wasm_memory_grow(pages)
-    if old < 0 {
-        return Ptr.null()
-    }
-    return Ptr[u8].from_addr((old as usize) * PAGE)
-}
-
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
-    p.cast[usize]().write(size)
-    p.offset(4).cast[Ptr[u8]]().write(FREE_REGIONS)
-    FREE_REGIONS = p
-}
+pub unsafe fn page_alloc(size: usize) -> Ptr[u8] { return wasm.page_alloc(size) }
+pub unsafe fn page_free(p: Ptr[u8], size: usize) { wasm.page_free(p, size) }
 
 pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
     return heap.alloc(size)

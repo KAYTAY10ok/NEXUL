@@ -1,0 +1,28 @@
+import std.io
+import std.time
+import std.random
+
+@export("plus_one")
+pub fn plus_one(x: i32) -> i32 { return x + 1 }
+@export("identity64")
+pub fn identity64(x: f64) -> f64 { return x }
+@export("identity32")
+pub fn identity32(x: f32) -> f32 { return x }
+@export("clock")
+pub fn clock() -> i64 { return time.unix_time_ns() }
+@export("monotonic")
+pub fn monotonic() -> u64 { return time.monotonic_ns() }
+@export("random_byte")
+pub fn random_byte() -> i32 { let bytes = random.secure_bytes(70000); return bytes[69999] as i32 }
+@export("print_text")
+pub unsafe fn print_text(p: Ptr[u8], len: usize) {
+    println(String.from_bytes_lossy(p, len))
+}
+@export("no_files")
+pub fn no_files() -> bool { return io.read_file("private.txt").is_err() }
+@export("fail")
+pub fn fail() { panic("web panic expected") }
+@export("sleep")
+pub fn sleep() { time.sleep(1) }
+
+fn main() { println("NEXUL navigateur 🌍") }

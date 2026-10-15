@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<title>NEXUL — WebAssembly</title>
+<h1>NEXUL dans le navigateur</h1>
+<p>Calcul et chaîne UTF-8 exécutés par un module compilé.</p>
+<pre id="result">Chargement…</pre>
+<script type="module">
+import {loadNexul} from '../../lib/web/nexul.mjs';
+const result = document.querySelector('#result');
+try {
+  let nx;
+  let greeting;
+  nx = await loadNexul('./calcul.wasm', {imports: {app: {
+    host_double: x => x * 2,
+    host_text: (p, n) => { greeting = nx.readText(p, n); },
+  }}});
+  const value = nx.call('calculate', 20.5);
+  nx.withText('NEXUL 🌍 — été', (p, n) => nx.call('greet', p, n));
+  result.textContent = `${value}\n${greeting}`;
+  document.documentElement.dataset.test = value === 42 && greeting === 'Bonjour, NEXUL 🌍 — été !' ? 'passed' : 'failed';
+} catch (error) {
+  result.textContent = error.stack;
+  document.documentElement.dataset.test = 'failed';
+}
+</script>
+</html>

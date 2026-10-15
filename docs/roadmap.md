@@ -30,9 +30,9 @@ par `cargo test --release`.
 
 | Exigence | État | Preuve / remarque |
 |---|---|---|
-| Plusieurs systèmes d'exploitation | ✅ | Windows et Linux vérifiés par la suite de conformité ; macOS produit (`--target x86_64-macos`, `aarch64-macos`) |
+| Plusieurs systèmes d'exploitation | ✅ | Windows et Linux vérifiés par la suite de conformité ; macOS non validé (couche système Linux sélectionnée à tort, voir audit Core) |
 | Cibles x86-64 et ARM64 | ✅ | `x86_64-*`, `aarch64-linux`, `aarch64-windows`, `aarch64-macos`, `aarch64-none` |
-| WebAssembly | ✅ | `wasm32-wasi` : la suite de conformité s'exécute sous Node ; intégration navigateur/JavaScript avancée prévue |
+| WebAssembly | ✅ | `wasm32-wasi` : la suite de conformité s'exécute sous Node ; `wasm32-web` : premier contrat navigateur v1, exports/imports et UTF-8 testés (voir docs/refonte/interop-web.md) |
 | Toolchains embarquées compatibles | ✅ | runtime sans système (`sys/bare.nx`), vecteurs, démarrage et scripts de liens ; la suite de conformité s'exécute sur Cortex-M4 sous QEMU ; Cortex-M3, RISC-V et ARM64 sans système produits ; flottants logiciels exacts au bit près |
 
 ### Écosystème

@@ -1,0 +1,53 @@
+/// Browser host ABI v1. No WASI, implicit files, environment or DOM access.
+import std.heap
+import std.wasm
+
+@link("nexul_v1")
+extern "C" fn nx_write(fd: i32, data: Ptr[u8], len: usize) -> i32
+@link("nexul_v1")
+extern "C" fn nx_exit(code: i32) -> Never
+@link("nexul_v1")
+extern "C" fn nx_now_ns(monotonic: i32) -> i64
+@link("nexul_v1")
+extern "C" fn nx_random(data: Ptr[u8], len: usize) -> i32
+
+pub fn init() {}
+pub fn stdout_is_terminal() -> bool { return true }
+pub fn exit(code: i32) -> Never { unsafe { nx_exit(code) } }
+
+pub unsafe fn page_alloc(size: usize) -> Ptr[u8] { return wasm.page_alloc(size) }
+pub unsafe fn page_free(p: Ptr[u8], size: usize) { wasm.page_free(p, size) }
+pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] { return heap.alloc(size) }
+pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] { return heap.realloc(p, size) }
+pub unsafe fn heap_free(p: Ptr[u8]) { heap.free(p) }
+
+pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+    return nx_write(fd, data, len) == 0
+}
+
+pub fn read_line(inout out: String) -> bool { let _ = out; return false }
+pub fn arg_count() -> i32 { return 0 }
+pub fn arg(index: i32) -> String { panic("no command-line arguments on wasm32-web: {index}") }
+pub fn env(name: String) -> Option[String] { let _ = name; return None }
+pub fn env_is_set(name: String) -> bool { let _ = name; return false }
+pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+    let _ = path
+    let _ = out
+    return false
+}
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+    let _ = path
+    let _ = data
+    let _ = len
+    let _ = append
+    return false
+}
+pub fn monotonic_ns() -> u64 { return unsafe { nx_now_ns(1) } as u64 }
+pub fn unix_time_ns() -> i64 { return unsafe { nx_now_ns(0) } }
+pub fn utc_offset(unix_seconds: i64) -> i32 { let _ = unix_seconds; return 0 }
+pub fn sleep_ns(ns: u64) {
+    if ns != 0 { panic("blocking sleep is unavailable on wasm32-web; schedule from the host") }
+}
+pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+    return nx_random(buffer, len) == 0
+}

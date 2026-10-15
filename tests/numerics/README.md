@@ -11,3 +11,9 @@ arrondi, et la `libm` du système pour les fonctions mathématiques).
 | `math.nx` + `math_verify.py` | `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `powf`, `hypot`, `floor`, `ceil`, `round`, `%` sur 40 000 arguments (jusqu'à 10²²) | écart ≤ 1 ulp |
 
 Exécution (Python 3 requis) : `NEXUL_TEST_NUMERICS=1 cargo test --release numerics`.
+
+Les vérificateurs eux-mêmes disposent de tests négatifs :
+`python -I tests/numerics/test_verifiers.py`. Ils refusent les sorties vides,
+les lignes mal formées et les comptes de parsing incohérents. Le corpus mathématique
+exige exactement 40 000 lignes. Le test Rust vérifie aussi le statut de chaque programme.
+La libm Python sert de référence comparative, pas de preuve d'arrondi correct universel.

@@ -995,7 +995,7 @@ impl<'a> Gen<'a> {
                 };
                 self.module_asm.push(asm.to_string());
             }
-            Os::Wasi => {
+            Os::Wasi | Os::Web => {
                 let _ = write!(self.fn_defs, "define void @_start() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
             }
             Os::None => {

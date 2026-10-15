@@ -26,7 +26,7 @@ options:
     -o <path>            output file
     --release            optimize (all safety checks remain enabled)
     -O<level>            optimization level: 0, 1, 2, 3, s (size) or z (smallest)
-    --target <name>      cross-compile: x86_64-linux, aarch64-linux, wasm32-wasi,
+    --target <name>      cross-compile: x86_64-linux, aarch64-linux, wasm32-wasi, wasm32-web,
                          thumbv7em-none... (see `nxc targets`)
     --lib                build a shared library (.dll, .so) of the @export functions
     --staticlib          build a static library (.lib, .a) of the @export functions
@@ -173,6 +173,9 @@ fn compile_command(args: &Args) {
         Some(t) => Target::from_name(t).unwrap_or_else(|e| fail(&e)),
         None => Target::host(),
     };
+    if target.os == nxc_driver::Os::Web && matches!(args.cmd.as_str(), "run" | "test") {
+        fail("wasm32-web runs in a JavaScript host; use `nxc build` and lib/web/nexul.mjs (see docs/refonte/interop-web.md)");
+    }
     let mode = match args.cmd.as_str() {
         "check" => Mode::Check,
         "test" => Mode::Tests,
