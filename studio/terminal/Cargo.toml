@@ -1,0 +1,13 @@
+[package]
+name = "nexul-studio-terminal"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "GPUI-independent pseudo-terminal and screen model for NEXUL Studio"
+
+[workspace]
+
+[dependencies]
+portable-pty = "0.9"
+unicode-width = "0.2"
+vte = "0.15"
