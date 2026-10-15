@@ -44,7 +44,6 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("f5", Run, None),
         KeyBinding::new("shift-f5", Stop, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
-        KeyBinding::new("alt-f4", Quit, None),
         KeyBinding::new("ctrl-n", NewFile, None),
         KeyBinding::new("ctrl-shift-p", ShowCommands, None),
         KeyBinding::new("f1", ShowCommands, None),
@@ -114,7 +113,6 @@ fn main() {
         gpui_kit::init(cx);
         bind_keys(cx);
         set_menus(cx);
-        cx.on_action(|_: &Quit, cx| cx.quit());
         let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

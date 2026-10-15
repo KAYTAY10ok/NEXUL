@@ -107,7 +107,7 @@ fn all_files(root: &Path) -> Vec<String> {
                 return;
             }
             let name = e.file_name().to_string_lossy().to_string();
-            if nexul_studio::watch::IGNORED.contains(&name.as_str()) {
+            if nexul_studio::watch::IGNORED.contains(&name.as_str()) || nexul_studio::watch::is_hidden_name(&name) {
                 continue;
             }
             let rel = if prefix.is_empty() { name.clone() } else { format!("{}/{}", prefix, name) };

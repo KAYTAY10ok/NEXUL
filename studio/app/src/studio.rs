@@ -4,6 +4,7 @@
 mod files;
 mod lang;
 mod palette;
+mod safety;
 
 use crate::explorer;
 use crate::ide;
@@ -49,6 +50,9 @@ struct Doc {
     dirty: bool,
     /// Hash of the text on disk, to tell real changes from reloads.
     saved_hash: u64,
+    /// Hash of the bytes on disk when the file was read or saved: a different file on
+    /// disk at the next save is a conflict.
+    disk_hash: u64,
     /// The next change event comes from a reload, not from the user.
     reloading: bool,
     _changes: Subscription,
@@ -58,6 +62,13 @@ fn text_hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);
+    h.finish()
+}
+
+fn bytes_hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
     h.finish()
 }
 
@@ -90,6 +101,12 @@ pub struct Studio {
     rename_box: Option<Subscription>,
     /// The palette of commands or of files, when open.
     palette: Option<Palette>,
+    /// Unsaved changes not yet copied to the recovery folder, since then.
+    backup_due: Option<std::time::Instant>,
+    /// The last change of a text (automatic saving).
+    last_change: Option<std::time::Instant>,
+    /// The window may close: the unsaved changes were dealt with.
+    allow_close: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -127,6 +144,9 @@ impl Studio {
             panel_tab: PanelTab::Output,
             rename_box: None,
             palette: None,
+            backup_due: None,
+            last_change: None,
+            allow_close: false,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -146,6 +166,9 @@ impl Studio {
             _ => {}
         }
         this.poll(window, cx);
+        // Closing the window with unsaved changes asks first.
+        let studio = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| studio.update(cx, |this, cx| this.window_should_close(window, cx)).unwrap_or(true));
         this
     }
 
@@ -222,6 +245,7 @@ impl Studio {
                         this.reload_unmodified(window, cx);
                     }
                     this.update_output(window, cx);
+                    this.tick_safety(window, cx);
                 })
                 .is_ok();
             if !alive {
@@ -239,6 +263,7 @@ impl Studio {
                 continue;
             }
             let Ok(bytes) = std::fs::read(root.join(&doc.rel)) else { continue };
+            doc.disk_hash = bytes_hash(&bytes);
             let Some((text, encoding)) = workspace::decode_text(&bytes) else { continue };
             let current = doc.editor.read(cx).value();
             if current.as_ref() != text.as_str() {
@@ -269,6 +294,7 @@ impl Studio {
         let name: SharedString = rel.rsplit('/').next().unwrap_or(rel).to_string().into();
         let lang = explorer::language_of(&name);
         let saved_hash = text_hash(&text);
+        let disk_hash = bytes_hash(&bytes);
         let editor = cx.new(|cx| EditorState::new(window, cx).language(lang).line_number(true).searchable(true).default_value(text));
         let changes = cx.subscribe(&editor, |this: &mut Self, editor, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -284,6 +310,9 @@ impl Studio {
                         doc.dirty = true;
                         cx.notify();
                     }
+                    let now = std::time::Instant::now();
+                    this.backup_due.get_or_insert(now);
+                    this.last_change = Some(now);
                 }
             }
         });
@@ -292,7 +321,9 @@ impl Studio {
             editor.update(cx, |e, cx| e.set_highlighter_factory(crate::highlight::factory(), cx));
             self.attach_services(&editor, &file, cx);
         }
-        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, file, encoding, dirty: false, saved_hash, reloading: false, _changes: changes });
+        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, file, encoding, dirty: false, saved_hash, disk_hash, reloading: false, _changes: changes });
+        // Changes not saved when Studio stopped (crash, power cut) come back.
+        self.restore_backup(self.docs.len() - 1, window, cx);
         self.activate(self.docs.len() - 1, window, cx);
         self.save_session();
         if lang == "nexul" {
@@ -311,7 +342,17 @@ impl Studio {
     }
 
     fn save_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.save_doc_as_is(ix, false, window, cx)
+    }
+
+    /// Saves a file; unless `overwrite`, a file changed on disk since it was read asks
+    /// what to do instead of being overwritten.
+    fn save_doc_as_is(&mut self, ix: usize, overwrite: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(root) = self.root.clone() else { return false };
+        if !overwrite && self.changed_on_disk(ix) {
+            self.ask_conflict(ix, window, cx);
+            return false;
+        }
         let Some(doc) = self.docs.get_mut(ix) else { return false };
         let text = doc.editor.read(cx).value().to_string();
         let (bytes, encoding) = workspace::encode_text(&text, doc.encoding);
@@ -319,8 +360,10 @@ impl Studio {
             Ok(()) => {
                 doc.encoding = encoding;
                 doc.saved_hash = text_hash(&text);
+                doc.disk_hash = bytes_hash(&bytes);
                 doc.dirty = false;
                 let rel = doc.rel.clone();
+                self.delete_backup(&rel);
                 self.check_file(&rel, window, cx);
                 cx.notify();
                 true
@@ -332,18 +375,10 @@ impl Studio {
         }
     }
 
-    fn close_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// Closes an editor without saving (the caller dealt with its changes).
+    fn remove_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix >= self.docs.len() {
             return;
-        }
-        // The text is compared, not only the flag: the last keystroke may not have been
-        // reported yet.
-        let modified = self.docs[ix].dirty || text_hash(&self.docs[ix].editor.read(cx).value()) != self.docs[ix].saved_hash;
-        if modified {
-            // Unsaved changes: saved before closing (as with automatic saving).
-            if !self.save_doc(ix, window, cx) {
-                return;
-            }
         }
         self.docs.remove(ix);
         self.active = if self.docs.is_empty() { None } else { Some(ix.min(self.docs.len() - 1)) };
@@ -355,7 +390,10 @@ impl Studio {
     }
 
     fn notify_error(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        window.push_notification(gpui_kit::component::notification::Notification::error(message.to_string()), cx);
+        let note = gpui_kit::component::notification::Notification::error(message.to_string());
+        // Deferred: while the window is being built (files reopened at start), its layer
+        // of notifications does not exist yet.
+        cx.defer_in(window, move |_, window, cx| window.push_notification(note, cx));
     }
 
     // -------------------------------------------------------------- running
@@ -458,7 +496,7 @@ impl Studio {
 
     fn on_close_editor(&mut self, _: &CloseEditor, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(ix) = self.active {
-            self.close_doc(ix, window, cx);
+            self.request_close_doc(ix, window, cx);
         }
     }
 
@@ -771,7 +809,7 @@ impl Studio {
                 Tab::new()
                     .label(if d.dirty { format!("● {}", d.name) } else { d.name.to_string() })
                     .suffix(Button::new(("close", i)).ghost().xsmall().icon(IconName::Close).on_click(move |_, window, cx| {
-                        let _ = studio.update(cx, |this, cx| this.close_doc(i, window, cx));
+                        let _ = studio.update(cx, |this, cx| this.request_close_doc(i, window, cx));
                     }))
             }))
             .on_click(cx.listener(|this, ix: &usize, window, cx| this.activate(*ix, window, cx)));
@@ -921,6 +959,7 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_show_problems))
             .on_action(cx.listener(Self::on_show_commands))
             .on_action(cx.listener(Self::on_quick_open))
+            .on_action(cx.listener(Self::on_quit))
             .when(!minimal, |this| {
                 this.child(TitleBar::new().child(self.menu_bar.clone()).child(div().flex_1()).child(div().text_xs().text_color(cx.theme().muted_foreground).pr_4().child(title)))
             })
@@ -1411,17 +1450,120 @@ mod tests {
         studio.read_with(cx, |s, _| assert!(s.palette.is_none(), "Escape closes the palette"));
     }
 
+    fn has_dialog(cx: &mut TestAppContext, window: AnyWindowHandle) -> bool {
+        cx.update_window(window, |_, window, cx| window.has_active_dialog(cx)).unwrap()
+    }
+
+    fn type_at_end(cx: &mut TestAppContext, window: AnyWindowHandle, text: &str) {
+        let text = text.to_string();
+        keys(cx, window, move |window, cx| {
+            window.press("ctrl-end", cx);
+            window.input(&text, cx);
+        });
+    }
+
     #[gpui_kit::test]
-    fn closing_a_modified_file_saves_it(cx: &mut TestAppContext) {
+    fn closing_a_modified_editor_asks(cx: &mut TestAppContext) {
         let dir = project("close");
+        let original = std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap();
         let (window, studio) = open(cx, dir.clone());
         update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
-        keys(cx, window, |window, cx| {
-            window.press("ctrl-end", cx);
-            window.input("// fin\n", cx);
-            window.press("ctrl-w", cx);
-        });
+        type_at_end(cx, window, "// fin\n");
+        // Ctrl+W: a question, nothing closed or written yet.
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        assert!(has_dialog(cx, window), "Enregistrer / Ne pas enregistrer / Annuler");
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1));
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), original);
+        // Escape: cancelled.
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1, "still open"));
+        // « Ne pas enregistrer »: closed, the file unchanged.
+        update(cx, window, &studio, |s, window, cx| s.finish_close_doc("src/calcul.nx", safety::Choice::Discard, window, cx));
         studio.read_with(cx, |s, _| assert!(s.docs.is_empty()));
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), original);
+        // Again, and Enter: « Enregistrer ».
+        update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
+        type_at_end(cx, window, "// fin\n");
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| assert!(s.docs.is_empty(), "saved and closed"));
         assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// fin\n"));
+        // Unchanged: closed without a question.
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert!(s.docs.is_empty()));
+    }
+
+    #[gpui_kit::test]
+    fn closing_the_window_asks_for_unsaved_files(cx: &mut TestAppContext) {
+        let dir = project("closewin");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("main.nx", window, cx);
+            s.open_file("src/calcul.nx", window, cx);
+        });
+        type_at_end(cx, window, "// b\n");
+        let closes = update(cx, window, &studio, |s, window, cx| s.window_should_close(window, cx));
+        assert!(!closes, "the window stays while the question is asked");
+        assert!(has_dialog(cx, window));
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        // « Tout enregistrer »: saved, then the window closes.
+        cx.update_window(window, |_, window, cx| studio.update(cx, |s, cx| s.finish_close_window(safety::Choice::Save, window, cx))).unwrap();
+        cx.run_until_parked();
+        assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// b\n"), "saved before closing");
+        studio.read_with(cx, |s, _| assert!(s.allow_close));
+        assert!(cx.update_window(window, |_, _, _| ()).is_err(), "the window is closed");
+    }
+
+    #[gpui_kit::test]
+    fn a_file_changed_on_disk_is_not_overwritten(cx: &mut TestAppContext) {
+        let dir = project("conflict");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// mien\n");
+        // Another program changes the file.
+        std::fs::write(dir.join("main.nx"), "// autre programme\n").unwrap();
+        keys(cx, window, |window, cx| window.press("ctrl-s", cx));
+        assert!(has_dialog(cx, window), "Écraser / Recharger / Annuler");
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), "// autre programme\n", "not overwritten");
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        // « Recharger »: the version of the disk.
+        update(cx, window, &studio, |s, window, cx| s.finish_conflict("main.nx", safety::Choice::Discard, window, cx));
+        studio.read_with(cx, |s, cx| {
+            assert_eq!(s.docs[0].editor.read(cx).value().as_ref(), "// autre programme\n");
+            assert!(!s.docs[0].dirty);
+        });
+        // Changed again on disk, then « Écraser ».
+        type_at_end(cx, window, "// mien\n");
+        std::fs::write(dir.join("main.nx"), "// encore\n").unwrap();
+        update(cx, window, &studio, |s, window, cx| s.finish_conflict("main.nx", safety::Choice::Save, window, cx));
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), "// autre programme\n// mien\n");
+    }
+
+    #[gpui_kit::test]
+    fn unsaved_changes_come_back_after_a_crash(cx: &mut TestAppContext) {
+        let dir = project("recovery");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
+        type_at_end(cx, window, "// pas encore enregistré\n");
+        update(cx, window, &studio, |s, _, cx| s.write_backups(cx));
+        // Studio stops without closing (crash): a new one opens the same folder.
+        let (window2, studio2) = open(cx, dir.clone());
+        studio2.read_with(cx, |s, cx| {
+            let doc = s.docs.iter().find(|d| d.rel == "src/calcul.nx").expect("reopened");
+            assert!(doc.editor.read(cx).value().ends_with("// pas encore enregistré\n"), "text recovered");
+            assert!(doc.dirty, "still to save");
+        });
+        assert!(!std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().contains("enregistré"), "the file itself unchanged");
+        // Saved: the recovery copy goes away; a third Studio reads the file as is.
+        update(cx, window2, &studio2, |s, window, cx| {
+            let ix = s.docs.iter().position(|d| d.rel == "src/calcul.nx").unwrap();
+            s.save_doc(ix, window, cx);
+        });
+        let (_window3, studio3) = open(cx, dir);
+        studio3.read_with(cx, |s, _| assert!(s.docs.iter().all(|d| !d.dirty)));
+        let _ = window;
     }
 }

@@ -163,24 +163,75 @@ pub fn create(root: &Path, rel: &str, kind: Kind, content: &[u8]) -> FsResult<St
     Ok(shown)
 }
 
-/// Saves the content of a file (created if needed, with its folders).
+/// Saves the content of a file (created if needed, with its folders). The content is
+/// written to a temporary file of the same folder, flushed to the disk, then put in
+/// place of the file in one step: a crash or a full disk never leaves half a file.
 pub fn save(root: &Path, rel: &str, content: &[u8]) -> FsResult<()> {
     let p = if resolve(root, rel)?.exists() { resolve(root, rel)? } else { resolve_new(root, rel)? };
     let shown = rel_of(root, &p);
     if p.is_dir() {
         return Err(FsError::new(409, format!("« {} » est un dossier.", shown)));
     }
+    if std::fs::metadata(&p).map(|m| m.permissions().readonly()).unwrap_or(false) {
+        return Err(FsError::new(403, format!("« {} » est en lecture seule : retirez cet attribut (Propriétés du fichier) ou enregistrez sous un autre nom.", shown)));
+    }
     if let Some(parent) = p.parent() {
         std::fs::create_dir_all(parent).map_err(|e| io_message(&e, &rel_of(root, parent)))?;
     }
-    std::fs::write(&p, content).map_err(|e| {
-        let read_only = std::fs::metadata(&p).map(|m| m.permissions().readonly()).unwrap_or(false);
-        if read_only {
-            FsError::new(403, format!("« {} » est en lecture seule : retirez cet attribut (Propriétés du fichier) ou enregistrez sous un autre nom.", shown))
-        } else {
-            io_message(&e, &shown)
-        }
-    })
+    write_atomic(&p, content).map_err(|e| io_message(&e, &shown))
+}
+
+/// `nom.ext` → `.nom.ext.<pid>.nxtmp`, beside it.
+fn temp_beside(p: &Path) -> PathBuf {
+    let name = p.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+    p.with_file_name(format!(".{}.{}.nxtmp", name, std::process::id()))
+}
+
+fn write_atomic(p: &Path, content: &[u8]) -> io::Result<()> {
+    use std::io::Write;
+    let tmp = temp_beside(p);
+    let result = (|| {
+        let mut f = std::fs::File::create(&tmp)?;
+        f.write_all(content)?;
+        f.sync_all()?;
+        drop(f);
+        replace_file(&tmp, p)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    result
+}
+
+/// Puts `tmp` in place of `target`, keeping the attributes and the permissions of an
+/// existing target (`ReplaceFileW`).
+#[cfg(windows)]
+fn replace_file(tmp: &Path, target: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn ReplaceFileW(replaced: *const u16, replacement: *const u16, backup: *const u16, flags: u32, exclude: *mut core::ffi::c_void, reserved: *mut core::ffi::c_void) -> i32;
+    }
+    const REPLACEFILE_IGNORE_MERGE_ERRORS: u32 = 0x2;
+    if !target.exists() {
+        return std::fs::rename(tmp, target);
+    }
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let (t, r) = (wide(target), wide(tmp));
+    let ok = unsafe { ReplaceFileW(t.as_ptr(), r.as_ptr(), std::ptr::null(), REPLACEFILE_IGNORE_MERGE_ERRORS, std::ptr::null_mut(), std::ptr::null_mut()) };
+    if ok != 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+#[cfg(not(windows))]
+fn replace_file(tmp: &Path, target: &Path) -> io::Result<()> {
+    if let Ok(meta) = std::fs::metadata(target) {
+        let _ = std::fs::set_permissions(tmp, meta.permissions());
+    }
+    std::fs::rename(tmp, target)
 }
 
 /// Renames (or moves within the workspace) an entry. A change of case only is allowed.
@@ -558,9 +609,33 @@ mod tests {
         std::fs::set_permissions(&p, perm.clone()).unwrap();
         let e = save(r, "ro.nx", b"b").unwrap_err();
         assert!(e.message.contains("lecture seule"), "{}", e.message);
+        assert_eq!(std::fs::read(&p).unwrap(), b"a", "unchanged");
         #[allow(clippy::permissions_set_readonly_false)]
         perm.set_readonly(false);
         std::fs::set_permissions(&p, perm).unwrap();
+    }
+
+    #[test]
+    fn atomic_save() {
+        let t = Tmp::new("atomic");
+        let r = &t.0;
+        create(r, "a.nx", Kind::File, b"old").unwrap();
+        #[cfg(windows)]
+        {
+            // The attributes of the file are kept (here: hidden).
+            let ok = std::process::Command::new("attrib").arg("+h").arg(r.join("a.nx")).status().map(|s| s.success()).unwrap_or(false);
+            assert!(ok);
+        }
+        save(r, "a.nx", "nouveau contenu é".as_bytes()).unwrap();
+        assert_eq!(std::fs::read_to_string(r.join("a.nx")).unwrap(), "nouveau contenu é");
+        #[cfg(windows)]
+        {
+            use std::os::windows::fs::MetadataExt;
+            assert!(std::fs::metadata(r.join("a.nx")).unwrap().file_attributes() & 0x2 != 0, "still hidden");
+        }
+        let left: Vec<_> = std::fs::read_dir(r).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).collect();
+        assert_eq!(left, ["a.nx"], "no temporary file left");
+        assert!(crate::watch::is_ignored("src/.a.nx.12.nxtmp"));
     }
 
     #[test]
