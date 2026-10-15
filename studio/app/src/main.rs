@@ -5,6 +5,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod assets;
 mod explorer;
 mod settings;
 mod studio;
@@ -16,6 +17,12 @@ use std::path::PathBuf;
 actions!(
     studio,
     [OpenFolder, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit]
+);
+
+// The explorer: they act on the selected entry.
+actions!(
+    explorer,
+    [NewFile, NewFolder, RenameEntry, DeleteEntry, CopyEntry, CutEntry, PasteEntry, RevealEntry, CopyPath, CopyRelativePath, RefreshExplorer, CollapseExplorer]
 );
 
 /// Shortcuts, close to those of Visual Studio Code.
@@ -33,6 +40,15 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("shift-f5", Stop, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
         KeyBinding::new("alt-f4", Quit, None),
+        KeyBinding::new("ctrl-n", NewFile, None),
+        KeyBinding::new("f2", RenameEntry, Some("Explorer")),
+        KeyBinding::new("delete", DeleteEntry, Some("Explorer")),
+        KeyBinding::new("ctrl-c", CopyEntry, Some("Explorer")),
+        KeyBinding::new("ctrl-x", CutEntry, Some("Explorer")),
+        KeyBinding::new("ctrl-v", PasteEntry, Some("Explorer")),
+        KeyBinding::new("shift-alt-r", RevealEntry, Some("Explorer")),
+        KeyBinding::new("shift-alt-c", CopyPath, Some("Explorer")),
+        KeyBinding::new("ctrl-shift-alt-c", CopyRelativePath, Some("Explorer")),
     ]);
 }
 
@@ -40,6 +56,9 @@ fn bind_keys(cx: &mut App) {
 fn menus() -> Vec<Menu> {
     vec![
         Menu::new("Fichier").items([
+            MenuItem::action("Nouveau fichier…", NewFile),
+            MenuItem::action("Nouveau dossier…", NewFolder),
+            MenuItem::separator(),
             MenuItem::action("Ouvrir un dossier…", OpenFolder),
             MenuItem::separator(),
             MenuItem::action("Enregistrer", Save),
@@ -68,7 +87,7 @@ fn set_menus(cx: &mut App) {
 fn main() {
     let start = std::env::args().nth(1).map(PathBuf::from);
     // The icons (Lucide) are embedded in the program.
-    gpui_kit::application().with_assets(gpui_kit::assets::Assets).run(move |cx| {
+    gpui_kit::application().with_assets(assets::Assets).run(move |cx| {
         gpui_kit::init(cx);
         bind_keys(cx);
         set_menus(cx);

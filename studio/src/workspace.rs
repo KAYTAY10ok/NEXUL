@@ -311,6 +311,28 @@ pub fn import(root: &Path, dir: &str, sub: &str, content: &[u8]) -> FsResult<Str
     Ok(rel_of(root, &p))
 }
 
+/// Copies files and folders given by their full path (dropped from the Explorer, pasted
+/// from the clipboard of the system) into `dir`, under free names. Returns the new
+/// relative paths.
+pub fn import_paths(root: &Path, dir: &str, paths: &[PathBuf]) -> FsResult<Vec<String>> {
+    let dest = existing_dir(root, dir)?;
+    let mut created = Vec::new();
+    for src in paths {
+        let shown = src.to_string_lossy().to_string();
+        if !src.exists() {
+            return Err(FsError::new(404, format!("« {} » est introuvable.", shown)));
+        }
+        if src.is_dir() && is_within(&dest, src) {
+            return Err(FsError::new(400, format!("Impossible de copier le dossier « {} » à l'intérieur de lui-même.", shown)));
+        }
+        let name = src.file_name().map(|n| n.to_string_lossy().to_string()).ok_or_else(|| FsError::new(400, format!("Impossible de copier « {} » (un disque entier ?).", shown)))?;
+        let dst = dest.join(unique_name(&dest, &name));
+        copy_tree(src, &dst).map_err(|e| io_message(&e, &shown))?;
+        created.push(rel_of(root, &dst));
+    }
+    Ok(created)
+}
+
 /// The encodings of text files that Studio reads and writes back unchanged.
 pub const ENCODINGS: &[&str] = &["utf-8", "utf-8-bom", "utf-16le", "utf-16be", "windows-1252"];
 
@@ -562,6 +584,16 @@ mod tests {
         assert!(import(r, "", "../evil.txt", b"").is_err());
         create(r, "e/a.nx.bak", Kind::File, b"").unwrap();
         assert_eq!(move_into(r, &["d/x.nx".into()], "missing").unwrap_err().status, 404);
+        // Files and folders from outside of the workspace.
+        let out = Tmp::new("mci-out");
+        create(&out.0, "dehors/y.txt", Kind::File, b"y").unwrap();
+        create(&out.0, "z.txt", Kind::File, b"z").unwrap();
+        let paths = [out.0.join("dehors"), out.0.join("z.txt")];
+        assert_eq!(import_paths(r, "e", &paths).unwrap(), vec!["e/dehors".to_string(), "e/z.txt".to_string()]);
+        assert_eq!(import_paths(r, "e", &paths[1..]).unwrap(), vec!["e/z (2).txt".to_string()]);
+        assert_eq!(std::fs::read(r.join("e/dehors/y.txt")).unwrap(), b"y");
+        assert_eq!(import_paths(r, "e", &[r.join("e")]).unwrap_err().status, 400);
+        assert_eq!(import_paths(r, "", &[out.0.join("absent")]).unwrap_err().status, 404);
     }
 
     #[test]

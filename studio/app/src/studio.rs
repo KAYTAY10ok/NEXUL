@@ -1,23 +1,28 @@
 //! The main window of NEXUL Studio: title bar with the menus, activity bar, explorer,
 //! editors in tabs, output panel and status bar.
 
+mod files;
+
 use crate::explorer;
 use crate::settings::Settings;
 use crate::*;
 use gpui_kit::component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    input::{Editor, EditorState, InputEvent},
+    input::{Editor, EditorState, Escape, Input, InputEvent},
     list::ListItem,
-    menu::AppMenuBar,
+    menu::{AppMenuBar, ContextMenuExt as _, PopupMenu, PopupMenuItem},
     resizable::{h_resizable, resizable_panel, v_resizable},
     tab::{Tab, TabBar},
     tree::{tree, TreeEvent, TreeState},
     status_bar::StatusBar,
     v_flex, ActiveTheme as _, IconName, Selectable as _, Sizable as _, Theme, ThemeMode, TitleBar, WindowExt as _,
 };
+use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
+use files::{Clip, Dragged, Naming};
+use nexul_studio::workspace::Kind;
 use nexul_studio::{compiler, runner, watch, workspace};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -63,6 +68,10 @@ pub struct Studio {
     watcher: Option<watch::Watcher>,
     changed: Arc<AtomicBool>,
     menu_bar: Entity<AppMenuBar>,
+    /// The name box of the explorer (new entry, rename).
+    naming: Option<Naming>,
+    /// Entries copied or cut in the explorer.
+    clip: Option<Clip>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,6 +102,8 @@ impl Studio {
             watcher: None,
             changed: Arc::new(AtomicBool::new(false)),
             menu_bar: AppMenuBar::new(cx),
+            naming: None,
+            clip: None,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -148,9 +159,20 @@ impl Studio {
 
     fn refresh_tree(&mut self, cx: &mut Context<Self>) {
         let Some(root) = self.root.clone() else { return };
-        let (items, dirs) = explorer::build(&root, &self.expanded);
+        let new_in = match &self.naming {
+            Some(Naming { target: files::Target::New { dir, .. }, .. }) => Some(dir.as_str()),
+            _ => None,
+        };
+        let (items, dirs) = explorer::build(&root, &self.expanded, new_in);
         self.dirs = dirs;
-        self.tree.update(cx, |t, cx| t.set_items(items, cx));
+        // The selection stays on the same entry.
+        self.tree.update(cx, |t, cx| {
+            let selected = t.selected_item().map(|i| i.id.clone());
+            t.set_items(items, cx);
+            if let Some(ix) = selected.and_then(|id| t.index_of(&id)) {
+                t.set_selected_index(Some(ix), cx);
+            }
+        });
     }
 
     fn save_session(&mut self) {
@@ -446,6 +468,77 @@ impl Studio {
         }
     }
 
+    fn on_new_file(&mut self, _: &NewFile, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.target_dir(cx);
+        self.start_new(dir, Kind::File, window, cx);
+    }
+
+    fn on_new_folder(&mut self, _: &NewFolder, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.target_dir(cx);
+        self.start_new(dir, Kind::Dir, window, cx);
+    }
+
+    fn on_rename_entry(&mut self, _: &RenameEntry, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(rel) = self.selected(cx) {
+            self.start_rename(rel, window, cx);
+        }
+    }
+
+    fn on_delete_entry(&mut self, _: &DeleteEntry, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(rel) = self.selected(cx) {
+            self.confirm_delete(rel, window, cx);
+        }
+    }
+
+    fn on_copy_entry(&mut self, _: &CopyEntry, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(rel) = self.selected(cx) {
+            self.set_clip(vec![rel], false, cx);
+        }
+    }
+
+    fn on_cut_entry(&mut self, _: &CutEntry, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(rel) = self.selected(cx) {
+            self.set_clip(vec![rel], true, cx);
+        }
+    }
+
+    fn on_paste_entry(&mut self, _: &PasteEntry, window: &mut Window, cx: &mut Context<Self>) {
+        let dir = self.target_dir(cx);
+        self.paste(dir, window, cx);
+    }
+
+    fn on_reveal_entry(&mut self, _: &RevealEntry, window: &mut Window, cx: &mut Context<Self>) {
+        let rel = self.selected(cx).unwrap_or_default();
+        self.reveal(&rel, window, cx);
+    }
+
+    fn on_copy_path(&mut self, _: &CopyPath, _: &mut Window, cx: &mut Context<Self>) {
+        let rel = self.selected(cx).unwrap_or_default();
+        self.copy_path(&rel, false, cx);
+    }
+
+    fn on_copy_relative_path(&mut self, _: &CopyRelativePath, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(rel) = self.selected(cx) {
+            self.copy_path(&rel, true, cx);
+        }
+    }
+
+    fn on_refresh_explorer(&mut self, _: &RefreshExplorer, _: &mut Window, cx: &mut Context<Self>) {
+        self.refresh_tree(cx);
+    }
+
+    fn on_collapse_explorer(&mut self, _: &CollapseExplorer, _: &mut Window, cx: &mut Context<Self>) {
+        self.expanded.clear();
+        self.refresh_tree(cx);
+        self.save_session();
+    }
+
+    fn on_escape(&mut self, _: &Escape, window: &mut Window, cx: &mut Context<Self>) {
+        if !self.cancel_naming(window, cx) {
+            cx.propagate();
+        }
+    }
+
     // -------------------------------------------------------------- views
 
     fn render_activity_bar(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -494,13 +587,17 @@ impl Studio {
 
     fn render_explorer(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let theme = cx.theme();
+        let studio = cx.entity().downgrade();
         let title = self.root.as_ref().and_then(|r| r.file_name()).map(|n| n.to_string_lossy().to_uppercase()).unwrap_or_else(|| "AUCUN DOSSIER".into());
         let header = h_flex()
+            .id("explorer-header")
             .h(px(32.))
-            .px_3()
+            .pl_3()
+            .pr_1()
+            .gap_0p5()
             .text_xs()
             .text_color(theme.muted_foreground)
-            .child(title);
+            .child(div().flex_1().min_w_0().overflow_hidden().whitespace_nowrap().child(title));
         if self.root.is_none() {
             return v_flex().size_full().bg(theme.sidebar).child(header).child(
                 v_flex().p_3().gap_2().child(div().text_sm().text_color(theme.muted_foreground).child("Aucun dossier n'est ouvert.")).child(
@@ -511,30 +608,89 @@ impl Studio {
                 ),
             );
         }
-        let studio = cx.entity().downgrade();
+        // The header: tools, drop and menu for the root of the folder.
+        let header = header
+            .child(tool("new-file", Lucide::FilePlus, "Nouveau fichier (Ctrl+N)", NewFile))
+            .child(tool("new-folder", Lucide::FolderPlus, "Nouveau dossier", NewFolder))
+            .child(tool("refresh", IconName::RefreshCw, "Actualiser", RefreshExplorer))
+            .child(tool("collapse", Lucide::ListChevronsDownUp, "Tout replier", CollapseExplorer))
+            .drag_over::<Dragged>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+            .on_drop(drop_entries_into(&studio, String::new()))
+            .on_drop(drop_paths_into(&studio, String::new()))
+            .context_menu({
+                let studio = studio.clone();
+                move |menu, _, _| root_menu(menu, &studio)
+            });
+
         let dirs = self.dirs.clone();
+        let naming = self.naming.as_ref().map(|n| (n.row(), n.input.clone(), matches!(n.target, files::Target::New { kind: Kind::Dir, .. })));
+        let cut: HashSet<String> = self.clip.iter().filter(|c| c.cut).flat_map(|c| c.items.iter().cloned()).collect();
+        let row_studio = studio.clone();
         let list = tree(&self.tree, move |ix, entry, selected, _window, _cx| {
             let rel = entry.item().id.to_string();
-            let is_dir = dirs.contains(&rel);
+            let editing = naming.as_ref().filter(|(row, _, _)| row.as_ref() == rel);
+            let is_dir = dirs.contains(&rel) || editing.is_some_and(|(_, _, dir)| *dir && rel == explorer::NEW_ENTRY);
             let icon = if is_dir {
                 if entry.is_expanded() { IconName::FolderOpen } else { IconName::Folder }
             } else {
                 IconName::File
             };
+            let item = ListItem::new(ix).selected(selected).py_0p5().pl(px(10. + entry.depth() as f32 * 14.));
+            let icon = gpui_kit::component::Icon::new(icon).xsmall();
+            if let Some((_, input, _)) = editing {
+                return item.child(h_flex().gap_1p5().text_sm().child(icon).child(div().flex_1().child(Input::new(input).xsmall())));
+            }
+            let dir = if is_dir { rel.clone() } else { files::parent_of(&rel).to_string() };
+            let studio = row_studio.clone();
+            let open = rel.clone();
+            item.child(
+                h_flex()
+                    .gap_1p5()
+                    .text_sm()
+                    .when(cut.contains(&rel), |this| this.opacity(0.5))
+                    .child(icon)
+                    .child(entry.item().label.clone()),
+            )
+            .on_drag(Dragged::new(&rel), |dragged, _, _, cx| cx.new(|_| dragged.clone()))
+            .drag_over::<Dragged>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+            .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+            .on_drop(drop_entries_into(&studio, dir.clone()))
+            .on_drop(drop_paths_into(&studio, dir))
+            .on_click(move |_, window, cx| {
+                if !is_dir {
+                    let _ = studio.update(cx, |this, cx| this.open_file(&open, window, cx));
+                }
+            })
+        })
+        .context_menu({
             let studio = studio.clone();
-            ListItem::new(ix)
-                .selected(selected)
-                .py_0p5()
-                .pl(px(10. + entry.depth() as f32 * 14.))
-                .child(h_flex().gap_1p5().text_sm().child(gpui_kit::component::Icon::new(icon).xsmall()).child(entry.item().label.clone()))
-                .on_click(move |_, window, cx| {
-                    if !is_dir {
-                        let rel = rel.clone();
-                        let _ = studio.update(cx, |this, cx| this.open_file(&rel, window, cx));
-                    }
-                })
+            let dirs = self.dirs.clone();
+            move |_, entry, menu, _, _| {
+                let rel = entry.item().id.to_string();
+                if rel == explorer::NEW_ENTRY {
+                    return menu;
+                }
+                entry_menu(menu, &studio, rel.clone(), dirs.contains(&rel))
+            }
         });
-        v_flex().size_full().bg(theme.sidebar).child(header).child(div().flex_1().min_h_0().child(list))
+        v_flex()
+            .key_context("Explorer")
+            .size_full()
+            .bg(theme.sidebar)
+            .child(header)
+            .child(
+                div()
+                    .id("explorer-list")
+                    .flex_1()
+                    .min_h_0()
+                    // A drop beside the entries goes to the root.
+                    .drag_over::<Dragged>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+                    .drag_over::<ExternalPaths>(|s, _, _, cx| s.bg(cx.theme().drop_target))
+                    .on_drop(drop_entries_into(&studio, String::new()))
+                    .on_drop(drop_paths_into(&studio, String::new()))
+                    .child(list),
+            )
     }
 
     fn render_editors(&self, cx: &mut Context<Self>) -> impl IntoElement {
@@ -664,6 +820,19 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_run))
             .on_action(cx.listener(Self::on_stop))
             .on_action(cx.listener(Self::on_next_tab))
+            .on_action(cx.listener(Self::on_new_file))
+            .on_action(cx.listener(Self::on_new_folder))
+            .on_action(cx.listener(Self::on_rename_entry))
+            .on_action(cx.listener(Self::on_delete_entry))
+            .on_action(cx.listener(Self::on_copy_entry))
+            .on_action(cx.listener(Self::on_cut_entry))
+            .on_action(cx.listener(Self::on_paste_entry))
+            .on_action(cx.listener(Self::on_reveal_entry))
+            .on_action(cx.listener(Self::on_copy_path))
+            .on_action(cx.listener(Self::on_copy_relative_path))
+            .on_action(cx.listener(Self::on_refresh_explorer))
+            .on_action(cx.listener(Self::on_collapse_explorer))
+            .on_action(cx.listener(Self::on_escape))
             .when(!minimal, |this| {
                 this.child(TitleBar::new().child(self.menu_bar.clone()).child(div().flex_1()).child(div().text_xs().text_color(cx.theme().muted_foreground).pr_4().child(title)))
             })
@@ -676,6 +845,77 @@ impl Render for Studio {
             )
             .when(!minimal, |this| this.child(self.render_status(cx)))
     }
+}
+
+/// A small button of the explorer header.
+fn tool(id: &'static str, icon: impl Into<gpui_kit::component::Icon>, tip: &'static str, action: impl Action) -> Button {
+    Button::new(id).ghost().xsmall().icon(icon).tooltip(tip).on_click(move |_, window, cx| window.dispatch_action(action.boxed_clone(), cx))
+}
+
+/// Entries of the explorer dropped on `dir`.
+fn drop_entries_into(studio: &WeakEntity<Studio>, dir: String) -> impl Fn(&Dragged, &mut Window, &mut App) + 'static {
+    let studio = studio.clone();
+    move |dragged, window, cx| {
+        let _ = studio.update(cx, |this, cx| this.drop_entries(dragged, dir.clone(), window, cx));
+    }
+}
+
+/// Files of the system dropped on `dir`.
+fn drop_paths_into(studio: &WeakEntity<Studio>, dir: String) -> impl Fn(&ExternalPaths, &mut Window, &mut App) + 'static {
+    let studio = studio.clone();
+    move |paths, window, cx| {
+        let _ = studio.update(cx, |this, cx| this.import_external(paths.paths(), dir.clone(), window, cx));
+    }
+}
+
+/// A menu item that acts on Studio; `action` only shows its shortcut.
+fn act(label: &'static str, action: Option<Box<dyn Action>>, studio: &WeakEntity<Studio>, f: impl Fn(&mut Studio, &mut Window, &mut Context<Studio>) + 'static) -> PopupMenuItem {
+    let studio = studio.clone();
+    let item = PopupMenuItem::new(label).on_click(move |_, window, cx| {
+        let _ = studio.update(cx, |this, cx| f(this, window, cx));
+    });
+    match action {
+        Some(a) => item.action(a),
+        None => item,
+    }
+}
+
+/// The menu of an entry of the explorer (right click).
+fn entry_menu(menu: PopupMenu, studio: &WeakEntity<Studio>, rel: String, is_dir: bool) -> PopupMenu {
+    let dir = if is_dir { rel.clone() } else { files::parent_of(&rel).to_string() };
+    let mut menu = menu;
+    if is_dir {
+        let (d1, d2) = (dir.clone(), dir.clone());
+        menu = menu
+            .item(act("Nouveau fichier…", Some(Box::new(NewFile)), studio, move |s, w, c| s.start_new(d1.clone(), Kind::File, w, c)))
+            .item(act("Nouveau dossier…", Some(Box::new(NewFolder)), studio, move |s, w, c| s.start_new(d2.clone(), Kind::Dir, w, c)))
+            .separator();
+    }
+    let (r1, r2, r3, r4, r5, r6, r7) = (rel.clone(), rel.clone(), rel.clone(), rel.clone(), rel.clone(), rel.clone(), rel);
+    menu.item(act("Couper", Some(Box::new(CutEntry)), studio, move |s, _, c| s.set_clip(vec![r1.clone()], true, c)))
+        .item(act("Copier", Some(Box::new(CopyEntry)), studio, move |s, _, c| s.set_clip(vec![r2.clone()], false, c)))
+        .item(act("Coller", Some(Box::new(PasteEntry)), studio, move |s, w, c| s.paste(dir.clone(), w, c)))
+        .separator()
+        .item(act("Copier le chemin", Some(Box::new(CopyPath)), studio, move |s, _, c| s.copy_path(&r3, false, c)))
+        .item(act("Copier le chemin relatif", Some(Box::new(CopyRelativePath)), studio, move |s, _, c| s.copy_path(&r4, true, c)))
+        .separator()
+        .item(act("Afficher dans l'Explorateur", Some(Box::new(RevealEntry)), studio, move |s, w, c| s.reveal(&r5, w, c)))
+        .separator()
+        .item(act("Renommer…", Some(Box::new(RenameEntry)), studio, move |s, w, c| s.start_rename(r6.clone(), w, c)))
+        .item(act("Supprimer", Some(Box::new(DeleteEntry)), studio, move |s, w, c| s.confirm_delete(r7.clone(), w, c)))
+}
+
+/// The menu of the root of the folder (right click on the header of the explorer).
+fn root_menu(menu: PopupMenu, studio: &WeakEntity<Studio>) -> PopupMenu {
+    menu.item(act("Nouveau fichier…", None, studio, |s, w, c| s.start_new(String::new(), Kind::File, w, c)))
+        .item(act("Nouveau dossier…", None, studio, |s, w, c| s.start_new(String::new(), Kind::Dir, w, c)))
+        .item(act("Coller", None, studio, |s, w, c| s.paste(String::new(), w, c)))
+        .separator()
+        .item(act("Copier le chemin", None, studio, |s, _, c| s.copy_path("", false, c)))
+        .item(act("Afficher dans l'Explorateur", None, studio, |s, w, c| s.reveal("", w, c)))
+        .separator()
+        .item(act("Actualiser", None, studio, |s, _, c| s.refresh_tree(c)))
+        .item(act("Tout replier", None, studio, |s, w, c| s.on_collapse_explorer(&CollapseExplorer, w, c)))
 }
 
 /// `\\?\C:\x` → `C:\x` (canonical paths on Windows).
@@ -823,6 +1063,149 @@ mod tests {
             assert_eq!(s.docs[0].editor.read(cx).value().as_ref(), "fn main() {}\n", "open file reloaded");
             assert!(!s.docs[0].dirty, "a reload is not a modification");
         });
+    }
+
+    fn focus_explorer(cx: &mut TestAppContext, window: AnyWindowHandle, studio: &Entity<Studio>, rel: &str) {
+        let rel = rel.to_string();
+        update(cx, window, studio, move |s, window, cx| {
+            s.select(&rel, cx);
+            s.tree.update(cx, |t, cx| t.focus(window, cx));
+        });
+    }
+
+    #[gpui_kit::test]
+    fn creates_and_renames_in_the_explorer(cx: &mut TestAppContext) {
+        let dir = project("naming");
+        let (window, studio) = open(cx, dir.clone());
+        // Ctrl+N: the name box, in the folder of the selection.
+        focus_explorer(cx, window, &studio, "src/calcul.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-n", cx));
+        studio.read_with(cx, |s, cx| {
+            assert!(s.naming.is_some(), "name box shown");
+            assert!(s.tree.read(cx).index_of(&explorer::NEW_ENTRY.into()).is_some(), "row of the box in the tree");
+        });
+        keys(cx, window, |window, cx| {
+            window.input("outils.nx", cx);
+            window.press("enter", cx);
+        });
+        assert!(dir.join("src/outils.nx").is_file(), "file created in the folder of the selection");
+        studio.read_with(cx, |s, _| {
+            assert!(s.naming.is_none());
+            assert_eq!(s.docs.last().map(|d| d.rel.as_str()), Some("src/outils.nx"), "new file opened");
+        });
+        // F2: the name without its extension is selected, typing replaces it.
+        focus_explorer(cx, window, &studio, "src/outils.nx");
+        keys(cx, window, |window, cx| window.press("f2", cx));
+        keys(cx, window, |window, cx| {
+            window.input("aide", cx);
+            window.press("enter", cx);
+        });
+        assert!(dir.join("src/aide.nx").is_file() && !dir.join("src/outils.nx").exists(), "renamed");
+        studio.read_with(cx, |s, _| {
+            assert_eq!(s.docs.last().map(|d| d.rel.as_str()), Some("src/aide.nx"), "the open editor follows");
+            assert_eq!(s.docs.last().map(|d| d.name.as_ref()), Some("aide.nx"));
+        });
+        // A folder renamed: the editors of its files follow.
+        focus_explorer(cx, window, &studio, "src");
+        keys(cx, window, |window, cx| window.press("f2", cx));
+        keys(cx, window, |window, cx| {
+            window.input("source", cx);
+            window.press("enter", cx);
+        });
+        assert!(dir.join("source/aide.nx").is_file());
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.last().map(|d| d.rel.as_str()), Some("source/aide.nx")));
+    }
+
+    #[gpui_kit::test]
+    fn refuses_bad_names_and_cancels(cx: &mut TestAppContext) {
+        let dir = project("badname");
+        let (window, studio) = open(cx, dir.clone());
+        focus_explorer(cx, window, &studio, "main.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-n", cx));
+        keys(cx, window, |window, cx| {
+            window.input("CON.nx", cx);
+            window.press("enter", cx);
+        });
+        studio.read_with(cx, |s, _| assert!(s.naming.is_some(), "a refused name keeps the box open"));
+        assert!(!dir.join("CON.nx").exists());
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        studio.read_with(cx, |s, cx| {
+            assert!(s.naming.is_none(), "Escape closes the box");
+            assert!(s.tree.read(cx).index_of(&explorer::NEW_ENTRY.into()).is_none());
+        });
+        // An existing name.
+        focus_explorer(cx, window, &studio, "main.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-n", cx));
+        keys(cx, window, |window, cx| {
+            window.input("main.nx", cx);
+            window.press("enter", cx);
+        });
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), "fn main() {\n    println(\"ok\")\n}\n", "nothing overwritten");
+        keys(cx, window, |window, cx| window.press("escape", cx));
+    }
+
+    #[gpui_kit::test]
+    fn copies_cuts_and_pastes(cx: &mut TestAppContext) {
+        let dir = project("clip");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
+        // Copy main.nx into src.
+        focus_explorer(cx, window, &studio, "main.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-c", cx));
+        focus_explorer(cx, window, &studio, "src");
+        keys(cx, window, |window, cx| window.press("ctrl-v", cx));
+        assert!(dir.join("src/main.nx").is_file() && dir.join("main.nx").is_file());
+        // Again: a free name.
+        keys(cx, window, |window, cx| window.press("ctrl-v", cx));
+        assert!(dir.join("src/main (2).nx").is_file());
+        // Cut src/calcul.nx, paste at the root (the folder of main.nx).
+        focus_explorer(cx, window, &studio, "src/calcul.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-x", cx));
+        focus_explorer(cx, window, &studio, "main.nx");
+        keys(cx, window, |window, cx| window.press("ctrl-v", cx));
+        assert!(dir.join("calcul.nx").is_file() && !dir.join("src/calcul.nx").exists());
+        studio.read_with(cx, |s, cx| {
+            assert_eq!(s.docs[0].rel, "calcul.nx", "the open editor follows the move");
+            assert!(s.clip.is_none(), "a cut is pasted once");
+            assert_eq!(s.selected(cx).as_deref(), Some("calcul.nx"), "the pasted entry is selected");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn drags_and_drops(cx: &mut TestAppContext) {
+        let dir = project("drop");
+        let outside = std::env::temp_dir().join(format!("nexul-native-test-outside-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&outside);
+        std::fs::create_dir_all(outside.join("images")).unwrap();
+        std::fs::write(outside.join("images/logo.svg"), "<svg/>").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.drop_entries(&Dragged::new("main.nx"), "src".into(), window, cx);
+            // A folder released on itself does nothing.
+            s.drop_entries(&Dragged::new("src"), "src".into(), window, cx);
+            s.import_external(&[outside.join("images")], "src".into(), window, cx);
+        });
+        assert!(dir.join("src/main.nx").is_file() && !dir.join("main.nx").exists());
+        assert!(dir.join("src/images/logo.svg").is_file(), "folder of the system copied");
+        assert!(outside.join("images/logo.svg").is_file(), "the original stays");
+        let _ = std::fs::remove_dir_all(&outside);
+    }
+
+    #[gpui_kit::test]
+    fn deletes_to_the_recycle_bin_after_asking(cx: &mut TestAppContext) {
+        let dir = project("trash");
+        std::fs::write(dir.join("brouillon.txt"), "x").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("brouillon.txt", window, cx));
+        focus_explorer(cx, window, &studio, "brouillon.txt");
+        keys(cx, window, |window, cx| window.press("delete", cx));
+        assert!(dir.join("brouillon.txt").exists(), "nothing deleted before the answer");
+        let asked = cx.update_window(window, |_, window, cx| window.has_active_dialog(cx)).unwrap();
+        assert!(asked, "confirmation asked");
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        update(cx, window, &studio, |s, window, cx| s.trash_entries(&["brouillon.txt".to_string()], window, cx));
+        assert!(!dir.join("brouillon.txt").exists());
+        studio.read_with(cx, |s, _| assert!(s.docs.is_empty(), "its editor is closed"));
     }
 
     #[gpui_kit::test]

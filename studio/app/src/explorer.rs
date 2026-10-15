@@ -8,18 +8,26 @@ use std::path::Path;
 /// More entries than this are not shown (a folder such as a whole disk).
 const MAX_ENTRIES: usize = 20_000;
 
+/// The id of the row where the name of a new file or folder is typed.
+pub const NEW_ENTRY: &str = "\u{1}nouveau";
+
 /// The tree of `root`: folders first, then files, by name without case. Returns the
 /// items and the relative paths of the folders (an empty folder has no children, so the
-/// tree alone cannot tell it from a file).
-pub fn build(root: &Path, expanded: &HashSet<String>) -> (Vec<TreeItem>, HashSet<String>) {
+/// tree alone cannot tell it from a file). `new_in`: the folder (`""` for the root) that
+/// shows the [`NEW_ENTRY`] row first.
+pub fn build(root: &Path, expanded: &HashSet<String>, new_in: Option<&str>) -> (Vec<TreeItem>, HashSet<String>) {
     let mut dirs = HashSet::new();
     let mut count = 0;
-    let items = walk(root, "", 0, expanded, &mut dirs, &mut count);
+    let items = walk(root, "", 0, expanded, new_in, &mut dirs, &mut count);
     (items, dirs)
 }
 
-fn walk(dir: &Path, prefix: &str, depth: usize, expanded: &HashSet<String>, dirs: &mut HashSet<String>, count: &mut usize) -> Vec<TreeItem> {
-    let Ok(rd) = std::fs::read_dir(dir) else { return Vec::new() };
+fn walk(dir: &Path, prefix: &str, depth: usize, expanded: &HashSet<String>, new_in: Option<&str>, dirs: &mut HashSet<String>, count: &mut usize) -> Vec<TreeItem> {
+    let mut items = Vec::new();
+    if new_in == Some(prefix) {
+        items.push(TreeItem::new(NEW_ENTRY, ""));
+    }
+    let Ok(rd) = std::fs::read_dir(dir) else { return items };
     let mut entries: Vec<(bool, String)> = rd
         .flatten()
         .filter_map(|e| {
@@ -31,7 +39,6 @@ fn walk(dir: &Path, prefix: &str, depth: usize, expanded: &HashSet<String>, dirs
         })
         .collect();
     entries.sort_by(|a, b| b.0.cmp(&a.0).then(a.1.to_lowercase().cmp(&b.1.to_lowercase())));
-    let mut items = Vec::new();
     for (is_dir, name) in entries {
         *count += 1;
         if *count > MAX_ENTRIES {
@@ -40,7 +47,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, expanded: &HashSet<String>, dirs
         let rel = if prefix.is_empty() { name.clone() } else { format!("{}/{}", prefix, name) };
         if is_dir {
             dirs.insert(rel.clone());
-            let children = if depth < 16 { walk(&dir.join(&name), &rel, depth + 1, expanded, dirs, count) } else { Vec::new() };
+            let children = if depth < 16 { walk(&dir.join(&name), &rel, depth + 1, expanded, new_in, dirs, count) } else { Vec::new() };
             let open = expanded.contains(&rel);
             items.push(TreeItem::new(rel, name).children(children).expanded(open));
         } else {
