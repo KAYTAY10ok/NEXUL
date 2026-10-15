@@ -1,0 +1,31 @@
+[package]
+name = "nexul-studio-app"
+description = "NEXUL Studio, native desktop application"
+version = "0.3.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# Its own Cargo workspace: the dependencies of the interface (GPUI and its components)
+# stay out of the workspace of the compiler and of its Cargo.lock.
+[workspace]
+
+[[bin]]
+name = "NEXUL-Studio-Native"
+path = "src/main.rs"
+
+[dependencies]
+# The services of Studio (files, watch, runs, compiler), shared with the web interface.
+nexul-studio = { path = ".." }
+# Interface: GPUI and gpui-component, versions fixed (pre-1.0 API).
+gpui-kit = "=0.7.3"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[dev-dependencies]
+gpui-kit = { version = "=0.7.3", features = ["test-support"] }
+
+[profile.release]
+strip = true
+lto = "thin"
+codegen-units = 4

@@ -3,6 +3,7 @@
 //! interface (the `NEXUL-Studio` server) uses them, and a native interface can call them
 //! directly.
 
+pub mod compiler;
 pub mod debug;
 pub mod runner;
 pub mod watch;
