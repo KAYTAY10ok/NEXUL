@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 actions!(
     studio,
-    [OpenFolder, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit]
+    [OpenFolder, NewProject, Save, SaveAll, CloseEditor, ToggleSidebar, TogglePanel, ToggleMinimal, ToggleTheme, Run, Stop, NextTab, Quit, ShowCommands, QuickOpen, FindInFiles, Build, BuildRelease, RunTests]
 );
 
 // The explorer: they act on the selected entry.
@@ -43,9 +43,13 @@ fn bind_keys(cx: &mut App) {
         KeyBinding::new("ctrl-k z", ToggleMinimal, None),
         KeyBinding::new("f5", Run, None),
         KeyBinding::new("shift-f5", Stop, None),
+        KeyBinding::new("ctrl-shift-b", Build, None),
         KeyBinding::new("ctrl-tab", NextTab, None),
-        KeyBinding::new("alt-f4", Quit, None),
         KeyBinding::new("ctrl-n", NewFile, None),
+        KeyBinding::new("ctrl-shift-p", ShowCommands, None),
+        KeyBinding::new("f1", ShowCommands, None),
+        KeyBinding::new("ctrl-p", QuickOpen, None),
+        KeyBinding::new("ctrl-shift-f", FindInFiles, None),
         KeyBinding::new("f2", RenameEntry, Some("Explorer")),
         KeyBinding::new("delete", DeleteEntry, Some("Explorer")),
         KeyBinding::new("ctrl-c", CopyEntry, Some("Explorer")),
@@ -66,10 +70,12 @@ fn bind_keys(cx: &mut App) {
 fn menus() -> Vec<Menu> {
     vec![
         Menu::new("Fichier").items([
+            MenuItem::action("Nouveau projet…", NewProject),
             MenuItem::action("Nouveau fichier…", NewFile),
             MenuItem::action("Nouveau dossier…", NewFolder),
             MenuItem::separator(),
             MenuItem::action("Ouvrir un dossier…", OpenFolder),
+            MenuItem::action("Aller au fichier…", QuickOpen),
             MenuItem::separator(),
             MenuItem::action("Enregistrer", Save),
             MenuItem::action("Tout enregistrer", SaveAll),
@@ -79,7 +85,10 @@ fn menus() -> Vec<Menu> {
             MenuItem::action("Quitter", Quit),
         ]),
         Menu::new("Affichage").items([
+            MenuItem::action("Palette de commandes…", ShowCommands),
+            MenuItem::separator(),
             MenuItem::action("Explorateur", ToggleSidebar),
+            MenuItem::action("Rechercher dans les fichiers", FindInFiles),
             MenuItem::action("Sortie", TogglePanel),
             MenuItem::action("Mode minimaliste", ToggleMinimal),
             MenuItem::separator(),
@@ -92,7 +101,14 @@ fn menus() -> Vec<Menu> {
             MenuItem::separator(),
             MenuItem::action("Problèmes", ShowProblems),
         ]),
-        Menu::new("Exécution").items([MenuItem::action("Exécuter", Run), MenuItem::action("Arrêter", Stop)]),
+        Menu::new("Exécution").items([
+            MenuItem::action("Exécuter", Run),
+            MenuItem::action("Arrêter", Stop),
+            MenuItem::separator(),
+            MenuItem::action("Construire", Build),
+            MenuItem::action("Construire (version optimisée)", BuildRelease),
+            MenuItem::action("Lancer les tests", RunTests),
+        ]),
     ]
 }
 
@@ -108,7 +124,6 @@ fn main() {
         gpui_kit::init(cx);
         bind_keys(cx);
         set_menus(cx);
-        cx.on_action(|_: &Quit, cx| cx.quit());
         let bounds = Bounds::centered(None, size(px(1280.), px(820.)), cx);
         let options = WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),

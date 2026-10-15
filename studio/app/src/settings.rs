@@ -25,22 +25,29 @@ pub struct Settings {
     pub panel: bool,
     /// Code and interface: everything but the code is hidden.
     pub minimal: bool,
+    /// Automatic saving: `off` (the default: Studio asks before losing anything) or
+    /// `delay` (one second after the last change).
+    pub autosave: String,
     pub sessions: HashMap<String, Session>,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Settings { last_root: None, theme: "dark".into(), sidebar: true, panel: false, minimal: false, sessions: HashMap::new() }
+        Settings { last_root: None, theme: "dark".into(), sidebar: true, panel: false, minimal: false, autosave: "off".into(), sessions: HashMap::new() }
     }
 }
 
 /// `NEXUL_STUDIO_CONFIG` (a folder) replaces `%APPDATA%\NEXUL Studio` (tests).
-fn file() -> PathBuf {
+pub fn dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("NEXUL_STUDIO_CONFIG") {
-        return PathBuf::from(dir).join("native.json");
+        return PathBuf::from(dir);
     }
     let base = std::env::var_os("APPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
-    base.join("NEXUL Studio").join("native.json")
+    base.join("NEXUL Studio")
+}
+
+fn file() -> PathBuf {
+    dir().join("native.json")
 }
 
 impl Settings {

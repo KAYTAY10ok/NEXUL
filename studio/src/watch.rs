@@ -19,9 +19,15 @@ pub struct Watcher {
     handle: Arc<std::sync::Mutex<isize>>,
 }
 
-/// `path` (relative to the root, with `/`) is inside an ignored folder.
+/// `path` (relative to the root, with `/`) is inside an ignored folder, or is a
+/// temporary file of an atomic save.
 pub fn is_ignored(rel: &str) -> bool {
-    rel.split('/').any(|c| IGNORED.contains(&c))
+    rel.split('/').any(|c| IGNORED.contains(&c)) || is_hidden_name(rel.rsplit('/').next().unwrap_or(rel))
+}
+
+/// A name that the explorers do not show: the temporary file of a save in progress.
+pub fn is_hidden_name(name: &str) -> bool {
+    name.ends_with(".nxtmp")
 }
 
 impl Watcher {

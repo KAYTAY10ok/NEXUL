@@ -17,6 +17,11 @@ path = "src/main.rs"
 [dependencies]
 # The services of Studio (files, watch, runs, compiler), shared with the web interface.
 nexul-studio = { path = ".." }
+# The colors of NEXUL code (Codex Luna): the same lexer as the compiler.
+nexul-studio-syntax = { path = "../syntax" }
+# Project templates, and the detection of the installed tools they need (Codex Luna).
+nexul-studio-templates = { path = "../templates" }
+nexul-studio-lsp = { path = "../lsp" }
 # Interface: GPUI and gpui-component, versions fixed (pre-1.0 API).
 gpui-kit = "=0.7.3"
 # The components of gpui-kit, with tree-sitter: without it the editor has no colors for

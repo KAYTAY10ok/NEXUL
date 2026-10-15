@@ -6,5 +6,6 @@
 pub mod compiler;
 pub mod debug;
 pub mod runner;
+pub mod search;
 pub mod watch;
 pub mod workspace;
