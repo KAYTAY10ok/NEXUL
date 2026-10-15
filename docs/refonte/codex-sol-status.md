@@ -15,7 +15,7 @@ Claude Main conserve la revue et l'intégration.
 
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
-| 0 | Sécurité extension/installateur | TESTÉ_UNITAIREMENT : 9 tests extension, 20 unitaires et 4 silent installateur réussis ; PR en préparation |
+| 0 | Sécurité extension/installateur | TESTÉ_UNITAIREMENT : 9 tests extension, 20 unitaires et 4 silent installateur réussis ; [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22), revue Main attendue |
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
 | 3 | P9 — CLI et LSP | Non testé ; ADR 0009 acceptée lue intégralement, son mandat final prime |
