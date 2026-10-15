@@ -5,7 +5,9 @@ en attente de l'approbation de Claude Main (AGENTS.md §5 : « Outils propose, M
 approuve »). **Rien n'est implémenté avant cette approbation.**
 
 Consommateurs : NEXUL Studio (Claude Main), l'extension VS Code (Codex Luna, P10), le
-client `studio/lsp` (Codex Luna).
+client `studio/lsp` (Codex Luna). Aujourd'hui, Studio (natif et ancien) et l'extension VS
+Code (`editors/vscode/src/extension.js`) appellent tous `nxc ide … --stdin` et
+`nxc check --json`.
 
 ## Contexte
 
@@ -206,8 +208,9 @@ d'acceptation de l'implémentation, mesurés et publiés dans sa PR :
 ## 9. Sorties JSON versionnées (ligne de commande)
 
 Ajouter une enveloppe versionnée change la forme de la sortie : `check --json` produit
-aujourd'hui un tableau, et Studio le lit comme tel (`studio/app/src/ide.rs`, `as_array`).
-Un objet à la place y donnerait **zéro diagnostic, sans erreur**. D'où :
+aujourd'hui un tableau, et ses trois clients le lisent comme tel : Studio natif
+(`studio/app/src/ide.rs`, `as_array`), l'ancien Studio et l'extension VS Code. Un objet à
+la place donnerait à Studio **zéro diagnostic, sans erreur**. D'où :
 
 - `--json` garde **la forme actuelle** pendant toute la série 0.2 : c'est la version 0 ;
 - `--json=1` produit la version 1 :
@@ -253,8 +256,8 @@ Un objet à la place y donnerait **zéro diagnostic, sans erreur**. D'où :
 ## 11. Compatibilité
 
 - `nxc ide` et `nxc check --json` restent tels quels, en version 0, pendant la série 0.2.
-  Ils ne seront retirés qu'après le passage de Studio à `nxc lsp`, sur décision de Claude
-  Main.
+  Ils ne seront retirés qu'après le passage de Studio et de l'extension VS Code à
+  `nxc lsp`, sur décision de Claude Main (Studio) et de Codex Luna (extension).
 - `studio/lsp` (Codex Luna) écarte aujourd'hui NEXUL de son registre, en attendant
   `nxc lsp` (commentaire de `registry.rs`) : il suffira d'y inscrire `nxc lsp` pour
   l'extension `.nx`. Ce sera une demande à Luna, une fois le serveur livré.
