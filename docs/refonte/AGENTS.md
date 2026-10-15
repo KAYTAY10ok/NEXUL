@@ -35,7 +35,8 @@ auto-hébergé** (stage0 → stage1 → stage2), **NEXUL Studio natif** professi
 
 **GitHub** : https://github.com/KAYTAY10ok/NEXUL (public). On ne pousse jamais sur `main` :
 tout passe par une PR. Référence de la passation : `main` à `548b1f6` (PR #1, #3 à #8
-fusionnées).
+fusionnées) ; depuis, PR #11 (installateur), #12 (modèle NEXUL + Web) et #13 (cette charte)
+fusionnées.
 
 ## 2. Gouvernance : Claude Main dirige cinq agents
 
@@ -79,7 +80,7 @@ propriétaire applique.
 | `compiler/**`, `lib/**`, `tests/**` (langage), `examples/**`, `docs/spec/**`, `docs/guide.md`, `docs/roadmap.md`, `docs/adr/**`, `tools/wasi-run.mjs`, `interop-web.md`, `audit-core.md` | Codex Astral | Claude Outils / Core | **Immédiat** : la branche `refonte/codex-core` est entièrement fusionnée (PR #1). Astral n'y écrit plus sans mandat. |
 | `Cargo.toml`, `Cargo.lock` racine, `README.md`, `CHANGELOG.md`, `.github/**` | Codex Astral | Claude Main | **Immédiat** : intégration par Main, après les PR des propriétaires concernés. |
 | `studio/lsp/**`, `studio/syntax/**` | Claude Outils | Codex Luna | **Immédiat** : PR #6 et #8 fusionnées. Maintenance uniquement ; l'adaptateur GPUI reste à Main. |
-| `installer/**`, `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`, `docs/installation.md` | Claude Outils | Codex Luna | **Après** la PR d'Outils pour ses branches `refonte/claude-tools-installer` et `refonte/claude-tools-etudes` (non fusionnées). D'ici là, personne d'autre n'y écrit. |
+| `installer/**`, `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`, `docs/installation.md` | Claude Outils | Codex Luna | **Effectif** depuis la fusion de la PR #11 (branches `refonte/claude-tools-installer` et `refonte/claude-tools-etudes`). Les études d'Outils (`installer/docs/`) sont reprises par Luna. |
 | `editors/vscode/**` | — | Codex Luna | Nouveau dossier. |
 | `docs/refonte/gemma/**`, `gemma-status.md`, `tests/manual/**` | — | Gemma | Nouveaux chemins. |
 
@@ -151,14 +152,21 @@ couleur.
 1. Récupérer `main`, lire la passation, cette charte, [master-plan.md](master-plan.md) et les
    fichiers d'état ; confirmer son identité.
 2. Ouvrir son nouveau fichier d'état (§3) avec : périmètre, lots en cours, statuts, demandes.
-3. Travaux immédiats (passation §13) :
-   - **Main** : P1 protection des données de Studio, P3 raccordement des cinq crates, puis
-     pilotage de P2 (syntaxe) avec Outils ;
-   - **Outils / Core** : P2 G0 (audit des usages de NEXUL 0.2) et préparation de l'ADR de
-     syntaxe, du modèle de types et de la conception concurrence/temps réel ; P9 (`nxc lsp`,
-     JSON versionné, texte non enregistré) ; PR des branches installateur avant transfert ;
-   - **Luna** : ossature de l'extension VS Code (sans grammaire finale avant l'ADR),
-     modèle NEXUL + WebAssembly, installateur après transfert ;
-   - **Astral** : rien sans mandat écrit ; disponible pour mesures sur base figée ;
-   - **Gemma** : matrice des preuves, écarts code/documentation, scénarios de test manuels.
-4. Une PR par lot, revue par Main.
+3. Exécuter son **ordre de mission** : [master-plan.md](master-plan.md) §2 (tâches
+   numérotées, priorités, critères de fin ; consignes à coller au §2.6). En résumé, au
+   15/10 :
+   - **Main** (M1 à M16) : intégration de P1, binaire natif autonome, raccordement des
+     crates (P3), exécution/tests/paramètres/recherche dans Studio, pilotage de P2 avec
+     Outils, revue de toutes les PR Core ;
+   - **Outils / Core** (O1 à O10) : audit G0 et trois propositions de syntaxe, contrat puis
+     implémentation de `nxc lsp`, formateur, conception typage/OOP/concurrence, étude de la
+     cible temps réel, runtime macOS, inventaire de l'auto-hébergement ;
+   - **Luna** (L1 à L7) : correction du terminal ConPTY et du DAP réel, installateur du
+     Studio natif, ossature de l'extension VS Code ;
+   - **Astral** : **mandat écrit A1** (base de performances NEXUL/C/Rust/C#, écriture dans
+     `benchmarks/astral/**` et `docs/refonte/reviews/astral/**` seulement) ;
+   - **Gemma** (Q1 à Q6) : matrice des preuves, écarts code/documentation, essais manuels
+     du Studio natif, corpus de programmes 0.2.
+4. Une PR par lot, revue et intégrée par Main. Le master-plan §3 liste **toutes** les
+   améliorations attendues (refonte et création) : proposez-y vos ajouts par votre fichier
+   d'état.
