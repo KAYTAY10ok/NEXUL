@@ -2,7 +2,8 @@
 
 Agent : **Claude Studio**. Périmètre (voir [AGENTS.md](AGENTS.md)) : `studio/src/**`,
 `studio/ui/**`, `studio/app/**`, `studio/plugins/**`, `docs/studio/**` et ce fichier ;
-`installer/**`, `studio/syntax/**` et `studio/lsp/**` sont à Claude Outils. Branche :
+`installer/**`, `studio/syntax/**` et `studio/lsp/**` sont à Claude Outils ;
+`studio/terminal/**`, `studio/dap/**` et `studio/templates/**` à l'Agent Exécution. Branche :
 `refonte/claude-studio` (worktree séparé). Seul Claude Studio modifie ce document.
 
 Dernière mise à jour : 15 octobre 2026. Répartition des rôles (Codex, Claude Studio,

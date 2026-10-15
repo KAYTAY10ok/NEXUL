@@ -1,4 +1,4 @@
-# NEXUL — consignes pour les agents (Codex, Claude Studio, Claude Outils)
+# NEXUL — consignes pour les agents (Codex, Claude Studio, Claude Outils, Agent Exécution)
 
 Document de coordination rédigé à la demande de l'utilisateur (15 octobre 2026). Lisez-le
 **en entier avant de commencer**. Il complète la mission « Refonte majeure du langage et
@@ -39,11 +39,13 @@ code NEXUL → analyse NEXUL → NIR → IR LLVM → code machine (LLD)
 | `C:\NEXUL-core` | `refonte/codex-core` | **Codex** |
 | `C:\NEXUL\.claude\worktrees\claude-studio` | `refonte/claude-studio` | **Claude Studio** |
 | `C:\NEXUL-tools` (à créer) | `refonte/claude-tools` | **Claude Outils** |
+| `C:\NEXUL-exec` (à créer) | `refonte/execution` | **Agent Exécution** |
 
-Création du worktree de Claude Outils :
+Création des worktrees de Claude Outils et de l'Agent Exécution :
 
 ```
 git -C C:\NEXUL worktree add C:\NEXUL-tools -b refonte/claude-tools origin/main
+git -C C:\NEXUL worktree add C:\NEXUL-exec -b refonte/execution origin/main
 ```
 
 ## 2. Règles communes
@@ -54,8 +56,8 @@ git -C C:\NEXUL worktree add C:\NEXUL-tools -b refonte/claude-tools origin/main
 2. **Jamais** de push sur `main`, de `git reset --hard`, de push forcé, de suppression
    du travail d'un autre. La pile `git stash` est **partagée** entre les worktrees : ne
    l'utilisez pas (préférez un commit temporaire).
-3. Livraison par **pull request** vers `main` (titre préfixé `[core]`, `[studio]` ou
-   `[outils]`), avec : changements, fichiers, tests exécutés et résultats, limites,
+3. Livraison par **pull request** vers `main` (titre préfixé `[core]`, `[studio]`,
+   `[outils]` ou `[exec]`), avec : changements, fichiers, tests exécutés et résultats, limites,
    changements d'API. Une PR n'est fusionnée qu'après les tests et la résolution des
    conflits ; l'utilisateur décide.
 4. Chaque agent tient **son fichier d'état** dans `docs/refonte/` (réalisé, en cours,
@@ -98,17 +100,17 @@ optimisations LLVM justifiées par les mesures ; cible WebAssembly **navigateur*
 **Fichiers** : `studio/src/**`, `studio/ui/**`, `studio/app/**`, `studio/plugins/**`,
 `studio/Cargo.toml`, `studio/README.md`, `studio/assets/**`, `docs/studio/**`,
 `docs/refonte/claude-status.md` — **sauf** les nouveaux dossiers attribués à Claude Outils
-ci-dessous.
+et à l'Agent Exécution ci-dessous.
 
 **Tâches** : l'application native `studio/app` — explorateur (créer, renommer,
-supprimer, déplacer, glisser-déposer via `workspace.rs`), éditeur et onglets, terminal
-intégré (ConPTY), panneau de diagnostics (`nxc check --json`), palette de commandes,
-paramètres et raccourcis personnalisables, thèmes, mode minimaliste, dispositions
-mémorisées, services NEXUL dans l'éditeur (`nxc ide` : survol, complétion, définition,
-références, renommage, mise en forme), débogueur (DAP, `lldb-dap`), aperçu web isolé,
-modèles de projets ; puis **intégration des briques de Claude Outils** (coloration, LSP)
-et de la future interface WebAssembly de Codex ; parité, puis retrait de l'ancienne
-interface web.
+supprimer, déplacer, glisser-déposer via `workspace.rs`), éditeur et onglets, panneau de
+diagnostics (`nxc check --json`), palette de commandes, paramètres et raccourcis
+personnalisables, thèmes, mode minimaliste, dispositions mémorisées, services NEXUL dans
+l'éditeur (`nxc ide` : survol, complétion, définition, références, renommage, mise en
+forme), aperçu web isolé ; puis **l'interface graphique des briques des autres agents** :
+coloration et LSP (Claude Outils), terminal, débogueur et assistant « Nouveau projet »
+(Agent Exécution), et la future interface WebAssembly de Codex ; parité, puis retrait de
+l'ancienne interface web.
 
 ### Claude Outils — briques de Studio, installation et distribution
 
@@ -158,6 +160,49 @@ interface web.
      de dépendance** sans demande à Codex ;
    - étude écrite de la distribution Linux et macOS, et d'un mécanisme de mise à jour.
 
+### Agent Exécution — terminal, débogage et projets
+
+**Fichiers** (nouveaux dossiers, rien d'autre) :
+- `studio/terminal/**` : nouvelle crate **sans dépendance à GPUI** ;
+- `studio/dap/**` : nouvelle crate **sans dépendance à GPUI** ;
+- `studio/templates/**` : modèles de projets et leur crate d'instanciation ;
+- `docs/refonte/execution-status.md`.
+
+**Tâches** :
+1. **`studio/terminal`** — terminal intégré :
+   - pseudo-console **ConPTY** sous Windows (pty sous Linux/macOS) : lancer un shell
+     (PowerShell par défaut, configurable : cmd, Git Bash, WSL), écrire l'entrée,
+     redimensionner, arrêter proprement ;
+   - émulation VT/ANSI vers un **modèle d'écran** (grille de cellules avec caractère,
+     couleurs, gras/italique/souligné, curseur, historique défilant, sélection), en
+     réutilisant une bibliothèque mûre (par exemple `alacritty_terminal` ou `vte`) plutôt
+     qu'un émulateur écrit de zéro ;
+   - API sans GPUI : `Terminal::spawn(shell, cwd, cols, rows)`, `write`, `resize`,
+     `snapshot()`, événements (sortie, titre, fin) ; plusieurs terminaux à la fois ;
+   - tests : `echo`, couleurs ANSI, redimensionnement, Unicode (accents, CJK, emoji),
+     programme interactif, fin du processus.
+2. **`studio/dap`** — client Debug Adapter Protocol :
+   - transport stdio, `initialize`, `launch` / `attach`, `setBreakpoints` (avec
+     conditions), `configurationDone`, `threads`, `stackTrace`, `scopes`, `variables`,
+     `continue`, `next`, `stepIn`, `stepOut`, `pause`, `evaluate`, `disconnect`,
+     événements (`stopped`, `output`, `terminated`…) ;
+   - registre des adaptateurs et **détection** (sans téléchargement) : `lldb-dap`
+     (NEXUL, C, C++, Rust ; livré avec NEXUL dans `llvm\bin`), `debugpy` (Python),
+     `netcoredbg` (C#), débogueur de Node ;
+   - pour NEXUL : `nxc build` en mode debug produit l'exécutable et sa PDB ; s'inspirer de
+     `studio/src/debug.rs` et de la logique DAP de `studio/ui/ide.js` (lecture seule) ;
+   - API sans GPUI, testée avec `lldb-dap` sur un petit programme NEXUL (point d'arrêt,
+     variables, pas à pas).
+3. **`studio/templates`** — modèles de projets **fonctionnels** :
+   - NEXUL console, bibliothèque NEXUL, projet `nxpm` avec dépendance, site
+     HTML/CSS/JavaScript ; Python, C, C++, Rust, C# quand l'outil correspondant est
+     détecté ; NEXUL + WebAssembly + JavaScript **seulement** quand le contrat de Codex
+     sera validé ;
+   - chaque modèle : fichiers, commandes de construction/exécution, outils requis ; un
+     test vérifie que chaque modèle disponible se construit et s'exécute ;
+   - la détection des SDK vient de `studio/lsp` (Claude Outils) : utilisez son API, ne la
+     dupliquez pas.
+
 ### Interfaces entre les agents
 
 | Interface | Fournisseur | Utilisateur |
@@ -165,11 +210,16 @@ interface web.
 | CLI `nxc` (`check --json`, `ide`, `fmt`, `explain`, `run`, `test`, `build`, `targets`), `nxpm list --json` | Codex | Studio |
 | `docs/refonte/interop-web.md` (WebAssembly) | Codex | Studio |
 | `nexul_studio` (`studio/src`) : `workspace`, `watch`, `runner`, `compiler`, `debug` | Claude Studio | Claude Outils (lecture seule) |
-| `studio/syntax`, `studio/lsp` (API Rust) | Claude Outils | Claude Studio (adaptateurs GPUI dans `studio/app`) |
+| `studio/syntax`, `studio/lsp` (API Rust) | Claude Outils | Claude Studio (adaptateurs GPUI dans `studio/app`) ; Agent Exécution (détection des SDK) |
+| `studio/terminal`, `studio/dap`, `studio/templates` (API Rust) | Agent Exécution | Claude Studio (vues GPUI dans `studio/app`) |
 | `studio/app/target/release/NEXUL-Studio-Native.exe` | Claude Studio | Claude Outils (installateur) |
 
-Quand une crate de Claude Outils est prête, Claude Outils le signale dans son fichier
-d'état ; **Claude Studio** ajoute la dépendance dans `studio/app/Cargo.toml`.
+Quand une crate de Claude Outils ou de l'Agent Exécution est prête, son auteur le
+signale dans son fichier d'état ; **Claude Studio** ajoute la dépendance dans
+`studio/app/Cargo.toml`. Les crates `studio/syntax`, `studio/lsp`, `studio/terminal`,
+`studio/dap` et `studio/templates` ont chacune leur propre espace de travail Cargo
+(section `[workspace]` vide dans leur `Cargo.toml`, leur propre `Cargo.lock`) pour ne
+toucher ni au workspace racine ni à celui de `studio/app`.
 
 ## 4. Environnement de ce PC
 
@@ -208,12 +258,16 @@ prend ~6 min.
   (`docs/studio/audit-phase0.md`, `architecture-native.md`) ; **première version de
   l'application native** (`studio/app`) avec 6 tests fonctionnels.
 - **Claude Outils** : à démarrer.
+- **Agent Exécution** : à démarrer.
 
-## 6. Premiers pas de Claude Outils
+## 6. Premiers pas des nouveaux agents
 
-1. Créer le worktree (§1) ; lire ce fichier, la mission, `docs/studio/audit-phase0.md`,
+1. Créer son worktree (§1) ; lire ce fichier, la mission, `docs/studio/audit-phase0.md`,
    `docs/studio/architecture-native.md`, `docs/refonte/claude-status.md`,
    `docs/refonte/codex-status.md` (branche de Codex).
-2. Créer `docs/refonte/claude-outils-status.md`.
-3. `studio/syntax` (avec tests), puis `studio/lsp` (avec tests), puis l'installateur.
+2. Créer son fichier d'état : `docs/refonte/claude-outils-status.md` ou
+   `docs/refonte/execution-status.md`.
+3. Claude Outils : `studio/syntax`, puis `studio/lsp`, puis l'installateur.
+   Agent Exécution : `studio/terminal`, puis `studio/dap`, puis `studio/templates`.
+   Chaque brique avec ses tests.
 4. Une PR par brique.
