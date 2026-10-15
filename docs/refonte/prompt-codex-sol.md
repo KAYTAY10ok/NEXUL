@@ -97,7 +97,7 @@ cd editors/vscode; npm test; npm run package                       # extension V
 2. **L2 — débogueur** (`studio/dap`) : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step`
    échoue avec `Timeout("launch")` contre le vrai `lldb-dap`. **Fini** = ce test réussit avec
    `nxc` et `lldb-dap` réels (point d'arrêt, variables, pas à pas).
-3. **P9 — `nxc`** : suivre **exactement** `docs/spec/lsp.md` (écrit par Main) : découverte
+3. **P9 — `nxc`** : suivre **exactement** `docs/spec/lsp.md` (contrat v1, prêt) : découverte
    des versions (`nxc version --json`), `nxc check --stdin`, puis le serveur `nxc lsp`.
    Pas de code avant d'avoir lu le contrat ; une question sur le contrat → Main, pas
    d'interprétation libre.
