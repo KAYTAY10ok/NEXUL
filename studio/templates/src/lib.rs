@@ -32,11 +32,18 @@ pub enum Tool {
 /// `studio/lsp` discovery result; this crate performs no SDK detection itself.
 pub trait ToolchainProvider {
     fn executable(&self, tool: Tool) -> Option<PathBuf>;
+
+    /// Return whether an installed tool advertises support for a target. `None` means
+    /// the caller has not checked; target-dependent templates stay unavailable then.
+    fn supports_target(&self, _tool: Tool, _target: &str) -> Option<bool> {
+        None
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct ToolchainRegistry {
     executables: BTreeMap<Tool, PathBuf>,
+    target_support: BTreeMap<Tool, BTreeMap<String, bool>>,
 }
 
 impl ToolchainRegistry {
@@ -49,11 +56,28 @@ impl ToolchainRegistry {
     pub fn contains(&self, tool: Tool) -> bool {
         self.executables.contains_key(&tool)
     }
+
+    /// Cache a target capability discovered by the caller, such as `nxc targets`.
+    pub fn set_target_support(
+        &mut self,
+        tool: Tool,
+        target: impl Into<String>,
+        supported: bool,
+    ) -> Option<bool> {
+        self.target_support
+            .entry(tool)
+            .or_default()
+            .insert(target.into(), supported)
+    }
 }
 
 impl ToolchainProvider for ToolchainRegistry {
     fn executable(&self, tool: Tool) -> Option<PathBuf> {
         self.executables.get(&tool).cloned()
+    }
+
+    fn supports_target(&self, tool: Tool, target: &str) -> Option<bool> {
+        self.target_support.get(&tool)?.get(target).copied()
     }
 }
 
@@ -62,6 +86,7 @@ pub enum TemplateId {
     NexulConsole,
     NexulLibrary,
     NxpmDependency,
+    NexulWebAssembly,
     WebSite,
     Python,
     C,
@@ -76,6 +101,7 @@ impl TemplateId {
             Self::NexulConsole => "nexul-console",
             Self::NexulLibrary => "nexul-library",
             Self::NxpmDependency => "nxpm-dependency",
+            Self::NexulWebAssembly => "nexul-webassembly",
             Self::WebSite => "web-site",
             Self::Python => "python",
             Self::C => "c",
@@ -97,6 +123,8 @@ enum Requirement {
     One(Tool),
     Any(Vec<Tool>),
     All(Vec<Tool>),
+    AllOf(Vec<Requirement>),
+    Target { tool: Tool, target: &'static str },
 }
 
 #[derive(Clone, Debug)]
@@ -114,6 +142,7 @@ pub struct ProjectTemplate {
 enum BuildRecipe {
     Tool { tool: Tool, args: Vec<&'static str> },
     NexulConsole,
+    NexulWebAssembly,
     CProgram { cpp: bool },
     RustCargo,
     Dotnet,
@@ -255,6 +284,29 @@ pub fn all_templates() -> Vec<ProjectTemplate> {
             run: vec![RunRecipe::Tool { tool: Tool::Nxpm, args: vec!["run"] }],
         },
         ProjectTemplate {
+            id: TemplateId::NexulWebAssembly, name: "NEXUL navigateur (WebAssembly)",
+            description: "Bibliothèque NEXUL wasm32-web avec chargeur ABI v1 et serveur local pour navigateur.",
+            requirement: Requirement::AllOf(vec![
+                Requirement::One(Tool::Nxc),
+                Requirement::Any(vec![Tool::Node, Tool::Python]),
+                Requirement::Target { tool: Tool::Nxc, target: "wasm32-web" },
+            ]),
+            files: vec![
+                file("nexul.toml", nexul_manifest("calcul-web", "Bibliothèque NEXUL WebAssembly pour navigateur")),
+                file("src/main.nx", NEXUL_WEB_SOURCE),
+                file("index.html", NEXUL_WEB_HTML),
+                file("main.mjs", NEXUL_WEB_MAIN),
+                file("nexul.mjs", include_str!("../../../lib/web/nexul.mjs")),
+                file("server.mjs", NODE_SERVER),
+                file("server.py", PYTHON_SERVER),
+                file("README.md", NEXUL_WEB_README),
+                file(".gitignore", "/build/\n"),
+                file("build/.gitkeep", ""),
+            ],
+            build: vec![BuildRecipe::NexulWebAssembly],
+            run: vec![RunRecipe::WebNode, RunRecipe::WebPython],
+        },
+        ProjectTemplate {
             id: TemplateId::WebSite, name: "Site HTML, CSS et JavaScript",
             description: "Site statique avec serveur local Node.js ou Python, sans dépendances à télécharger.",
             requirement: Requirement::Any(vec![Tool::Node, Tool::Python]),
@@ -330,13 +382,80 @@ fn nexul_manifest(name: &str, description: &str) -> String {
     format!("[package]\nname = \"{name}\"\nversion = \"0.1.0\"\ndescription = \"{description}\"\nmain = \"src/main.nx\"\n\n[dependencies]\n")
 }
 
+const NEXUL_WEB_SOURCE: &str = r#"// This sample follows the wasm32-web ABI v1 contract.
+@link("app")
+extern "C" fn host_double(value: f64) -> f64
+@link("app")
+extern "C" fn host_text(data: Ptr[u8], len: usize)
+
+@export("calculate")
+pub fn calculate(x: f64) -> f64 {
+    return unsafe { host_double(x) } + 1.0
+}
+
+/// The caller lends valid UTF-8 bytes for this synchronous call only.
+@export("greet")
+pub unsafe fn greet(data: Ptr[u8], len: usize) {
+    let name = String.from_bytes_lossy(data, len)
+    let greeting = "Bonjour, " + name + " !"
+    host_text(greeting.as_ptr(), greeting.len())
+}
+"#;
+
+const NEXUL_WEB_README: &str = r#"# NEXUL navigateur
+
+Ce projet compile `src/main.nx` en `build/calcul.wasm` pour `wasm32-web`, puis le charge
+dans le navigateur avec le chargeur ABI v1 fourni dans `nexul.mjs`.
+
+1. Vérifiez que le compilateur annonce la cible avec `nxc targets`.
+2. Construisez le module : `nxc build src/main.nx --target wasm32-web --lib --release -o build/calcul.wasm`.
+3. Lancez le serveur local proposé par NEXUL Studio (Node.js ou Python), puis ouvrez son URL.
+
+Le navigateur doit être servi par HTTP sur loopback ou HTTPS ; `file://` n'est pas pris en
+charge. Les imports `app.host_double` et `app.host_text` sont fournis explicitement par
+`main.mjs`. Les types exportés restent dans le périmètre de l'ABI v1. La compilation
+demande LLVM-C et `wasm-ld` dans l'installation du compilateur ; le modèle ne télécharge
+aucun outil.
+"#;
+
+const NEXUL_WEB_HTML: &str = r#"<!doctype html>
+<html lang="fr">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NEXUL — WebAssembly</title>
+<h1>NEXUL dans le navigateur</h1>
+<p>Le calcul et la chaîne UTF-8 sont exécutés par un module WebAssembly.</p>
+<pre id="result">Chargement…</pre>
+<script type="module" src="./main.mjs"></script>
+"#;
+
+const NEXUL_WEB_MAIN: &str = r#"import { loadNexul } from './nexul.mjs';
+
+const result = document.querySelector('#result');
+try {
+  let nx;
+  let greeting;
+  nx = await loadNexul('./build/calcul.wasm', { imports: { app: {
+    host_double: value => value * 2,
+    host_text: (pointer, length) => { greeting = nx.readText(pointer, length); },
+  } } });
+  const value = nx.call('calculate', 20.5);
+  nx.withText('NEXUL 🌍 — été', (pointer, length) => nx.call('greet', pointer, length));
+  result.textContent = `${value}\n${greeting}`;
+  document.documentElement.dataset.test = value === 42 && greeting === 'Bonjour, NEXUL 🌍 — été !' ? 'passed' : 'failed';
+} catch (error) {
+  result.textContent = error.stack;
+  document.documentElement.dataset.test = 'failed';
+}
+"#;
+
 const NODE_SERVER: &str = r#"import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(fileURLToPath(new URL('.', import.meta.url)));
-const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
+const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.wasm': 'application/wasm' };
 const server = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url, 'http://localhost').pathname); }
@@ -360,6 +479,9 @@ import os
 ROOT = Path(__file__).resolve().parent
 
 class Handler(SimpleHTTPRequestHandler):
+    extensions_map = {**SimpleHTTPRequestHandler.extensions_map,
+                      ".mjs": "text/javascript", ".wasm": "application/wasm"}
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, directory=str(ROOT), **kwargs)
 
@@ -375,39 +497,11 @@ impl ProjectTemplate {
     }
 
     pub fn is_available(&self, tools: &impl ToolchainProvider) -> bool {
-        match &self.requirement {
-            Requirement::One(tool) => tools.executable(*tool).is_some(),
-            Requirement::Any(items) => items.iter().any(|tool| tools.executable(*tool).is_some()),
-            Requirement::All(items) => items.iter().all(|tool| tools.executable(*tool).is_some()),
-        }
+        requirement_is_satisfied(&self.requirement, tools)
     }
 
     pub fn missing_tools(&self, tools: &impl ToolchainProvider) -> Vec<String> {
-        match &self.requirement {
-            Requirement::One(tool) => {
-                if tools.executable(*tool).is_some() {
-                    vec![]
-                } else {
-                    vec![tool_name(*tool).into()]
-                }
-            }
-            Requirement::All(items) => items
-                .iter()
-                .filter(|tool| tools.executable(**tool).is_none())
-                .map(|tool| tool_name(*tool).to_owned())
-                .collect(),
-            Requirement::Any(items) => {
-                if items.iter().any(|tool| tools.executable(*tool).is_some()) {
-                    vec![]
-                } else {
-                    vec![items
-                        .iter()
-                        .map(|tool| tool_name(*tool))
-                        .collect::<Vec<_>>()
-                        .join(" or ")]
-                }
-            }
-        }
+        requirement_missing(&self.requirement, tools)
     }
 
     /// Materialize this template without overwriting any existing file. The destination
@@ -516,6 +610,24 @@ fn resolve_build(
                 )?,
             ))
         }
+        BuildRecipe::NexulWebAssembly => Some(plan(
+            "Build WebAssembly",
+            spec(
+                tools,
+                Tool::Nxc,
+                [
+                    "build",
+                    "src/main.nx",
+                    "--target",
+                    "wasm32-web",
+                    "--lib",
+                    "--release",
+                    "-o",
+                    "build/calcul.wasm",
+                ],
+                root,
+            )?,
+        )),
         BuildRecipe::CProgram { cpp } => c_build(tools, root, *cpp),
         BuildRecipe::RustCargo => Some(plan("Build", spec(tools, Tool::Cargo, ["build"], root)?)),
         BuildRecipe::Dotnet => Some(plan(
@@ -719,6 +831,61 @@ fn tool_name(tool: Tool) -> &'static str {
     }
 }
 
+fn requirement_missing(requirement: &Requirement, tools: &impl ToolchainProvider) -> Vec<String> {
+    match requirement {
+        Requirement::One(tool) => {
+            if tools.executable(*tool).is_some() {
+                vec![]
+            } else {
+                vec![tool_name(*tool).into()]
+            }
+        }
+        Requirement::Any(items) => {
+            if items.iter().any(|tool| tools.executable(*tool).is_some()) {
+                vec![]
+            } else {
+                vec![items
+                    .iter()
+                    .map(|tool| tool_name(*tool))
+                    .collect::<Vec<_>>()
+                    .join(" or ")]
+            }
+        }
+        Requirement::All(items) => items
+            .iter()
+            .filter(|tool| tools.executable(**tool).is_none())
+            .map(|tool| tool_name(*tool).to_owned())
+            .collect(),
+        Requirement::AllOf(items) => items
+            .iter()
+            .flat_map(|item| requirement_missing(item, tools))
+            .collect(),
+        Requirement::Target { tool, target } => {
+            if tools.executable(*tool).is_none()
+                || tools.supports_target(*tool, target) == Some(true)
+            {
+                vec![]
+            } else {
+                vec![format!("{} target {target}", tool_name(*tool))]
+            }
+        }
+    }
+}
+
+fn requirement_is_satisfied(requirement: &Requirement, tools: &impl ToolchainProvider) -> bool {
+    match requirement {
+        Requirement::One(tool) => tools.executable(*tool).is_some(),
+        Requirement::Any(items) => items.iter().any(|tool| tools.executable(*tool).is_some()),
+        Requirement::All(items) => items.iter().all(|tool| tools.executable(*tool).is_some()),
+        Requirement::AllOf(items) => items
+            .iter()
+            .all(|item| requirement_is_satisfied(item, tools)),
+        Requirement::Target { tool, target } => {
+            tools.executable(*tool).is_some() && tools.supports_target(*tool, target) == Some(true)
+        }
+    }
+}
+
 pub fn available_templates(tools: &impl ToolchainProvider) -> Vec<ProjectTemplate> {
     all_templates()
         .into_iter()
@@ -756,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn template_catalog_has_all_requested_project_types_and_no_unvalidated_wasm() {
+    fn template_catalog_includes_the_validated_browser_target() {
         let ids: Vec<_> = all_templates()
             .into_iter()
             .map(|template| template.id)
@@ -764,13 +931,54 @@ mod tests {
         assert!(ids.contains(&TemplateId::NexulConsole));
         assert!(ids.contains(&TemplateId::NexulLibrary));
         assert!(ids.contains(&TemplateId::NxpmDependency));
+        assert!(ids.contains(&TemplateId::NexulWebAssembly));
         assert!(ids.contains(&TemplateId::WebSite));
         assert!(ids.contains(&TemplateId::Python));
         assert!(ids.contains(&TemplateId::C));
         assert!(ids.contains(&TemplateId::Cpp));
         assert!(ids.contains(&TemplateId::Rust));
         assert!(ids.contains(&TemplateId::CSharp));
-        assert!(!ids.iter().any(|id| id.as_str().contains("wasm")));
+    }
+
+    #[test]
+    fn wasm_template_requires_an_advertised_target_and_a_local_web_server() {
+        let template = find_template("nexul-webassembly").unwrap();
+        let mut no_server = ToolchainRegistry::default();
+        no_server.insert(Tool::Nxc, "nxc");
+        assert_eq!(
+            no_server.set_target_support(Tool::Nxc, "wasm32-web", true),
+            None
+        );
+        assert_eq!(template.missing_tools(&no_server), vec!["Node.js or Python"]);
+
+        let mut tools = ToolchainRegistry::default();
+        tools.insert(Tool::Nxc, "nxc");
+        tools.insert(Tool::Node, "node");
+
+        assert_eq!(template.missing_tools(&tools), vec!["nxc target wasm32-web"]);
+        assert_eq!(
+            tools.set_target_support(Tool::Nxc, "wasm32-web", false),
+            None
+        );
+        assert!(!template.is_available(&tools));
+        assert_eq!(
+            tools.set_target_support(Tool::Nxc, "wasm32-web", true),
+            Some(false)
+        );
+        assert!(template.is_available(&tools));
+
+        let actions = template.actions(&tools, "project").unwrap();
+        let build = &actions.build.as_ref().unwrap().commands[0];
+        assert_eq!(build.program, PathBuf::from("nxc"));
+        let expected_args: Vec<_> = [
+            "build", "src/main.nx", "--target", "wasm32-web", "--lib", "--release", "-o",
+            "build/calcul.wasm",
+        ]
+        .into_iter()
+        .map(OsString::from)
+        .collect();
+        assert_eq!(build.args, expected_args);
+        assert_eq!(actions.run[0].commands[0].program, PathBuf::from("node"));
     }
 
     #[test]

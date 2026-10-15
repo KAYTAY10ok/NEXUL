@@ -20,11 +20,10 @@ Dernière mise à jour : 15 octobre 2026.
   locale, site HTML/CSS/JavaScript, Python, C, C++, Rust et C#. Les modèles décrivent
   aussi leurs commandes de construction et d'exécution, ignorent les artefacts locaux et
   refusent les chemins dangereux ou l'écrasement de fichiers.
-- L'API `ToolchainProvider` relie les modèles au catalogue de SDK de Studio. Le chemin
-  `studio/lsp` n'existe pas dans `origin/main`; la crate n'ajoute donc pas une seconde
-  détection de SDK.
-- Aucun modèle NEXUL/WebAssembly n'est exposé : le contrat navigateur de Codex Astra n'est
-  pas présent ni validé dans la branche de départ.
+- L'API `ToolchainProvider` relie les modèles au catalogue de SDK de Studio sans scanner
+  `PATH` ni télécharger d'outils.
+- Le rapport initial ne contenait pas de modèle NEXUL/WebAssembly, car le contrat navigateur
+  n'était pas encore intégré à `main`; il a depuis été intégré par la PR #1.
 
 ## Vérifications effectuées
 
@@ -43,6 +42,27 @@ Dernière mise à jour : 15 octobre 2026.
   étaient présents, y compris Python, Node.js et .NET 10.
 - `cargo fmt` exécuté pour les trois crates.
 
+## Suivi du modèle NEXUL/WebAssembly
+
+Branche de suivi : `refonte/codex-exec-wasm-template`, créée depuis `origin/main`
+(`548b1f6`). Le lot ajoute `nexul-webassembly` dans `studio/templates` après l'intégration
+du contrat ABI v1. Il génère l'exemple de calcul et de chaîne UTF-8, le chargeur partagé
+depuis `lib/web/nexul.mjs`, une page navigateur et les serveurs Node/Python. La commande de
+build cible `wasm32-web`; la disponibilité exige que le catalogue signale ce target via
+`nxc targets` et qu'un serveur local soit installé. Le résultat du contrôle de cible est
+mis en cache dans le catalogue pour éviter de relancer `nxc` lors de chaque actualisation
+des modèles. Le serveur sert `.mjs` et `.wasm` avec leurs types MIME.
+
+Vérifications de ce suivi :
+- Node.js 24.19.0 : `--check` réussi sur le script navigateur et le serveur Node.
+- Python 3.14.7 : `py_compile` réussi sur le serveur Python.
+- Tests HTTP directs sur les serveurs Node et Python : code 200, types MIME JavaScript et
+  WebAssembly et octets du fichier `.wasm` préservés.
+- La suite Rust `cargo test --manifest-path studio/templates/Cargo.toml` n'a pas été
+  exécutée ici : Cargo/rustc et `nxc` ne sont pas installés dans cet environnement. Des
+  tests Rust sont ajoutés pour la disponibilité cible, le plan de build, le chargeur, le
+  build réel conditionnel, l'ABI via Node et les réponses HTTP.
+
 ## Fichiers
 
 - `studio/terminal/Cargo.toml`, `studio/terminal/src/lib.rs`, `studio/terminal/README.md`
@@ -57,7 +77,8 @@ Dernière mise à jour : 15 octobre 2026.
 - API proposée à Claude Studio : `Terminal` / `TerminalManager`, `DapClient`,
   `AdapterRegistry`, `ProjectTemplate::create` et `ProjectTemplate::actions`.
 - Claude Studio doit implémenter `ToolchainProvider` en adaptant le catalogue de
-  `studio/lsp` (outils `nxc`, `nxpm`, Python, Node, compilateurs C/C++, Cargo et dotnet).
+  `studio/lsp` pour `supports_target` (requête `nxc targets`) et pour les exécutables des
+  outils. Sans cette confirmation, le modèle WebAssembly reste caché.
 - Les vues GPUI et le branchement des crates dans `studio/app/Cargo.toml` restent dans le
   périmètre Claude Studio.
 - Les limites du modèle terminal (écran alternatif, souris, hyperliens, images et
