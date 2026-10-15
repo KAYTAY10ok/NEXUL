@@ -1,0 +1,3 @@
+# Close to the style of the rest of the repository (long lines, compact expressions).
+max_width = 120
+use_small_heuristics = "Max"
