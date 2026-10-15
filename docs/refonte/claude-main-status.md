@@ -26,12 +26,13 @@ Plan des lots : [master-plan.md](master-plan.md).
 | 15/10 | M2 binaire sans runtime VC++ (issue #9) ; M3 coloration `studio/syntax` ; question avant de changer de dossier avec des fichiers non enregistrés | `eb490ce` |
 | 15/10 | M4 assistant Nouveau projet (modèles de Luna, outils détectés, `nxc targets`) | `0066da3` |
 | 15/10 | M10 recherche et remplacement dans les fichiers (Ctrl+Maj+F) | `030d617` |
+| 15/10 | M8 (en partie) : Exécuter, Construire, version optimisée, tests (`nxpm` si `nexul.toml`) | `af55669` |
 
 ## Travaux en cours
 
-Tâches M1 à M16 : [master-plan.md](master-plan.md) §2.1. Faits : M2, M3, M4, M10. Suivants :
-M1 (fusion), M8 (exécuter, construire, tester), M9 (paramètres, raccourcis), M5 (LSP des autres
-langages) ; M6 et M7 attendent L1 et L2 de Luna.
+Tâches M1 à M16 : [master-plan.md](master-plan.md) §2.1. Faits : M2, M3, M4, M10, M8 en partie. Suivants :
+M1 (fusion), M9 (paramètres, raccourcis), reste de M8 (explorateur de tests, erreurs cliquables),
+M5 (LSP des autres langages) ; M6 et M7 attendent L1 et L2 de Luna.
 
 ## Demandes reçues
 
@@ -42,7 +43,7 @@ langages) ; M6 et M7 attendent L1 et L2 de Luna.
 
 - `cargo test -p nexul-studio` : 8 tests réussis.
 - `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1` :
-  29 tests réussis (fenêtre sans affichage, vraies frappes, vrai `nxc`), `030d617`.
+  30 tests réussis (fenêtre sans affichage, vraies frappes, vrais `nxc` et `nxpm`), `af55669`.
 - `cargo test -p nexul-studio` : 12 tests réussis (dont l'enregistrement atomique et la recherche).
 - Crates de Luna : voir [master-plan.md](master-plan.md) §3.
 
