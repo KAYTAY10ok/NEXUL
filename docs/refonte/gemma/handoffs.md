@@ -15,4 +15,4 @@
 
 **Validation souhaitée :** test d’un et plusieurs onglets ; vérifier le contenu disque après chaque choix ; une erreur de sauvegarde empêche la fermeture.
 
-**Transmission GitHub :** tentative de création d’issue faite après autorisation de l’utilisateur ; le connecteur a renvoyé HTTP 403, « Resource not accessible by integration ». Aucune issue n’a été créée. Le propriétaire peut reprendre ce texte pour ouvrir l’issue dans le dépôt.
+**Transmission GitHub :** après autorisation de l’utilisateur, la création de l’issue et de la PR brouillon a été tentée ; le connecteur a renvoyé HTTP 403, « Resource not accessible by integration ». Aucune issue ni PR n’a été créée. La branche contenant ce handoff est poussée sur refonte/gemma-qa-docs ; page de création de PR : https://github.com/KAYTAY10ok/NEXUL/pull/new/refonte/gemma-qa-docs. Le propriétaire peut reprendre ce texte pour ouvrir l’issue dans le dépôt.

@@ -19,7 +19,7 @@ Mise à jour : 15 octobre 2026. Branche : refonte/gemma-qa-docs. Audit statique 
 
 ## Constat transmis
 
-La fermeture de la fenêtre GPUI appelle directement le quit de l’application ; la fermeture d’un onglet modifié enregistre automatiquement le fichier. Le scénario de fermeture de fenêtre avec modifications n’est pas couvert par le test de fermeture d’onglet. Le connecteur GitHub a refusé la création d’une issue (403). Le constat et ses critères sont conservés dans handoffs.md.
+La fermeture de la fenêtre GPUI appelle directement le quit de l’application ; la fermeture d’un onglet modifié enregistre automatiquement le fichier. Le scénario de fermeture de fenêtre avec modifications n’est pas couvert par le test de fermeture d’onglet. Le connecteur GitHub a refusé la création de l’issue et de la PR brouillon (403). La branche est poussée ; la page de création est https://github.com/KAYTAY10ok/NEXUL/pull/new/refonte/gemma-qa-docs. Le constat et ses critères sont conservés dans handoffs.md.
 
 ## Limites
 
