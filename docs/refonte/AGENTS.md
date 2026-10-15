@@ -1,4 +1,4 @@
-# NEXUL — consignes pour les agents (Codex Core, Codex Exécution, Claude Studio, Claude Outils)
+# NEXUL — consignes pour les agents (Codex Astra, Codex Luna, Claude Studio, Claude Outils)
 
 Document de coordination rédigé à la demande de l'utilisateur (15 octobre 2026). Lisez-le
 **en entier avant de commencer**. Il complète la mission « Refonte majeure du langage et
@@ -36,12 +36,12 @@ code NEXUL → analyse NEXUL → NIR → IR LLVM → code machine (LLD)
 | Emplacement | Branche | Agent |
 |---|---|---|
 | `C:\NEXUL` | `nexul-0.2-autonomie` (= `main`) | personne : **ne pas y travailler** |
-| `C:\NEXUL-core` | `refonte/codex-core` | **Codex Core** |
+| `C:\NEXUL-core` | `refonte/codex-core` | **Codex Astra** (cœur du langage) |
 | `C:\NEXUL\.claude\worktrees\claude-studio` | `refonte/claude-studio` | **Claude Studio** |
 | `C:\NEXUL-tools` (à créer) | `refonte/claude-tools` | **Claude Outils** |
-| `C:\NEXUL-exec` (à créer) | `refonte/codex-exec` | **Codex Exécution** |
+| `C:\NEXUL-exec` (à créer) | `refonte/codex-exec` | **Codex Luna** (terminal, débogage, projets) |
 
-Création des worktrees de Claude Outils et de Codex Exécution :
+Création des worktrees de Claude Outils et de Codex Luna :
 
 ```
 git -C C:\NEXUL worktree add C:\NEXUL-tools -b refonte/claude-tools origin/main
@@ -67,7 +67,7 @@ git -C C:\NEXUL worktree add C:\NEXUL-exec -b refonte/codex-exec origin/main
    faites jamais vous-même le travail d'un autre.
 6. **Aucun résultat inventé** : rien n'est « fait » sans compilation et tests. Une
    fonction partielle est annoncée partielle. Pas de fonctionnalité factice.
-7. `Cargo.toml` et `Cargo.lock` **racine** appartiennent à Codex Core. `studio/app/` a son
+7. `Cargo.toml` et `Cargo.lock` **racine** appartiennent à Codex Astra. `studio/app/` a son
    propre `Cargo.toml` / `Cargo.lock` (Claude Studio). Ne modifiez pas un `Cargo.lock`
    qui n'est pas à vous.
 8. Ne touchez pas aux réglages réels de l'utilisateur dans les tests
@@ -75,7 +75,7 @@ git -C C:\NEXUL worktree add C:\NEXUL-exec -b refonte/codex-exec origin/main
 
 ## 3. Répartition des responsabilités
 
-### Codex Core — compilateur, runtime, performances, WebAssembly
+### Codex Astra — compilateur, runtime, performances, WebAssembly
 
 **Fichiers** : `compiler/**`, `lib/**`, `tests/**`, `examples/**`, `docs/spec/**`,
 `docs/guide.md`, `docs/roadmap.md`, `docs/adr/**`, `Cargo.toml` et `Cargo.lock` racine,
@@ -100,7 +100,7 @@ optimisations LLVM justifiées par les mesures ; cible WebAssembly **navigateur*
 **Fichiers** : `studio/src/**`, `studio/ui/**`, `studio/app/**`, `studio/plugins/**`,
 `studio/Cargo.toml`, `studio/README.md`, `studio/assets/**`, `docs/studio/**`,
 `docs/refonte/claude-status.md` — **sauf** les nouveaux dossiers attribués à Claude Outils
-et à Codex Exécution ci-dessous.
+et à Codex Luna ci-dessous.
 
 **Tâches** : l'application native `studio/app` — explorateur (créer, renommer,
 supprimer, déplacer, glisser-déposer via `workspace.rs`), éditeur et onglets, panneau de
@@ -109,7 +109,7 @@ personnalisables, thèmes, mode minimaliste, dispositions mémorisées, services
 l'éditeur (`nxc ide` : survol, complétion, définition, références, renommage, mise en
 forme), aperçu web isolé ; puis **l'interface graphique des briques des autres agents** :
 coloration et LSP (Claude Outils), terminal, débogueur et assistant « Nouveau projet »
-(Codex Exécution), et la future interface WebAssembly de Codex Core ; parité, puis retrait de
+(Codex Luna), et la future interface WebAssembly de Codex Astra ; parité, puis retrait de
 l'ancienne interface web.
 
 ### Claude Outils — briques de Studio, installation et distribution
@@ -134,7 +134,7 @@ l'ancienne interface web.
    - tests : tous les fichiers `examples/*.nx` et `tests/run/*.nx` (lecture seule)
      doivent être tokenisés sans erreur et sans perte de texte ;
    - ne modifiez pas le compilateur : s'il manque une information lexicale, demandez à
-     Codex Core.
+     Codex Astra.
 2. **`studio/lsp`** — client Language Server Protocol générique :
    - transport JSON-RPC sur stdio (en-têtes `Content-Length`), `initialize`,
      `didOpen` / `didChange` / `didSave` / `didClose`, `publishDiagnostics`, `hover`,
@@ -156,11 +156,11 @@ l'ancienne interface web.
      sous un autre nom pendant la transition ;
    - le lancement de Studio ne doit plus dépendre d'Edge ; étudier une interface native
      pour l'installateur lui-même (il affiche aujourd'hui ses pages dans Edge) ;
-   - `installer/` est membre du workspace racine (fichiers de Codex Core) : **n'y ajoutez pas
-     de dépendance** sans demande à Codex Core ;
+   - `installer/` est membre du workspace racine (fichiers de Codex Astra) : **n'y ajoutez pas
+     de dépendance** sans demande à Codex Astra ;
    - étude écrite de la distribution Linux et macOS, et d'un mécanisme de mise à jour.
 
-### Codex Exécution — terminal, débogage et projets
+### Codex Luna — terminal, débogage et projets
 
 **Fichiers** (nouveaux dossiers, rien d'autre) :
 - `studio/terminal/**` : nouvelle crate **sans dépendance à GPUI** ;
@@ -196,7 +196,7 @@ l'ancienne interface web.
 3. **`studio/templates`** — modèles de projets **fonctionnels** :
    - NEXUL console, bibliothèque NEXUL, projet `nxpm` avec dépendance, site
      HTML/CSS/JavaScript ; Python, C, C++, Rust, C# quand l'outil correspondant est
-     détecté ; NEXUL + WebAssembly + JavaScript **seulement** quand le contrat de Codex Core
+     détecté ; NEXUL + WebAssembly + JavaScript **seulement** quand le contrat de Codex Astra
      sera validé ;
    - chaque modèle : fichiers, commandes de construction/exécution, outils requis ; un
      test vérifie que chaque modèle disponible se construit et s'exécute ;
@@ -207,14 +207,14 @@ l'ancienne interface web.
 
 | Interface | Fournisseur | Utilisateur |
 |---|---|---|
-| CLI `nxc` (`check --json`, `ide`, `fmt`, `explain`, `run`, `test`, `build`, `targets`), `nxpm list --json` | Codex Core | Studio |
-| `docs/refonte/interop-web.md` (WebAssembly) | Codex Core | Studio |
+| CLI `nxc` (`check --json`, `ide`, `fmt`, `explain`, `run`, `test`, `build`, `targets`), `nxpm list --json` | Codex Astra | Studio |
+| `docs/refonte/interop-web.md` (WebAssembly) | Codex Astra | Studio |
 | `nexul_studio` (`studio/src`) : `workspace`, `watch`, `runner`, `compiler`, `debug` | Claude Studio | Claude Outils (lecture seule) |
-| `studio/syntax`, `studio/lsp` (API Rust) | Claude Outils | Claude Studio (adaptateurs GPUI dans `studio/app`) ; Codex Exécution (détection des SDK) |
-| `studio/terminal`, `studio/dap`, `studio/templates` (API Rust) | Codex Exécution | Claude Studio (vues GPUI dans `studio/app`) |
+| `studio/syntax`, `studio/lsp` (API Rust) | Claude Outils | Claude Studio (adaptateurs GPUI dans `studio/app`) ; Codex Luna (détection des SDK) |
+| `studio/terminal`, `studio/dap`, `studio/templates` (API Rust) | Codex Luna | Claude Studio (vues GPUI dans `studio/app`) |
 | `studio/app/target/release/NEXUL-Studio-Native.exe` | Claude Studio | Claude Outils (installateur) |
 
-Quand une crate de Claude Outils ou de Codex Exécution est prête, son auteur le
+Quand une crate de Claude Outils ou de Codex Luna est prête, son auteur le
 signale dans son fichier d'état ; **Claude Studio** ajoute la dépendance dans
 `studio/app/Cargo.toml`. Les crates `studio/syntax`, `studio/lsp`, `studio/terminal`,
 `studio/dap` et `studio/templates` ont chacune leur propre espace de travail Cargo
@@ -248,7 +248,7 @@ prend ~6 min.
 ## 5. État au 15 octobre 2026
 
 - **main** : NEXUL 0.2.0 publié.
-- **Codex Core** (`refonte/codex-core`, local) : audit initial (`docs/refonte/audit-core.md`),
+- **Codex Astra** (`refonte/codex-core`, local) : audit initial (`docs/refonte/audit-core.md`),
   vérificateurs numériques corrigés et testés, contrat WebAssembly initial (inventaire,
   **pas encore** un feu vert pour le navigateur).
 - **Claude Studio** (`refonte/claude-studio`) : création et renommage de fichiers
@@ -258,16 +258,16 @@ prend ~6 min.
   (`docs/studio/audit-phase0.md`, `architecture-native.md`) ; **première version de
   l'application native** (`studio/app`) avec 6 tests fonctionnels.
 - **Claude Outils** : à démarrer.
-- **Codex Exécution** : à démarrer.
+- **Codex Luna** : à démarrer.
 
 ## 6. Premiers pas des nouveaux agents
 
 1. Créer son worktree (§1) ; lire ce fichier, la mission, `docs/studio/audit-phase0.md`,
    `docs/studio/architecture-native.md`, `docs/refonte/claude-status.md`,
-   `docs/refonte/codex-status.md` (branche de Codex Core).
+   `docs/refonte/codex-status.md` (branche de Codex Astra).
 2. Créer son fichier d'état : `docs/refonte/claude-outils-status.md` ou
    `docs/refonte/codex-exec-status.md`.
 3. Claude Outils : `studio/syntax`, puis `studio/lsp`, puis l'installateur.
-   Codex Exécution : `studio/terminal`, puis `studio/dap`, puis `studio/templates`.
+   Codex Luna : `studio/terminal`, puis `studio/dap`, puis `studio/templates`.
    Chaque brique avec ses tests.
 4. Une PR par brique.

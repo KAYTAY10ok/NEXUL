@@ -3,10 +3,10 @@
 Agent : **Claude Studio**. Périmètre (voir [AGENTS.md](AGENTS.md)) : `studio/src/**`,
 `studio/ui/**`, `studio/app/**`, `studio/plugins/**`, `docs/studio/**` et ce fichier ;
 `installer/**`, `studio/syntax/**` et `studio/lsp/**` sont à Claude Outils ;
-`studio/terminal/**`, `studio/dap/**` et `studio/templates/**` à Codex Exécution. Branche :
+`studio/terminal/**`, `studio/dap/**` et `studio/templates/**` à Codex Luna. Branche :
 `refonte/claude-studio` (worktree séparé). Seul Claude Studio modifie ce document.
 
-Dernière mise à jour : 15 octobre 2026. Répartition des rôles (Codex Core, Claude Studio,
+Dernière mise à jour : 15 octobre 2026. Répartition des rôles (Codex Astra, Claude Studio,
 Claude Outils) : [AGENTS.md](AGENTS.md).
 
 ## Travaux réalisés
@@ -32,7 +32,7 @@ Claude Outils) : [AGENTS.md](AGENTS.md).
 - `docs/studio/audit-phase0.md`, `docs/studio/architecture-native.md`,
   `docs/refonte/claude-status.md`
 
-Aucun fichier de Codex Core n'a été modifié (`compiler/`, `lib/`, `tests/`, `docs/spec/`,
+Aucun fichier de Codex Astra n'a été modifié (`compiler/`, `lib/`, `tests/`, `docs/spec/`,
 `Cargo.toml`, `Cargo.lock`, `README.md`).
 
 ## Tests exécutés
@@ -50,7 +50,7 @@ Aucun fichier de Codex Core n'a été modifié (`compiler/`, `lib/`, `tests/`, `
   Windows SDK ont été installés (accord de l'utilisateur) : `studio/app` se construit
   avec la chaîne MSVC.
 
-## Dépendances envers Codex Core (demandes)
+## Dépendances envers Codex Astra (demandes)
 
 1. **`nxc lsp`** : serveur Language Server Protocol (stdio) reprenant les services de
    `nxc ide`. Critères : `initialize`, `didOpen`/`didChange`, `publishDiagnostics`,
@@ -60,8 +60,8 @@ Aucun fichier de Codex Core n'a été modifié (`compiler/`, `lib/`, `tests/`, `
 3. **Contrat WebAssembly** `docs/refonte/interop-web.md` : l'intégration « Compiler
    pour le Web » de Studio attend ce document ; aucune commande `nxc` ne sera supposée.
 4. **Workspace Cargo** : l'application native aura son propre espace de travail Cargo
-   sous `studio/` (son propre `Cargo.lock`) pour ne pas toucher aux fichiers de Codex Core.
-   Codex Core peut décider de l'intégrer au workspace racine.
+   sous `studio/` (son propre `Cargo.lock`) pour ne pas toucher aux fichiers de Codex Astra.
+   Codex Astra peut décider de l'intégrer au workspace racine.
 
 ## Changements attendus dans les interfaces
 
