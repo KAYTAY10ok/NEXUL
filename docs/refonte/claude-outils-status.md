@@ -20,25 +20,30 @@ sans la charge « Développement Desktop en C++ »).
   `stable-x86_64-pc-windows-gnu` par défaut (même version que l'autre PC), la chaîne
   `stable-x86_64-pc-windows-msvc` (inutilisable ici sans `link.exe`), GitHub CLI 2.102.0,
   le composant `rust-analyzer` (pour essayer le client LSP contre un vrai serveur).
-- Branches : une par brique, comme Codex Luna. `refonte/claude-tools` porte
-  `studio/syntax` (PR #6) ; `refonte/claude-tools-lsp`, partie de celle-ci, porte
-  `studio/lsp` (PR empilée sur #6 : à fusionner après elle).
+- Branches : une par brique, comme Codex Luna. `refonte/claude-tools` a porté
+  `studio/syntax` (PR #6, fusionnée) ; `refonte/claude-tools-lsp` a porté `studio/lsp`
+  (PR #8, fusionnée) ; `refonte/claude-tools-etudes` porte les études écrites.
 - Conséquence pour plus tard : l'installateur doit empaqueter `NEXUL-Studio-Native.exe`,
   construit avec la chaîne MSVC. Sur ce PC, il faudra soit installer les outils C++ de
   Visual Studio et le Windows SDK (accord de l'utilisateur nécessaire), soit utiliser
-  l'exécutable construit sur l'autre PC.
+  l'exécutable construit sur l'autre PC. Sans LLVM (`llvm-rc`), l'installateur construit
+  ici n'a ni icône ni manifeste (`installer/build.rs`).
 
 ## Travaux réalisés
 
 | Date | Travail | Commit |
 |---|---|---|
 | 15/10 | **`studio/syntax`** — coloration lexicale de NEXUL, sans dépendance : API `tokens(lang, texte)`, API par ligne avec état (`tokenize_line`, `LineState`), `Highlighter` incrémental (`replace`, `edit_lines`), 16 classes (les 15 proposées + `Invalid`) ; tolérante aux erreurs ; 26 tests dont la conformité jeton par jeton avec le lexer de `nxc` ; documentation : [studio/syntax/README.md](../../studio/syntax/README.md) | `aec4927` |
-| 15/10 | **`studio/lsp`** — client Language Server Protocol générique, sans dépendance (fils et canaux) : transport `Content-Length`, `initialize`, `didOpen`/`didChange` (complet et incrémental)/`didSave`/`didClose`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `formatting`, annulation, délais, arrêt propre ; registre de 11 langages et 13 serveurs, 12 SDK, détection vérifiée sans téléchargement (« coloration seulement » sinon) ; 32 tests dont un faux serveur LSP et rust-analyzer réel ; documentation : [studio/lsp/README.md](../../studio/lsp/README.md) | |
+| 15/10 | **`studio/lsp`** — client Language Server Protocol générique, sans dépendance (fils et canaux) : transport `Content-Length`, `initialize`, `didOpen`/`didChange` (complet et incrémental)/`didSave`/`didClose`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `formatting`, annulation, délais, arrêt propre ; registre de 11 langages et 13 serveurs, 12 SDK, détection vérifiée sans téléchargement (« coloration seulement » sinon) ; 32 tests dont un faux serveur LSP et rust-analyzer réel ; documentation : [studio/lsp/README.md](../../studio/lsp/README.md) | `e85a252` |
+| 15/10 | **Études écrites** (installation et distribution) : [interface native de l'installateur](../../installer/docs/etude-interface-native.md) (Win32 sans dépendance recommandé ; inventaire des 10 appels à PowerShell et des appels à `reg.exe`, coûts mesurés ; empaquetage de Studio natif) ; [distribution Linux et macOS](../../installer/docs/etude-linux-macos.md) (archive + `install.sh` sous Linux, `.app` signé et notarisé sous macOS, bloqué par la couche système macOS du runtime) ; [mécanisme de mise à jour](../../installer/docs/etude-mises-a-jour.md) (manifeste signé Ed25519, `nexul-update`, un dossier par version, `winget`) | |
+| 15/10 | **Installateur, étape 1 de l'interface native** (accord de l'utilisateur) : PowerShell, `reg.exe` et `taskkill` remplacés par l'API de Windows, sans dépendance (`installer/src/win/` : registre, PATH et `NEXUL_HOME`, raccourcis `IShellLinkW`, dossiers connus, choix du dossier `IFileOpenDialog`, élévation `ShellExecuteEx`, arrêt des seuls programmes du dossier traité) ; désinstallateur effacé par une copie dans `%TEMP%` ; interface HTML inchangée ; 13 tests unitaires + test du choix du dossier + installation complète de bout en bout dans un bac à sable | |
 
 ## Travaux en cours
 
-- Installation et distribution (troisième brique) : l'installateur doit empaqueter
-  l'application native ; voir « Environnement » pour la chaîne MSVC.
+- Interface native de l'installateur, étapes 2 et 3 (assistant Win32, retrait de l'interface
+  HTML) : à faire après relecture de l'étape 1.
+- Autres décisions de l'utilisateur en attente : fin de chaque étude (Linux et macOS, mises
+  à jour, construction de Studio natif).
 
 ## Fichiers modifiés
 
@@ -49,6 +54,13 @@ sans la charge « Développement Desktop en C++ »).
   `README.md`, `src/lib.rs`, `src/json.rs`, `src/rpc.rs`, `src/types.rs`, `src/client.rs`,
   `src/registry.rs`, `src/bin/fake_server.rs`, `tests/common/mod.rs`, `tests/client.rs`,
   `tests/detect.rs`, `tests/real_servers.rs`.
+- `installer/docs/` (nouveau) : `etude-interface-native.md`, `etude-linux-macos.md`,
+  `etude-mises-a-jour.md` ; `docs/installation.md` (renvoi vers ces études).
+- Installateur (étape 1) : `installer/src/win/` (nouveau : `mod.rs`, `ffi.rs`, `reg.rs`,
+  `env.rs`, `shell.rs`, `process.rs`), `installer/src/main.rs`, `installer/src/old.rs`,
+  `installer/Cargo.toml` (fonctionnalité `test-sandbox`, programme et test de test, aucune
+  dépendance), `installer/tests/silent.rs`, `installer/tests/support/sleeper.rs`,
+  `docs/installation.md`.
 - `docs/refonte/claude-outils-status.md` (ce fichier).
 
 Aucun autre fichier du dépôt n'est modifié. `compiler/nxc_syntax` est utilisé en
@@ -60,6 +72,36 @@ Aucun autre fichier du dépôt n'est modifié. `compiler/nxc_syntax` est utilis�
 Rust 1.99.0 `windows-gnu`, en debug et en `--release`. `cargo clippy --all-targets` :
 aucun avertissement ; `cargo fmt --check` : conforme (configuration des crates :
 120 colonnes).
+
+**Installateur (étape 1)** :
+
+- `cargo test -p nexul-installer` : **13 tests unitaires réussis**, en 1,4 à 1,8 s. Ils
+  couvrent :
+  - registre (texte, texte à variables, nombre, valeurs longues et accentuées,
+    arborescence) ;
+  - PATH (forme brute conservée, comparaison après expansion, dossiers inclus, pas de
+    doublon) ;
+  - raccourcis (création, relecture, remplacement, chemins accentués) ;
+  - dossiers connus ;
+  - lancement et attente avec code de sortie ;
+  - arrêt des programmes d'un seul dossier : deux « NEXUL Studio.exe », seul celui du
+    dossier traité est arrêté ;
+  - les 2 tests existants de `old.rs`.
+- `--ignored picker` : la vraie boîte de choix du dossier s'ouvre, répond OK (dossier
+  existant le plus proche) puis Annuler.
+- `cargo test -p nexul-installer --features test-sandbox` : test `silent` réussi en 14 s,
+  3 passages sur 3. C'est le vrai installateur, construit par `nexul-pack` :
+  - installation ;
+  - mise à jour par-dessus l'installation précédente et une ancienne copie de NEXUL
+    Studio (sauvegardée et détachée), avec un Studio lancé (arrêté) et un autre ailleurs
+    (épargné) ;
+  - désinstallation avec `nxc` lancé et un fichier de l'utilisateur (conservé) ;
+  - vérifications indépendantes par `reg.exe` et Windows Script Host.
+- Après les tests, vérifié en PowerShell : aucune clé de test, aucun processus, ni
+  inscription, PATH, `NEXUL_HOME`, association ou raccourci réels touchés.
+- `cargo clippy -p nexul-installer --features test-sandbox --all-targets` : aucun
+  avertissement.
+- Programme seul, release : 828 Ko (768 Ko avant).
 
 **`studio/lsp`** : **32 tests, tous réussis**, et 10 passages consécutifs des tests du
 client et de la détection sans échec.
@@ -97,11 +139,38 @@ conformité).
 - Le dépôt n'impose pas de formatage (le code existant n'est conforme à aucune
   configuration courante de `rustfmt`) : `studio/syntax/rustfmt.toml` fixe 120 colonnes,
   ce qui est le plus proche du style existant, pour cette crate seulement.
+- Installateur : une première version de `ShellExecuteEx` sans `SEE_MASK_FLAG_NO_UI`
+  affichait une boîte d'erreur de Windows quand le programme n'existe pas. Le test
+  correspondant restait bloqué jusqu'à la fermeture de la boîte (80 s, 120 s, puis
+  arrêt), et ces boîtes ont pu apparaître à l'écran de l'utilisateur. C'est corrigé :
+  l'erreur revient au programme, et la demande d'élévation de Windows reste affichée.
+- Sous Git Bash, `reg … /f` est converti en chemin par MSYS (`/f` → `F:/`) : les
+  vérifications de l'environnement réel se font en PowerShell. Les tests Rust ne sont
+  pas concernés, car ils passent leurs arguments directement.
 
 ## Demandes aux autres agents
 
-Aucune pour l'instant. `studio/syntax` n'a eu besoin d'aucune information lexicale absente
-de la spécification ou du compilateur.
+**Ouverte** :
+
+1. **Claude Studio** — vérifier si `NEXUL-Studio-Native.exe` dépend de
+   `vcruntime140.dll` (`dumpbin /dependents`), et dans ce cas le construire avec
+   `-C target-feature=+crt-static`. Un Windows neuf n'a pas ce runtime, et l'installateur
+   doit pouvoir livrer Studio seul. Issue : [#9](https://github.com/KAYTAY10ok/NEXUL/issues/9).
+
+**Envisagées**, à ouvrir selon les décisions de l'utilisateur sur les études :
+
+- **Claude Studio** : réglages de Studio dans les emplacements de Linux
+  (`$XDG_CONFIG_HOME`) et de macOS (`~/Library/Application Support`) ; notification et
+  bouton de mise à jour dans Studio (`nexul-update --check/--apply`).
+- **Codex Astra** :
+  - dépendance de vérification Ed25519 dans `installer/` (workspace racine) ;
+  - cache de `nxc` et `nxpm` aux emplacements XDG et macOS ;
+  - matrice d'intégration continue Linux et macOS (`.github/**`) ;
+  - la couche système macOS du runtime, déjà relevée dans `audit-core.md`, conditionne
+    toute distribution sur Mac.
+
+`studio/syntax` n'a eu besoin d'aucune information lexicale absente de la spécification
+ou du compilateur.
 
 ## Briques prêtes (pour Claude Studio)
 

@@ -14,4 +14,24 @@ path = "src/main.rs"
 name = "nexul-pack"
 path = "src/pack.rs"
 
+# For the tests only: a program that sleeps, standing for NEXUL Studio.
+[[bin]]
+name = "nexul-test-sleeper"
+path = "tests/support/sleeper.rs"
+required-features = ["test-sandbox"]
+test = false
+doc = false
+
+# Installation and uninstallation without window, from start to end, in a sandbox:
+# `cargo test -p nexul-installer --features test-sandbox`.
+[[test]]
+name = "silent"
+required-features = ["test-sandbox"]
+
+[features]
+# Tests only: `NEXUL_SETUP_SANDBOX` (a folder) redirects the registry and the known
+# folders, so that the tests never touch the settings of the user. Not in the installer
+# that is shipped.
+test-sandbox = []
+
 [dependencies]

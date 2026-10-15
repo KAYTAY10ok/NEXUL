@@ -13,7 +13,9 @@
 //! (`--old-versions-job <file>`): Windows asks the user for confirmation.
 
 use crate::http::json_str;
-use crate::{hidden, powershell, ps_str, UNINSTALL_EXE};
+use crate::win::shell::{self, Folder};
+use crate::win::{env, process, reg};
+use crate::{hidden, UNINSTALL_EXE};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -88,15 +90,33 @@ pub struct Scan {
     pub items: Vec<Item>,
 }
 
-const SCAN: &str = r#"$t=[char]9
-'now'+$t+(Get-Date -Format 'yyyy-MM-dd HH''h''mm')
-'admin'+$t+([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
-foreach($r in 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall','HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall'){Get-ChildItem -LiteralPath $r -ErrorAction SilentlyContinue|ForEach-Object{$p=Get-ItemProperty -LiteralPath $_.PSPath -ErrorAction SilentlyContinue; if((''+$p.DisplayName) -match 'NEXUL'){'reg'+$t+$_.Name+$t+$p.DisplayName+$t+$p.DisplayVersion+$t+$p.InstallLocation}}}
-foreach($s in 'User','Machine'){$v=[Environment]::GetEnvironmentVariable('Path',$s); if($v){foreach($d in $v.Split(';')){try{if($d -and ($d -match 'NEXUL' -or [IO.File]::Exists([IO.Path]::Combine($d,'nxc.exe')) -or [IO.File]::Exists([IO.Path]::Combine($d,'NEXUL Studio.exe')))){'path'+$t+$s+$t+$d}}catch{}}}}
-'home'+$t+[Environment]::GetEnvironmentVariable('NEXUL_HOME','User')
-$sh=New-Object -ComObject WScript.Shell
-foreach($f in 'Desktop','CommonDesktopDirectory','Programs','CommonPrograms'){$d=[Environment]::GetFolderPath($f); if($d -and (Test-Path -LiteralPath $d)){Get-ChildItem -LiteralPath $d -Recurse -Filter '*NEXUL*.lnk' -ErrorAction SilentlyContinue|ForEach-Object{'lnk'+$t+$_.FullName+$t+$sh.CreateShortcut($_.FullName).TargetPath}}}
-'assoc'+$t+(Get-ItemProperty -LiteralPath 'HKCU:\Software\Classes\NEXUL.Source\shell\open\command' -ErrorAction SilentlyContinue).'(default)'"#;
+/// Where the installed applications are registered (64 and 32 bits).
+const UNINSTALL_ROOTS: [&str; 3] = [
+    r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"HKLM\Software\Microsoft\Windows\CurrentVersion\Uninstall",
+    r"HKLM\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall",
+];
+
+/// The command that opens the `.nx` files, as registered by the installer.
+const ASSOC_COMMAND: &str = r"HKCU\Software\Classes\NEXUL.Source\shell\open\command";
+
+/// The shortcuts whose name contains `NEXUL` in `dir` and its subfolders.
+fn nexul_shortcuts(dir: &Path, out: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    for e in entries.flatten() {
+        let path = e.path();
+        match e.file_type() {
+            Ok(t) if t.is_dir() => nexul_shortcuts(&path, out),
+            Ok(_) => {
+                let name = e.file_name().to_string_lossy().to_lowercase();
+                if name.ends_with(".lnk") && name.contains("nexul") {
+                    out.push(path);
+                }
+            }
+            Err(_) => {}
+        }
+    }
+}
 
 /// A path for comparisons: lowercase, `\`, no final `\`.
 fn norm(p: &str) -> String {
@@ -178,24 +198,36 @@ fn ignored(p: &Path) -> bool {
 
 /// What is registered on the computer, without looking for versions.
 pub fn scan_registrations() -> Scan {
-    let mut s = Scan::default();
-    for line in powershell(SCAN).unwrap_or_default().lines() {
-        let f: Vec<&str> = line.split('\t').collect();
-        let get = |i: usize| f.get(i).map(|s| s.trim().to_string()).unwrap_or_default();
-        match f[0] {
-            "now" => s.now = get(1),
-            "admin" => s.elevated = get(1) == "True",
-            "reg" => s.regs.push(Reg { key: get(1), name: get(2), version: get(3), location: get(4) }),
-            "path" => s.paths.push((get(1), get(2))),
-            "home" if !get(1).is_empty() => s.home = Some(get(1)),
-            "lnk" => s.shortcuts.push((PathBuf::from(get(1)), get(2))),
-            "assoc" if !get(1).is_empty() => s.assoc = Some(get(1)),
-            _ => {}
+    let mut s = Scan { now: process::local_time(), elevated: process::is_elevated(), ..Default::default() };
+    for root in UNINSTALL_ROOTS {
+        for sub in reg::subkeys(root) {
+            let key = format!(r"{root}\{sub}");
+            let text = |name: &str| reg::get_text(&key, Some(name)).unwrap_or_default().trim().to_string();
+            let name = text("DisplayName");
+            if name.to_lowercase().contains("nexul") {
+                s.regs.push(Reg { key: reg::long_name(&key), name, version: text("DisplayVersion"), location: text("InstallLocation") });
+            }
         }
     }
-    if s.now.is_empty() {
-        s.now = "sauvegarde".into();
+    for scope in ["User", "Machine"] {
+        for d in env::path_entries(scope) {
+            let p = Path::new(&d);
+            if d.to_lowercase().contains("nexul") || p.join("nxc.exe").is_file() || p.join("NEXUL Studio.exe").is_file() {
+                s.paths.push((scope.to_string(), d));
+            }
+        }
     }
+    s.home = env::user_var("NEXUL_HOME");
+    for f in Folder::ALL {
+        let Some(dir) = shell::known_folder(f).filter(|d| d.is_dir()) else { continue };
+        let mut links = Vec::new();
+        nexul_shortcuts(&dir, &mut links);
+        for lnk in links {
+            let target = shell::read_shortcut(&lnk).map(|(t, _)| t).unwrap_or_default();
+            s.shortcuts.push((lnk, target));
+        }
+    }
+    s.assoc = reg::get_text(ASSOC_COMMAND, None).filter(|c| !c.trim().is_empty());
     s
 }
 
@@ -369,8 +401,9 @@ pub fn backup_root() -> PathBuf {
 /// An operation on an earlier version (done here or by the program started with elevation).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Op {
-    /// Stops NEXUL Studio.
-    Kill,
+    /// Stops the programs that run from a folder (Studio, nxc...) before it is removed or
+    /// moved.
+    Kill(PathBuf),
     /// Removes the files of an installation (listed in its `install.txt`).
     Unrecord(PathBuf),
     RemoveDir(PathBuf),
@@ -387,7 +420,7 @@ pub enum Op {
 impl Op {
     pub fn to_line(&self) -> String {
         match self {
-            Op::Kill => "kill".into(),
+            Op::Kill(p) => format!("kill\t{}", p.display()),
             Op::Unrecord(p) => format!("unrecord\t{}", p.display()),
             Op::RemoveDir(p) => format!("rmdir\t{}", p.display()),
             Op::Move(a, b, t) => format!("move\t{}\t{}\t{}", a.display(), b.display(), t),
@@ -403,7 +436,7 @@ impl Op {
         let f: Vec<&str> = line.split('\t').collect();
         let p = |i: usize| f.get(i).map(PathBuf::from);
         Some(match f[0] {
-            "kill" => Op::Kill,
+            "kill" => Op::Kill(p(1)?),
             "unrecord" => Op::Unrecord(p(1)?),
             "rmdir" => Op::RemoveDir(p(1)?),
             "move" => Op::Move(p(1)?, p(2)?, f.get(3)?.to_string()),
@@ -454,7 +487,8 @@ impl Scan {
     pub fn ops_for(&self, item: &Item, action: &str) -> Vec<Op> {
         match (item.kind, action) {
             (Kind::Install | Kind::Folder, "remove" | "backup") => {
-                let mut ops = self.detach_ops(&item.location);
+                let mut ops = vec![Op::Kill(item.location.clone())];
+                ops.extend(self.detach_ops(&item.location));
                 if action == "backup" {
                     let title = if item.version.is_empty() { item.name.clone() } else { format!("{} {}", item.name, item.version) };
                     let base = backup_root().join(safe_name(&format!("{} - {}", title, self.now)));
@@ -513,31 +547,8 @@ impl Scan {
     }
 }
 
-/// The PowerShell script that removes from the PATH of `scope` the folders `remove` (and
-/// the folders inside them), then adds `add`. The variable keeps its raw form
-/// (`%USERPROFILE%\...` stays as it is) and the programs are told of the change.
-pub fn path_script(scope: &str, remove: &[String], add: Option<&str>) -> String {
-    let key = if scope == "Machine" { r"HKLM:\SYSTEM\CurrentControlSet\Control\Session Manager\Environment" } else { r"HKCU:\Environment" };
-    let rm: Vec<String> = remove.iter().map(|r| ps_str(&norm(r))).collect();
-    format!(
-        "$k=Get-Item -LiteralPath {key}; $raw=[string]$k.GetValue('Path','',[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); $rm=@({rm}); $parts=@($raw.Split(';')|Where-Object{{ $e=[Environment]::ExpandEnvironmentVariables($_).Trim().TrimEnd('\\').ToLower(); $_.Trim() -ne '' -and -not ($rm|Where-Object{{ $e -eq $_ -or $e.StartsWith($_+'\\') }}) }}); {add}Set-ItemProperty -LiteralPath {key} -Name Path -Value ($parts -join ';') -Type ExpandString; [Environment]::SetEnvironmentVariable('NEXUL_SETUP_REFRESH',$null,'User')",
-        key = ps_str(key),
-        rm = rm.join(","),
-        add = add.map(|a| format!("$parts+={}; ", ps_str(a))).unwrap_or_default()
-    )
-}
-
 fn reg_delete(key: &str) -> Result<(), String> {
-    let out = hidden(Command::new("reg").args(["delete", key, "/f"])).output().map_err(|e| e.to_string())?;
-    if out.status.success() {
-        Ok(())
-    } else {
-        Err(format!("impossible de supprimer la clé {}", key))
-    }
-}
-
-pub fn notify_associations() {
-    let _ = powershell("$sig='[DllImport(\"shell32.dll\")] public static extern void SHChangeNotify(int e,int f,System.IntPtr a,System.IntPtr b);'; $t=Add-Type -MemberDefinition $sig -Name N -Namespace W -PassThru; $t::SHChangeNotify(0x08000000,0,[IntPtr]::Zero,[IntPtr]::Zero)");
+    reg::delete_tree(key).map_err(|_| format!("impossible de supprimer la clé {}", key))
 }
 
 /// Removes the files of the installation in `dir` (listed in its `install.txt`), then the
@@ -624,8 +635,8 @@ pub fn run(ops: &[Op], elevated: bool, report: &mut dyn FnMut(&str)) -> Vec<Stri
     let mut problems = Vec::new();
     for op in ops {
         let r: Result<(), String> = match op {
-            Op::Kill => {
-                let _ = hidden(Command::new("taskkill").args(["/F", "/IM", "NEXUL Studio.exe"])).output();
+            Op::Kill(d) => {
+                process::kill_in(d);
                 Ok(())
             }
             Op::Unrecord(d) => {
@@ -666,14 +677,14 @@ pub fn run(ops: &[Op], elevated: bool, report: &mut dyn FnMut(&str)) -> Vec<Stri
             }
             Op::PathRemove(scope, d) => {
                 report(&format!("Retrait de {} du PATH", d));
-                powershell(&path_script(scope, &[d.clone()], None)).map(|_| ())
+                env::change_path(scope, std::slice::from_ref(d), None)
             }
-            Op::HomeRemove => powershell("[Environment]::SetEnvironmentVariable('NEXUL_HOME',$null,'User')").map(|_| ()),
+            Op::HomeRemove => env::remove_user_var("NEXUL_HOME"),
             Op::AssocRemove => {
                 report("Retrait de l'association des fichiers .nx");
                 let _ = reg_delete(r"HKCU\Software\Classes\.nx");
                 let r = reg_delete(r"HKCU\Software\Classes\NEXUL.Source");
-                notify_associations();
+                shell::notify_associations();
                 r
             }
         };
@@ -696,12 +707,7 @@ pub fn run_elevated(exe: &Path, ops: &[Op]) -> (Vec<String>, Vec<String>) {
     if let Err(e) = std::fs::write(&job, text) {
         return (vec![], vec![e.to_string()]);
     }
-    let script = format!(
-        "$p=Start-Process -FilePath {} -ArgumentList {} -Verb RunAs -Wait -PassThru -WindowStyle Hidden; exit $p.ExitCode",
-        ps_str(&exe.display().to_string()),
-        ps_str(&format!("--old-versions-job \"{}\"", job.display()))
-    );
-    let started = powershell(&script);
+    let started = shell::run_and_wait("runas", exe, &format!("--old-versions-job \"{}\"", job.display()));
     let mut done = Vec::new();
     let mut problems = Vec::new();
     match std::fs::read_to_string(&log) {
@@ -715,7 +721,8 @@ pub fn run_elevated(exe: &Path, ops: &[Op]) -> (Vec<String>, Vec<String>) {
             }
         }
         Err(_) => problems.push(match started {
-            Err(_) => "Les droits d'administrateur n'ont pas été accordés : les anciennes versions qui les demandent n'ont pas été traitées.".to_string(),
+            Err(crate::win::ffi::ERROR_CANCELLED) => "Les droits d'administrateur n'ont pas été accordés : les anciennes versions qui les demandent n'ont pas été traitées.".to_string(),
+            Err(code) => format!("Les anciennes versions qui demandent les droits d'administrateur n'ont pas pu être traitées ({}).", shell::run_error_text(code)),
             Ok(_) => "Les anciennes versions qui demandent les droits d'administrateur n'ont pas pu être traitées.".to_string(),
         }),
     }
@@ -756,7 +763,7 @@ mod tests {
     #[test]
     fn ops_round_trip() {
         let ops = vec![
-            Op::Kill,
+            Op::Kill(r"C:\Program Files\NEXUL Studio".into()),
             Op::Unrecord(r"C:\a\NEXUL".into()),
             Op::Move(r"C:\Program Files\NEXUL Studio".into(), r"C:\Users\é\NEXUL - anciennes versions\NEXUL Studio 0.1.0 - 2026-10-14 15h02".into(), "NEXUL Studio 0.1.0".into()),
             Op::PathRemove("Machine".into(), r"C:\x\bin".into()),
