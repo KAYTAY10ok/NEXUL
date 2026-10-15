@@ -7,6 +7,7 @@ Standalone, GPUI-independent project-template catalog and instantiator.
 - NEXUL console application.
 - NEXUL library module with a runnable example.
 - `nxpm` application with a checked-in local package dependency.
+- NEXUL `wasm32-web` browser library with the ABI v1 loader and local preview servers.
 - HTML/CSS/JavaScript site with local Node.js and Python servers.
 - Python, C, C++, Rust/Cargo, and C#/.NET console applications.
 
@@ -22,8 +23,17 @@ catalog from `studio/lsp`. This crate intentionally has no `PATH` scanner and do
 download anything. The `ToolchainRegistry` is a plain data object useful for bridging
 that catalog into template availability and command generation.
 
-The NEXUL + WebAssembly template is intentionally absent: it should be added after the
-compiler-side browser contract has been validated and documented.
+The WebAssembly template appears only when the supplied toolchain catalog confirms that
+`nxc targets` advertises `wasm32-web`, and Node.js or Python is available to serve the
+project over HTTP. The generated `nexul.mjs` comes from the canonical
+`lib/web/nexul.mjs` source; this crate does not maintain a second loader implementation.
+
+For target-dependent templates, the Studio adapter should implement
+`ToolchainProvider::supports_target` using the tool's target query rather than a version
+number. Cache that result in the SDK catalog (or `ToolchainRegistry::set_target_support`)
+so refreshing template availability does not spawn `nxc` repeatedly. The default
+implementation returns unknown, so older adapters do not advertise the browser template
+prematurely.
 
 ```rust,no_run
 use nexul_studio_templates::{find_template, Tool, ToolchainRegistry};
