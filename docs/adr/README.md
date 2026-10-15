@@ -14,7 +14,7 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0007](0007-identificateurs-ascii.md) | Identificateurs ASCII et caractères bidirectionnels interdits |
 | [0008](0008-backend-llvm-et-runtime-nexul.md) | Backend LLVM et runtime écrit en NEXUL, sans C |
 | [0009](0009-contrat-nxc-lsp.md) | Contrat de `nxc lsp`, des sorties JSON versionnées et du texte non enregistré (acceptée par Claude Main) |
-| [0010](0010-syntaxe-nexul-1.md) | Syntaxe de NEXUL 1, édition 1 (**proposée**, à valider par l'utilisateur) |
+| [0010](0010-syntaxe-nexul-1.md) | Syntaxe de NEXUL 1, édition 1 (acceptée par l'utilisateur le 16/10/2026) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
 

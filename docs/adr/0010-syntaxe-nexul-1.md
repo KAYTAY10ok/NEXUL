@@ -1,8 +1,8 @@
 # 0010 — La syntaxe de NEXUL 1 (édition 1)
 
-Lot P2, étape G2. Auteur : Claude Main. **Statut : proposée** (`CONÇU`), à valider par
-l'utilisateur avant l'implémentation (G3). Tout le code de ce document est **illustratif**
-tant que `nxc` ne l'accepte pas.
+Lot P2, étape G2. Auteur : Claude Main. **Statut : acceptée par l'utilisateur le
+16/10/2026, avec ses retouches** (le type avant le nom partout ; plus de `->`). Tout le
+code de ce document reste **illustratif** tant que `nxc` ne l'accepte pas (G3).
 
 ## Contexte
 
@@ -15,6 +15,9 @@ tant que `nxc` ne l'accepte pas.
   base, comme B ; réduire l'écriture grâce à C ; obtenir quelque chose de vraiment propre à
   NEXUL, que n'importe quel développeur prend en main. Si une forme ressemble trop à un
   autre langage ou devient illisible, l'aborder autrement.
+- **Retouches de l'utilisateur (16/10/2026)** : avec le typage renforcé, on écrira beaucoup
+  de types ; **le type vient avant le nom**, comme `i32 x`. La flèche `->` (qui annonçait le
+  type rendu par une fonction) n'a donc plus de raison d'être.
 
 ## La méthode : trois couches
 
@@ -22,8 +25,9 @@ Plutôt que de chercher des mots ou des signes inédits un par un (ce qui mène 
 Rust, soit à l'illisible), la syntaxe est construite en **trois couches qui ne se mélangent
 pas** :
 
-1. **Les opérateurs et les littéraux sont ceux que tout le monde connaît** : `=`, `==`,
-   `!=`, `<`, `+`, `"texte"`, `[1, 2]`, `0..10`. Aucune surprise.
+1. **Les opérateurs, les littéraux et l'ordre « type puis nom » sont ceux que tout le monde
+   connaît** (C, C#, Java) : `=`, `==`, `!=`, `<`, `+`, `"texte"`, `[1, 2]`, `0..10`,
+   `i32 x`. Aucune surprise.
 2. **La structure et l'intention s'écrivent en mots** qui se lisent comme une phrase :
    `type … is …`, `when … then`, `if … is …`, `else` de repli, `repeat`, `test "…"`,
    `requires`, `with noalloc`, `every … within …`.
@@ -35,9 +39,31 @@ Un développeur lit la couche 1 sans rien apprendre, la couche 2 comme de l'angl
 et n'a que quatre signes à retenir pour la couche 3. C'est cette combinaison, et non un mot
 isolé, qui fait l'identité de NEXUL.
 
-## Décision proposée
+## Décision
 
-### 1. Égalités et comparaisons
+### 1. Le type avant le nom
+
+| Écriture | Sens | 0.2 |
+|---|---|---|
+| `let i32 x = 5` | valeur fixe, typée | `let x: i32 = 5` |
+| `var f64 somme = 0.0` | variable modifiable, typée | `var somme: f64 = 0.0` |
+| `let total = 3` | type déduit de la valeur (ici `i32`) | inchangé |
+| `fn i32 carre(i32 x) = x * x` | fonction : **type rendu, nom, paramètres** | `fn carre(x: i32) -> i32` |
+| `fn main() { … }` | sans type rendu : la fonction ne rend rien | inchangé |
+| `type Point { f64 x  f64 y }` | champs : type puis nom | `x: f64` |
+| `fn(i32 x) => x * 2` | fonction anonyme | `fn(x: i32) => x * 2` |
+| `fn i32(i32, i32)` | **type** d'une fonction (comme sa déclaration, sans les noms) | `fn(i32, i32) -> i32` |
+| `const i32 MAX = 100` | constante | `const MAX: i32 = 100` |
+
+Les types sont **obligatoires** sur les fonctions, les champs, les constantes et les
+paramètres. Sur une variable locale, ils sont facultatifs quand la valeur les donne
+(`let total = 3`) ; Studio et l'extension VS Code peuvent afficher le type déduit.
+
+Le `:` n'a plus qu'un sens : **« nom : valeur »**, dans une construction ou un argument
+nommé (`Point(x: 1.0, y: 2.0)`), et dans le format d'une interpolation (`{x:.2}`). La
+flèche `->` disparaît du langage (G0 §4.4 et §4.8 réglés).
+
+### 2. Égalités et comparaisons
 
 | Écriture | Sens |
 |---|---|
@@ -51,49 +77,48 @@ isolé, qui fait l'identité de NEXUL.
 Logique en mots : `and`, `or`, `not` (0.2). Bit à bit : `&`, `|`, `^`, `~`, `<<`, `>>`,
 plus prioritaires que les comparaisons (0.2).
 
-### 2. Déclarations
+### 3. Déclarations
 
 | Écriture | Remplace (0.2) |
 |---|---|
-| `let x = 1`, `var y = 0` | inchangé |
-| `fn nom(a: T) -> R { … return … }` | inchangé ; `return` obligatoire dans un bloc |
-| `fn carre(x: i32) -> i32 = x * x` | **nouveau** : corps d'une expression |
-| `type Point { x: f64, y: f64 … méthodes }` | `struct` + `impl` |
-| `type Couleur = .Rouge \| .Vert \| .Rgb(r: u8, g: u8, b: u8)` | `enum` |
+| `type Compte { String titulaire  i64 solde … méthodes }` | `struct` + `impl` |
+| `type Couleur = .Rouge \| .Vert \| .Rgb(u8 r, u8 g, u8 b)` | `enum` |
 | `type Metres = distinct f64` | **nouveau** : type distinct (passation §4.2) |
 | `type Pourcent = i32 where it in 0..=100` | **nouveau** : type contraint |
 | `type Ligne = Vec[String]` | `type` (alias) |
-| `interface Forme { fn aire(self) -> f64 }` | `trait` |
+| `interface Forme { fn f64 aire(self) }` | `trait` |
 | `type Cercle is Forme { … }` | `impl Forme for Cercle` |
 | `extend i32 is Affichable { … }` | `impl` sur un type existant |
 | `any Forme` | `dyn Forme` |
-| `fn f[T is Ord and Copy](…)` | `fn f[T: Ord + Copy](…)` |
+| `fn T plus_grand[T is Ord and Copy](Vec[T] v)` | `fn plus_grand[T: Ord + Copy](v: Vec[T]) -> T` |
 | `test "description" { … }` | `@test fn nom() { … }` |
 
 Un seul mot, `type`, déclare toutes les sortes de types ; les méthodes vivent dans le corps
 du type. Une fonction du corps sans `self` est une fonction du type (`Compte.ouvrir(…)`).
+Le corps d'une fonction est un bloc (avec `return` pour rendre une valeur) ou, en une
+ligne, `= expression`.
 
-### 3. Modification visible : `!`
+### 4. Modification visible : `!`
 
 Le `!` suit **toujours** la valeur modifiée :
 
 | Où | Écriture |
 |---|---|
-| paramètre modifiable | `fn ajouter_point(t!: String)` |
-| méthode qui modifie | `fn deposer(self!, montant: i64)` |
+| paramètre modifiable | `fn ajouter_point(String t!)` |
+| méthode qui modifie | `fn deposer(self!, i64 montant)` |
 | argument | `ajouter_point(texte!)` |
 | receveur | `compte!.deposer(150)`, `liste!.push(4)` |
 | éléments d'une boucle | `for note! in notes { note += 1 }` |
 | liaisons d'un filtre | `when arbre! { … }` |
 
 Une affectation (`x = …`, `self.solde += …`) n'en a pas besoin : `=` montre déjà la
-modification. Le `!` n'a aucun autre sens (la négation s'écrit `not`). `&` ne sert plus
-qu'au ET bit à bit. Règle les points 4.3 et « receveur invisible » de G0 et G1.
+modification. Le `!` n'a aucun autre sens (la négation s'écrit `not` ; `!=` et `!==` sont
+des opérateurs entiers). `&` ne sert plus qu'au ET bit à bit.
 
-### 4. Filtrer : `when … then`
+### 5. Filtrer : `when … then`
 
 ```nexul
-fn nom(c: Couleur) -> String = when c {
+fn String nom(Couleur c) = when c {
     .Rouge then "rouge"
     .Vert, .Bleu then "froid"
     .Rgb(r, g, b) if r > 200 then "rougeâtre"
@@ -109,43 +134,44 @@ fn nom(c: Couleur) -> String = when c {
   point quand le type est connu ; `Some(x)`, `None`, `Ok`, `Err` restent acceptés en
   expression (prélude).
 
-### 5. Conditions, boucles, repli
+### 6. Conditions, boucles, repli
 
 | Écriture | Sens |
 |---|---|
 | `if x > 0 { … } else { … }` | inchangé |
 | `if valeur is .Some(n) { … }` | remplace `if let` |
 | `while canal.recv() is .Some(x) { … }` | remplace `while let` |
-| `for x in v { … }`, `for i in 0..10 { … }` | inchangé |
+| `for x in v { … }`, `for i32 i in 0..10 { … }` | type de la variable facultatif |
 | `loop { … }` | remplace `while true` |
 | `repeat 3 { … }` | **nouveau** : répéter n fois |
 | `#exterieur for … { break #exterieur }` | étiquette (remplace `exterieur: for`) |
-| `let n = texte.parse_int() else 0` | **repli** : si l'`Option` est vide ou le `Result` une erreur |
+| `let i64 n = texte.parse_int() else 0` | **repli** : si l'`Option` est vide ou le `Result` une erreur |
 | `let f = fs.open(p) else { return }` | repli par un bloc qui doit sortir |
 | `fs.write_text(p, t) else println("échec")` | repli en instruction |
 | `let x = f()?` | inchangé : l'erreur remonte |
 
-### 6. Fonctions anonymes et enchaînement
+### 7. Fonctions anonymes et enchaînement
 
-- `fn(x) => x * 2`, `fn(a, b) => a + b`, `fn(x) { … return … }` (0.2, analyse LL(1)).
+- `fn(i32 x) => x * 2`, `fn(a, b) => a + b` (types facultatifs quand le contexte les
+  donne), `fn i32(i32 x) { … return … }` avec un bloc.
 - `valeurs |> map(fn(v) => v * 2) |> sum()` signifie `sum(map(valeurs, …))`. Une ligne
   peut commencer par `|>` ou par `.` : elle continue l'expression précédente.
 
-### 7. Sûreté, concurrence, temps réel (formes réservées)
+### 8. Sûreté, concurrence, temps réel (formes réservées)
 
 Leur sémantique vient avec P5, P7, P8. Jusque-là, `nxc` les **refuse** avec un message
 « pas encore pris en charge » plutôt que de les accepter sans les vérifier.
 
 | Écriture | Sens |
 |---|---|
-| `fn deposer(self!, m: i64) requires m > 0 ensures self.solde >= 0 { … }` | contrats |
-| `fn lire(p: String) -> String with io` | effets déclarés et vérifiés |
-| `fn regulation(etat!: Etat) every ms(10) within ms(2) with noalloc, nonblocking { … }` | tâche périodique temps réel |
+| `fn deposer(self!, i64 m) requires m > 0 ensures self.solde >= 0 { … }` | contrats |
+| `fn String lire(String p) with io` | effets déclarés et vérifiés |
+| `fn regulation(Etat etat!) every ms(10) within ms(2) with noalloc, nonblocking { … }` | tâche périodique temps réel |
 | `let t = spawn { … }`, `t.join()` | tâche |
 | `let (envoi, reception) = channel[i32](capacite: 8)` | canal borné (bibliothèque) |
 | `pub`, `pub(package)` ; privé par défaut | visibilité |
 
-### 8. Ce qui ne change pas (0.2)
+### 9. Ce qui ne change pas (0.2)
 
 Fins de ligne significatives (`;` seulement entre deux instructions d'une même ligne) ;
 `E0110` pour une valeur perdue ; aucune expression ne commence par `{` ; construction
@@ -170,8 +196,9 @@ nouveaux (`when`, `then`, `is`, `with`, `every`, `within`, `repeat`, `test`, `ex
 `interface`, `extend`, `any`, `distinct`, `it`, `spawn`) ne sont réservés qu'en édition 1 :
 un programme 0.2 qui les emploie comme noms reste valide sous `--edition 0.2`.
 
-Signes : ceux de la 0.2, plus `!` (postfixe, modification), `===`, `!==`, `|>`, `#nom`
-(étiquette). `=>` ne sert plus qu'aux fonctions anonymes courtes.
+Signes : ceux de la 0.2 sauf `->`, plus `!` (postfixe, modification), `===`, `!==`, `|>`,
+`#nom` (étiquette). `=>` ne sert plus qu'aux fonctions anonymes courtes ; `:` qu'à « nom :
+valeur ».
 
 ## Grammaire (EBNF)
 
@@ -186,9 +213,10 @@ element        = { attribut } [ visibilite ]
 visibilite     = "pub" [ "(" "package" ")" ] ;
 attribut       = "@" nom [ "(" arguments ")" ] ;
 
-fonction       = "fn" nom [ generiques ] "(" [ parametres ] ")" [ "->" type ] { clause } corps ;
+fonction       = "fn" [ type ] nom [ generiques ] "(" [ parametres ] ")" { clause } corps ;
+                 (* un type suivi d'un nom : le type rendu ; un nom seul : rien n'est rendu *)
 parametres     = parametre { "," parametre } [ "," ] ;
-parametre      = "self" [ "!" ] | [ "owned" ] nom [ "!" ] ":" type ;
+parametre      = "self" [ "!" ] | [ "owned" ] type nom [ "!" ] ;
 generiques     = "[" generique { "," generique } "]" ;
 generique      = nom [ "is" bornes ] ;
 bornes         = type { "and" type } ;
@@ -198,32 +226,32 @@ corps          = bloc | "=" expression FIN ;
 
 type_decl      = "type" nom [ generiques ] ( [ "is" bornes ] corps_type | "=" definition FIN ) ;
 corps_type     = "{" { champ | { attribut } [ visibilite ] fonction } "}" ;
-champ          = [ visibilite ] nom ":" type ( FIN | "," ) ;
+champ          = [ visibilite ] type nom ( FIN | "," ) ;
 definition     = variantes | "distinct" type [ restriction ] | type [ restriction ] ;
 variantes      = [ "|" ] variante { "|" variante } ;
 variante       = [ "indirect" ] "." nom [ "(" champ_v { "," champ_v } ")" ] ;
-champ_v        = [ nom ":" ] type ;
+champ_v        = type [ nom ] ;
 restriction    = "where" expression ;                 (* « it » désigne la valeur *)
 interface      = "interface" nom [ generiques ] [ "is" bornes ] "{" { { attribut } signature } "}" ;
-signature      = "fn" nom [ generiques ] "(" [ parametres ] ")" [ "->" type ] { clause } [ corps ] FIN ;
+signature      = "fn" [ type ] nom [ generiques ] "(" [ parametres ] ")" { clause } [ corps ] FIN ;
 extension      = "extend" type [ "is" bornes ] "{" { { attribut } [ visibilite ] fonction } "}" ;
 test           = "test" chaine [ "expects" "panic" ] bloc ;
-constante      = ( "const" | "static" [ "var" ] ) nom ":" type "=" expression FIN ;
+constante      = ( "const" | "static" [ "var" ] ) type nom "=" expression FIN ;
 
 type           = chemin [ "[" type { "," type } "]" ] | "any" chemin [ "[" type { "," type } "]" ]
                | "(" [ type { "," type } ] ")" | "[" type ";" expression "]"
-               | "fn" "(" [ type { "," type } ] ")" [ "->" type ] | "Self" ;
+               | "fn" [ type ] "(" [ type { "," type } ] ")" | "Self" ;
 
 bloc           = "{" { instruction FIN } "}" ;
-instruction    = "let" motif [ ":" type ] "=" expression [ "else" repli ]
-               | "var" nom [ ":" type ] [ "=" expression ]
+instruction    = "let" [ type ] motif "=" expression [ "else" repli ]
+               | "var" [ type ] nom [ "=" expression ]
                | expression affectation expression
                | [ etiquette ] boucle
                | expression [ "else" repli ] ;
 affectation    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
 repli          = expression | bloc ;
 etiquette      = "#" nom ;
-boucle         = "for" motif [ "!" ] "in" expression bloc | "while" expression bloc
+boucle         = "for" [ type ] motif [ "!" ] "in" expression bloc | "while" expression bloc
                | "loop" bloc | "repeat" expression bloc ;
 
 expression     = enchainement ;
@@ -254,8 +282,8 @@ si             = "if" expression bloc [ "else" ( si | bloc ) ] ;
 quand          = "when" expression [ "!" ] "{" { bras FIN } [ "else" valeur FIN ] "}" ;
 bras           = motif { "," motif } [ "if" expression ] "then" valeur ;
 valeur         = expression | bloc ;
-anonyme        = "fn" "(" [ parametres_a ] ")" ( "=>" expression | [ "->" type ] bloc ) ;
-parametres_a   = nom [ ":" type ] { "," nom [ ":" type ] } ;
+anonyme        = "fn" [ type ] "(" [ param_a { "," param_a } ] ")" ( "=>" expression | bloc ) ;
+param_a        = [ type ] nom ;
 
 motif          = motif_simple { "|" motif_simple } ;
 motif_simple   = "_" | litteral | nom [ "!" ] | "." nom [ "(" motifs ")" ] | chemin "." nom [ "(" motifs ")" ]
@@ -269,10 +297,14 @@ unaires (`-`, `not`, `~`, `move`) ; `as` ; `*` `/` `%` `*%` ; `+` `-` `+%` `-%` 
 `&` ; `^` ; `|` ; `..` `..=` ; comparaisons, `in`, `is` (non associatives) ; `and` ; `or` ;
 `|>`. Le repli `else` n'existe qu'au niveau de l'instruction et de `let`.
 
-Analyse : LL(1) partout sauf la distinction `x = …` / expression (déjà en 0.2) ; un `else`
-qui suit le bloc d'un `if` appartient toujours à ce `if`. Continuation de ligne : la ligne
-finit par un opérateur binaire, `,`, `=`, ou un délimiteur ouvert ; ou la suivante commence
-par `.`, `|>`, `|` (variantes), `else`.
+**Reconnaître un type** : après `fn`, `let`, `var`, `for`, dans un paramètre ou un champ, le
+parser lit d'abord un type ou un nom, puis regarde le jeton suivant : **un nom suit** → ce
+qui précède était un type ; **`(`, `=`, `!` ou `in` suit** → c'était le nom (type absent ou
+déduit). Un motif entre parenthèses (`let (a, b) = …`) se reconnaît de même au `=` qui le
+suit. C'est un retour arrière borné par les crochets et parenthèses, sans information
+sémantique. Un `else` qui suit le bloc d'un `if` appartient toujours à ce `if`.
+Continuation de ligne : la ligne finit par un opérateur binaire, `,`, `=`, ou un délimiteur
+ouvert ; ou la suivante commence par `.`, `|>`, `|` (variantes), `else`.
 
 ## Les 12 programmes en édition 1
 
@@ -287,15 +319,15 @@ fn main() {
 **2 — Calcul**
 
 ```nexul
-fn moyenne(notes: Vec[f64]) -> Option[f64] {
+fn Option[f64] moyenne(Vec[f64] notes) {
     if notes.is_empty() { return .None }
-    var somme = 0.0
+    var f64 somme = 0.0
     for n in notes { somme += n }
     return .Some(somme / notes.len() as f64)
 }
 
 fn main() {
-    let m = moyenne(Vec.from([12.0, 15.5, 9.0])) else 0.0
+    let f64 m = moyenne(Vec.from([12.0, 15.5, 9.0])) else 0.0
     println("moyenne : {m:.2}")
     repeat 3 { print("*") }
 }
@@ -305,16 +337,16 @@ fn main() {
 
 ```nexul
 pub type Compte {
-    titulaire: String                         // privé
-    solde: i64
+    String titulaire                          // privé
+    i64 solde
 
-    pub fn ouvrir(owned titulaire: String) -> Compte = Compte(titulaire: titulaire, solde: 0)
+    pub fn Compte ouvrir(owned String titulaire) = Compte(titulaire: titulaire, solde: 0)
 
-    pub fn deposer(self!, montant: i64) requires montant > 0 {
+    pub fn deposer(self!, i64 montant) requires montant > 0 {
         self.solde += montant
     }
 
-    pub fn solde(self) -> i64 = self.solde
+    pub fn i64 solde(self) = self.solde
 }
 
 fn main() {
@@ -330,27 +362,27 @@ fn main() {
 import std.iter.{map, sum}
 
 interface Forme {
-    fn aire(self) -> f64
-    fn nom(self) -> String
+    fn f64 aire(self)
+    fn String nom(self)
 }
 
 type Cercle is Forme {
-    r: f64
-    fn aire(self) -> f64 = 3.14159 * self.r * self.r
-    fn nom(self) -> String = "cercle"
+    f64 r
+    fn f64 aire(self) = 3.14159 * self.r * self.r
+    fn String nom(self) = "cercle"
 }
 
 type Rectangle is Forme {
-    l: f64
-    h: f64
-    fn aire(self) -> f64 = self.l * self.h
-    fn nom(self) -> String = "rectangle"
+    f64 l
+    f64 h
+    fn f64 aire(self) = self.l * self.h
+    fn String nom(self) = "rectangle"
 }
 
 fn main() {
-    let formes: Vec[any Forme] = Vec.from([Cercle(r: 1.0), Rectangle(l: 2.0, h: 3.0)])
+    let Vec[any Forme] formes = Vec.from([Cercle(r: 1.0), Rectangle(l: 2.0, h: 3.0)])
     for f in formes { println("{f.nom()} : {f.aire():.2}") }
-    let total = formes |> map(fn(f) => f.aire()) |> sum()
+    let f64 total = formes |> map(fn(f) => f.aire()) |> sum()
     println("total : {total:.2}")
 }
 ```
@@ -358,8 +390,8 @@ fn main() {
 **5 — Génériques**
 
 ```nexul
-fn plus_grand[T is Ord and Copy](valeurs: Vec[T]) -> Option[T] {
-    var meilleur: Option[T] = .None
+fn Option[T] plus_grand[T is Ord and Copy](Vec[T] valeurs) {
+    var Option[T] meilleur = .None
     for v in valeurs {
         if meilleur is .None or v > meilleur.unwrap() { meilleur = .Some(v) }
     }
@@ -367,21 +399,21 @@ fn plus_grand[T is Ord and Copy](valeurs: Vec[T]) -> Option[T] {
 }
 
 type Pile[T] {
-    elements: Vec[T]
-    fn empiler(self!, x: T) { self.elements!.push(x) }
-    fn depiler(self!) -> Option[T] = self.elements!.pop()
+    Vec[T] elements
+    fn empiler(self!, T x) { self.elements!.push(x) }
+    fn Option[T] depiler(self!) = self.elements!.pop()
 }
 ```
 
 **6 — Erreurs**
 
 ```nexul
-fn diviser(a: i64, b: i64) -> Result[i64, String] {
+fn Result[i64, String] diviser(i64 a, i64 b) {
     if b == 0 { return .Err("division par zéro") }
     return .Ok(a / b)
 }
 
-fn calcul() -> Result[i64, String] {
+fn Result[i64, String] calcul() {
     let x = diviser(10, 2)?
     return .Ok(diviser(x, 0)?)
 }
@@ -400,7 +432,7 @@ fn main() {
 import std.fs
 
 fn main() {
-    let texte = fs.read_text("notes.txt") else {
+    let String texte = fs.read_text("notes.txt") else {
         println("lecture impossible")
         return
     }
@@ -411,12 +443,12 @@ fn main() {
 **8 — Propriété des valeurs**
 
 ```nexul
-fn afficher(t: String) = println(t)                      // lecture
+fn afficher(String t) = println(t)                       // lecture
 
-fn ajouter_point(t!: String) { t!.push_str(".") }       // modification
+fn ajouter_point(String t!) { t!.push_str(".") }        // modification
 
-fn garder(owned t: String) -> Vec[String] {             // prise de propriété
-    var v: Vec[String] = Vec.new()
+fn Vec[String] garder(owned String t) {                 // prise de propriété
+    var Vec[String] v = Vec.new()
     v!.push(move t)
     return v
 }
@@ -438,7 +470,7 @@ fn main() {
     let producteur = spawn {                             // `envoi` est transféré dans la tâche
         for i in 0..10 { envoi.send(i * i) }
     }
-    var somme = 0
+    var i32 somme = 0
     while reception.recv() is .Some(x) { somme += x }
     producteur.join()
     println("somme : {somme}")
@@ -451,7 +483,7 @@ fn main() {
 import std.rt.{ms, volatile_read, volatile_write}
 
 @cfg("thumbv7em")
-fn regulation(etat!: Etat) every ms(10) within ms(2) with noalloc, nonblocking {
+fn regulation(Etat etat!) every ms(10) within ms(2) with noalloc, nonblocking {
     let mesure = volatile_read(CAPTEUR)
     etat.commande = etat.pid!.calcul(mesure)
     volatile_write(MOTEUR, etat.commande)
@@ -462,16 +494,16 @@ fn regulation(etat!: Etat) every ms(10) within ms(2) with noalloc, nonblocking {
 
 ```nexul
 @export
-fn ajouter(a: i32, b: i32) -> i32 = a + b
+fn i32 ajouter(i32 a, i32 b) = a + b
 
 @export
-fn saluer(nom: String) -> String = "Bonjour, {nom} !"
+fn String saluer(String nom) = "Bonjour, {nom} !"
 ```
 
 **12 — Tests**
 
 ```nexul
-fn carre(x: i32) -> i32 = x * x
+fn i32 carre(i32 x) = x * x
 
 test "carré d'un nombre positif" {
     assert(carre(3) == 9)
@@ -486,6 +518,9 @@ test "le dépassement panique" expects panic {
 
 | 0.2 | Édition 1 | Remarque |
 |---|---|---|
+| `let x: T = v`, `var x: T = v` | `let T x = v`, `var T x = v` | |
+| `fn f(a: A, b: B) -> R` | `fn R f(A a, B b)` | sans `-> R` : `fn f(A a, B b)` |
+| `x: T` (champ), `fn(A) -> R` (type) | `T x`, `fn R(A)` | |
 | `struct X { … }` + `impl X { … }` | `type X { champs … fonctions }` | l'`impl` rejoint le type s'il est dans le même module, sinon `extend X` |
 | `enum E { A, B(T) }` | `type E = .A \| .B(T)` | |
 | `trait T`, `impl T for X` | `interface T`, `type X is T` ou `extend X is T` | |
@@ -493,7 +528,7 @@ test "le dépassement panique" expects panic {
 | `match e { P => v }` | `when e { P then v }` | |
 | motif `A`, `Some(x)` | `.A`, `.Some(x)` | les noms seuls restent des variables |
 | `if let P = e`, `while let P = e` | `if e is P`, `while e is P` | |
-| `f(&x)`, `inout x: T`, `inout self` | `f(x!)`, `x!: T`, `self!` | |
+| `f(&x)`, `inout x: T`, `inout self` | `f(x!)`, `T x!`, `self!` | |
 | `v.m()` où `m` prend `inout self` | `v!.m()` | l'analyse sémantique dit quelles méthodes modifient |
 | `for x in &v`, `match &e` | `for x! in v`, `when e!` | |
 | `while true` | `loop` | |
@@ -511,10 +546,11 @@ ou `--edition 1`.
 1. **Lexer** : mots de l'édition 1 réservés selon l'édition ; `!` postfixe, `===`, `!==`,
    `|>`, `#nom`.
 2. **Parser de l'édition 1** vers **le même AST** que la 0.2 quand la sémantique existe
-   déjà (`type` → `struct`/`enum` + `impl`, `when` → `match`, `is` → `if let`, `x!` →
-   argument `inout`, `extend` → `impl`, `test` → `@test`, `repeat` → `for`, `|>` → appel,
-   `else` de repli → `match`) : la sémantique, le NIR et LLVM ne changent pas.
-3. **Nouveau sens** : `===`, `in`, `distinct`, `where` (types contraints) ; les formes du §7
+   déjà (`type` → `struct`/`enum` + `impl`, types avant les noms, `when` → `match`, `is` →
+   `if let`, `x!` → argument `inout`, `extend` → `impl`, `test` → `@test`, `repeat` →
+   `for`, `|>` → appel, `else` de repli → `match`) : la sémantique, le NIR et LLVM ne
+   changent pas.
+3. **Nouveau sens** : `===`, `in`, `distinct`, `where` (types contraints) ; les formes du §8
    sont refusées avec « pas encore pris en charge » jusqu'à P5, P7, P8.
 4. **`nxc migrate`** : réécriture 0.2 → 1 ; mesure sur `lib/std/vec.nx` et
    `examples/calculatrice.nx` (recommandation 3 de G0), puis migration de `lib/`, des tests
@@ -527,11 +563,13 @@ ou `--edition 1`.
 ## Conséquences
 
 - NEXUL a une signature reconnaissable : `type … is …`, `when … then`, `x!`, `else` de
-  repli, `test "…"`, sans changer les opérateurs que tout développeur connaît.
+  repli, `test "…"`, le type avant le nom, sans `->` ni `:` de typage.
 - La sémantique de la 0.2 est réutilisée : la nouvelle syntaxe ne demande pas de réécrire
   l'analyse ni la génération de code.
 - Coût : toute la bibliothèque standard et les tests passent par `nxc migrate` ; les
   `.stderr` des tests de diagnostics sont régénérés et relus.
+- Le parser doit reconnaître un type à sa place (retour arrière borné) : c'est le prix de
+  « type avant le nom », comme en C# ou en Java.
 
 ## Alternatives écartées
 
@@ -540,5 +578,6 @@ ou `--edition 1`.
   l'utilisateur veut réduire.
 - **C seule** : la plus courte, mais `v.[i]`, le retour implicite et les arguments `x = 1`
   surprennent ; le corps d'une expression (`= x * x`) en est gardé, pas le reste.
+- **Type après le nom** (`x: i32`, `-> i32`) : écarté à la demande de l'utilisateur.
 - **Indentation significative** : écartée (passation §3.1 : pas de règle dépendant
   d'espaces mal définis ; copier-coller fragile).

@@ -18,7 +18,7 @@ de l'utilisateur · §7 intégration.
 |---|---|---|---|---|---|
 | P0 | Immédiat | Gouvernance V3 : charte, transferts, plan maître | Main | accord utilisateur (15/10) | INTÉGRÉ (PR #13) |
 | P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre, changement de dossier), conflits disque, enregistrement atomique, récupération, tests | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, `eb490ce`) ; **essai manuel : Main** (M19), avec la liste de Gemma (`docs/refonte/gemma/manual-studio-checklist.md`) |
-| P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | **G0** : Outils (fait). **G1** : Outils rédige (O2), Main co-conçoit et relit chaque proposition (M14). **G2** : Outils rédige l'ADR et l'EBNF, Main co-signe, l'utilisateur choisit (décision 2) | G0 → G1 → choix utilisateur → G2 | G0 CONÇU (PR #15, relu par Main) ; **G1 CONÇU** ([g1-propositions.md](../adr/syntaxe/g1-propositions.md), Main) : **choix de l'utilisateur attendu** ; G2 À FAIRE |
+| P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | **G0** : Outils (fait). **G1** : Outils rédige (O2), Main co-conçoit et relit chaque proposition (M14). **G2** : Outils rédige l'ADR et l'EBNF, Main co-signe, l'utilisateur choisit (décision 2) | G0 → G1 → choix utilisateur → G2 | G0, G1 faits ; **G2 : [ADR 0010](../adr/0010-syntaxe-nexul-1.md) acceptée par l'utilisateur le 16/10** (mélange B + C, type avant le nom, sans `->`) ; G3 (implémentation) EN COURS |
 | P3 | Élevée | Raccorder `syntax`, `lsp`, `terminal`, `dap`, `templates` dans Studio ; UI native stable | Main (vues) ; Luna 2 (terminal, DAP) | L1, L2 pour terminal et DAP | `syntax` INTÉGRÉ (M3) ; `templates` INTÉGRÉ (M4) ; `lsp` À FAIRE (M5, Main) ; terminal (M6) et DAP (M7) attendent L1 et L2 de Luna 2 |
 | P4 | Élevée | Installateur Windows du Studio natif testé avec un vrai binaire | Luna | M2 (fait) | assistant Win32 fusionné (PR #14, étape 2) ; Studio natif à empaqueter (L3) |
 | P5 | Élevée | Conception typage renforcé, OOP, modèle mémoire et concurrence ; tests d'acceptation | Outils, revue Main | P2 | À FAIRE (O5) |
@@ -408,7 +408,7 @@ PC de Main.
 | # | Décision | Recommandation de Main | Statut |
 |---|---|---|---|
 | 1 | Gouvernance V3 et transferts | appliquer | **validée le 15/10** |
-| 2 | Édition du langage : nouvelle syntaxe incompatible ou édition opt-in avec migrateur | version majeure + outil de migration, pas de casse silencieuse | à décider (après G1) |
+| 2 | Édition du langage : nouvelle syntaxe incompatible ou édition opt-in avec migrateur | version majeure + outil de migration, pas de casse silencieuse | **décidée le 16/10** : syntaxe de l'ADR 0010 (édition 1), 0.2 gardée sous `--edition 0.2`, `nxc migrate` |
 | 3 | Première cible temps réel | à proposer après l'étude O6 | à décider |
 | 4 | Niveau des contrats (partout ou profil strict) | à proposer avec O5 | à décider |
 | 5 | Concurrence par cible | natif d'abord | à décider |
