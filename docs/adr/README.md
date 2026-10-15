@@ -13,6 +13,7 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0006](0006-debordements-toujours-verifies.md) | Débordements arithmétiques toujours vérifiés |
 | [0007](0007-identificateurs-ascii.md) | Identificateurs ASCII et caractères bidirectionnels interdits |
 | [0008](0008-backend-llvm-et-runtime-nexul.md) | Backend LLVM et runtime écrit en NEXUL, sans C |
+| [0009](0009-contrat-nxc-lsp.md) | Contrat de `nxc lsp`, des sorties JSON versionnées et du texte non enregistré (**proposée**, à approuver par Claude Main) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
 

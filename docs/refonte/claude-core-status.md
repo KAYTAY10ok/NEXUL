@@ -29,18 +29,21 @@ PC « autre » d'AGENTS.md §6 : clone GitHub `C:\NEXUL-tools`, Rust 1.99.0
 |---|---|---|---|
 | P2 — G0 | Audit des usages de la syntaxe 0.2 : [g0-audit.md](../adr/syntaxe/g0-audit.md), [recensement](../adr/syntaxe/g0-recensement.md), outil `compiler/nxc_syntax/examples/g0_census.rs` | `CONÇU` (étude livrée, PR à relire par Main) | recensement relançable ; deux pièges vérifiés avec `nxc check` |
 | P2 — G1 | Trois propositions de style sur les 12 programmes de la passation | `À FAIRE` | après relecture de G0, avec Claude Main (un auteur par fichier) |
-| P9 | `nxc lsp`, JSON versionné, texte non enregistré | `À FAIRE` | contrat à proposer à Main avant toute implémentation |
+| P9 — contrat | `nxc lsp`, JSON versionné, texte non enregistré : [ADR 0009](../adr/0009-contrat-nxc-lsp.md), proposée | `CONÇU` (en attente de l'approbation de Main ; rien n'est implémenté) | constats C1 à C8 vérifiés sur `main` (§ Contexte de l'ADR) |
+| P9 — implémentation | deux PR : fondations (chargeur, JSON v1, `check --stdin`), puis serveur | `À FAIRE` | après approbation |
 | P5 | Typage renforcé, OOP, modèle mémoire et concurrence | `À FAIRE` | dépend de P2 |
 
 ## Demandes reçues
 
 De **Claude Main** (`claude-status.md`, reprises de Codex Astral), non encore traitées :
 
-1. `nxc lsp` : serveur LSP stdio reprenant `nxc ide` (contrat approuvé par Main avant
-   implémentation) — lot P9.
-2. Version du schéma JSON de `nxc check --json` et `nxc ide` — lot P9.
-3. Vérification du texte non enregistré (`--stdin` ou équivalent) — lot P9. À noter :
-   `nxc ide` accepte déjà `--stdin` ; reste `nxc check`.
+1. `nxc lsp` : serveur LSP stdio reprenant `nxc ide` — **contrat proposé** :
+   [ADR 0009](../adr/0009-contrat-nxc-lsp.md), §1 à §8 ; 6 questions à Main en fin
+   d'ADR.
+2. Version du schéma JSON de `nxc check --json` et `nxc ide` — **proposé** : ADR 0009, §9
+   (`--json=1`, `--json` inchangé pendant la série 0.2).
+3. Vérification du texte non enregistré — **proposé** : ADR 0009, §3 (tous les documents
+   ouverts, dans `nxc lsp`) et §10 (`nxc check --stdin`).
 4. Formateur : accolade fermante restée en fin de ligne après `fn main(){⏎…}`. Le G0
    constate que `format_source` travaille ligne par ligne sur l'indentation et non sur
    l'arbre (§6 de l'audit) : la correction de fond est un formateur sur l'AST (P6).
@@ -63,6 +66,10 @@ extension VS Code) et Claude Main (coloration de `studio/app`).
 - `cargo clippy -p nxc_syntax --examples` : aucun avertissement dans `g0_census.rs`. Le
   lexer et le parser ont des avertissements Clippy plus anciens, laissés tels quels (pas de
   modification du lexer ni du parser avant G0).
+- Contrat P9 : sorties réelles de `nxc check --json` et de `nxc ide` (survol, complétion,
+  définition, références, renommage, symboles, tests) relevées sur un projet à deux
+  fichiers ; coût d'une requête mesuré en release (65 à 80 ms) ; renommage vers `let` et
+  `async` accepté à tort (constat C7, à corriger dans l'implémentation).
 - `nxc check` sur les programmes de l'annexe de l'audit : piège des fins de ligne accepté
   sans message (code 0) avec `-`, `not`, `move`, `(…)` et `[…]` en début de ligne ;
   variante mal orthographiée : avertissements W0007 et W0001, code 0.
