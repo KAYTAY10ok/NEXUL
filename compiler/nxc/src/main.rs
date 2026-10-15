@@ -34,6 +34,7 @@ options:
     --no-debug           no debug information
     --link-arg <arg>     pass an argument to the linker
     --json               print the diagnostics as JSON on stdout (for editors)
+    --edition <e>        syntax of the program: 0.2 (default) or 1 (ADR 0010)
 ";
 
 /// The WASI runner for Node.js (`tools/wasi-run.mjs`).
@@ -51,6 +52,7 @@ struct Args {
     no_debug: bool,
     link_args: Vec<String>,
     json: bool,
+    edition: nxc_syntax::Edition,
     rest: Vec<String>,
 }
 
@@ -69,6 +71,7 @@ fn parse_args() -> Args {
         no_debug: false,
         link_args: vec![],
         json: false,
+        edition: nxc_syntax::Edition::V0_2,
         rest: vec![],
     };
     while let Some(arg) = it.next() {
@@ -80,6 +83,10 @@ fn parse_args() -> Args {
             "-o" => a.output = it.next().map(PathBuf::from),
             "--release" => a.release = true,
             "--json" => a.json = true,
+            "--edition" => {
+                let e = it.next().unwrap_or_default();
+                a.edition = nxc_syntax::Edition::parse(&e).unwrap_or_else(|| fail(&format!("unknown edition `{}` (expected `0.2` or `1`)", e)));
+            }
             "--lib" => a.kind = OutputKind::SharedLibrary,
             "--staticlib" => a.kind = OutputKind::StaticLibrary,
             "--no-debug" => a.no_debug = true,
@@ -186,6 +193,7 @@ fn compile_command(args: &Args) {
     copts.color = color() && !args.json;
     copts.target = target.clone();
     copts.release = args.release;
+    copts.edition = args.edition;
     copts.debug_info = !args.no_debug && !args.release;
     // The dependencies of the project (nexul.toml), if the file belongs to one.
     copts.deps = nxc_driver::pkg::deps_for(&file).unwrap_or_else(|e| fail(&e));

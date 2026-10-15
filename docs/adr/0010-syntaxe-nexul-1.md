@@ -327,7 +327,9 @@ fn Option[f64] moyenne(Vec[f64] notes) {
 }
 
 fn main() {
-    let f64 m = moyenne(Vec.from([12.0, 15.5, 9.0])) else 0.0
+    var Vec[f64] notes = Vec.new()
+    for n in [12.0, 15.5, 9.0] { notes!.push(n) }
+    let f64 m = moyenne(notes) else 0.0
     println("moyenne : {m:.2}")
     repeat 3 { print("*") }
 }
@@ -380,7 +382,9 @@ type Rectangle is Forme {
 }
 
 fn main() {
-    let Vec[any Forme] formes = Vec.from([Cercle(r: 1.0), Rectangle(l: 2.0, h: 3.0)])
+    var Vec[any Forme] formes = Vec.new()
+    formes!.push(Cercle(r: 1.0))
+    formes!.push(Rectangle(l: 2.0, h: 3.0))
     for f in formes { println("{f.nom()} : {f.aire():.2}") }
     let f64 total = formes |> map(fn(f) => f.aire()) |> sum()
     println("total : {total:.2}")
@@ -390,17 +394,19 @@ fn main() {
 **5 — Génériques**
 
 ```nexul
-fn Option[T] plus_grand[T is Ord and Copy](Vec[T] valeurs) {
+fn Option[T] plus_grand[T is Ord and Clone](Vec[T] valeurs) {
     var Option[T] meilleur = .None
     for v in valeurs {
-        if meilleur is .None or v > meilleur.unwrap() { meilleur = .Some(v) }
+        var bool plus = true
+        if meilleur is .Some(m) { plus = v > m }
+        if plus { meilleur = .Some(v.clone()) }
     }
     return meilleur
 }
 
 type Pile[T] {
     Vec[T] elements
-    fn empiler(self!, T x) { self.elements!.push(x) }
+    fn empiler(self!, owned T x) { self.elements!.push(move x) }
     fn Option[T] depiler(self!) = self.elements!.pop()
 }
 ```
@@ -559,6 +565,34 @@ ou `--edition 1`.
    pour Studio et l'extension VS Code ; diagnostics et `nxc explain` revus.
 6. **Tests** : chaque programme de cette ADR devient un test ; les suites `tests/run` et
    `tests/ui` passent dans les deux éditions pendant la transition.
+
+## État de l'implémentation (G3)
+
+**Tranche 1, 16/10/2026** : `nxc --edition 1` accepte `type` (structure, méthodes,
+variantes, alias), `type … is`, `interface`, `extend`, `test "…"`, le type avant le nom
+partout (`let`, `var`, `fn T f`, paramètres, champs, constantes, types de fonction
+`fn R(A)`), `= expression`, `when … then`, `is` (dans `if`, `while` et comme valeur),
+`.Nom` en motif et en expression, `x!` (argument, receveur, boucle), `any`, `|>`, `loop`,
+`repeat`, `#étiquette`, fonctions anonymes `fn(T x) => …`. Les formes de la 0.2 retirées
+sont refusées avec la nouvelle écriture (`E0112`) ; celles du §8, le repli `else`, `===`,
+`in`, `distinct`, `where`, `spawn`, `expects panic` sont refusées (`E0111`). Tests :
+`tests/run/edition1.nx`, `tests/ui/edition1_*.nx`.
+
+Précisions apportées par l'implémentation :
+
+- Continuation de ligne : une ligne qui commence par `.minuscule` (méthode, champ) continue la
+  précédente ; une ligne qui commence par `.Majuscule` (variante) commence une instruction ou
+  un bras de `when`.
+- `type X is I { … }` : les fonctions du corps implémentent `I` ; une fonction propre au
+  type va dans `extend X { … }` (pour l'instant).
+- Les noms des valeurs d'une variante (`.Rgb(u8 r, …)`) sont acceptés mais pas encore
+  utilisés : les motifs restent positionnels.
+- Un nom seul dans un motif est pris pour une variante s'il en existe une du même nom (comme en
+  0.2) ; `.Nom` est l'écriture recommandée.
+
+Reste : `nxc migrate`, le repli `else`, `===`, `in`, types distincts et contraints,
+`expects panic`, `nxc ide` et `nxpm` avec l'édition, formateur, coloration de Studio et de
+l'extension, puis la migration de `lib/` et des tests.
 
 ## Conséquences
 

@@ -1,0 +1,13 @@
+// edition: 1
+// Forms reserved by ADR 0010 whose meaning is not implemented yet (E0111).
+fn i32 f(i32 a) requires a > 0 {
+    return a
+}
+
+fn main() {
+    let n = f(1) else 0
+    let b = 1 === 1
+}
+
+test "panique" expects panic {
+}

@@ -55,9 +55,20 @@ fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &st
     }
 }
 
+/// The options for a test file: `// edition: 1` on one of its first lines selects the
+/// syntax of edition 1 (ADR 0010).
+fn opts_for(nx: &Path, mode: Mode) -> CompileOptions {
+    let mut opts = CompileOptions::new(mode);
+    let text = std::fs::read_to_string(nx).unwrap_or_default();
+    if text.lines().take(3).any(|l| l.trim() == "// edition: 1") {
+        opts.edition = nxc_syntax::Edition::V1;
+    }
+    opts
+}
+
 fn run_one(nx: &Path) -> Vec<String> {
     let mut failures = Vec::new();
-    let c = compile_file(nx, &CompileOptions::new(Mode::Program));
+    let c = compile_file(nx, &opts_for(nx, Mode::Program));
     if c.errors > 0 {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
@@ -216,7 +227,7 @@ fn run_programs_cross() {
             if !runs_on(nx, &target) {
                 return vec![];
             }
-            let mut opts = CompileOptions::new(Mode::Program);
+            let mut opts = opts_for(nx, Mode::Program);
             opts.target = target.clone();
             let c = compile_file(nx, &opts);
             if c.errors > 0 {
@@ -279,7 +290,7 @@ fn ui_diagnostics() {
     let paths = files("tests/ui");
     let failures = parallel(&paths, |nx| {
         let mut f = Vec::new();
-        let c = compile_file(nx, &CompileOptions::new(Mode::Check));
+        let c = compile_file(nx, &opts_for(nx, Mode::Check));
         let actual = normalize(&c.diagnostics);
         if actual.is_empty() {
             f.push(format!("{}: expected diagnostics, got none", nx.display()));
@@ -296,7 +307,7 @@ fn ui_diagnostics() {
 fn examples_compile_cleanly() {
     let paths = files("examples");
     let failures = parallel(&paths, |nx| {
-        let c = compile_file(nx, &CompileOptions::new(Mode::Program));
+        let c = compile_file(nx, &opts_for(nx, Mode::Program));
         if c.errors > 0 || c.warnings > 0 {
             vec![format!("{}:\n{}", nx.display(), c.diagnostics)]
         } else {

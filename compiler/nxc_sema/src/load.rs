@@ -70,11 +70,13 @@ pub struct ProgramSource {
     pub deps: Vec<(String, PathBuf)>,
     /// Target and build mode, for `@cfg`.
     pub cfg: Cfg,
+    /// The syntax of the program's own files (ADR 0010); the standard library stays in 0.2.
+    pub edition: nxc_syntax::Edition,
 }
 
 impl ProgramSource {
     pub fn new(root_name: impl Into<String>, root_text: impl Into<String>, root_dir: Option<PathBuf>) -> ProgramSource {
-        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), cfg: Cfg::default() }
+        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), cfg: Cfg::default(), edition: nxc_syntax::Edition::V0_2 }
     }
 }
 
@@ -152,7 +154,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
     let mut queue: VecDeque<ModId> = VecDeque::new();
 
     // The root module.
-    let root_file = sm.add(src.root_name.clone(), src.root_text.clone());
+    let root_file = sm.add_with_edition(src.root_name.clone(), src.root_text.clone(), src.edition);
     let mut root_ast = nxc_syntax::parse_file(sm, root_file, diags);
     apply_cfg(&mut root_ast, &src.cfg, diags);
     crate::derive::expand(&mut root_ast, sm, &src.root_name, diags);
@@ -209,7 +211,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
                 }
             }
         };
-        let file = sm.add(name.clone(), text);
+        let file = if is_std { sm.add(name.clone(), text) } else { sm.add_with_edition(name.clone(), text, src.edition) };
         let mut ast = nxc_syntax::parse_file(sm, file, diags);
         apply_cfg(&mut ast, &src.cfg, diags);
         crate::derive::expand(&mut ast, sm, &name, diags);

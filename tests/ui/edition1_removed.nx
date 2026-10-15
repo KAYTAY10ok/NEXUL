@@ -1,0 +1,19 @@
+// edition: 1
+// Forms of NEXUL 0.2 that edition 1 writes differently (E0112).
+struct Point {
+    x: f64
+}
+
+fn f(a: i32) -> i32 {
+    return a
+}
+
+fn main() {
+    let x: i32 = 5
+    var y = 0
+    match y {
+        _ => 1
+    }
+    if let z = y {
+    }
+}

@@ -43,11 +43,13 @@ pub struct CompileOptions {
     pub profile: bool,
     /// Dependencies (`nxpm`): package name and source directory.
     pub deps: Vec<(String, PathBuf)>,
+    /// The syntax of the program (ADR 0010): `--edition 0.2` (default) or `--edition 1`.
+    pub edition: nxc_syntax::Edition,
 }
 
 impl CompileOptions {
     pub fn new(mode: Mode) -> CompileOptions {
-        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new() }
+        CompileOptions { mode, color: false, target: Target::host(), release: false, debug_info: true, profile: false, deps: Vec::new(), edition: nxc_syntax::Edition::V0_2 }
     }
 }
 
@@ -109,6 +111,7 @@ pub fn compile_source(name: &str, bytes: Vec<u8>, root_dir: Option<PathBuf>, opt
     let text = text.strip_prefix('\u{feff}').map(|s| s.to_string()).unwrap_or(text);
     let mut src = ProgramSource::new(name.to_string(), text, root_dir.clone());
     src.deps = opts.deps.clone();
+    src.edition = opts.edition;
     src.cfg = Cfg { target: opts.target.clone(), release: opts.release, test: opts.mode == Mode::Tests };
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     if diags.has_errors() {

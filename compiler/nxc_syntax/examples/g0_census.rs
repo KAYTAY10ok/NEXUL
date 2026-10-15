@@ -362,6 +362,7 @@ impl Ctx<'_> {
             }
             ExprKind::Ident(_) => {}
             ExprKind::SelfValue => {}
+            ExprKind::Variant(_) => self.add("expression: .Variante (édition 1)", sp),
             ExprKind::SelfType => self.add("expression: Self", sp),
             ExprKind::Unit => self.add("expression: ()", sp),
             ExprKind::Paren(x) => self.expr(x),

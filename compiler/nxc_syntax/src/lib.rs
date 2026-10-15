@@ -8,11 +8,11 @@ pub mod source;
 pub mod token;
 
 pub use diag::{DiagSink, Diagnostic, Level};
-pub use source::{FileId, SourceMap, Span};
+pub use source::{Edition, FileId, SourceMap, Span};
 
 /// Lexes and parses one file.
 pub fn parse_file(sm: &SourceMap, file: FileId, diags: &DiagSink) -> ast::Module {
     let text = &sm.get(file).text;
-    let tokens = lexer::lex(text, file, diags);
-    parser::parse_module(tokens, diags)
+    let tokens = lexer::lex_in(text, file, diags, sm.get(file).edition);
+    parser::parse_module_in(tokens, diags, sm.get(file).edition)
 }

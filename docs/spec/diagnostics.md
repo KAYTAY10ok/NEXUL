@@ -38,6 +38,8 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0107` | An import appears after other items. |
 | `E0108` | An item was expected at module level. |
 | `E0109` | A pattern was expected. |
+| `E0111` | A form of edition 1 is planned but not implemented yet. |
+| `E0112` | A form of NEXUL 0.2 does not exist in edition 1. |
 | `E0110` | An expression is computed, then its value is lost. |
 
 ## Noms, modules et attributs (chapitres 04 et 06)
@@ -109,6 +111,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0345` | Wrong number of sub-patterns for a variant or struct. |
 | `E0346` | Invalid literal or range pattern. |
 | `E0347` | A range loop binds a single variable: `for i in 0..n`. |
+| `E0348` | `.Name` names a variant of the type the context expects (edition 1). |
 | `E0350` | This value cannot be formatted. |
 | `E0351` | This format specification does not apply to the value's type. |
 | `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or the error |

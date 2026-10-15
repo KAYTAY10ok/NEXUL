@@ -290,6 +290,60 @@ impl<'a> FnCtxt<'a> {
             .collect()
     }
 
+    /// A variant without values used as a value: `Couleur.Rouge`, or `.Rouge` in edition 1.
+    pub(crate) fn fieldless_variant(&mut self, id: AdtId, v: u32, args: Option<Vec<Ty>>, expect: Expect, span: Span) -> thir::Expr {
+        let tcx = self.tcx();
+        let adt = self.p.adt(id);
+        let variant = &adt.variants()[v as usize];
+        if !variant.fields.is_empty() {
+            self.err(
+                Diagnostic::error("E0306", format!("variant `{}.{}` needs {} value(s)", adt.name, variant.name, variant.fields.len()))
+                    .primary(span, "missing values")
+                    .help(format!("write `{}({})`", variant.name, vec!["..."; variant.fields.len()].join(", "))),
+            );
+            return self.error_expr(span);
+        }
+        let targs = match args {
+            Some(a) => a,
+            None => self.fresh_args(adt.generics.len(), span),
+        };
+        let ty = tcx.adt(id, targs.clone());
+        if let Some(t) = expect.ty() {
+            self.unify(ty, t);
+        }
+        self.mk(T::Adt { adt: id, variant: Some(v), type_args: targs, fields: vec![] }, ty, span)
+    }
+
+    /// Edition 1, `.Name`: the variant `Name` of the type the context expects.
+    pub(crate) fn dot_variant(&mut self, name: &ast::Ident, expect: Expect) -> Option<(AdtId, u32)> {
+        let tcx = self.tcx();
+        let expected = expect.ty().map(|t| self.shallow(t));
+        let adt = expected.and_then(|t| tcx.as_adt(t)).map(|(id, _)| id);
+        match adt {
+            Some(id) => match self.p.adt(id).variant_index(&name.name) {
+                Some(v) => Some((id, v)),
+                None => {
+                    let a = self.p.adt(id);
+                    let names: Vec<String> = a.variants().iter().map(|v| format!(".{}", v.name)).collect();
+                    self.err(
+                        Diagnostic::error("E0348", format!("`{}` has no variant `{}`", a.name, name.name))
+                            .primary(name.span, "unknown variant")
+                            .note(format!("the variants of `{}` are {}", a.name, names.join(", "))),
+                    );
+                    None
+                }
+            },
+            None => {
+                self.err(
+                    Diagnostic::error("E0348", format!("cannot tell which type `.{}` belongs to", name.name))
+                        .primary(name.span, "the expected type is not known here")
+                        .help(format!("name the type: `Type.{}`, or give the type of the variable", name.name)),
+                );
+                None
+            }
+        }
+    }
+
     /// A path used as a value: local, constant, fieldless variant, function...
     pub(crate) fn check_path_expr(&mut self, e: &ast::Expr, expect: Expect) -> thir::Expr {
         let tcx = self.tcx();
@@ -320,27 +374,7 @@ impl<'a> FnCtxt<'a> {
                     self.mk(T::Static(st), sd.ty, span)
                 }
                 PathRes::PrimConst(v, t) => self.mk(T::Lit(v), t, span),
-                PathRes::Variant(id, v, args) => {
-                    let adt = self.p.adt(id);
-                    let variant = &adt.variants()[v as usize];
-                    if !variant.fields.is_empty() {
-                        self.err(
-                            Diagnostic::error("E0306", format!("variant `{}.{}` needs {} value(s)", adt.name, variant.name, variant.fields.len()))
-                                .primary(span, "missing values")
-                                .help(format!("write `{}({})`", variant.name, vec!["..."; variant.fields.len()].join(", "))),
-                        );
-                        return self.error_expr(span);
-                    }
-                    let targs = match args {
-                        Some(a) => a,
-                        None => self.fresh_args(adt.generics.len(), span),
-                    };
-                    let ty = tcx.adt(id, targs.clone());
-                    if let Some(t) = expect.ty() {
-                        self.unify(ty, t);
-                    }
-                    self.mk(T::Adt { adt: id, variant: Some(v), type_args: targs, fields: vec![] }, ty, span)
-                }
+                PathRes::Variant(id, v, args) => self.fieldless_variant(id, v, args, expect, span),
                 PathRes::Fn(f, explicit) => {
                     let fd = self.p.func(f);
                     if !fd.generics.is_empty() || explicit.is_some() {
@@ -416,6 +450,16 @@ impl<'a> FnCtxt<'a> {
     }
 
     pub(crate) fn check_call(&mut self, callee: &ast::Expr, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
+        // Edition 1: `.Name(values)`, a variant of the expected type.
+        if let A::Variant(name) = &callee.kind {
+            return match self.dot_variant(name, expect) {
+                Some((id, v)) => self.check_variant_ctor(id, v, None, args, expect, span),
+                None => {
+                    self.check_args_for_errors(args);
+                    self.error_expr(span)
+                }
+            };
+        }
         // Method calls: `value.name(...)` and `value.name[T](...)`.
         let (method_base, method_name, method_targs) = match &callee.kind {
             A::Field(base, name) => (Some(&**base), Some(name), None),

@@ -27,7 +27,8 @@ Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/tac
    PR 1 fondations (lecture superposée, JSON v1, check --stdin, version --json), PR 2 serveur ; tests de son §12.
 4. L3 installateur : NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
    comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; essais réels.
-En plus si fini : L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
+En plus si fini : studio/syntax et l'extension VS Code connaissent l'édition 1 (ADR 0010 ; retirer alors le saut
+des fichiers "// edition: 1" dans studio/syntax/tests) ; L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
 compilateur intact) ; README des API terminal et DAP pour Main.
 Branches refonte/sol-…, PR [sol], état docs/refonte/codex-sol-status.md.
 ```
