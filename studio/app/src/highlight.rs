@@ -1,124 +1,56 @@
-//! Colors of NEXUL code in the editor, and the layer on which the editor draws the
-//! diagnostics (the editor shows them only for a language that has a highlighter).
-//!
-//! A light lexical scan, temporary: the tokenizer of NEXUL of `studio/syntax` (Claude
-//! Outils) will replace `tokens` when it is ready.
+//! GPUI adapter for the compiler-conformant lexer in `studio/syntax`.
 
-use gpui_kit::component::input::{EditorState, FoldRange, HighlightStyleResolver, InputEdit, InputHighlighter, InputHighlighterFactory, Rope};
+use gpui_kit::component::input::{
+    EditorState, FoldRange, HighlightStyleResolver, InputEdit, InputHighlighter,
+    InputHighlighterFactory, Rope, RopeExt,
+};
 use gpui_kit::{Context, HighlightStyle, SharedString, Window};
+use nexul_studio_syntax::{Highlighter as SyntaxHighlighter, Kind};
 use std::ops::Range;
 use std::rc::Rc;
 
-const KEYWORDS: &[&str] = &[
-    "and", "as", "break", "const", "continue", "dyn", "else", "enum", "extern", "fn", "for", "if", "impl", "import", "in", "indirect", "inout", "let", "match", "module", "move", "not",
-    "or", "owned", "pub", "return", "static", "struct", "trait", "type", "unsafe", "var", "where", "while",
-];
-const TYPES: &[&str] = &["i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool", "char", "Never", "Ptr"];
-
-/// The colored spans of a piece of NEXUL code: byte ranges and names of the theme
-/// (`keyword`, `string`…), in order, without overlap.
-pub fn tokens(src: &str) -> Vec<(Range<usize>, &'static str)> {
-    let b = src.as_bytes();
-    let n = b.len();
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < n {
-        let c = b[i];
-        let start = i;
-        if c == b'/' && i + 1 < n && b[i + 1] == b'/' {
-            let doc = i + 2 < n && b[i + 2] == b'/';
-            while i < n && b[i] != b'\n' {
-                i += 1;
-            }
-            out.push((start..i, if doc { "comment.doc" } else { "comment" }));
-        } else if c == b'/' && i + 1 < n && b[i + 1] == b'*' {
-            let mut depth = 0;
-            while i < n {
-                if b[i] == b'/' && i + 1 < n && b[i + 1] == b'*' {
-                    depth += 1;
-                    i += 2;
-                } else if b[i] == b'*' && i + 1 < n && b[i + 1] == b'/' {
-                    depth -= 1;
-                    i += 2;
-                    if depth == 0 {
-                        break;
-                    }
-                } else {
-                    i += 1;
-                }
-            }
-            out.push((start..i, "comment"));
-        } else if c == b'"' || (c == b'r' && i + 1 < n && b[i + 1] == b'"') {
-            let raw = c == b'r';
-            i += if raw { 2 } else { 1 };
-            while i < n && b[i] != b'"' {
-                i += if b[i] == b'\\' && !raw { 2 } else { 1 };
-            }
-            i = (i + 1).min(n);
-            out.push((start..i, "string"));
-        } else if c == b'\'' {
-            // A character: 'a', '\n', '\u{e9}', 'é'.
-            let mut j = i + 1;
-            if j < n && b[j] == b'\\' {
-                j += 2;
-            }
-            while j < n && j - i < 12 && b[j] != b'\'' && b[j] != b'\n' {
-                j += 1;
-            }
-            if j < n && b[j] == b'\'' {
-                i = j + 1;
-                out.push((start..i, "string"));
-            } else {
-                i += 1;
-            }
-        } else if c.is_ascii_digit() {
-            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || (b[i] == b'.' && i + 1 < n && b[i + 1].is_ascii_digit())) {
-                i += 1;
-            }
-            out.push((start..i, "number"));
-        } else if c == b'@' && i + 1 < n && (b[i + 1].is_ascii_alphabetic() || b[i + 1] == b'_') {
-            i += 1;
-            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
-                i += 1;
-            }
-            out.push((start..i, "attribute"));
-        } else if c.is_ascii_alphabetic() || c == b'_' || c >= 0x80 {
-            while i < n && (b[i].is_ascii_alphanumeric() || b[i] == b'_' || b[i] >= 0x80) {
-                i += 1;
-            }
-            let word = &src[start..i];
-            let next = src[i..].trim_start_matches([' ', '\t']).as_bytes().first().copied();
-            let kind = if KEYWORDS.contains(&word) {
-                Some("keyword")
-            } else if word == "true" || word == "false" {
-                Some("boolean")
-            } else if word == "self" || word == "Self" {
-                Some("variable.special")
-            } else if TYPES.contains(&word) {
-                Some("type")
-            } else if next == Some(b'(') {
-                Some("function")
-            } else if word.len() > 1 && word.bytes().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == b'_') {
-                Some("constant")
-            } else if word.as_bytes()[0].is_ascii_uppercase() {
-                Some("type")
-            } else {
-                None
-            };
-            if let Some(kind) = kind {
-                out.push((start..i, kind));
-            }
-        } else {
-            i += 1;
-        }
+fn style_name(kind: Kind) -> &'static str {
+    match kind {
+        Kind::Keyword | Kind::Control => "keyword",
+        Kind::Type => "type",
+        Kind::Function => "function",
+        Kind::Variable => "variable",
+        Kind::Constant => "constant",
+        Kind::String => "string",
+        Kind::Escape => "string.escape",
+        Kind::Interpolation => "string.interpolation",
+        Kind::Number => "number",
+        Kind::Comment => "comment",
+        Kind::DocComment => "comment.doc",
+        Kind::Attribute => "attribute",
+        Kind::Operator => "operator",
+        Kind::Punctuation => "punctuation",
+        Kind::Invalid => "invalid",
     }
-    out
 }
 
-/// The highlighter of an editor of NEXUL code.
-#[derive(Default)]
+/// Colored spans of NEXUL source, using UTF-8 byte ranges and theme style names.
+#[cfg(test)]
+pub fn tokens(src: &str) -> Vec<(Range<usize>, &'static str)> {
+    nexul_studio_syntax::tokens("nexul", src)
+        .into_iter()
+        .map(|token| (token.range, style_name(token.kind)))
+        .collect()
+}
+
+/// GPUI highlighter backed by the incremental, compiler-conformant NEXUL tokenizer.
 pub struct NexulHighlighter {
     text: Rope,
+    syntax: Option<SyntaxHighlighter>,
+}
+
+impl Default for NexulHighlighter {
+    fn default() -> Self {
+        Self {
+            text: Rope::new(),
+            syntax: None,
+        }
+    }
 }
 
 impl InputHighlighter for NexulHighlighter {
@@ -126,26 +58,77 @@ impl InputHighlighter for NexulHighlighter {
         "nexul".into()
     }
 
-    fn update(&mut self, _: Option<InputEdit>, text: &Rope, _: bool, _: &mut Window, _: &mut Context<EditorState>) {
+    fn update(
+        &mut self,
+        edit: Option<InputEdit>,
+        text: &Rope,
+        _: bool,
+        _: &mut Window,
+        _: &mut Context<EditorState>,
+    ) {
+        match (&mut self.syntax, edit) {
+            (None, _) => self.syntax = Some(SyntaxHighlighter::new("nexul", &text.to_string())),
+            (Some(syntax), Some(edit)) => {
+                let range_valid = edit.start_byte <= edit.new_end_byte
+                    && edit.new_end_byte <= text.len()
+                    && text.is_char_boundary(edit.start_byte)
+                    && text.is_char_boundary(edit.new_end_byte);
+                let replacement = if range_valid {
+                    text.slice(edit.start_byte..edit.new_end_byte).to_string()
+                } else {
+                    String::new()
+                };
+                if !range_valid
+                    || syntax
+                        .replace(edit.start_byte..edit.old_end_byte, &replacement)
+                        .is_none()
+                {
+                    syntax.set_text(&text.to_string());
+                }
+            }
+            (Some(syntax), None) => syntax.set_text(&text.to_string()),
+        }
         self.text = text.clone();
     }
 
-    fn styles(&self, range: &Range<usize>, resolver: &dyn HighlightStyleResolver) -> Vec<(Range<usize>, HighlightStyle)> {
+    fn styles(
+        &self,
+        range: &Range<usize>,
+        resolver: &dyn HighlightStyleResolver,
+    ) -> Vec<(Range<usize>, HighlightStyle)> {
         let end = range.end.min(self.text.len());
         let start = range.start.min(end);
-        let src = self.text.slice(start..end).to_string();
+        if start == end {
+            return Vec::new();
+        }
+        let Some(syntax) = &self.syntax else {
+            return vec![(start..end, HighlightStyle::default())];
+        };
+
+        let first_line = self.text.offset_to_point(start).row;
+        let last_line = self.text.offset_to_point(end - 1).row;
         let mut runs = Vec::new();
         let mut at = start;
-        for (r, name) in tokens(&src) {
-            let (a, b) = (start + r.start, start + r.end);
-            if a > at {
-                runs.push((at..a, HighlightStyle::default()));
+        for line in first_line..=last_line {
+            let line_start = self.text.line_start_offset(line);
+            for token in syntax.line_tokens(line) {
+                let token_start = (line_start + token.range.start).max(start);
+                let token_end = (line_start + token.range.end).min(end);
+                if token_start >= token_end {
+                    continue;
+                }
+                if token_start > at {
+                    runs.push((at..token_start, HighlightStyle::default()));
+                }
+                runs.push((
+                    token_start..token_end,
+                    resolver.style(style_name(token.kind)).unwrap_or_default(),
+                ));
+                at = token_end;
             }
-            runs.push((a..b, resolver.style(name).unwrap_or_default()));
-            at = b;
         }
-        if at < range.end {
-            runs.push((at..range.end, HighlightStyle::default()));
+        if at < end {
+            runs.push((at..end, HighlightStyle::default()));
         }
         runs
     }
@@ -155,9 +138,12 @@ impl InputHighlighter for NexulHighlighter {
     }
 }
 
-/// For the editors of NEXUL files.
+/// Factory for NEXUL source files.
 pub fn factory() -> InputHighlighterFactory {
-    Rc::new(|language: &str| (language == "nexul").then(|| Box::new(NexulHighlighter::default()) as Box<dyn InputHighlighter>))
+    Rc::new(|language: &str| {
+        (language == "nexul")
+            .then(|| Box::new(NexulHighlighter::default()) as Box<dyn InputHighlighter>)
+    })
 }
 
 #[cfg(test)]
@@ -166,21 +152,50 @@ mod tests {
     #[allow(unused_imports)]
     use core::prelude::v1::test;
 
-    fn kinds(src: &str) -> Vec<(&str, &'static str)> {
-        tokens(src).into_iter().map(|(r, k)| (&src[r], k)).collect()
+    fn styled_text<'a>(src: &'a str) -> Vec<(&'a str, &'static str)> {
+        tokens(src)
+            .into_iter()
+            .map(|(range, style)| (&src[range], style))
+            .collect()
     }
 
     #[test]
-    fn nexul_tokens() {
-        assert_eq!(
-            kinds("fn carré(x: i32) -> Point { return x * 2 } // fin"),
-            vec![("fn", "keyword"), ("carré", "function"), ("i32", "type"), ("Point", "type"), ("return", "keyword"), ("2", "number"), ("// fin", "comment")]
-        );
-        assert_eq!(kinds(r#"let s = "a \"b\" {x}" + r"c\d""#), vec![("let", "keyword"), (r#""a \"b\" {x}""#, "string"), (r#"r"c\d""#, "string")]);
-        assert_eq!(kinds("@test fn t() { assert(true) }"), vec![("@test", "attribute"), ("fn", "keyword"), ("t", "function"), ("assert", "function"), ("true", "boolean")]);
-        assert_eq!(kinds("/* a /* b */ c */ MAX 'é' 0x1F 1.5"), vec![("/* a /* b */ c */", "comment"), ("MAX", "constant"), ("'é'", "string"), ("0x1F", "number"), ("1.5", "number")]);
-        // Unfinished pieces stop at the end.
-        assert_eq!(kinds("\"abc"), vec![("\"abc", "string")]);
-        assert_eq!(kinds("/* abc"), vec![("/* abc", "comment")]);
+    fn uses_the_official_nexul_lexer_classes() {
+        let spans = styled_text("/// docs\npub fn main() { let answer: u64 = 42; return answer }");
+        assert!(spans.contains(&("/// docs", "comment.doc")));
+        assert!(spans.contains(&("pub", "keyword")));
+        assert!(spans.contains(&("main", "function")));
+        assert!(spans.contains(&("u64", "type")));
+        assert!(spans.contains(&("42", "number")));
+        assert!(spans.contains(&("return", "keyword")));
+    }
+
+    #[test]
+    fn classifies_interpolations_escapes_and_invalid_source() {
+        let source = r#"let label = "value {answer}\n";"#;
+        let spans = styled_text(source);
+        assert!(spans.contains(&("{", "string.interpolation")));
+        assert!(spans.contains(&("answer", "variable")));
+        assert!(spans.contains(&("}", "string.interpolation")));
+        assert!(spans.contains(&("\\n", "string.escape")));
+        assert!(styled_text("let café = 1")
+            .iter()
+            .any(|(_, style)| *style == "invalid"));
+    }
+
+    #[test]
+    fn token_ranges_are_utf8_byte_ranges() {
+        let source = "let label = \"é\"; let answer = 42";
+        let spans = tokens(source);
+        for (range, _) in &spans {
+            assert!(source.is_char_boundary(range.start));
+            assert!(source.is_char_boundary(range.end));
+        }
+        let answer = spans
+            .iter()
+            .find(|(range, _)| &source[range.clone()] == "answer")
+            .unwrap();
+        assert_eq!(&source[answer.0.clone()], "answer");
+        assert!(answer.0.start > source.find('é').unwrap());
     }
 }
