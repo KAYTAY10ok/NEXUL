@@ -30,6 +30,20 @@ terminal.stop()?;
 `TerminalManager` can own several independently running PTYs. UI code owns the
 selection coordinates and calls `set_selection`; `selected_text` returns its text.
 
+Read `TerminalEvent`s until the queue is empty on each UI refresh; startup output and
+title changes can precede `Exited`. Output is parsed before its event is sent, and
+`Exited` is sent once, after the child has terminated and its final output has been
+drained. The screen snapshot remains available after exit. `stop()` kills the shell
+and joins the process watcher and reader; repeated calls (including `Drop`) are safe.
+Run these blocking lifecycle calls away from the UI thread. Writes and resizes after
+shutdown return `BrokenPipe`. Removing a terminal through `TerminalManager::close`
+performs the same cleanup.
+
+On Windows, the reader answers cursor-position/status requests, including ConPTY's
+initial cursor query. A separate process watcher polls without holding a blocking
+child wait lock, then closes the input and PTY while the reader drains ConPTY. This
+also handles a shell exiting normally without an explicit `stop()` call.
+
 ## Behavior and limits
 
 - Input is raw terminal input; callers translate keyboard and paste events into the
@@ -42,4 +56,15 @@ selection coordinates and calls `set_selection`; `selected_text` returns its tex
 - Terminal creation fails with a clear I/O error when the selected shell cannot be found
   or the PTY cannot be opened.
 
-Run the crate tests with `cargo test --manifest-path studio/terminal/Cargo.toml`.
+On Windows, use the installed **MSVC** toolchain and Visual Studio C++ tools:
+
+```powershell
+cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml
+```
+
+The default Windows GNU toolchain additionally needs MinGW's `dlltool` for
+`windows-sys`; MSVC avoids that prerequisite. On Unix, use
+`cargo test --manifest-path studio/terminal/Cargo.toml`. The tests exercise a real
+interactive shell, resize/stop, normal/nonzero exit and output draining, as well as
+the screen model. Windows tests require PowerShell and `cmd.exe`; Unix tests use
+`$SHELL` and `/bin/sh`.

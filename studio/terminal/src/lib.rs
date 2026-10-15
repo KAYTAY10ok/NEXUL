@@ -262,6 +262,7 @@ struct Screen {
     scroll_bottom: usize,
     title: Option<String>,
     selection: Option<Selection>,
+    responses: Vec<u8>,
 }
 
 impl Screen {
@@ -284,6 +285,7 @@ impl Screen {
             scroll_bottom: rows - 1,
             title: None,
             selection: None,
+            responses: Vec::new(),
         }
     }
 
@@ -588,6 +590,18 @@ impl vte::Perform for Screen {
             'J' => self.erase_display(first(0)),
             'K' => self.erase_line(first(0)),
             'm' => self.sgr(&values),
+            'n' if n == 6 => {
+                let prefix = if private { "?" } else { "" };
+                self.responses.extend_from_slice(
+                    format!(
+                        "\x1b[{prefix}{};{}R",
+                        self.cursor_row + 1,
+                        self.cursor_col + 1
+                    )
+                    .as_bytes(),
+                );
+            }
+            'n' if n == 5 && !private => self.responses.extend_from_slice(b"\x1b[0n"),
             'r' => {
                 let top = values
                     .first()
@@ -775,16 +789,19 @@ struct ParserState {
     screen: Screen,
 }
 
+type PtyWriter = Arc<Mutex<Option<Box<dyn Write + Send>>>>;
+type PtyMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
+
 /// A single live PTY terminal. Each instance has independent reader, writer and
 /// child-process state, so multiple terminals can run concurrently.
 pub struct Terminal {
-    writer: Arc<Mutex<Box<dyn Write + Send>>>,
-    master: Arc<Mutex<Box<dyn MasterPty + Send>>>,
+    writer: PtyWriter,
+    master: PtyMaster,
     child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
     state: Arc<Mutex<ParserState>>,
     events: Receiver<TerminalEvent>,
     stopped: Arc<AtomicBool>,
-    reader_thread: Option<JoinHandle<()>>,
+    process_thread: Option<JoinHandle<()>>,
 }
 
 impl Terminal {
@@ -831,8 +848,8 @@ impl Terminal {
         drop(pair.slave);
         let reader = pair.master.try_clone_reader().map_err(other_io)?;
         let writer = pair.master.take_writer().map_err(other_io)?;
-        let master = Arc::new(Mutex::new(pair.master));
-        let writer = Arc::new(Mutex::new(writer));
+        let master = Arc::new(Mutex::new(Some(pair.master)));
+        let writer = Arc::new(Mutex::new(Some(writer)));
         let child = Arc::new(Mutex::new(child));
         let state = Arc::new(Mutex::new(ParserState {
             parser: vte::Parser::new(),
@@ -840,12 +857,22 @@ impl Terminal {
         }));
         let (tx, events) = mpsc::channel();
         let stopped = Arc::new(AtomicBool::new(false));
-        let reader_thread = Some(spawn_reader(
+        let closing = Arc::new(AtomicBool::new(false));
+        let reader_thread = spawn_reader(
             reader,
             state.clone(),
-            tx,
-            stopped.clone(),
+            writer.clone(),
+            tx.clone(),
+            closing.clone(),
+        );
+        let process_thread = Some(spawn_process_watcher(
             child.clone(),
+            master.clone(),
+            writer.clone(),
+            reader_thread,
+            tx,
+            closing,
+            stopped.clone(),
         ));
         Ok(Self {
             writer,
@@ -854,7 +881,7 @@ impl Terminal {
             state,
             events,
             stopped,
-            reader_thread,
+            process_thread,
         })
     }
 
@@ -864,6 +891,7 @@ impl Terminal {
             .writer
             .lock()
             .map_err(|_| io::Error::other("terminal input lock poisoned"))?;
+        let writer = writer.as_mut().ok_or_else(terminal_closed)?;
         writer.write_all(input)?;
         writer.flush()
     }
@@ -879,6 +907,8 @@ impl Terminal {
         self.master
             .lock()
             .map_err(|_| io::Error::other("terminal PTY lock poisoned"))?
+            .as_ref()
+            .ok_or_else(terminal_closed)?
             .resize(PtySize {
                 rows,
                 cols,
@@ -930,18 +960,22 @@ impl Terminal {
         self.child.lock().ok().and_then(|child| child.process_id())
     }
 
-    /// Terminate the shell, wait for it, and join the PTY reader.
+    /// Terminate the shell and wait for its PTY output to finish draining.
+    /// Repeated calls are harmless; `Exited` is emitted once, after all output.
     pub fn stop(&mut self) -> io::Result<()> {
         if !self.stopped.load(Ordering::Acquire) {
             let mut child = self
                 .child
                 .lock()
                 .map_err(|_| io::Error::other("terminal child lock poisoned"))?;
-            let _ = child.kill();
-            let _ = child.wait()?;
+            if child.try_wait()?.is_none() {
+                child.kill()?;
+            }
         }
-        if let Some(handle) = self.reader_thread.take() {
-            let _ = handle.join();
+        if let Some(handle) = self.process_thread.take() {
+            handle
+                .join()
+                .map_err(|_| io::Error::other("terminal process watcher panicked"))?;
         }
         Ok(())
     }
@@ -956,9 +990,9 @@ impl Drop for Terminal {
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     state: Arc<Mutex<ParserState>>,
+    writer: PtyWriter,
     events: Sender<TerminalEvent>,
-    stopped: Arc<AtomicBool>,
-    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    closing: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name("nexul-terminal-reader".into())
@@ -977,7 +1011,18 @@ fn spawn_reader(
                         let ParserState { parser, screen } = &mut *state;
                         parser.advance(screen, &buffer[..length]);
                         let new_title = state.screen.title.clone();
+                        let responses = std::mem::take(&mut state.screen.responses);
                         drop(state);
+                        // ConPTY requests the initial cursor position before
+                        // starting its client when INHERIT_CURSOR is enabled.
+                        if !responses.is_empty() {
+                            if let Ok(mut writer) = writer.lock() {
+                                if let Some(writer) = writer.as_mut() {
+                                    let _ =
+                                        writer.write_all(&responses).and_then(|_| writer.flush());
+                                }
+                            }
+                        }
                         let _ = events.send(TerminalEvent::Output(output));
                         if let Some(title) =
                             new_title.filter(|title| old_title.as_ref() != Some(title))
@@ -987,23 +1032,64 @@ fn spawn_reader(
                     }
                     Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
                     Err(error) => {
-                        if !stopped.load(Ordering::Acquire) {
+                        if !closing.load(Ordering::Acquire) {
                             let _ = events.send(TerminalEvent::Error(error.to_string()));
                         }
                         break;
                     }
                 }
             }
-            let exit_code = child
-                .lock()
-                .ok()
-                .and_then(|mut child| child.wait().ok())
-                .map(|status| status.exit_code() as i32);
-            if !stopped.swap(true, Ordering::AcqRel) {
-                let _ = events.send(TerminalEvent::Exited(exit_code));
-            }
         })
         .expect("failed to start terminal reader thread")
+}
+
+fn spawn_process_watcher(
+    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    master: PtyMaster,
+    writer: PtyWriter,
+    reader_thread: JoinHandle<()>,
+    events: Sender<TerminalEvent>,
+    closing: Arc<AtomicBool>,
+    stopped: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    thread::Builder::new()
+        .name("nexul-terminal-process".into())
+        .spawn(move || {
+            // Never hold the child lock across a blocking wait: stop() needs
+            // the same child to terminate a shell that is still running.
+            let exit_code = loop {
+                let result = child
+                    .lock()
+                    .map_err(|_| io::Error::other("terminal child lock poisoned"))
+                    .and_then(|mut child| child.try_wait());
+                match result {
+                    Ok(Some(status)) => break Some(status.exit_code() as i32),
+                    Ok(None) => thread::sleep(Duration::from_millis(10)),
+                    Err(error) => {
+                        let _ = events.send(TerminalEvent::Error(error.to_string()));
+                        break None;
+                    }
+                }
+            };
+            closing.store(true, Ordering::Release);
+            // ConPTY keeps its output pipe alive until the master is closed.
+            // Close outside the locks, with the reader still draining output:
+            // ClosePseudoConsole itself may wait for the pipe to be drained.
+            let input = writer.lock().unwrap().take();
+            drop(input);
+            let pty = master.lock().unwrap().take();
+            drop(pty);
+            if reader_thread.join().is_err() {
+                let _ = events.send(TerminalEvent::Error("terminal reader panicked".into()));
+            }
+            stopped.store(true, Ordering::Release);
+            let _ = events.send(TerminalEvent::Exited(exit_code));
+        })
+        .expect("failed to start terminal process watcher thread")
+}
+
+fn terminal_closed() -> io::Error {
+    io::Error::new(io::ErrorKind::BrokenPipe, "terminal has exited")
 }
 
 fn other_io(error: impl std::fmt::Display) -> io::Error {
@@ -1086,6 +1172,16 @@ mod tests {
     }
 
     #[test]
+    fn cursor_and_status_queries_are_answered_across_reads() {
+        let mut screen = Screen::new(80, 24, 4);
+        let mut parser = vte::Parser::new();
+        parser.advance(&mut screen, b"\x1b[3;7H\x1b[");
+        assert!(screen.responses.is_empty());
+        parser.advance(&mut screen, b"6n\x1b[5n\x1b[?6n");
+        assert_eq!(screen.responses, b"\x1b[3;7R\x1b[0n\x1b[?3;7R");
+    }
+
+    #[test]
     fn unicode_accent_cjk_and_emoji_keep_cell_widths() {
         let mut screen = Screen::new(10, 2, 4);
         feed(&mut screen, "e\u{301} 中 🧪");
@@ -1129,20 +1225,32 @@ mod tests {
         let terminal = Terminal::spawn(interactive_shell(), cwd, 80, 24).unwrap();
         #[cfg(windows)]
         terminal
-            .write_text("Write-Output 'NEXUL PTY READY'\r\nexit\r\n")
+            .write_text("Write-Output ('NEXUL PTY ' + 'READY')\r\nexit\r\n")
             .unwrap();
         #[cfg(unix)]
         terminal
-            .write_text("printf 'NEXUL PTY READY\\n'\nexit\n")
+            .write_text("printf 'NEXUL PTY %s\\n' READY\nexit\n")
             .unwrap();
-        let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(5)
-            && !terminal.snapshot().plain_text().contains("NEXUL PTY READY")
-        {
-            let _ = terminal.recv_event_timeout(Duration::from_millis(50));
-        }
-        assert!(terminal.snapshot().plain_text().contains("NEXUL PTY READY"));
         assert_eq!(wait_for_exit(&terminal, Duration::from_secs(5)), Some(0));
+        assert!(terminal.snapshot().plain_text().contains("NEXUL PTY READY"));
+    }
+
+    #[test]
+    fn pty_drains_output_before_reporting_nonzero_exit() {
+        #[cfg(windows)]
+        let shell = ShellSpec::cmd().unwrap().arg("/D").arg("/C").arg(
+            "(for /L %i in (1,1,2000) do @echo terminal output to drain before closing ConPTY) & echo NEXUL DRAIN COMPLETE & exit /b 7",
+        );
+        #[cfg(unix)]
+        let shell = ShellSpec::custom("/bin/sh").arg("-c").arg(
+            "i=0; while [ $i -lt 2000 ]; do printf 'terminal output to drain before closing PTY\\n'; i=$((i + 1)); done; printf 'NEXUL DRAIN COMPLETE\\n'; exit 7",
+        );
+        let terminal = Terminal::spawn(shell, std::env::current_dir().unwrap(), 80, 24).unwrap();
+        assert_eq!(wait_for_exit(&terminal, Duration::from_secs(10)), Some(7));
+        assert!(terminal
+            .snapshot()
+            .plain_text()
+            .contains("NEXUL DRAIN COMPLETE"));
     }
 
     #[test]
@@ -1156,9 +1264,19 @@ mod tests {
         );
         terminal.stop().unwrap();
         assert!(terminal.stopped.load(Ordering::Acquire));
-        assert!(matches!(
-            terminal.recv_event_timeout(Duration::from_secs(1)),
-            Ok(TerminalEvent::Exited(_))
-        ));
+        assert!(wait_for_exit(&terminal, Duration::from_secs(1)).is_some());
+        terminal.stop().unwrap();
+        assert!(terminal
+            .events
+            .try_iter()
+            .all(|event| !matches!(event, TerminalEvent::Exited(_))));
+        assert_eq!(
+            terminal.write_text("ignored").unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            terminal.resize(80, 24).unwrap_err().kind(),
+            io::ErrorKind::BrokenPipe
+        );
     }
 }
