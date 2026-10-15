@@ -590,7 +590,15 @@ Précisions apportées par l'implémentation :
 - Un nom seul dans un motif est pris pour une variante s'il en existe une du même nom (comme en
   0.2) ; `.Nom` est l'écriture recommandée.
 
-Reste : `nxc migrate`, le repli `else`, `===`, `in`, types distincts et contraints,
+**Tranche 2, 16/10/2026** : `nxc migrate fichier.nx… [--write]` réécrit la 0.2 en édition 1 à
+partir de l'arbre (commentaires et mise en page gardés) ; les noms devenus réservés sont
+renommés (`repeat` → `repeat_`) quand c'est sûr ; ce qui reste est listé avec sa ligne. Le
+parser accepte aussi `e! is P` (liaisons qui modifient `e`) et `extend Type[A is Borne]`.
+Mesures : les 33 programmes 0.2 de `tests/run` (un seul fichier) migrés donnent **la même
+sortie et le même code de sortie** ; les 21 fichiers de `lib/` et les 8 exemples migrent sans
+rien à reprendre ; les 7 exemples migrés compilent sans avertissement (tests `migrated_programs_behave_the_same`, `migrated_examples_and_library`).
+
+Reste : le repli `else`, `===`, `in`, types distincts et contraints,
 `expects panic`, `nxc ide` et `nxpm` avec l'édition, formateur, coloration de Studio et de
 l'extension, puis la migration de `lib/` et des tests.
 

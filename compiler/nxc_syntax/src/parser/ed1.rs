@@ -410,7 +410,8 @@ impl<'a> Parser<'a> {
                 let mstart = self.span();
                 let mattrs = self.attrs()?;
                 let mpub = self.eat(&TokenKind::Pub);
-                if matches!(self.peek(), TokenKind::Fn | TokenKind::Unsafe) {
+                // `fn i32(i32) f` is a field whose type is a function; `fn i32 f(…)` a function.
+                if matches!(self.peek(), TokenKind::Fn | TokenKind::Unsafe) && !self.typed_name_here() {
                     let f = self.fn_decl1()?;
                     fns.push(Item { attrs: mattrs, is_pub: mpub, kind: ItemKind::Fn(f), span: mstart.to(self.prev_span()) });
                 } else {
@@ -503,13 +504,26 @@ impl<'a> Parser<'a> {
         Ok(TraitDecl { name, supertraits, items })
     }
 
-    /// `extend Type [is I] { functions }`
+    /// `extend Type [is I] { functions }`; a generic type names its parameters, with their
+    /// bounds if any: `extend Paire[A is Display] is Display { … }`.
     fn extend1(&mut self) -> PResult<ImplDecl> {
         self.bump(); // extend
-        let ty = self.type_expr()?;
+        let start = self.span();
+        let (ty, bounds) = if matches!(self.peek(), TokenKind::Ident(_)) && !self.is_word("any") {
+            let mut segments = vec![self.ident("a type name")?];
+            while self.is(&TokenKind::Dot) {
+                self.bump();
+                segments.push(self.ident("a type name")?);
+            }
+            let (names, bounds) = self.generics1()?;
+            let args = names.into_iter().map(|n| TypeExpr { span: n.span, kind: TypeExprKind::Path { segments: vec![n], args: vec![] } }).collect();
+            (TypeExpr { kind: TypeExprKind::Path { segments, args }, span: start.to(self.prev_span()) }, bounds)
+        } else {
+            (self.type_expr()?, vec![])
+        };
         let trait_ = if self.eat_word("is") { Some(self.type_expr()?) } else { None };
         let items = self.fn_body_items("a function")?;
-        Ok(ImplDecl { ty, trait_, bounds: vec![], items })
+        Ok(ImplDecl { ty, trait_, bounds, items })
     }
 
     /// `{ [attributes] [pub] fn … }`
@@ -746,12 +760,12 @@ impl<'a> Parser<'a> {
                 let body = self.block()?;
                 match is_test(&cond) {
                     // `while e is P { body }` is `while true { if e is P { body } else { break } }`.
-                    Some((pat, e)) => {
+                    Some((pat, e, mutable)) => {
                         let span = start.to(body.span);
                         let brk = Expr { kind: ExprKind::Break(None), span };
                         let else_block = Block { stmts: vec![Stmt { kind: StmtKind::Expr(brk), span }], span };
                         let if_is = Expr {
-                            kind: ExprKind::If { cond: Cond::Let(Box::new(pat), Box::new(e), false), then: body, else_: Some(Box::new(Expr { kind: ExprKind::Block(else_block), span })) },
+                            kind: ExprKind::If { cond: Cond::Let(Box::new(pat), Box::new(e), mutable), then: body, else_: Some(Box::new(Expr { kind: ExprKind::Block(else_block), span })) },
                             span,
                         };
                         let outer = Block { stmts: vec![Stmt { kind: StmtKind::Expr(if_is), span }], span };
@@ -918,6 +932,8 @@ impl<'a> Parser<'a> {
     /// `e is P`: a test that gives `true` or `false` (`match e { P => true, _ => false }`);
     /// as the whole condition of `if` or `while`, it binds the names of `P`.
     pub(super) fn is_expr(&mut self, lhs: Expr) -> PResult<Expr> {
+        // `e! is P`: the names of `P` modify `e` in place.
+        let mutable = self.toks[self.pos - 1].kind == TokenKind::Bang;
         self.bump(); // is
         let pat = self.pattern()?;
         let span = lhs.span.to(pat.span);
@@ -925,7 +941,7 @@ impl<'a> Parser<'a> {
         let f = Expr { kind: ExprKind::Lit(Lit::Bool(false)), span: pat.span };
         let wild = Pattern { kind: PatKind::Wild, span: pat.span };
         let arms = vec![Arm { pat, guard: None, body: t, span }, Arm { pat: wild, guard: None, body: f, span }];
-        Ok(Expr { kind: ExprKind::Match { scrutinee: Box::new(lhs), arms, mutable: false }, span })
+        Ok(Expr { kind: ExprKind::Match { scrutinee: Box::new(lhs), arms, mutable }, span })
     }
 
     /// `a |> f(b)` is `f(a, b)`; `a |> f` is `f(a)`.
@@ -944,12 +960,13 @@ impl<'a> Parser<'a> {
     }
 }
 
-/// `match e { P => true, _ => false }` built by `is`: the pattern and the value.
-pub(super) fn is_test(e: &Expr) -> Option<(Pattern, Expr)> {
-    let ExprKind::Match { scrutinee, arms, mutable: false } = &e.kind else { return None };
+/// `match e { P => true, _ => false }` built by `is`: the pattern, the value, and whether
+/// the bindings modify it (`e! is P`).
+pub(super) fn is_test(e: &Expr) -> Option<(Pattern, Expr, bool)> {
+    let ExprKind::Match { scrutinee, arms, mutable } = &e.kind else { return None };
     match arms.as_slice() {
         [a, b] if matches!(a.body.kind, ExprKind::Lit(Lit::Bool(true))) && matches!(b.body.kind, ExprKind::Lit(Lit::Bool(false))) && matches!(b.pat.kind, PatKind::Wild) && a.guard.is_none() => {
-            Some((a.pat.clone(), (**scrutinee).clone()))
+            Some((a.pat.clone(), (**scrutinee).clone(), *mutable))
         }
         _ => None,
     }

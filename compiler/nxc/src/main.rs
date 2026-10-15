@@ -15,6 +15,9 @@ usage:
     nxc test   <file.nx> [name...] [options]                run the @test functions (whose name
                                                             contains one of the names)
     nxc fmt    <file.nx> [--check]                          format a file in place
+    nxc migrate <file.nx>... [--write]                      rewrite NEXUL 0.2 in the syntax of edition 1
+                                                            (ADR 0010); prints the result, or rewrites
+                                                            the files with --write
     nxc ide    <request> <file.nx> [line col] [--stdin]      editor services (JSON):
                    hover, definition, completion, references, rename <name>,
                    symbols, tests, format; `nxc ide std-source <module>`
@@ -139,6 +142,7 @@ fn real_main() {
     match argv.first().map(|s| s.as_str()) {
         Some("ide") => return ide_command(&argv[1..]),
         Some("fmt") => return fmt_command(&argv[1..]),
+        Some("migrate") => return migrate_command(&argv[1..]),
         _ => {}
     }
     let args = parse_args();
@@ -317,6 +321,41 @@ fn ide_command(argv: &[String]) {
         other => fail(&format!("unknown ide request `{}`", other)),
     };
     println!("{}", out);
+}
+
+/// `nxc migrate <file>... [--write]`: rewrites NEXUL 0.2 in the syntax of edition 1. Without
+/// `--write`, one file is printed on stdout. What is left to finish by hand is listed on stderr,
+/// with its line; the exit code is then 2.
+fn migrate_command(argv: &[String]) {
+    let write = argv.iter().any(|a| a == "--write");
+    let files: Vec<&String> = argv.iter().filter(|a| !a.starts_with("--")).collect();
+    if files.is_empty() || (files.len() > 1 && !write) {
+        fail("usage: nxc migrate <file.nx> (prints the result) or nxc migrate <file.nx>... --write");
+    }
+    let mut left = 0;
+    for f in files {
+        let text = std::fs::read_to_string(f).unwrap_or_else(|e| fail(&format!("cannot read `{}`: {}", f, e)));
+        let name = std::path::Path::new(f).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        let m = nxc_driver::migrate::migrate(&name, &text).unwrap_or_else(|e| fail(&format!("`{}` is not valid NEXUL 0.2:\n{}", f, e)));
+        if write {
+            if m.text != text {
+                std::fs::write(f, &m.text).unwrap_or_else(|e| fail(&format!("cannot write `{}`: {}", f, e)));
+            }
+            eprintln!("{} : {} modification(s)", f, m.edits);
+        } else {
+            print!("{}", m.text);
+        }
+        for w in &m.renamed {
+            eprintln!("{} : `{}` renommé en `{}_` (mot réservé de l'édition 1)", f, w, w);
+        }
+        for (line, why) in &m.manual {
+            eprintln!("{}:{}: à reprendre : {}", f, line, why);
+        }
+        left += m.manual.len();
+    }
+    if left > 0 {
+        exit(2);
+    }
 }
 
 /// `nxc fmt <file> [--check]`

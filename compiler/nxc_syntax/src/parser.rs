@@ -1569,7 +1569,7 @@ impl<'a> Parser<'a> {
             let e = self.expr()?;
             match ed1::is_test(&e) {
                 // `if e is P` binds the names of `P` in the block.
-                Some((pat, x)) if self.ed1 => Cond::Let(Box::new(pat), Box::new(x), false),
+                Some((pat, x, mutable)) if self.ed1 => Cond::Let(Box::new(pat), Box::new(x), mutable),
                 _ => Cond::Expr(Box::new(e)),
             }
         };

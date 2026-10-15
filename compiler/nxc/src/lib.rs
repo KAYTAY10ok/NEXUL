@@ -5,6 +5,7 @@ pub mod codes;
 pub mod ide;
 pub mod link;
 pub mod llvm;
+pub mod migrate;
 pub mod pkg;
 mod objsyms;
 pub mod toolchain;
