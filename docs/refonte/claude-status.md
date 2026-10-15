@@ -20,14 +20,13 @@ Plan des lots : [master-plan.md](master-plan.md).
 | 15/10 | Explorateur natif : opérations sur les fichiers, glisser-déposer, presse-papiers | `4a9c068` (PR #7) |
 | 15/10 | Services NEXUL dans l'éditeur natif : diagnostics `nxc check --json`, survol, complétion, définition, renommage de symbole, mise en forme | `c5c22af` (PR #7) |
 | 15/10 | Palette de commandes (Ctrl+Maj+P, F1) et ouverture rapide (Ctrl+P), recherche floue | `04fc2e7` |
+| 15/10 | **P1 — aucune perte de données** : Enregistrer / Ne pas enregistrer / Annuler à la fermeture d'un onglet et de la fenêtre, conflit avec un fichier changé sur disque (Écraser / Recharger), enregistrement atomique (`ReplaceFileW`), récupération après plantage, enregistrement automatique en réglage | `43ebbe5` |
 | 15/10 | Gouvernance V3 : [AGENTS.md](AGENTS.md), [master-plan.md](master-plan.md), [passation-v3.md](passation-v3.md), transferts consignés | ce lot |
 
 ## Travaux en cours
 
-- **P1 — protection des données de Studio** (passation §11 P0) : boîte « Enregistrer / Ne
-  pas enregistrer / Annuler » à la fermeture d'onglet et de fenêtre (aujourd'hui la
-  fermeture d'un onglet modifié **enregistre sans demander**), conflits avec un fichier
-  changé sur disque, enregistrement atomique, récupération après plantage.
+- **P1 — protection des données** : fait (`43ebbe5`, testé) ; essai manuel de
+  l'application à faire.
 - **P3 — raccordement des cinq crates** dans `studio/app` : `syntax` (remplace la coloration
   provisoire), `lsp`, `terminal`, `dap`, `templates`.
 
@@ -35,7 +34,9 @@ Plan des lots : [master-plan.md](master-plan.md).
 
 - `cargo test -p nexul-studio` : 8 tests réussis.
 - `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1` :
-  21 tests réussis (fenêtre sans affichage, vraies frappes, vrai `nxc`).
+  25 tests réussis (fenêtre sans affichage, vraies frappes, vrai `nxc`).
+- `cargo test -p nexul-studio` : 9 tests réussis (dont l'enregistrement atomique).
+- Crates de Luna : voir [master-plan.md](master-plan.md) §3.
 
 ## Problèmes rencontrés
 
@@ -65,3 +66,9 @@ Plan des lots : [master-plan.md](master-plan.md).
    Studio par défaut, sans dépendance à Edge.
 2. Modèle « NEXUL + WebAssembly + JavaScript » fondé sur l'ABI v1 et `lib/web/nexul.mjs`.
 3. Ossature de l'extension VS Code (`editors/vscode/**`), sans grammaire finale avant l'ADR.
+4. **`studio/terminal`** sur le PC de Main : ne se construit pas avec la chaîne GNU
+   (`windows-sys` demande `dlltool`) ; avec MSVC, `pty_resize_and_stop_are_reported` et
+   `pty_runs_interactive_program_and_exits` ne se terminent jamais (ConPTY réel). À corriger
+   (ou chaîne requise documentée) avant le raccordement.
+5. **`studio/dap`** : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step`
+   échoue avec `Timeout("launch")` contre le vrai `lldb-dap` de LLVM 23.

@@ -13,7 +13,7 @@ Dernière mise à jour : 15 octobre 2026, `main` à `548b1f6`.
 | Lot | Urgence | Travail et preuve de sortie | Propriétaire | Dépend de | Statut |
 |---|---|---|---|---|---|
 | P0 | Immédiat | Gouvernance V3 : charte, transferts, plan maître | Main | accord utilisateur (obtenu le 15/10) | IMPLÉMENTÉ (PR à fusionner) |
-| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre), conflits disque, enregistrement atomique, récupération, tests E2E | Main | — | À FAIRE (en cours) |
+| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre), conflits disque, enregistrement atomique, récupération, tests E2E | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, 25 tests) ; essai manuel à faire |
 | P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | Main + Outils (un auteur par fichier) | décision utilisateur | À FAIRE |
 | P3 | Élevée | Raccorder `syntax`, `lsp`, `terminal`, `dap`, `templates` dans Studio ; UI native stable | Main | crates fusionnées | À FAIRE |
 | P4 | Élevée | Installateur Windows du Studio natif testé avec un vrai binaire | Luna | transfert installateur, P3 minimal | À FAIRE |
@@ -43,8 +43,8 @@ matrice des preuves et les écarts code/documentation.
 | Ancienne interface web (Edge) | `studio/src`, `studio/ui` | Main | LIVRÉ (0.2.0) | à retirer à la parité seulement |
 | Coloration NEXUL | `studio/syntax` | Luna (maintenance) | TESTÉ_UNITAIREMENT | voir §3 ; à raccorder (P3) |
 | Client LSP + détection SDK | `studio/lsp` | Luna (maintenance) | TESTÉ_UNITAIREMENT | voir §3 ; à raccorder (P3) |
-| Terminal PTY + émulation | `studio/terminal` | Luna | TESTÉ_UNITAIREMENT | voir §3 ; vue GPUI à faire (P3) |
-| Client DAP + adaptateurs | `studio/dap` | Luna | TESTÉ_UNITAIREMENT | voir §3 ; UI et essai réel LLDB (P3) |
+| Terminal PTY + émulation | `studio/terminal` | Luna | IMPLÉMENTÉ | 2 essais PTY bloqués (§3) ; vue GPUI à faire (P3) |
+| Client DAP + adaptateurs | `studio/dap` | Luna | IMPLÉMENTÉ | essai réel `lldb-dap` en échec (§3) ; UI à faire (P3) |
 | Modèles de projets | `studio/templates` | Luna | TESTÉ_UNITAIREMENT | voir §3 ; assistant GPUI (P3) |
 | Installateur Windows | `installer/` | Outils → Luna | LIVRÉ (0.2.0) | empaquette encore l'ancien Studio (P4) ; branches installateur d'Outils non fusionnées |
 | Extension VS Code | `editors/vscode/` | Luna | À FAIRE | P10 |
@@ -57,11 +57,15 @@ Commande : `cargo test --manifest-path studio/<crate>/Cargo.toml` (chaîne GNU),
 
 | Crate | Résultat |
 |---|---|
-| `studio/syntax` | (en cours) |
-| `studio/lsp` | (en cours) |
-| `studio/terminal` | (en cours) |
-| `studio/dap` | (en cours) |
-| `studio/templates` | (en cours) |
+| `studio/syntax` | 26 tests réussis |
+| `studio/lsp` | 32 tests réussis |
+| `studio/terminal` | **ne se construit pas avec la chaîne GNU** (`windows-sys` : `dlltool` introuvable) ; avec MSVC : 3 tests réussis, **2 bloqués** sans fin (`pty_resize_and_stop_are_reported`, `pty_runs_interactive_program_and_exits`, arrêtés après 60 s chacun) |
+| `studio/dap` | 4 tests réussis ; **échec** de `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step` : `Timeout("launch")` avec le vrai `lldb-dap` (LLVM 23) |
+| `studio/templates` | 6 tests réussis |
+
+Statuts révisés en conséquence : terminal et DAP restent `IMPLÉMENTÉ` tant que ces essais
+réels ne passent pas sur Windows (demandes à Luna dans
+[claude-main-status.md](claude-main-status.md)).
 
 ## 4. Décisions à faire valider par l'utilisateur (passation §16)
 
