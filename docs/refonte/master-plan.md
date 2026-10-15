@@ -6,9 +6,9 @@ Tenu par **Claude Main** (voir [AGENTS.md](AGENTS.md)). Source des exigences :
 preuve (commande, test, PR). Un résultat déclaré par un agent et non revérifié par Main est
 marqué « déclaré ».
 
-Dernière mise à jour : 15 octobre 2026, `main` à `edb886c` (PR #11, #12, #13 fusionnées).
+Dernière mise à jour : 15 octobre 2026, `main` à `e57380c` (PR #14 à #17 fusionnées : assistant de l'installateur, audit G0, extension VS Code, QA de Gemma). Codex Astral devient **Codex Luna 2** (terminal, débogueur, mesures).
 
-Sommaire : §1 lots · §2 **ordres de mission par agent** · §3 **toutes les améliorations
+Sommaire : §1 lots · §1.1 scénarios de fin et responsables · §2 **ordres de mission par agent** · §3 **toutes les améliorations
 (refonte et création)** · §4 composants existants · §5 vérifications de Main · §6 décisions
 de l'utilisateur · §7 intégration.
 
@@ -17,24 +17,42 @@ de l'utilisateur · §7 intégration.
 | Lot | Urgence | Travail et preuve de sortie | Propriétaire | Dépend de | Statut |
 |---|---|---|---|---|---|
 | P0 | Immédiat | Gouvernance V3 : charte, transferts, plan maître | Main | accord utilisateur (15/10) | INTÉGRÉ (PR #13) |
-| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre), conflits disque, enregistrement atomique, récupération, tests | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, 25 tests) ; PR à fusionner ; essai manuel à faire (Q3) |
-| P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | Outils (auteur) + Main (co-conception, approbation) | décision utilisateur | À FAIRE (O1, O2) |
-| P3 | Élevée | Raccorder `syntax`, `lsp`, `terminal`, `dap`, `templates` dans Studio ; UI native stable | Main | crates fusionnées ; L1, L2 pour terminal et DAP | À FAIRE (M3 à M7) |
-| P4 | Élevée | Installateur Windows du Studio natif testé avec un vrai binaire | Luna | transfert (effectif : PR #11 fusionnée), M2 | À FAIRE (L3) |
+| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre, changement de dossier), conflits disque, enregistrement atomique, récupération, tests | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, `eb490ce`) ; **essai manuel : Main** (M19), avec la liste de Gemma (`docs/refonte/gemma/manual-studio-checklist.md`) |
+| P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | **G0** : Outils (fait). **G1** : Outils rédige (O2), Main co-conçoit et relit chaque proposition (M14). **G2** : Outils rédige l'ADR et l'EBNF, Main co-signe, l'utilisateur choisit (décision 2) | G0 → G1 → choix utilisateur → G2 | G0 CONÇU (PR #15, relecture Main : M18) ; G1 À FAIRE ; G2 À FAIRE |
+| P3 | Élevée | Raccorder `syntax`, `lsp`, `terminal`, `dap`, `templates` dans Studio ; UI native stable | Main (vues) ; Luna 2 (terminal, DAP) | L1, L2 pour terminal et DAP | `syntax` INTÉGRÉ (M3) ; `templates` INTÉGRÉ (M4) ; `lsp` À FAIRE (M5, Main) ; terminal (M6) et DAP (M7) attendent L1 et L2 de Luna 2 |
+| P4 | Élevée | Installateur Windows du Studio natif testé avec un vrai binaire | Luna | M2 (fait) | assistant Win32 fusionné (PR #14, étape 2) ; Studio natif à empaqueter (L3) |
 | P5 | Élevée | Conception typage renforcé, OOP, modèle mémoire et concurrence ; tests d'acceptation | Outils, revue Main | P2 | À FAIRE (O5) |
 | P6 | Élevée | Nouveau lexer/parser, types, formatage, diagnostics ; migration des sources 0.2 | Outils | ADR P2 | À FAIRE |
 | P7 | Élevée | Concurrence sûre (compilateur + runtime), canaux, tests négatifs et de stress | Outils | P5, P6 | À FAIRE |
 | P8 | Élevée | Profil temps réel v1 sur une cible définie, budgets et mesures | Outils | P7, cible validée (décision 3) | À FAIRE (étude O6) |
 | P9 | Élevée | `nxc lsp`, JSON versionné, vérification du texte non enregistré | Outils | contrat approuvé par Main | À FAIRE (O3) |
-| P10 | Élevée | Extension VS Code : VSIX installable, commandes `nxc`, LSP, format, tests | Luna, revue Main | P2 (coloration finale), P9 (LSP) | À FAIRE (ossature L4) |
+| P10 | Élevée | Extension VS Code : VSIX installable, commandes `nxc`, LSP, format, tests | Luna, revue Main | P2 (coloration finale), P9 (LSP) | IMPLÉMENTÉ (PR #16, 6 tests, VSIX installé, déclaré) ; essais avec `nxc` réel et revue Main à faire |
 | P11 | Élevée | Web dans Studio : modèle NEXUL + Web, aperçu isolé `wasm32-web` | Luna (modèle), Main (UI) | ABI v1 | modèle TESTÉ_UNITAIREMENT (PR #12, revérifié §5) ; aperçu À FAIRE (M11) |
 | P12 | Majeur | Auto-hébergement stage0 → stage1 → stage2, parité, reproductibilité | Outils, revue Main | noyau stable | À FAIRE (inventaire O8) |
-| P13 | Majeur | Benchmarks NEXUL/C/Rust/C#, précision, optimisations, multi-cibles | Outils ; Astral sur mandat | base figée | À FAIRE (mandat A1) |
-| P14 | Bloquant pour « fini » | Scénarios E2E A à H (passation §15.2), documentation exacte, version stable, migration, retour arrière | Main + chaque propriétaire | tous les lots | À FAIRE |
+| P13 | Majeur | Benchmarks NEXUL/C/Rust/C#, précision, optimisations, multi-cibles | Outils ; Luna 2 sur mandat (A1) | base figée | À FAIRE (A1) |
+| P14 | Bloquant pour « fini » | Scénarios E2E A à H (passation §15.2), documentation exacte, version stable, migration, retour arrière | **Main** (responsable) ; Gemma exécute (Q7) ; chaque propriétaire corrige (§1.1) | tous les lots | À FAIRE |
 
 Séquence : la suite de tests reste verte à chaque lot ; la syntaxe est arrêtée (ADR) avant
 la grammaire finale de VS Code et de `studio/syntax` ; les garanties temps réel sont
 spécifiées avant les primitives ; le self-hosting vient après un noyau stable.
+
+### 1.1 Scénarios de fin (P14) — responsables
+
+**Responsable de P14 : Claude Main** (pilote, décide si un scénario est passé). **Exécution
+et preuves : Gemma** (tâche Q7, fiches `tests/manual/e2e-*.md`). Chaque scénario a un
+propriétaire qui corrige ce qui échoue. Un scénario est rejoué à chaque version ; il
+n'est « passé » qu'avec sa preuve datée (commande, sortie, capture si utile).
+
+| Scénario (passation §15.2) | Propriétaire des corrections | Jouable | Statut |
+|---|---|---|---|
+| A — Premier programme : installer, Studio, projet, erreurs, construire, exécuter, interrompre, déboguer, fermer et rouvrir sans perte | Main (Studio) ; Luna (installateur) ; Luna 2 (débogueur) | en partie maintenant (sans nouvel installateur ni débogueur) ; complet après L3, L2, M7 | À FAIRE |
+| B — Bibliothèque OOP forte | Outils | après P5, P6 | À FAIRE |
+| C — Concurrence | Outils | après P7 | À FAIRE |
+| D — Temps réel sur la cible choisie | Outils | après P8 et la décision 3 | À FAIRE |
+| E — Auto-hébergement stage0 → stage1 → stage2 | Outils | après P12 | À FAIRE |
+| F — VS Code : VSIX propre, diagnostics, format, build, test, run, débogage, outil absent | Luna | maintenant avec `nxc` 0.2 (sauf LSP et débogage) | À FAIRE |
+| G — Web : NEXUL → `wasm32-web` → page, aperçu dans Studio, Unicode, réentrance | Outils (cible) ; Luna (modèle) ; Main (aperçu) | en partie maintenant (modèle) ; aperçu après M11 | À FAIRE |
+| H — Régression : programmes 0.2 migrés, cibles, performances, précision, CI | Main (CI) ; Outils (migration) | après M13, Q4, S7 | À FAIRE |
 
 ## 2. Ordres de mission (réattribution du 15/10)
 
@@ -62,14 +80,17 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | M13 | 2 | CI GitHub (`.github/**`) : compilateur (GNU), `studio/app` (MSVC), crates séparées | décision 8 ; tous les espaces de travail testés | CONÇU |
 | M14 | 1 | P2 — co-concevoir les propositions de syntaxe avec Outils, les comparer, présenter le choix à l'utilisateur | ADR co-signée, validée par l'utilisateur | À FAIRE |
 | M15 | 1 | Approuver le contrat `nxc lsp` (O3) ; revoir toutes les PR Core (veto sécurité/compatibilité) | revue écrite dans chaque PR | continu |
-| M16 | 3 | P14 — scénarios A à H, notes de version, `CHANGELOG.md`, `README.md` | scénarios exécutés et consignés | À FAIRE |
+| M16 | 2 | P14 — piloter les scénarios A à H (§1.1) avec Gemma (Q7) ; notes de version, `CHANGELOG.md`, `README.md` | scénarios exécutés et consignés | À FAIRE |
+| M17 | 3 | Demande de Luna : extensions de Studio — formatage intégré (commande, à l'enregistrement désactivé par défaut), API de thèmes et préférences validées, avec permission explicite, tests | API documentée et testée | À FAIRE |
+| M18 | 1 | Relire les PR fusionnées sans revue de Main : #15 (audit G0), #16 (extension VS Code), #14 (installateur, fait par Outils après le transfert), #17 (QA) ; demandes de correction aux auteurs | note de revue par PR | À FAIRE |
+| M19 | 1 | Essai manuel de P1 dans la vraie application (fermeture, conflit, récupération, changement de dossier) avec la liste de Gemma | résultats consignés | À FAIRE |
 
 ### 2.2 Claude Outils / Core
 
 | Tâche | Prio | Travail | Livrable et critère de fin | Statut |
 |---|---|---|---|---|
-| O1 | 1 | P2-G0 — audit des usages de NEXUL 0.2 (runtime, `lib/std`, tests, exemples, guide, Studio) : formes à garder, faiblesses, ambiguïtés, impact outillage | `docs/adr/syntaxe-g0-audit.md`, relu par Main | À FAIRE |
-| O2 | 1 | P2-G1 — trois propositions crédibles, chacune sur les 12 programmes de la passation §3.2 (illustratives), lisibilité, nombre de termes, complexité du parser | `docs/adr/syntaxe-g1-propositions.md` ; Main co-auteur par revue | À FAIRE (après O1) |
+| O1 | 1 | P2-G0 — audit des usages de NEXUL 0.2 (runtime, `lib/std`, tests, exemples, guide, Studio) : formes à garder, faiblesses, ambiguïtés, impact outillage | `docs/adr/syntaxe/g0-audit.md` et `g0-recensement.md`, relus par Main (M18) | CONÇU (PR #15) |
+| O2 | 1 | P2-G1 — trois propositions crédibles, chacune sur les 12 programmes de la passation §3.2 (illustratives), lisibilité, nombre de termes, complexité du parser | `docs/adr/syntaxe/g1-propositions.md` ; Main co-conçoit et relit chaque proposition avant la présentation à l'utilisateur | À FAIRE (G0 fait) |
 | O3 | 1 | P9 — contrat `nxc lsp` (capacités, version, texte non enregistré) puis implémentation : `initialize`, `didOpen`/`didChange`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `documentSymbol`, `formatting` ; champ `version` dans `check --json` et `ide` ; vérification depuis l'entrée standard | contrat approuvé par Main, puis tests stdio réels | À FAIRE |
 | O4 | 1 | Formateur : l'accolade fermante reste en fin de ligne (`fn main(){⏎ println("ok")}`) | comportement décidé, test de non-régression | À FAIRE |
 | O5 | 2 | P5 — conception : types distincts, sous-types contraints, invariants, contrats, effets, OOP, modèle mémoire et concurrence ; corpus de tests d'acceptation (positifs et négatifs) | ADR relues par Main ; corpus prêt à exécuter | À FAIRE |
@@ -82,63 +103,74 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 Les tâches P6, P7, P8 (implémentation), P12 (SH1 à SH5) et P13 suivent l'ADR de syntaxe et
 les ADR de P5 ; elles sont détaillées au §3.
 
-### 2.3 Codex Luna
+### 2.3 Codex Luna — extension VS Code, installateur, modèles
+
+Depuis le 15/10, le terminal et le débogueur passent à Codex Luna 2 (§2.4).
 
 | Tâche | Prio | Travail | Critère de fin | Statut |
 |---|---|---|---|---|
-| L1 | 1 | `studio/terminal` sous Windows : les essais ConPTY `pty_resize_and_stop_are_reported` et `pty_runs_interactive_program_and_exits` ne se terminent jamais sur le PC de Main (MSVC) ; la chaîne GNU échoue (`dlltool`) | `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml` vert en moins d'une minute ; chaîne requise écrite dans le README ou dépendance GNU corrigée | BLOQUÉ (à corriger) |
-| L2 | 1 | `studio/dap` : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step` échoue avec `Timeout("launch")` contre `lldb-dap` de LLVM 23 | test réel vert sur Windows avec `nxc` et `lldb-dap` | BLOQUÉ (à corriger) |
-| L3 | 1 | P4 — installateur (transfert effectif) : empaqueter `NEXUL-Studio-Native.exe` (construit avec MSVC **depuis `studio/app`** : CRT statique, issue #9 réglée) comme Studio par défaut, raccourcis, association `.nx`, désinstallation, migration depuis l'ancien Studio ; étapes 2 et 3 de l'interface native (études d'Outils) | installation et désinstallation réelles testées sur Windows ; plus de Studio Edge installé par défaut | À FAIRE |
-| L4 | 1 | P10 — ossature de l'extension VS Code `editors/vscode/**` : `package.json`, langage `.nx` et `nexul.toml`, réglage du chemin de `nxc`, commandes check/build/run/test/fmt/explain par la CLI, diagnostics de `check --json`, tâches, Workspace Trust, tests hôte, script VSIX ; coloration 0.2 marquée provisoire | VSIX installé dans un VS Code propre, diagnostics et commandes réels ; aucune grammaire finale avant l'ADR | À FAIRE |
-| L5 | 2 | `studio/templates` : documenter `ToolchainProvider` pour M4 | API décrite dans le README | suite Rust verte chez Main (§5) |
-| L6 | 3 | Maintenance `studio/syntax` et `studio/lsp` ; adaptation à la nouvelle grammaire après l'ADR ; client `nxc lsp` quand il existe | tests de conformité sur le corpus de l'ADR | À FAIRE |
+| L3 | 1 | P4 — installateur : empaqueter `NEXUL-Studio-Native.exe` (construit avec MSVC **depuis `studio/app`** : CRT statique, issue #9 réglée) comme Studio par défaut, raccourcis, association `.nx`, désinstallation, migration depuis l'ancien Studio ; étape 3 de l'interface native (l'étape 2, assistant Win32, a été fusionnée par Outils, PR #14) | installation et désinstallation réelles testées sur Windows ; plus de Studio Edge installé par défaut | À FAIRE |
+| L4 | 1 | P10 — extension VS Code (PR #16 : IMPLÉMENTÉ, 6 tests, VSIX installé) : essais réels avec `nxc` (diagnostics, build, run, test, format), tests dans l'hôte VS Code, corrections de la revue de Main (M18) | scénario F exécuté avec `nxc` réel ; aucune grammaire finale avant l'ADR | IMPLÉMENTÉ |
+| L5 | 2 | `studio/templates` : documenter `ToolchainProvider` (utilisé par l'assistant de Studio, M4) | API décrite dans le README | suite Rust verte chez Main (§5) |
+| L6 | 3 | Maintenance `studio/syntax` et `studio/lsp` ; adaptation à la nouvelle grammaire après l'ADR ; client `nxc lsp` quand il existe ; source unique du lexique proposée par Outils après G1 | tests de conformité sur le corpus de l'ADR | À FAIRE |
 | L7 | 3 | Mises à jour (`nexul-update`, signature) et Linux/macOS selon les décisions sur les études d'installation | selon décision | CONÇU (études) |
 
-### 2.4 Codex Astral — mandat écrit A1
+### 2.4 Codex Luna 2 (ancien Codex Astral) — exécution et débogage
 
-Mandat donné par Claude Main le 15/10/2026, périmètre d'écriture limité à
-`benchmarks/astral/**` et `docs/refonte/reviews/astral/**`, branche `refonte/astral-a1`,
-lecture seule ailleurs, aucune modification du compilateur.
+Propriétaire de `studio/terminal/**`, `studio/dap/**`, `benchmarks/**` (sur mandat) et
+`docs/refonte/codex-luna2-status.md`. Travaille sur le PC de Main (worktree
+`C:\NEXUL-core`), qui a MSVC, LLVM 23, `lldb-dap` et `nxc` : exactement l'environnement
+où les deux pannes ci-dessous se produisent. Branches `refonte/luna2-…`, PR `[luna2]`.
 
-| Tâche | Travail | Livrable |
-|---|---|---|
-| A1 | Base de référence P13 sur `main` figé (commit noté) : programmes équivalents NEXUL, C, Rust, C# ; boucles 1M/10M/100M, fonctions mathématiques, vecteurs/matrices, allocations, chaînes ; même machine, modes optimisés documentés, protection contre l'élimination du code mort ; médianes, dispersion, mesures brutes, temps de compilation et mémoire | `benchmarks/astral/` (sources + script), `docs/refonte/reviews/astral/a1-base-performances.md` (matériel, chaînes d'outils, résultats bruts) |
-| A2 | Conditionnel, sur demande ultérieure : revue de l'IR LLVM des boucles chaudes et des vérifications redondantes ; revue des ordres mémoire quand la conception O5 existe | note de revue |
+| Tâche | Prio | Travail | Critère de fin | Statut |
+|---|---|---|---|---|
+| L1 | 1 | `studio/terminal` sous Windows : `pty_resize_and_stop_are_reported` et `pty_runs_interactive_program_and_exits` ne se terminent jamais avec ConPTY réel (MSVC) ; la chaîne GNU échoue (`windows-sys` demande `dlltool`) | `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml` vert en moins d'une minute ; chaîne requise écrite dans le README, ou dépendance GNU corrigée ; API pour la vue de Main (M6) décrite | BLOQUÉ (à corriger) |
+| L2 | 1 | `studio/dap` : `lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step` échoue avec `Timeout("launch")` contre `lldb-dap` de LLVM 23 | test réel vert sur Windows avec `nxc` et `lldb-dap` : point d'arrêt, variables, pas à pas ; API pour l'interface de Main (M7) décrite | BLOQUÉ (à corriger) |
+| A1 | 2 | Base de référence P13 sur `main` figé (commit noté) : programmes équivalents NEXUL, C, Rust, C# ; boucles 1M/10M/100M, maths, vecteurs/matrices, allocations, chaînes ; modes optimisés documentés, protection contre l'élimination du code mort ; médianes, dispersion, mesures brutes, temps de compilation et mémoire ; aucun changement du compilateur | `benchmarks/` (sources + script) et rapport `benchmarks/README.md` (matériel, chaînes d'outils, résultats bruts) | À FAIRE |
+| A2 | 3 | Sur demande ultérieure : revue de l'IR LLVM des boucles chaudes ; vérification sur ce PC (LLVM) des PR Core qu'Outils ne peut pas exécuter (pas de LLVM chez lui) | note de revue | — |
 
 ### 2.5 Gemma 4:31B
 
 Écriture limitée à `docs/refonte/gemma/**`, `docs/refonte/gemma-status.md`, `tests/manual/**`.
 
-| Tâche | Prio | Travail | Livrable |
-|---|---|---|---|
-| Q1 | 1 | Matrice des preuves : composant, statut, preuve, propriétaire, limites (passation §12.5) | `docs/refonte/gemma/matrice-preuves.md` |
-| Q2 | 1 | Écarts code/documentation : faire passer les exemples de `docs/guide.md` et `docs/spec/**` par `nxc` 0.2, consigner chaque écart (sans corriger) | `docs/refonte/gemma/ecarts-docs.md` → Outils |
-| Q3 | 1 | Liste d'essais manuels du Studio natif : P1 (fermeture, conflit, récupération), explorateur, palette, services NEXUL | `tests/manual/studio-natif.md` ; résultats → Main |
-| Q4 | 2 | Corpus de programmes 0.2 non critiques avec sortie attendue (pour G0, la migration et le scénario H) | `tests/manual/programmes/` |
-| Q5 | 3 | Brouillon du guide utilisateur de l'extension VS Code (après L4) | `docs/refonte/gemma/guide-vscode.md` (proposition) |
-| Q6 | continu | Résumés des PR et index des fonctions du langage, vérifiés par les propriétaires | `docs/refonte/gemma/` |
+| Tâche | Prio | Travail | Livrable | Statut |
+|---|---|---|---|---|
+| Q1 | 1 | Matrice des preuves : composant, statut, preuve, propriétaire, limites | `docs/refonte/gemma/quality-matrix.md` | IMPLÉMENTÉ (PR #17) ; à tenir à jour |
+| Q2 | 1 | Écarts code/documentation : faire passer les exemples de `docs/guide.md` et `docs/spec/**` par `nxc` 0.2, consigner chaque écart (sans corriger) | `docs/refonte/gemma/ecarts-docs.md` → Outils | À FAIRE |
+| Q3 | 1 | Liste d'essais manuels du Studio natif | `docs/refonte/gemma/manual-studio-checklist.md` | IMPLÉMENTÉ (PR #17) ; à compléter avec Nouveau projet, recherche, construction |
+| Q4 | 2 | Corpus de programmes 0.2 non critiques avec sortie attendue (G0, migration, scénario H) | `tests/manual/` (amorcé : `hello_unicode`, `run_smoke.py`) | IMPLÉMENTÉ en partie |
+| Q5 | 3 | Guide utilisateur de l'extension VS Code | `docs/refonte/gemma/vscode-install-guide.md` | IMPLÉMENTÉ (PR #17, proposition) |
+| Q6 | continu | Résumés des PR et index des fonctions du langage, vérifiés par les propriétaires | `docs/refonte/gemma/` | continu |
+| Q7 | 1 | **Exécution des scénarios E2E (P14)** : une fiche par scénario A à H (§1.1), étapes, résultat attendu, résultat obtenu, preuve ; exécuter ceux qui sont possibles maintenant (A, F, G en partie), signaler chaque échec au propriétaire | `tests/manual/e2e-A.md` … `e2e-H.md`, résultats datés | À FAIRE |
 
 ### 2.6 Consignes à transmettre à chaque agent
 
 À coller au début de la session de l'agent :
 
 - **Claude Outils / Core** : « Tu es Claude Opus 5.5 — Outils/Core sur NEXUL. Récupère
-  `main`, lis `docs/refonte/AGENTS.md` puis `docs/refonte/master-plan.md` §2.2 et §3.
-  Ouvre `docs/refonte/claude-core-status.md`. Commence par O1 (audit G0) et O3 (contrat
-  `nxc lsp` à faire approuver par Claude Main), puis O4. Une branche `refonte/core-…` et une
-  PR `[core]` par tâche, tests réellement exécutés. Aucune syntaxe officielle avant l'ADR. »
+  `main`, lis `docs/refonte/AGENTS.md` puis `docs/refonte/master-plan.md` §1, §2.2 et §3.
+  G0 est fusionné (PR #15). Fais maintenant O2 (G1 : trois propositions sur les 12
+  programmes, conçues avec Claude Main, qui relit chaque proposition) et O3 (contrat
+  `nxc lsp` à faire approuver par Claude Main avant tout code). L'installateur n'est plus
+  à toi (Luna). Une branche `refonte/core-…` et une PR `[core]` par tâche, tests réellement
+  exécutés. Aucune syntaxe officielle avant l'ADR. »
 - **Codex Luna** : « Tu es Codex Luna sur NEXUL. Récupère `main`, lis
-  `docs/refonte/AGENTS.md` puis `docs/refonte/master-plan.md` §2.3. Ouvre
-  `docs/refonte/codex-luna-status.md`. Corrige d'abord L1 (terminal ConPTY) et L2 (DAP
-  `Timeout("launch")`), puis L3 (installateur du Studio natif) et L4 (ossature VS Code, sans
-  grammaire finale). Une branche `refonte/luna-…` et une PR `[luna]` par tâche. »
-- **Codex Astral** : « Tu es Codex Astral sur NEXUL. Mandat écrit A1 dans
-  `docs/refonte/master-plan.md` §2.4 : base de performances, écriture seulement dans
-  `benchmarks/astral/**` et `docs/refonte/reviews/astral/**`, branche `refonte/astral-a1`,
-  aucun changement du compilateur, aucun résultat inventé. »
+  `docs/refonte/AGENTS.md` puis `docs/refonte/master-plan.md` §2.3. Le terminal et le
+  débogueur sont désormais à Codex Luna 2. Fais L4 (essais réels de l'extension VS Code
+  avec `nxc`, tests dans l'hôte) puis L3 (installateur du Studio natif, construit depuis
+  `studio/app`). Une branche `refonte/luna-…` et une PR `[luna]` par tâche. »
+- **Codex Luna 2** : « Tu es Codex Luna 2 (ancien Codex Astral) sur NEXUL, dans
+  `C:\NEXUL-core` sur le PC de Main (MSVC, LLVM 23, `lldb-dap`). Récupère `main`, lis
+  `docs/refonte/AGENTS.md` puis `docs/refonte/master-plan.md` §2.4. Ouvre
+  `docs/refonte/codex-luna2-status.md`. Tu possèdes `studio/terminal/**` et
+  `studio/dap/**`. Corrige d'abord L1 (essais ConPTY qui ne se terminent jamais, chaîne
+  GNU), puis L2 (`Timeout("launch")` avec le vrai `lldb-dap`), avec les commandes de
+  critère de fin ; ensuite A1 (base de performances). Une branche `refonte/luna2-…` et une
+  PR `[luna2]` par tâche, tests réellement exécutés, aucun résultat inventé. »
 - **Gemma** : « Tu es Gemma (QA et documentation) sur NEXUL. Lis `docs/refonte/AGENTS.md`
-  et `docs/refonte/master-plan.md` §2.5. Ouvre `docs/refonte/gemma-status.md`. Fais Q1, Q2,
-  Q3. Écriture seulement dans `docs/refonte/gemma/**`, `docs/refonte/gemma-status.md`,
+  et `docs/refonte/master-plan.md` §1.1 et §2.5. Fais Q7 (fiches et exécution des
+  scénarios E2E possibles), Q2 (écarts docs/compilateur), puis complète Q3. Écriture
+  seulement dans `docs/refonte/gemma/**`, `docs/refonte/gemma-status.md`,
   `tests/manual/**` ; branche `refonte/gemma-…`, PR `[gemma]`. »
 
 ## 3. Toutes les améliorations (refonte et création)
@@ -346,11 +378,11 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 | Ancienne interface web (Edge) | `studio/src`, `studio/ui` | Main | LIVRÉ (0.2.0) | à retirer à la parité (M12) |
 | Coloration NEXUL | `studio/syntax` | Luna | TESTÉ_UNITAIREMENT | §5 ; à raccorder (M3) |
 | Client LSP + détection SDK | `studio/lsp` | Luna | TESTÉ_UNITAIREMENT | §5 ; à raccorder (M4, M5) |
-| Terminal PTY + émulation | `studio/terminal` | Luna | IMPLÉMENTÉ | 2 essais PTY bloqués (L1) |
-| Client DAP + adaptateurs | `studio/dap` | Luna | IMPLÉMENTÉ | essai réel `lldb-dap` en échec (L2) |
+| Terminal PTY + émulation | `studio/terminal` | Luna 2 | IMPLÉMENTÉ | 2 essais PTY bloqués (L1) |
+| Client DAP + adaptateurs | `studio/dap` | Luna 2 | IMPLÉMENTÉ | essai réel `lldb-dap` en échec (L2) |
 | Modèles de projets (dont NEXUL + Web) | `studio/templates` | Luna | TESTÉ_UNITAIREMENT | §5 ; assistant GPUI (M4) |
-| Installateur Windows | `installer/` | Luna | LIVRÉ (0.2.0) | API Windows (PR #11) ; empaquette encore l'ancien Studio (L3) |
-| Extension VS Code | `editors/vscode/` | Luna | À FAIRE | L4 |
+| Installateur Windows | `installer/` | Luna | LIVRÉ (0.2.0) | API Windows (PR #11), assistant Win32 (PR #14) ; empaquette encore l'ancien Studio (L3) |
+| Extension VS Code | `editors/vscode/` | Luna | IMPLÉMENTÉ (PR #16, déclaré) | essais avec `nxc` réel, tests hôte, revue Main (L4, M18) |
 | Auto-hébergement | — | Outils | À FAIRE | O8 |
 
 ## 5. Vérifications par Main
@@ -388,4 +420,5 @@ PC de Main.
 | `refonte/main-p0-gouvernance` | gouvernance V3 | fusionnée (PR #13) |
 | `refonte/claude-tools-installer`, `refonte/claude-tools-etudes` | installateur sur API Windows, études | fusionnées (PR #11) → transfert de `installer/**` à Luna effectif |
 | `refonte/codex-exec-wasm-template` | modèle NEXUL + Web | fusionnée (PR #12) |
-| `refonte/claude-studio` | palette, ouverture rapide, P1, ce plan, M2, M3, M4, M10 | **PR à ouvrir et fusionner** (`main` déjà fusionné dedans, 29 + 12 tests verts) |
+| `refonte/core-g0-audit` (#15), `refonte/luna-vscode-extension` (#16), `refonte/gemma-qa-docs` (#17), `refonte/claude-tools-installer` (#14) | audit G0, extension VS Code, QA, assistant de l'installateur | fusionnées sans revue de Main → relecture M18 |
+| `refonte/claude-studio` | palette, ouverture rapide, P1, ce plan, M2, M3, M4, M8, M10, Luna 2 | poussée ; **PR à ouvrir et fusionner** (`main` à `e57380c` fusionné dedans) |

@@ -36,6 +36,8 @@ M5 (LSP des autres langages) ; M6 et M7 attendent L1 et L2 de Luna.
 
 ## Demandes reçues
 
+- Codex Luna (`codex-luna-status.md`, PR #16) : extensions de Studio — formatage intégré,
+  API de thèmes et préférences validées avec permission → tâche M17.
 - Issue [#9](https://github.com/KAYTAY10ok/NEXUL/issues/9) (Claude Outils) : `NEXUL-Studio-Native.exe`
   ne doit pas dépendre de `vcruntime140.dll` → réglé par M2 (`eb490ce`), à fermer après fusion.
 
