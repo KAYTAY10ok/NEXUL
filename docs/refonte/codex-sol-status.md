@@ -119,6 +119,9 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   `Path::canonicalize` ne résolvait pas le nom court 8.3 dans l'environnement sandbox.
   `GetLongPathNameW` a corrigé les comparaisons, puis le test E2E a révélé que cette aliasation
   empêchait aussi la désinstallation de reconnaître son propre raccourci. `old::norm` étend
-  maintenant les chemins existants avant le contrôle de contenance; le job Windows doit
-  confirmer cette correction. La construction de `studio/app` et du paquet
-  complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.
+  maintenant les chemins existants avant le contrôle de contenance. Sur le run GitHub Actions
+  `38867503229` du commit `0a61b50`, le build Linux et le job Windows réussissent; les tests
+  Linux échouent ensuite dans `tests/run/ffi.nx` sur les symboles C `abs`, `strlen` et `sqrt`
+  non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
+  La construction de `studio/app` et du paquet complet reste à vérifier par
+  `tools/build_installer.py` sur Windows avec MSVC.
