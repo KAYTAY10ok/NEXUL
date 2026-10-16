@@ -89,16 +89,8 @@ function activate(context) {
       : languageClient.sendRequest(method, params, token);
   }
 
-  function ensureFormattingSupported(document) {
-    if (documentEdition(document) !== '1') return;
-    const error = new Error('Le formateur nxc ne prend pas encore en charge l’édition 1.');
-    error.code = 'NEXUL_EDITION1_FORMAT_UNAVAILABLE';
-    throw error;
-  }
-
   async function formattingEdits(document, token) {
     if (!vscode.workspace.isTrusted) return [];
-    ensureFormattingSupported(document);
     if (!languageClient || !languageClient.isRunning()) throw lspUnavailableError();
     const response = await sendLspRequest('textDocument/formatting', {
       textDocument: { uri: document.uri.toString() },
@@ -267,12 +259,6 @@ function activate(context) {
         },
         provideDocumentFormattingEdits(document, options, token, next) {
           if (!vscode.workspace.isTrusted) return [];
-          try {
-            ensureFormattingSupported(document);
-          } catch (error) {
-            reportFailure('nxc LSP formatting', error);
-            return [];
-          }
           return next(document, options, token);
         }
       }
@@ -373,14 +359,6 @@ function activate(context) {
       }
       if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
       codeLensRefreshTimer = setTimeout(() => codeLensEmitter.fire(), 300);
-    }),
-    vscode.workspace.onWillSaveTextDocument((event) => {
-      const document = event.document;
-      if (!isNexul(document) || !vscode.workspace.getConfiguration('nexul').get('formatOnSave', false)) return;
-      event.waitUntil(formattingEdits(document).catch((error) => {
-        reportFailure('nxc LSP formatting (format on save)', error);
-        return [];
-      }));
     }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration('nexul.nxcPath') && vscode.workspace.isTrusted) {

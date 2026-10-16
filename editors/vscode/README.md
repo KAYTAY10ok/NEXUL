@@ -9,12 +9,12 @@ Cette extension donne à VS Code la coloration et les outils de développement d
 - Snippets pour main, fonctions, structures, tests, match et boucles.
 - Diagnostics du compilateur dans le panneau Problèmes pendant la saisie, y compris pour les documents non enregistrés et les fichiers importés ouverts.
 - Complétion, survol, aller à la définition, références, renommage et symboles via le serveur officiel `nxc lsp`.
-- Formatage du document via le serveur LSP. Le formatage à l’enregistrement est facultatif et désactivé par défaut.
+- Formatage du document via le serveur LSP. Le formateur NEXUL est sélectionné par défaut et VS Code formate les éditions 0.2 et 1 à l’enregistrement (`editor.formatOnSave`). L’utilisateur peut désactiver ce réglage ou lancer « NEXUL: Formater le document » manuellement.
 - Commandes et tâches VS Code pour compiler, exécuter, vérifier et tester un fichier ou un projet. Les programmes s’exécutent dans le terminal intégré.
 
 L’extension ne contient pas de compilateur NEXUL ni de serveur LSP distinct. Elle lance `nxc lsp` avec le compilateur configuré par `nexul.nxcPath`. Elle demande aussi au serveur les CodeLens de tests et le texte de la bibliothèque standard. Le Workspace Trust doit être accordé avant le lancement du compilateur.
 
-Les grammaires et snippets suivent séparément la syntaxe documentée des éditions 0.2 et 1 (ADR 0010). Le formateur `nxc ide format` ne prend pas encore en charge l’édition 1 : l’extension laisse le document inchangé et le signale au lieu de lui appliquer le formateur 0.2.
+Les grammaires et snippets suivent séparément la syntaxe documentée des éditions 0.2 et 1 (ADR 0010). Le formateur conserve les chaînes et les commentaires, normalise l’espacement et indente les blocs pour les deux éditions.
 
 ## Prérequis
 
@@ -53,7 +53,7 @@ npm run package
 
 Le VSIX est produit sous dist/kaytay10ok.nexul-language-0.1.0.vsix. Dans VS Code, ouvrir la palette de commandes, choisir Extensions: Install from VSIX..., puis sélectionner ce fichier. On peut également exécuter code --install-extension <chemin-du-vsix>.
 
-Cette version est installée depuis un VSIX local. Elle n’est pas publiée sur le Marketplace.
+Le VSIX local sert à valider ou à installer manuellement une version de développement. Pour être trouvée dans le Marketplace, une version doit être publiée par le propriétaire du publisher VS Code.
 
 ## Utilisation
 
@@ -72,7 +72,8 @@ Paramètres disponibles :
 | Paramètre | Valeur par défaut | Effet |
 |---|---:|---|
 | nexul.nxcPath | nxc | Chemin vers le compilateur |
-| nexul.formatOnSave | false | Applique le formatage officiel avant l’enregistrement |
+
+Le formateur par défaut est sélectionné séparément pour les deux éditions via les réglages VS Code propres à leur mode de langage. `editor.formatOnSave` peut être désactivé dans les paramètres utilisateur ou du projet.
 
 Le lancement du programme utilise ProcessExecution avec arguments séparés, sans passage par un shell. Pour passer des arguments à un programme, utiliser une tâche VS Code personnalisée de type nexul ou lancer nxc run dans le terminal intégré.
 
@@ -96,4 +97,4 @@ $env:NEXUL_NXC = "C:\chemin\vers\nxc.exe"
 npm run test:host
 ```
 
-Le test utilise VS Code Insiders et un profil isolé. Il vérifie le démarrage du vrai serveur `nxc lsp`, le CodeLens et l’absence de faux diagnostics sur le projet d’édition 1, puis les commandes `check`, `build`, `run` et `test` avec le compilateur réel. Pour l’édition 0.2, il vérifie le formatage, les diagnostics sur une édition non enregistrée et leur effacement après correction. L’extension bloque le formatage de l’édition 1 tant que `nxc` ne le prend pas en charge.
+Le test utilise VS Code Insiders et un profil isolé. Il vérifie le démarrage du vrai serveur `nxc lsp`, le CodeLens et l’absence de faux diagnostics sur le projet d’édition 1, puis les commandes `check`, `build`, `run` et `test` avec le compilateur réel. Pour les éditions 0.2 et 1, il vérifie le formatage ; pour l’édition 0.2, il vérifie aussi les diagnostics sur une édition non enregistrée et leur effacement après correction.

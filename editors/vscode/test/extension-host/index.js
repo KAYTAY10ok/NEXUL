@@ -28,6 +28,11 @@ async function run() {
   }, 'nexul/tests CodeLens');
   assert.deepEqual(vscode.languages.getDiagnostics(document.uri), [],
     'valid Edition 1 source must not receive false LSP errors');
+  const editorSettings = vscode.workspace.getConfiguration('editor', document.uri);
+  assert.equal(editorSettings.get('defaultFormatter'), extension.id,
+    'the NEXUL extension must be the default Edition 1 formatter');
+  assert.equal(editorSettings.get('formatOnSave'), true,
+    'Edition 1 formatting must be enabled on save by default');
 
   await vscode.commands.executeCommand('nexul.checkCurrentFile');
 
@@ -38,8 +43,19 @@ async function run() {
   console.log('Edition 1 detection, check, build, run and test passed.');
 
   const originalText = document.getText();
-  await vscode.commands.executeCommand('nexul.formatDocument');
-  assert.equal(document.getText(), originalText, 'the unsupported Edition 1 formatter must leave text unchanged');
+  const unformattedText = originalText
+    .replace('fn main() {', 'fn main(){')
+    .replace('    println(', 'println(')
+    .replace('test "addition" {', 'test "addition"{')
+    .replace('    assert(2 + 2 == 4)', 'assert(2+2==4)');
+  const unformattedEdit = new vscode.WorkspaceEdit();
+  unformattedEdit.replace(document.uri,
+    new vscode.Range(document.positionAt(0), document.positionAt(originalText.length)), unformattedText);
+  await vscode.workspace.applyEdit(unformattedEdit);
+  await document.save();
+  assert.notEqual(document.getText(), unformattedText, 'saving Edition 1 source must format it automatically');
+  assert.match(document.getText(), /fn main\(\) \{/);
+  assert.match(document.getText(), /    println\(/);
 
   const legacyFile = path.join(folder.uri.fsPath, 'src', 'legacy.nx');
   const legacyDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(legacyFile));
@@ -65,7 +81,7 @@ async function run() {
   await vscode.workspace.applyEdit(restoreLegacy);
   await waitFor(() => vscode.languages.getDiagnostics(legacyDocument.uri).length === 0,
     'Edition 0.2 LSP diagnostics to clear after correction');
-  console.log('LSP CodeLens, Edition 0.2 live diagnostics and formatting passed; Edition 1 formatting stayed disabled.');
+  console.log('LSP CodeLens, live diagnostics and automatic format-on-save passed for Editions 0.2 and 1.');
 }
 
 function waitFor(predicate, label) {
