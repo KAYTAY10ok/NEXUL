@@ -18,13 +18,19 @@ Les grammaires et snippets suivent séparément la syntaxe documentée des édit
 
 ## Prérequis
 
-1. Installer NEXUL pour obtenir nxc.exe, ou construire le compilateur depuis la racine du dépôt avec cargo build --release -p nxc.
+1. Installer NEXUL pour obtenir nxc (ou nxc.exe sous Windows), ou construire le compilateur depuis la racine du dépôt avec cargo build --release -p nxc.
 2. Vérifier que nxc fonctionne dans un terminal.
 3. Si nxc n’est pas dans PATH, configurer son chemin complet dans les paramètres VS Code :
 
-nexul.nxcPath : chemin de nxc.exe.
+nexul.nxcPath : chemin vers le compilateur natif de votre plateforme (`nxc` ou `nxc.exe`).
 
-Exemple Windows dans settings.json :
+Exemple Linux dans `settings.json` :
+
+```json
+"nexul.nxcPath": "/home/you/.local/bin/nxc"
+```
+
+Exemple Windows dans `settings.json` :
 
 "nexul.nxcPath": "C:\\NEXUL\\target\\release\\nxc.exe"
 
@@ -74,7 +80,16 @@ Le lancement du programme utilise ProcessExecution avec arguments séparés, san
 
 npm test exécute les tests unitaires Node.js sans exiger VS Code. Ils vérifient notamment la détection de l’édition, le démarrage LSP soumis au Workspace Trust, la grammaire et les snippets. npm run package vérifie que le manifeste et les fichiers requis peuvent être assemblés en VSIX.
 
-Pour lancer aussi le test dans un vrai hôte d’extension VS Code avec le `nxc` construit depuis le dépôt :
+Pour lancer aussi le test dans un vrai hôte d’extension VS Code avec le nxc construit depuis le dépôt :
+
+Linux/macOS :
+
+```sh
+export NEXUL_NXC=/chemin/vers/nxc
+npm run test:host
+```
+
+Windows PowerShell :
 
 ```powershell
 $env:NEXUL_NXC = "C:\chemin\vers\nxc.exe"
