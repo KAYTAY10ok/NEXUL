@@ -1,33 +1,35 @@
 # Matrice QA NEXUL
 
-Date : 15 octobre 2026
-Révision de référence : main à 548b1f6
-Nature : audit de l’arbre et des rapports. Cette matrice ne certifie pas une version.
+Date : 16 octobre 2026 (mise à jour par Claude Main ; première version de Gemma le 15/10 sur `548b1f6`)
+Révision de référence : `main` à `a0ef361`
+Nature : état des preuves. Cette matrice ne certifie pas une version.
 
 ## Lire les statuts
 
 - **Code présent** : le composant existe dans l’arbre inspecté.
 - **Tests présents** : les fichiers de test existent ; cela ne prouve pas qu’ils passent.
-- **Rapport propriétaire** : un fichier d’état décrit un essai, non rejoué par Gemma.
-- **Non raccordé** : aucune intégration correspondante n’a été trouvée dans le manifeste de Studio natif.
+- **Rejoué le 16/10** : suite exécutée par Main sur son PC (Windows 11, MSVC, LLVM 23) au commit indiqué.
+- **Rapport propriétaire** : un fichier d’état décrit un essai, non rejoué ici.
+- **Non raccordé** : la crate n’est pas encore utilisée par Studio natif (`studio/app`).
 - **À valider** : dépend d’un essai sur machine ou d’une version intégrée.
 
-| Domaine | Éléments repérés | Tests et preuves | État QA / propriétaire actuel |
+| Domaine | Éléments | Tests et preuves | État QA / propriétaire actuel |
 |---|---|---|---|
-| Compilateur et langage | compiler, lib, examples ; suite dans compiler/nxc/tests/suite.rs | tests/run et sorties attendues, tests/ui, suites numériques et cibles | Code et corpus présents. codex-status.md rapporte des suites réussies sur Windows, non rejouées ici. Propriétaire du cœur selon AGENTS.md. |
-| WebAssembly navigateur | examples/web, lib/web/nexul.mjs, docs/refonte/interop-web.md | tests/web/interop.mjs ; compiler/nxc/tests/web.rs indique que le test est ignoré par défaut | Le rapport Core décrit un essai Chromium et une exécution explicite. Non revalidé par Gemma. |
-| Studio natif | studio/app : éditeur, onglets, explorateur, services NEXUL | tests intégrés dans les modules Rust | Le manifeste dépend de nexul-studio et GPUI, mais pas des crates syntax, lsp, terminal, dap ou templates. Fermeture de fenêtre : voir handoffs.md. Propriétaire selon AGENTS.md : Studio. |
-| Coloration NEXUL | studio/syntax, analyse incrémentale | studio/syntax/tests/corpus.rs, studio/syntax/tests/conformance.rs et tests unitaires | Tests source présents ; le README décrit corpus et mesures. Crate autonome, pas référencée dans le manifeste app inspecté. Outils. |
-| Client LSP | studio/lsp, client et détection | faux serveur, studio/lsp/tests/client.rs, studio/lsp/tests/detect.rs, studio/lsp/tests/real_servers.rs | Le README rapporte seulement rust-analyzer essayé en vrai. Crate non raccordée au manifeste GPUI inspecté. Outils. |
-| Terminal | studio/terminal, PTY et modèle d’écran | cinq tests unitaires dans studio/terminal/src/lib.rs | codex-exec-status.md rapporte des tests Linux et un check Windows ; pas d’exécution ConPTY sur cet hôte. Non raccordé à l’app inspectée. Luna. |
-| DAP | studio/dap et faux adaptateur | studio/dap/tests/client.rs, studio/dap/tests/nexul_lldb.rs | Le rapport Luna indique que l’essai faux adaptateur passe ; nxc/LLDB a été ignoré faute d’outils. Non raccordé à l’app inspectée. Luna. |
-| Modèles de projets | studio/templates | studio/templates/tests/functional.rs conditionne les builds sur les outils détectés | Le README de cette révision indique que le modèle wasm est encore absent. Ne pas confondre une branche avec une fonctionnalité livrée sur main. Luna. |
-| Installateur Windows | installer et tools/build_installer.py | tests Rust ; pas de preuve d’installation de la nouvelle app dans cette session | Le script copie target/NEXUL-Studio.exe, tandis que le manifeste de studio/app produit NEXUL-Studio-Native. Le problème est suivi dans l’issue 9. Aucun essai sur machine propre. Propriétaire selon AGENTS.md : Outils. |
-| Extension VS Code | editors/vscode absent de cette révision | aucun VSIX ni test d’extension repéré | Absente de main 548b1f6. Le guide livré ici est un brouillon non installable. La passation V3 proposée attribue ce lot à Luna. |
-| Benchmarks comparatifs | mesure GPUI/Slint dans docs/studio/architecture-native.md | aucun corpus comparatif reproductible NEXUL/C/Rust/C# repéré dans les chemins inspectés | La mesure de boîtes à outils n’est pas un benchmark de compilation. À établir par les propriétaires du cœur. |
+| Compilateur et langage | `compiler`, `lib`, `examples` ; suite `compiler/nxc/tests/suite.rs` | `cargo test --release --workspace` vert au 16/10 (`a0ef361`) : `tests/run`, `tests/ui`, numérique, cibles, catalogue des diagnostics | Main. Édition 1 de la syntaxe (ADR 0010) : tranches 1 à 3 intégrées, revue adversariale en cours. |
+| Édition 1 et `nxc migrate` | `nxc_syntax/src/parser/ed1.rs`, `nxc/src/migrate.rs`, `pkg::edition_for` | `tests/run/edition1.nx`, 4 tests UI ; 33 programmes 0.2 migrés à sortie identique ; `lib/` (21 fichiers) et exemples migrés sans reprise | Main. Restent : repli `else`, `===`, `in`, `distinct`, `where`, `expects panic` (refusés avec `E0111`). |
+| WebAssembly navigateur | `examples/web`, `lib/web/nexul.mjs`, `docs/refonte/interop-web.md` | `tests/web/interop.mjs` ; `compiler/nxc/tests/web.rs` ignoré par défaut | Rapport Core (essai Chromium), non rejoué. Main. |
+| Studio natif | `studio/app` : éditeur, onglets, explorateur, services NEXUL, palette, recherche, exécution/construction/tests, nouveau projet | 33 tests (`cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/app/Cargo.toml -- --test-threads=1`) ; **essai manuel P1 passé le 16/10** ([liste](manual-studio-checklist.md)) | Main. Binaire autonome (CRT statique, `dumpbin` vérifié). |
+| Coloration NEXUL | `studio/syntax` (0.2 et édition 1, langage `nexul1`) | tests unitaires, `corpus.rs`, `conformance.rs` (lexer du compilateur dans les deux éditions) ; raccordée à Studio (M3) | Codex Sol (crate), Main (adaptateur `highlight.rs`). |
+| Client LSP | `studio/lsp`, client et détection | faux serveur, `client.rs`, `detect.rs`, `real_servers.rs` | Codex Sol. Catalogue des outils utilisé par l’assistant Nouveau projet ; client non raccordé (M5). `nxc lsp` : ADR 0009, à faire (P9). |
+| Terminal | `studio/terminal`, PTY et modèle d’écran | tests unitaires ; 2 tests ConPTY ne se terminent pas sous MSVC | Codex Sol (L1). Non raccordé (M6). |
+| DAP | `studio/dap` et faux adaptateur | `client.rs`, `nexul_lldb.rs` : `Timeout("launch")` avec le vrai `lldb-dap` | Codex Sol (L2). Non raccordé (M7). |
+| Modèles de projets | `studio/templates` | `functional.rs` (builds selon les outils trouvés) ; raccordé à Studio (M4), création vérifiée à l’essai manuel | Codex Sol. |
+| Installateur Windows | `installer`, `tools/build_installer.py` | tests Rust ; assistant Win32 (PR #14) | Codex Sol (L3 : empaqueter `NEXUL-Studio-Native.exe`). Correctif de sécurité demandé (`revues-main.md`). Aucun essai sur machine propre. |
+| Extension VS Code | `editors/vscode` (PR #16) | 6 tests, VSIX construit | Codex Sol. Correctif de sécurité demandé (`nexul.nxcPath`) ; essai avec `nxc` réel et édition 1 à faire. |
+| Benchmarks comparatifs | — | aucun corpus NEXUL/C/Rust/C# | Codex Sol (A1), à faire. |
 
 ## Prochaine validation utile
 
-Sur une machine équipée, exécuter les tests de chaque crate puis une session E2E avec un Studio construit et empaqueté. Pour chaque essai, enregistrer révision, OS, versions d’outils, commande, résultat et logs.
-
-Pour l’application native, utiliser une configuration isolée via NEXUL_STUDIO_CONFIG. Pour l’installateur, utiliser une VM jetable et vérifier installation, lancement, réparation, mise à niveau et désinstallation.
+- Rejouer les suites des crates de Codex Sol après L1 et L2, puis raccorder terminal et débogueur.
+- Scénario A (P14) : installateur → Studio natif → projet → erreurs → construire → exécuter → fermer et rouvrir sans perte, dans une VM jetable.
+- Pour l’application native, toujours une configuration isolée (`NEXUL_STUDIO_CONFIG`) et un `nxc` connu (`NEXUL_NXC`).

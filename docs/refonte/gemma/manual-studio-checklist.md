@@ -4,22 +4,31 @@ Les scénarios ci-dessous restent à exécuter, sauf indication contraire. Ils d
 
 ## Fiche de session
 
-- Révision / branche :
-- Binaire testé et chemin :
-- Windows / version :
-- Compilateur nxc et version :
-- Configuration isolée NEXUL_STUDIO_CONFIG :
-- Date / personne :
-- Logs ou captures :
+- Révision / branche : `a0ef361`, `refonte/claude-studio` (= `main`)
+- Binaire testé et chemin : `studio\app\target\release\NEXUL-Studio-Native.exe`, construit le 16/10/2026 08:18 (MSVC, CRT statique)
+- Windows / version : Windows 11 Pro 10.0.26200
+- Compilateur nxc et version : `target\release\nxc.exe` du même commit (`nxc 0.2.0`, éditions 0.2 et 1), donné par `NEXUL_NXC`
+- Configuration isolée NEXUL_STUDIO_CONFIG : dossier jetable du bloc-notes de session ; projet jetable `proj` (édition 1 par `nexul.toml`)
+- Date / personne : 16/10/2026, Claude Main (pilotage de l'application avec l'accord de l'utilisateur)
+- Logs ou captures : captures d'écran de la session ; contenu disque vérifié après chaque étape
 
 ## P0 — documents et projets
 
-- [ ] **Fermeture de fenêtre avec un document modifié** : modifier un fichier puis fermer la fenêtre. Attendu : choix Enregistrer / Ne pas enregistrer / Annuler ; Annuler garde fenêtre et texte ; Enregistrer persiste le texte ; Ne pas enregistrer garde la version disque. Refaire avec deux onglets ; une erreur d’écriture empêche la fermeture.
-  - Revue source à 548b1f6 : écart probable confirmé dans le code, voir handoffs.md ; pas de reproduction interactive.
-- [ ] **Fermeture d’onglet modifié** : vérifier le comportement présenté à la personne ; le code actuel enregistre sans dialogue.
-- [ ] **Fermeture forcée / redémarrage** : vérifier qu’une session restaurée ne remplace pas un contenu disque plus récent.
-- [ ] **Modification externe** : modifier le même fichier dans Studio et un autre éditeur ; aucun écrasement silencieux.
-- [ ] **Erreur d’écriture** : fichier en lecture seule / dossier sans droits ; message clair, document gardé en mémoire et fermeture annulée.
+Essai du 16/10 (M19) : **tout le bloc P0 passe** dans la vraie application.
+
+- [x] **Fermeture de fenêtre avec un document modifié** : dialogue Enregistrer / Ne pas enregistrer / Annuler. Annuler garde la fenêtre et le texte ; avec deux onglets modifiés, un seul dialogue liste les deux fichiers et « Tout enregistrer » écrit les deux puis ferme ; un fichier en lecture seule fait échouer l'enregistrement, affiche l'erreur et **annule la fermeture**.
+- [x] **Fermeture d’onglet modifié** : dialogue « Enregistrer les modifications de « b.nx » ? » ; Ne pas enregistrer ferme l'onglet et garde la version disque.
+- [x] **Fermeture forcée / redémarrage** : processus tué avec un document modifié → au redémarrage, « Modifications non enregistrées de « a.nx » récupérées » ; le fichier a ensuite été changé sur disque pendant que Studio était fermé : le texte récupéré n'écrase rien, l'enregistrement ouvre le dialogue de conflit (Recharger prend la version disque). Les fichiers de récupération disparaissent après l'enregistrement.
+- [x] **Modification externe** : document propre → rechargé tout seul ; document modifié → Ctrl+S ouvre « a été modifié en dehors de Studio » (Recharger / Annuler / Écraser) ; Annuler laisse le disque intact, Écraser écrit la version de Studio. Aucun fichier temporaire laissé (écriture atomique).
+- [x] **Erreur d’écriture** : fichier en lecture seule → message « est en lecture seule : retirez cet attribut… », document gardé modifié, fermeture annulée.
+- [x] **Changement de dossier** (Nouveau projet pendant qu'un document est modifié) : « Enregistrer les modifications de « a.nx » avant de changer de dossier ? » ; Annuler reste dans le dossier courant. Le projet demandé est quand même créé sur disque (seule son ouverture est annulée).
+
+Écarts vus pendant l'essai (hors P1) :
+
+- La complétion s'ouvre en tapant dans un commentaire (`// modif b` propose `b`, `println`…).
+- Studio prend `nxc` dans `NEXUL_HOME` avant `PATH` : avec l'installation 0.2 de l'utilisateur, un projet d'édition 1 est coloré « NEXUL 1 » mais analysé par un `nxc` qui ne connaît pas l'édition 1 (fausses erreurs). Studio doit vérifier que son `nxc` connaît l'édition du fichier et le dire.
+- `nxc` refuse un `nexul.toml` enregistré avec BOM UTF-8 (Bloc-notes, PowerShell 5) : « nexul.toml:1: expected `key = value` ».
+- Ouvrir un dossier : le sélecteur de Windows ne peut pas être piloté au clavier par l'outil d'essai ; le chemin a été vérifié par « Nouveau projet ».
 
 ## Explorateur et éditeur
 
@@ -43,6 +52,7 @@ Les scénarios ci-dessous restent à exécuter, sauf indication contraire. Ils d
 ## Briques séparées ou non raccordées
 
 - [ ] Coloration : interpolation, commentaire multiligne, saisie incomplète, erreur lexicale ; comparer aux diagnostics.
+  - 16/10 : un projet `edition = "1"` s'ouvre en « NEXUL 1 » (barre d'état) ; `when`, `then`, `else` colorés en mots-clés ; aucun diagnostic avec le `nxc` du commit.
 - [ ] LSP : serveur présent et absent ; le second cas annonce « coloration seulement » et ne télécharge rien.
 - [ ] Terminal : commande interactive, redimensionnement, ANSI, accents, CJK, emoji, fermeture du shell et second terminal.
 - [ ] DAP : point d’arrêt, pile, variables, pas à pas, arrêt et fin ; consigner l’adaptateur.

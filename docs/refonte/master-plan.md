@@ -17,7 +17,7 @@ de l'utilisateur · §7 intégration.
 | Lot | Urgence | Travail et preuve de sortie | Propriétaire | Dépend de | Statut |
 |---|---|---|---|---|---|
 | P0 | Immédiat | Gouvernance V3 : charte, transferts, plan maître | Main | accord utilisateur (15/10) | INTÉGRÉ (PR #13) |
-| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre, changement de dossier), conflits disque, enregistrement atomique, récupération, tests | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, `eb490ce`) ; **essai manuel : Main** (M19), avec la liste de Gemma (`docs/refonte/gemma/manual-studio-checklist.md`) |
+| P1 | Immédiat | Studio sans perte de données : Enregistrer / Ne pas enregistrer / Annuler (onglet, fenêtre, changement de dossier), conflits disque, enregistrement atomique, récupération, tests | Main | — | TESTÉ_UNITAIREMENT (`43ebbe5`, `eb490ce`) ; **essai manuel passé le 16/10** (M19, `a0ef361`) : fenêtre, onglet, changement de dossier, conflits disque, lecture seule, récupération après arrêt forcé ([liste](gemma/manual-studio-checklist.md)) |
 | P2 | Immédiat | Nouvelle syntaxe : G0 audit des usages 0.2, G1 trois propositions sur 12 programmes, G2 ADR + EBNF validées par l'utilisateur, plan de migration | **G0** : Outils (fait). **G1** : Outils rédige (O2), Main co-conçoit et relit chaque proposition (M14). **G2** : Outils rédige l'ADR et l'EBNF, Main co-signe, l'utilisateur choisit (décision 2) | G0 → G1 → choix utilisateur → G2 | G0, G1 faits ; **G2 : [ADR 0010](../adr/0010-syntaxe-nexul-1.md) acceptée par l'utilisateur le 16/10** (mélange B + C, type avant le nom, sans `->`) ; G3 (implémentation) : tranches 1 et 2 INTÉGRÉES (`nxc --edition 1` ; `nxc migrate` : 33 programmes migrés à l'identique, `lib/` et exemples sans reprise) ; tranche 3 : édition choisie par le fichier ou le projet, coloration de l'édition 1 dans Studio ; suite : repli `else`, `===`, `in`, migration effective de `lib/` |
 | P3 | Élevée | Raccorder `syntax`, `lsp`, `terminal`, `dap`, `templates` dans Studio ; UI native stable | Main (vues) ; Luna 2 (terminal, DAP) | L1, L2 pour terminal et DAP | `syntax` INTÉGRÉ (M3) ; `templates` INTÉGRÉ (M4) ; `lsp` À FAIRE (M5, Main) ; terminal (M6) et DAP (M7) attendent L1 et L2 de Luna 2 |
 | P4 | Élevée | Installateur Windows du Studio natif testé avec un vrai binaire | Luna | M2 (fait) | assistant Win32 fusionné (PR #14, étape 2) ; Studio natif à empaqueter (L3) |
@@ -83,7 +83,7 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | M16 | 2 | P14 — piloter les scénarios A à H (§1.1) avec Gemma (Q7) ; notes de version, `CHANGELOG.md`, `README.md` | scénarios exécutés et consignés | À FAIRE |
 | M17 | 3 | Demande de Luna : extensions de Studio — formatage intégré (commande, à l'enregistrement désactivé par défaut), API de thèmes et préférences validées, avec permission explicite, tests | API documentée et testée | À FAIRE |
 | M18 | 1 | Relire les PR fusionnées sans revue de Main : #15 (audit G0), #16 (extension VS Code), #14 (installateur, fait par Outils après le transfert), #17 (QA) ; demandes de correction aux auteurs | note de revue par PR | fait : [revues-main.md](revues-main.md) ; 2 corrections de sécurité confiées à Codex Sol |
-| M19 | 1 | Essai manuel de P1 dans la vraie application (fermeture, conflit, récupération, changement de dossier) avec la liste de Gemma | résultats consignés | À FAIRE |
+| M19 | 1 | Essai manuel de P1 dans la vraie application (fermeture, conflit, récupération, changement de dossier) avec la liste de Gemma | résultats consignés | fait le 16/10 : tout le bloc P0 de la [liste](gemma/manual-studio-checklist.md) passe ; écarts vus hors P1 : complétion dans les commentaires (ST22), `nxc` trop ancien pour l'édition 1 non signalé (ST23), `nexul.toml` avec BOM refusé (S10) |
 
 ### 2.2 Claude Outils / Core
 
@@ -192,6 +192,7 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 | S6 | Effets visibles dans la syntaxe : allocations, blocages, exceptions identifiables par le compilateur | À FAIRE |
 | S7 | G4 : transition `nxc migrate` ou `--edition`, projets 0.2 préservés, rejets expliqués, aucune suppression silencieuse | INTÉGRÉ : `--edition 0.2/1`, `nxc migrate` testé sur `tests/run`, `lib/`, `examples/` |
 | S9 | Piège G0 §4.1 (ligne coupée en deux) diagnostiqué dès la 0.2 : `E0110` | INTÉGRÉ (Main, parser + test UI + spécification §1.7) |
+| S10 | `nexul.toml` et sources avec BOM UTF-8 (Bloc-notes, PowerShell 5) acceptés partout, en-tête `// edition:` compris | À FAIRE (vu à l'essai M19) |
 | S8 | G5 : parser robuste (fichiers malformés, préfixes incomplets, erreurs non en cascade), formateur déterministe, fuzzing lexer/parser, corpus de régression | À FAIRE |
 
 ### 3.2 Typage fort (P5, P6) — Outils, revue Main
@@ -323,6 +324,8 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 | ST19 | Retrait de l'ancienne interface Edge après parité | À FAIRE (M12) |
 | ST20 | Avancé : centre NEXUL (benchmarks, IR/assembleur, précision, simulation RT, concurrence), Git, extensions, documentation intégrée, observation des threads et échéances | À FAIRE (après stabilité) |
 | ST21 | Diagnostics du nouveau typage (effets, contrats) quand ils existent | À FAIRE |
+| ST22 | La complétion ne s'ouvre pas dans un commentaire ni dans une chaîne (vu à l'essai M19) | À FAIRE |
+| ST23 | Studio vérifie que son `nxc` connaît l'édition du fichier (sinon il le dit au lieu d'afficher de fausses erreurs) ; ordre de recherche de `nxc` revu (`NEXUL_HOME` passe avant `PATH`) | À FAIRE (vu à l'essai M19) |
 
 ### 3.11 Extension VS Code (P10) — Luna, revue Main
 

@@ -200,8 +200,25 @@ fn completion_kind(kind: &str) -> CompletionItemKind {
     }
 }
 
+/// Is the character before `offset` in a comment or a string (where there is nothing to
+/// complete)? The text is read up to the end of that line: a string ends there, and its
+/// interpolations `{…}` are code. The comments and strings are the same in both editions.
+pub fn in_comment_or_string(text: &str, offset: usize) -> bool {
+    use nexul_studio_syntax::Kind;
+    let Some(last) = offset.checked_sub(1) else { return false };
+    let end = text[offset..].find('\n').map_or(text.len(), |i| offset + i);
+    nexul_studio_syntax::tokens("nexul", &text[..end])
+        .iter()
+        .rev()
+        .find(|t| t.range.start <= last && last < t.range.end)
+        .is_some_and(|t| matches!(t.kind, Kind::Comment | Kind::DocComment | Kind::String | Kind::Escape))
+}
+
 impl CompletionProvider for Nexul {
     fn completions(&self, text: &Rope, offset: usize, _: CompletionContext, _: &mut Window, cx: &mut App) -> Task<Result<CompletionResponse>> {
+        if in_comment_or_string(&text.to_string(), offset) {
+            return Task::ready(Ok(CompletionResponse::Array(Vec::new())));
+        }
         let task = self.request("completion", text, offset, cx);
         cx.background_spawn(async move {
             let items = task.await.and_then(|v| v.as_array().cloned()).unwrap_or_default();
@@ -289,7 +306,6 @@ fn problem(d: &Value, dir: &Path) -> Problem {
     }
 }
 
-/// Paths compared as Windows does (case-insensitive there).
 /// A NEXUL editor: edition 0.2 (`nexul`) or edition 1 of the syntax (`nexul1`, ADR 0010).
 pub fn is_nexul(lang: &str) -> bool {
     lang == "nexul" || lang == "nexul1"
@@ -323,6 +339,7 @@ pub fn edition_1(file: &Path, text: &str) -> bool {
     false
 }
 
+/// Paths compared as Windows does (case-insensitive there).
 pub fn same_file(a: &Path, b: &Path) -> bool {
     let norm = |p: &Path| {
         let s = p.to_string_lossy().replace('/', "\\");
@@ -361,5 +378,20 @@ mod tests {
         assert_eq!(p.range, Range::new(Position::new(7, 20), Position::new(7, 21)));
         assert_eq!(p.severity, Severity::Error);
         assert_eq!(p.message, "mismatched types : expected `String`, found `{integer}`");
+    }
+
+    #[test]
+    fn no_completion_in_comments_and_strings() {
+        // `|` marks the cursor.
+        let at = |s: &str| {
+            let offset = s.find('|').unwrap();
+            in_comment_or_string(&s.replace('|', ""), offset)
+        };
+        for s in ["fn b() {} // modif b|", "/// doc d|\nfn f() {}", "/* a\n b| */", r#"let s = "ab|""#, r#"let s = "a\n|"#, "let s = \"ab|\nx"] {
+            assert!(at(s), "{s:?}");
+        }
+        for s in ["|", "pri|", "x.l|", "/* a */ x|", r#"let s = "a" + b|"#, r#"let s = "{v.l|}""#, "let x = 1 /|", "// c\nx|"] {
+            assert!(!at(s), "{s:?}");
+        }
     }
 }

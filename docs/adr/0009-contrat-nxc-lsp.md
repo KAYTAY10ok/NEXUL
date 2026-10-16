@@ -371,3 +371,9 @@ lecture superposée dans `compiler/nxc_sema/src/load.rs` (§3), sans changer le 
 de `nxc build` (la suite `cargo test --release --workspace` reste verte). Toute autre
 modification de `nxc_sema`, `nxc_syntax`, `nxc_nir`, `nxc_codegen_llvm` ou `lib/` passe par
 Main. Les deux PR du §13 deviennent des PR `[sol]`.
+
+**Ajout du 16/10 (ADR 0010, éditions de la syntaxe).** `nxc version --json` annonce aussi
+les éditions lues : `"editions": ["0.2", "1"]` (champ ajouté, règle du §10). `nxc --version`
+les nomme déjà depuis le 16/10 : `nxc 0.2.0 (NEXUL 0.2, editions 0.2 and 1)` ; Studio s'en
+sert pour prévenir quand son `nxc` ne lit pas l'édition d'un projet. Le serveur `nxc lsp`
+analyse chaque document dans son édition (`pkg::edition_for`, comme `nxc ide`).

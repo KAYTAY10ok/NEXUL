@@ -138,6 +138,8 @@ pub struct Studio {
     last_change: Option<std::time::Instant>,
     /// The window may close: the unsaved changes were dealt with.
     allow_close: bool,
+    /// `nxc` reads edition 1 of the syntax (asked once, when a file of edition 1 opens).
+    nxc_ed1: Option<bool>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -182,6 +184,7 @@ impl Studio {
             backup_due: None,
             last_change: None,
             allow_close: false,
+            nxc_ed1: None,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -338,6 +341,7 @@ impl Studio {
         // Edition 1 of the syntax (ADR 0010): the file or its project says so.
         if lang == "nexul" && ide::edition_1(&root.join(rel), &text) {
             lang = "nexul1";
+            self.check_nxc_edition_1(window, cx);
         }
         let saved_hash = text_hash(&text);
         let disk_hash = bytes_hash(&bytes);
@@ -433,6 +437,24 @@ impl Studio {
         }
         self.save_session();
         cx.notify();
+    }
+
+    /// A file of edition 1 opens: says once if the `nxc` found does not read that edition
+    /// (its diagnostics would all be wrong).
+    fn check_nxc_edition_1(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let (None, Some(nxc)) = (self.nxc_ed1, self.nxc.clone()) else { return };
+        let ok = compiler::knows_edition_1(&nxc);
+        self.nxc_ed1 = Some(ok);
+        if !ok {
+            self.notify_error(
+                &format!(
+                    "Ce projet est écrit dans l'édition 1 de NEXUL, que le compilateur trouvé ne connaît pas ({}) : ses diagnostics seront faux. Mettez NEXUL à jour ou indiquez un nxc récent avec la variable NEXUL_NXC.",
+                    nxc.display()
+                ),
+                window,
+                cx,
+            );
+        }
     }
 
     fn notify_error(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
