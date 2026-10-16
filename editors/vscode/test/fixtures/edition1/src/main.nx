@@ -1,5 +1,13 @@
+type Couleur = .Rouge | .Vert
+
+fn String nom(Couleur c) = when c {
+    .Rouge then "rouge"
+    .Vert then "vert"
+}
+
 fn main() {
     println("NEXUL VS Code Edition 1")
+    println(nom(.Vert))
 }
 
 test "addition" {

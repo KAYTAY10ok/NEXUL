@@ -45,7 +45,9 @@ async function run() {
     .replace('fn main() {', 'fn main(){')
     .replace('    println(', 'println(')
     .replace('test "addition" {', 'test "addition"{')
-    .replace('    assert(2 + 2 == 4)', 'assert(2+2==4)');
+    .replace('    assert(2 + 2 == 4)', 'assert(2+2==4)')
+    .replace('    .Rouge then "rouge"', '.Rouge then "rouge"')
+    .replace('    .Vert then "vert"', '.Vert then "vert"');
   const unformattedEdit = new vscode.WorkspaceEdit();
   unformattedEdit.replace(document.uri,
     new vscode.Range(document.positionAt(0), document.positionAt(originalText.length)), unformattedText);
@@ -54,6 +56,10 @@ async function run() {
   assert.notEqual(document.getText(), unformattedText, 'saving Edition 1 source must format it automatically');
   assert.match(document.getText(), /fn main\(\) \{/);
   assert.match(document.getText(), /    println\(/);
+  assert.match(document.getText(), /\n    \.Rouge then "rouge"/,
+    'format-on-save must indent Edition 1 variant arms inside `when`');
+  assert.match(document.getText(), /\n    \.Vert then "vert"/,
+    'all Edition 1 variant arms must keep the same block indentation');
 
   const legacyFile = path.join(folder.uri.fsPath, 'src', 'legacy.nx');
   const legacyDocument = await vscode.workspace.openTextDocument(vscode.Uri.file(legacyFile));
