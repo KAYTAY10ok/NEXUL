@@ -27,6 +27,7 @@ Claude Main conserve la revue et l'intégration.
 - Base actuelle : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026.
 - Les PR #20, #21, #22 et #24 à #28 concernant L1, L2, la sécurité, P9, L3, L4, L5 et le formatage ont été intégrées par Main ; les anciennes preuves détaillées ci-dessous restent historiques.
 - PRs ouvertes : #29 benchmarks (aucun run Actions associé au head trouvé ; résultats locaux dans la PR), #30 VSIX 0.3.0, #31 DAP, #32 terminal, #33 garde de cohérence des versions du paquet et #34 matrice LSP.
+- La [fiche Marketplace NEXUL](https://marketplace.visualstudio.com/items?itemName=KAYTAY10ok.nexul-language) affiche encore la version publiée **0.1.0** (vérifiée le 16/10/2026). La PR #30 prépare le VSIX 0.3.0 ; après revue et intégration, la publication de cette version reste une action du propriétaire du publisher.
 - CI Actions réussie pour les heads des PR #30, #31, #32, #33 et #34. La PR #34 est fusionnable ; aucun merge n’est demandé à Sol.
 - La garde de la PR #33 bloque intentionnellement l’empaquetage tant que Main n’a pas aligné les versions des composants à 0.3.0. Après cet alignement, la construction complète et la mise à niveau sandbox 0.2 → 0.3 restent à rejouer.
 - Le formatage des bras `.Variant` est couvert par `format_keeps_variant_arms_and_indents_method_chains` (1 test ciblé réussi dans le worktree P9). Le formatage à la sauvegarde des deux éditions est activé par la PR #28 ; la PR #30 apporte une validation hôte Windows et WSL2.
