@@ -1,0 +1,261 @@
+'use strict';
+
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const vm = require('node:vm');
+const cli = require('../src/cli');
+const tasks = require('../src/tasks');
+
+const manifest = require('../package.json');
+
+function activateWithWorkspace(isTrusted, options = {}) {
+  const callbacks = new Map();
+  const commands = new Map();
+  const providers = new Map();
+  const compilerCalls = [];
+  const clients = [];
+  const executedTasks = [];
+  const pathReads = [];
+  const languageChanges = [];
+  const informationMessages = [];
+  const selectors = new Map();
+  const folderCompiler = path.join(process.cwd(), 'untrusted repository', 'folder-nxc.exe');
+  const folder = { uri: { fsPath: path.dirname(folderCompiler) } };
+  const text = options.text || 'fn main() {}';
+  const document = {
+    languageId: options.languageId || 'nexul',
+    uri: { fsPath: path.join(process.cwd(), 'untrusted repository', 'main.nx') },
+    isDirty: false,
+    lineCount: 1,
+    getText: () => text,
+    lineAt: () => ({ text })
+  };
+  const disposable = () => ({ dispose() {} });
+  const listen = (name) => (callback) => {
+    callbacks.set(name, callback);
+    return disposable();
+  };
+  let codeLensRefreshes = 0;
+  const vscode = {
+    EventEmitter: class {
+      event = disposable;
+      fire() { codeLensRefreshes += 1; }
+      dispose() {}
+    },
+    Disposable: class {
+      constructor(callback) { this.dispose = callback; }
+    },
+    RelativePattern: class {},
+    Task: class {
+      constructor(definition, scope, name, source, execution) {
+        Object.assign(this, { definition, scope, name, source, execution });
+      }
+    },
+    ProcessExecution: class {
+      constructor(executable, args, options) {
+        Object.assign(this, { executable, args, options });
+      }
+    },
+    TaskScope: { Global: 1 },
+    TaskRevealKind: { Always: 1 },
+    TaskPanelKind: { Dedicated: 1 },
+    TaskGroup: { Build: 'build', Test: 'test' },
+    CompletionItemKind: {},
+    Uri: { file: (fsPath) => ({ fsPath }) },
+    Position: class { constructor(line, character) { Object.assign(this, { line, character }); } },
+    Range: class { constructor(start, startCharacter, end, endCharacter) {
+      this.start = typeof start === 'number' ? { line: start, character: startCharacter } : start;
+      this.end = typeof start === 'number' ? { line: end, character: endCharacter } : end;
+    } },
+    CodeLens: class { constructor(range, command) { Object.assign(this, { range, command }); } },
+    TextEdit: { replace: (range, newText) => ({ range, newText }) },
+    WorkspaceEdit: class { replace() {} },
+    window: {
+      activeTextEditor: { document },
+      createOutputChannel: () => ({ appendLine() {}, dispose() {} }),
+      showInformationMessage: async (message) => { informationMessages.push(message); }
+    },
+    languages: {
+      createDiagnosticCollection: () => ({ clear() {}, set() {}, dispose() {} }),
+      setTextDocumentLanguage: async (target, language) => {
+        languageChanges.push(language);
+        target.languageId = language;
+        return target;
+      }
+    },
+    commands: {
+      registerCommand: (name, callback) => {
+        commands.set(name, callback);
+        return disposable();
+      }
+    },
+    tasks: {
+      registerTaskProvider: (_type, provider) => {
+        providers.set('tasks', provider);
+        return disposable();
+      },
+      executeTask: async (task) => { executedTasks.push(task); }
+    },
+    workspace: {
+      isTrusted,
+      textDocuments: [document],
+      workspaceFolders: [folder],
+      getConfiguration: () => ({
+        get: (key, fallback) => {
+          if (key === 'nxcPath') {
+            pathReads.push(folderCompiler);
+            // Deliberately expose the hostile folder override even in Restricted
+            // Mode: the execution guards must also work without host filtering.
+            return folderCompiler;
+          }
+          if (key === 'checkOnSave' || key === 'formatOnSave') return true;
+          return fallback;
+        }
+      }),
+      getWorkspaceFolder: () => folder,
+      openTextDocument: async () => document,
+      findFiles: async () => [{ fsPath: path.join(folder.uri.fsPath, 'nexul.toml') }],
+      registerTextDocumentContentProvider: () => disposable(),
+      onDidGrantWorkspaceTrust: listen('trust'),
+      onDidOpenTextDocument: listen('open'),
+      onDidSaveTextDocument: listen('save'),
+      onDidCloseTextDocument: listen('close'),
+      onDidChangeTextDocument: listen('change'),
+      onWillSaveTextDocument: listen('willSave'),
+      onDidChangeConfiguration: listen('configuration')
+    }
+  };
+  for (const [registration, name] of [['registerCodeLensProvider', 'codeLens']]) {
+    vscode.languages[registration] = (_selector, provider) => {
+      providers.set(name, provider);
+      selectors.set(name, _selector);
+      return disposable();
+    };
+  }
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../src/extension.js'), 'utf8'), {
+    module,
+    exports: module.exports,
+    setTimeout,
+    clearTimeout,
+    require: (name) => {
+      if (name === 'vscode') return vscode;
+      if (name === 'vscode-languageclient/node') {
+        return {
+          TransportKind: { stdio: 0 },
+          LanguageClient: class {
+            constructor(id, name, serverOptions, clientOptions) {
+              Object.assign(this, { id, name, serverOptions, clientOptions, running: false, requests: [] });
+              clients.push(this);
+            }
+            async start() { this.running = true; }
+            async stop() { this.running = false; }
+            isRunning() { return this.running; }
+            async sendRequest(method, params) {
+              this.requests.push({ method, params });
+              return method === 'nexul/tests' ? [] : [];
+            }
+          }
+        };
+      }
+      if (name === './tasks') return tasks;
+      if (name === './edition') return require('../src/edition');
+      if (name === './cli') return {
+        ...cli,
+        runNxc: async (executable, args) => {
+          compilerCalls.push({ executable, args });
+          return { stdout: args[0] === 'check' ? '[]' : (args[1] === 'format' ? document.getText() : 'null') };
+        }
+      };
+      return require(name);
+    }
+  }, { filename: 'extension.js' });
+  const context = { subscriptions: [] };
+  const activated = module.exports.activate(context);
+  return {
+    vscode, callbacks, commands, providers, document, compilerCalls, clients, activated, executedTasks,
+    pathReads, folderCompiler, languageChanges, informationMessages, selectors,
+    codeLensRefreshes: () => codeLensRefreshes,
+    dispose: () => context.subscriptions.forEach((subscription) => subscription.dispose())
+  };
+}
+
+test('manifest restricts workspace compiler overrides and execution commands by trust', () => {
+  assert.equal(manifest.contributes.configuration.properties['nexul.nxcPath'].scope, 'machine-overridable');
+  assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
+  assert.equal(manifest.contributes.configuration.properties['nexul.checkOnSave'], undefined,
+    'LSP diagnostics are pushed continuously and no longer use the old check-on-save switch');
+  assert.ok(manifest.capabilities.untrustedWorkspaces.restrictedConfigurations.includes('nexul.nxcPath'));
+  assert.ok(manifest.capabilities.untrustedWorkspaces.description);
+  for (const command of manifest.contributes.commands) {
+    assert.equal(command.enablement, 'isWorkspaceTrusted', command.command);
+  }
+});
+
+test('untrusted folder compiler is never used by editor hooks, providers, commands or tasks', async (t) => {
+  const host = activateWithWorkspace(false);
+  t.after(host.dispose);
+  const { callbacks, commands, providers, document } = host;
+  callbacks.get('open')(document);
+  callbacks.get('save')(document);
+  callbacks.get('willSave')({ document, waitUntil: (result) => { assert.ok(result); } });
+  await host.activated;
+  await providers.get('codeLens').provideCodeLenses(document);
+  for (const [name, command] of commands) {
+    await (name === 'nexul.runTest' ? command(document.uri.fsPath, 'test_name') : command());
+  }
+  assert.equal((await providers.get('tasks').provideTasks()).length, 0);
+  assert.equal(providers.get('tasks').resolveTask({ definition: { type: 'nexul', command: 'run' } }), undefined);
+  assert.equal(host.pathReads.length, 0, 'the untrusted folder setting must not be consumed');
+  assert.equal(host.compilerCalls.length, 0, 'no compiler or IDE process may run before trust');
+  assert.equal(host.clients.length, 0, 'the LSP server must not start before trust');
+  assert.equal(host.executedTasks.length, 0, 'programs and tests must not run before trust');
+});
+
+test('granting trust resumes open-document checks and enables compiler tasks', async (t) => {
+  const host = activateWithWorkspace(false);
+  t.after(host.dispose);
+  await host.activated;
+  host.vscode.workspace.isTrusted = true;
+  host.callbacks.get('trust')();
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(host.codeLensRefreshes(), 1);
+  assert.equal(host.clients.length, 1);
+  assert.equal(host.clients[0].serverOptions.command, host.folderCompiler);
+  assert.deepEqual(Array.from(host.clients[0].serverOptions.args), ['lsp']);
+  await host.providers.get('codeLens').provideCodeLenses(host.document);
+  assert.equal(host.clients[0].requests[0].method, 'nexul/tests');
+  await host.commands.get('nexul.checkCurrentFile')();
+  assert.equal(host.compilerCalls.length, 1);
+  assert.equal(host.compilerCalls[0].executable, host.folderCompiler);
+  assert.equal(host.compilerCalls[0].args[0], 'check');
+  await host.commands.get('nexul.buildCurrentFile')();
+  assert.equal(host.executedTasks.length, 1);
+  assert.equal(host.executedTasks[0].execution.executable, host.folderCompiler);
+  assert.equal(host.executedTasks[0].execution.args[0], 'build');
+  const resolved = host.providers.get('tasks').resolveTask({ definition: { type: 'nexul', command: 'test' } });
+  assert.equal(resolved.execution.executable, host.folderCompiler);
+  const provided = await host.providers.get('tasks').provideTasks();
+  assert.equal(provided.length, 4);
+  assert.ok(provided.every((task) => task.execution.executable === host.folderCompiler));
+});
+
+test('edition 1 switches language mode and delegates formatting to nxc LSP', async (t) => {
+  const host = activateWithWorkspace(true, {
+    text: '// edition: 1\nfn main() {}'
+  });
+  t.after(host.dispose);
+  await host.activated;
+  await new Promise((resolve) => setImmediate(resolve));
+
+  assert.equal(host.document.languageId, 'nexul1');
+  assert.deepEqual(host.languageChanges, ['nexul1']);
+  assert.ok(host.selectors.get('codeLens').some((selector) => selector.language === 'nexul1'));
+  assert.ok(host.clients[0].clientOptions.documentSelector.some((selector) => selector.language === 'nexul1'));
+  await host.commands.get('nexul.formatDocument')();
+  assert.equal(host.compilerCalls.length, 0, 'formatting must go through the LSP, not spawn another compiler process');
+  assert.ok(host.clients[0].requests.some((request) => request.method === 'textDocument/formatting'));
+  assert.equal(host.informationMessages.length, 0, 'Edition 1 formatting must not show an unsupported message');
+});

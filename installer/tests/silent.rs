@@ -15,6 +15,111 @@ use std::process::Command;
 use std::time::Duration;
 
 #[test]
+fn modified_elevation_job_cannot_delete_uninventoried_files() {
+    let sb = Sandbox::new("elevation-job");
+    let old = sb.path(r"ProgramFiles\NEXUL Studio");
+    std::fs::create_dir_all(&old).unwrap();
+    std::fs::write(old.join("NEXUL Studio.exe"), b"MZ").unwrap();
+    let victim_dir = sb.path("Elsewhere");
+    let victim = victim_dir.join("important.txt");
+    std::fs::write(&victim, "keep this file").unwrap();
+    let job = sb.path(r"Temp\job.txt");
+    let log = sb.path(r"Temp\job.log");
+    std::fs::write(&log, "do not overwrite caller files with elevated rights").unwrap();
+    let selected = format!("choice\tfolder\t\tremove\t{}", old.display());
+    for forged in [
+        format!("del\t{}", victim.display()),
+        format!("rmdir\t{}", victim_dir.display()),
+        format!("choice\tfolder\t\tremove\t{}", victim_dir.display()),
+        format!("{selected}\ndel\t{}", victim.display()),
+    ] {
+        std::fs::write(&job, forged).unwrap();
+        let status = sb.command(Path::new(SETUP)).arg("--old-versions-job").arg(&job).status().unwrap();
+        assert_eq!(status.code(), Some(2));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep this file");
+        assert!(old.is_dir(), "an invalid job must be rejected before any operation");
+    }
+    // A real fresh inventory still allows the selected NEXUL copy to be removed.
+    std::fs::write(&job, selected).unwrap();
+    let status = sb.command(Path::new(SETUP)).arg("--old-versions-job").arg(&job).status().unwrap();
+    assert!(status.success());
+    assert!(!old.exists());
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "keep this file");
+    assert_eq!(std::fs::read_to_string(&log).unwrap(), "do not overwrite caller files with elevated rights");
+}
+
+#[test]
+fn elevated_job_rejects_manifest_paths_outside_installation() {
+    let sb = Sandbox::new("elevation-manifest");
+    // This fake user installation is found by the fresh scan, without any forged
+    // operation or registry entry. Its manifest must still be treated as untrusted.
+    let dir = sb.path(r"LocalAppData\Programs\NEXUL");
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    let installed = dir.join("installed.txt");
+    let user_file = dir.join("notes.txt");
+    let absolute_victim = sb.path(r"Elsewhere\important.txt");
+    let parent_victim = dir.parent().unwrap().join("parent.txt");
+    std::fs::write(&installed, "installed file").unwrap();
+    std::fs::write(&user_file, "user file").unwrap();
+    std::fs::write(&absolute_victim, "absolute sentinel").unwrap();
+    std::fs::write(&parent_victim, "parent sentinel").unwrap();
+    let job = sb.path(r"Temp\job.txt");
+    std::fs::write(&job, format!("choice\tinstall\t\tremove\t{}", dir.display())).unwrap();
+    for unsafe_path in [
+        absolute_victim.display().to_string(),
+        "../parent.txt".into(),
+        r"..\parent.txt".into(),
+        r"bin\..\..\parent.txt".into(),
+    ] {
+        std::fs::write(dir.join("install.txt"), format!("version\t0.1\nfile\tinstalled.txt\nfile\t{unsafe_path}\n")).unwrap();
+        let status = sb.command(Path::new(SETUP)).arg("--old-versions-job").arg(&job).status().unwrap();
+        assert_eq!(status.code(), Some(2), "manifest entry: {unsafe_path}");
+        assert_eq!(std::fs::read_to_string(&absolute_victim).unwrap(), "absolute sentinel");
+        assert_eq!(std::fs::read_to_string(&parent_victim).unwrap(), "parent sentinel");
+        assert_eq!(std::fs::read_to_string(&installed).unwrap(), "installed file", "validate all entries before removing any file");
+        assert_eq!(std::fs::read_to_string(&user_file).unwrap(), "user file");
+        assert!(dir.join("install.txt").is_file());
+    }
+    // A safe manifest still removes its own files and keeps files added by the user.
+    std::fs::write(dir.join("install.txt"), "version\t0.1\nfile\tinstalled.txt\n").unwrap();
+    let status = sb.command(Path::new(SETUP)).arg("--old-versions-job").arg(&job).status().unwrap();
+    assert!(status.success());
+    assert!(!installed.exists());
+    assert!(!dir.join("install.txt").exists());
+    assert_eq!(std::fs::read_to_string(&user_file).unwrap(), "user file");
+    assert_eq!(std::fs::read_to_string(&absolute_victim).unwrap(), "absolute sentinel");
+    assert_eq!(std::fs::read_to_string(&parent_victim).unwrap(), "parent sentinel");
+}
+
+#[test]
+fn elevated_job_rejects_manifest_junction_outside_installation() {
+    let sb = Sandbox::new("elevation-junction");
+    let dir = sb.path(r"LocalAppData\Programs\NEXUL");
+    std::fs::create_dir_all(dir.join("bin")).unwrap();
+    let installed = dir.join("installed.txt");
+    let outside = sb.path("Elsewhere");
+    let victim = outside.join("important.txt");
+    let junction = dir.join("linked");
+    std::fs::write(&installed, "installed file").unwrap();
+    std::fs::write(&victim, "junction sentinel").unwrap();
+    // Directory junctions do not require the symbolic-link administrator privilege.
+    let created = Command::new("cmd").args(["/C", "mklink", "/J"]).arg(&junction).arg(&outside).output().unwrap();
+    assert!(created.status.success(), "junction creation failed: {}", String::from_utf8_lossy(&created.stderr));
+    assert_eq!(std::fs::read_to_string(junction.join("important.txt")).unwrap(), "junction sentinel");
+    std::fs::write(dir.join("install.txt"), "version\t0.1\nfile\tinstalled.txt\nfile\tlinked/important.txt\n").unwrap();
+    let job = sb.path(r"Temp\job.txt");
+    std::fs::write(&job, format!("choice\tinstall\t\tremove\t{}", dir.display())).unwrap();
+    let status = sb.command(Path::new(SETUP)).arg("--old-versions-job").arg(&job).status().unwrap();
+    assert_eq!(status.code(), Some(2));
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "junction sentinel");
+    assert_eq!(std::fs::read_to_string(&installed).unwrap(), "installed file");
+    assert!(dir.join("install.txt").is_file());
+    // Remove only the junction, with its exact path inside this test's sandbox.
+    std::fs::remove_dir(&junction).unwrap();
+    assert_eq!(std::fs::read_to_string(&victim).unwrap(), "junction sentinel");
+}
+
+#[test]
 fn install_update_uninstall() {
     let sb = Sandbox::new("full");
     let dir = sb.path(r"LocalAppData\Programs\NEXUL");

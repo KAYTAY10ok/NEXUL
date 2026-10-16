@@ -1,7 +1,7 @@
 {
   "name": "nexul-language",
   "displayName": "NEXUL Language Support",
-  "description": "Coloration, outils nxc et fonctionnalités d’éditeur pour les fichiers NEXUL.",
+  "description": "Coloration, diagnostics, formatage automatique et outils de développement pour le langage NEXUL.",
   "version": "0.1.0",
   "publisher": "KAYTAY10ok",
   "license": "MIT OR Apache-2.0",
@@ -24,8 +24,18 @@
   "main": "./src/extension.js",
   "activationEvents": [
     "onLanguage:nexul",
+    "onLanguage:nexul1",
     "workspaceContains:nexul.toml"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "La coloration et les snippets restent disponibles. Les outils nxc nécessitent un espace de travail approuvé.",
+      "restrictedConfigurations": [
+        "nexul.nxcPath"
+      ]
+    }
+  },
   "contributes": {
     "languages": [
       {
@@ -38,6 +48,14 @@
           ".nx"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "nexul1",
+        "aliases": [
+          "NEXUL (édition 1)",
+          "nexul1"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -45,38 +63,53 @@
         "language": "nexul",
         "scopeName": "source.nexul",
         "path": "./syntaxes/nexul.tmLanguage.json"
+      },
+      {
+        "language": "nexul1",
+        "scopeName": "source.nexul1",
+        "path": "./syntaxes/nexul1.tmLanguage.json"
       }
     ],
     "snippets": [
       {
         "language": "nexul",
         "path": "./snippets/nexul.json"
+      },
+      {
+        "language": "nexul1",
+        "path": "./snippets/nexul1.json"
       }
     ],
     "commands": [
       {
         "command": "nexul.checkCurrentFile",
-        "title": "NEXUL: Vérifier le fichier courant"
+        "title": "NEXUL: Vérifier le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.buildCurrentFile",
-        "title": "NEXUL: Construire le fichier courant"
+        "title": "NEXUL: Construire le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.runCurrentFile",
-        "title": "NEXUL: Exécuter le fichier courant"
+        "title": "NEXUL: Exécuter le fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.testCurrentFile",
-        "title": "NEXUL: Lancer les tests du fichier courant"
+        "title": "NEXUL: Lancer les tests du fichier courant",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.formatDocument",
-        "title": "NEXUL: Formater le document"
+        "title": "NEXUL: Formater le document",
+        "enablement": "isWorkspaceTrusted"
       },
       {
         "command": "nexul.runTest",
-        "title": "NEXUL: Exécuter ce test"
+        "title": "NEXUL: Exécuter ce test",
+        "enablement": "isWorkspaceTrusted"
       }
     ],
     "taskDefinitions": [
@@ -107,32 +140,38 @@
         }
       }
     ],
+    "configurationDefaults": {
+      "[nexul]": {
+        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
+        "editor.formatOnSave": true
+      },
+      "[nexul1]": {
+        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
+        "editor.formatOnSave": true
+      }
+    },
     "configuration": {
       "title": "NEXUL",
       "properties": {
         "nexul.nxcPath": {
           "type": "string",
           "default": "nxc",
+          "scope": "machine-overridable",
           "description": "Chemin vers l’exécutable nxc. Laissez « nxc » si le compilateur est dans PATH."
-        },
-        "nexul.checkOnSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "Met à jour les diagnostics NEXUL après l’enregistrement du fichier."
-        },
-        "nexul.formatOnSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Formate le fichier NEXUL avant son enregistrement. Désactivé par défaut."
         }
       }
     }
   },
   "scripts": {
-    "test": "node --test",
-    "package": "vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
+    "test": "node --test test/cli.test.js test/edition.test.js test/trust.test.js",
+    "test:host": "node test/run-host-tests.js",
+    "package": "node -e \"require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
   },
   "devDependencies": {
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

@@ -141,7 +141,9 @@ fn handle_old_versions(st: &State, o: &Options) {
             set_progress(st, |p| p.backups = true);
         }
         if item.admin {
-            elevated.extend(ops);
+            if !ops.is_empty() {
+                elevated.push(old::JobChoice::new(item, action));
+            }
         } else {
             here.extend(ops);
         }

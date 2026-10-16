@@ -1,7 +1,8 @@
-node_modules/**
 test/**
+host-test.log
 dist/**
 .vscode/**
+.vscode-test/**
 .git/**
 .gitignore
 .vscodeignore

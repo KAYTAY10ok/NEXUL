@@ -260,6 +260,7 @@ impl<'a> Gen<'a> {
         }
         // Variables for the debugger.
         if let Some(scope) = cx.scope {
+            self.declare("declare void @llvm.dbg.declare(metadata, metadata, metadata)");
             for (i, l) in body.locals.iter().enumerate() {
                 let Some(vname) = &l.name else { continue };
                 if !matches!(l.kind, LocalKind::User | LocalKind::Arg { .. }) || l.span.is_dummy() {
@@ -275,7 +276,7 @@ impl<'a> Gen<'a> {
                 let ty = di.ty(&self.lx, self.p, tys[i]);
                 let var = di.local_variable(vname, arg, scope, file_md, line, ty);
                 let loc = di.location(scope, line, col);
-                let _ = writeln!(entry_code, "    #dbg_declare(ptr {}, !{}, !DIExpression(), !{})", cx.addr[i], var, loc);
+                let _ = writeln!(entry_code, "    call void @llvm.dbg.declare(metadata ptr {}, metadata !{}, metadata !DIExpression()), !dbg !{}", cx.addr[i], var, loc);
             }
         }
         // Blocks.

@@ -1,25 +1,30 @@
 'use strict';
 
-const fs = require('node:fs');
 const path = require('node:path');
 const vscode = require('vscode');
-const {
-  parseDiagnostics,
-  parseJsonOutput,
-  runNxc,
-  scalarColumnToUtf16,
-  utf16ColumnToScalar
-} = require('./cli');
+const { LanguageClient } = require('vscode-languageclient/node');
+const { parseDiagnostics, runNxc } = require('./cli');
+const { editionForFile } = require('./edition');
 const { createCliTask, registerTaskProvider } = require('./tasks');
+
+let deactivateLanguageClient = async () => {};
+
+function nexulProtocolUri(uri) {
+  return uri.toString().replace(/^file:\/\/\/([a-z])%3[Aa]/i, (_match, drive) => {
+    return 'file:///' + drive.toUpperCase() + ':';
+  });
+}
 
 function activate(context) {
   const output = vscode.window.createOutputChannel('NEXUL');
-  const diagnostics = vscode.languages.createDiagnosticCollection('nexul');
-  const contributions = new Map();
   const codeLensEmitter = new vscode.EventEmitter();
+  const nexulSelector = [{ language: 'nexul' }, { language: 'nexul1' }];
+  const synchronizedText = new Map();
   let codeLensRefreshTimer;
   let missingCompilerWasReported = false;
-  context.subscriptions.push(output, diagnostics, codeLensEmitter);
+  let languageClient;
+  let startingClient;
+  context.subscriptions.push(output, codeLensEmitter);
 
   function executable() {
     const configured = vscode.workspace.getConfiguration('nexul').get('nxcPath', 'nxc');
@@ -36,17 +41,35 @@ function activate(context) {
   }
 
   function isNexul(document) {
-    return document.languageId === 'nexul' || path.extname(document.uri.fsPath).toLowerCase() === '.nx';
+    return document.languageId === 'nexul'
+      || document.languageId === 'nexul1'
+      || path.extname(document.uri.fsPath).toLowerCase() === '.nx';
+  }
+
+  function documentEdition(document) {
+    return editionForFile(document.getText(), document.uri.fsPath);
+  }
+
+  async function updateEditionLanguage(document) {
+    if (path.extname(document.uri.fsPath).toLowerCase() !== '.nx') return document;
+    const language = documentEdition(document) === '1' ? 'nexul1' : 'nexul';
+    if (document.languageId === language) return document;
+    return vscode.languages.setTextDocumentLanguage(document, language);
   }
 
   function reportFailure(operation, error) {
-    if (!error || error.name === 'CancellationError') return;
+    if (!error || error.name === 'CancellationError' || error.code === 'NEXUL_UNTRUSTED_WORKSPACE') return;
     const details = error.stderr || error.message || String(error);
     output.appendLine('[' + operation + '] ' + details.trim());
-    if (error.code === 'ENOENT' && !missingCompilerWasReported) {
+    console.error('[NEXUL ' + operation + '] ' + details.trim());
+    if (error.code === 'NEXUL_EDITION1_FORMAT_UNAVAILABLE') {
+      vscode.window.showInformationMessage(error.message);
+      return;
+    }
+    if ((error.code === 'ENOENT' || error.code === 'NXC_EXIT') && !missingCompilerWasReported) {
       missingCompilerWasReported = true;
       vscode.window.showErrorMessage(
-        'nxc est introuvable. Installez NEXUL ou configurez nexul.nxcPath.',
+        'nxc est introuvable ou ne peut pas démarrer son serveur LSP. Installez une version récente de NEXUL ou configurez nexul.nxcPath.',
         'Ouvrir les paramètres'
       ).then((choice) => {
         if (choice) vscode.commands.executeCommand('workbench.action.openSettings', 'nexul.nxcPath');
@@ -54,179 +77,82 @@ function activate(context) {
     }
   }
 
-  function compilerPosition(document, position) {
-    const lineText = document.lineAt(position.line).text;
-    return [
-      String(position.line + 1),
-      String(utf16ColumnToScalar(lineText, position.character))
-    ];
+  function lspUnavailableError() {
+    const error = new Error('Le serveur de langage nxc n’est pas disponible.');
+    error.code = 'NEXUL_LSP_UNAVAILABLE';
+    return error;
   }
 
-  async function ideRequest(document, request, position, extraArgs, token) {
-    const args = ['ide', request, document.uri.fsPath];
-    if (position) args.push.apply(args, compilerPosition(document, position));
-    if (extraArgs && extraArgs.length) args.push.apply(args, extraArgs);
-    args.push('--stdin');
-    const result = await runNxc(executable(), args, {
-      cwd: workingDirectory(document),
-      input: document.getText(),
-      token
-    });
-    return result.stdout;
+  function sendLspRequest(method, params, token) {
+    return token === undefined
+      ? languageClient.sendRequest(method, params)
+      : languageClient.sendRequest(method, params, token);
   }
 
-  async function safeIdeJson(document, request, position, extraArgs, token) {
-    try {
-      return parseJsonOutput(await ideRequest(document, request, position, extraArgs, token), null);
-    } catch (error) {
-      reportFailure('nxc ide ' + request, error);
-      return undefined;
-    }
-  }
-
-  async function formatText(document, token) {
-    return ideRequest(document, 'format', null, [], token);
-  }
-
-  function sourceUri(document, file) {
-    const name = String(file || '');
-    if (!name || name === path.basename(document.uri.fsPath)) return document.uri;
-    if (name.startsWith('<')) return undefined;
-
-    const candidates = path.isAbsolute(name)
-      ? [name]
-      : [path.resolve(path.dirname(document.uri.fsPath), name), path.resolve(workingDirectory(document), name)];
-    for (const candidate of candidates) {
-      if (fs.existsSync(candidate)) return vscode.Uri.file(candidate);
-    }
-    return vscode.Uri.file(candidates[0]);
-  }
-
-  function compilerPositionInDocument(document, lineNumber, scalarColumn) {
-    const line = Math.max(0, Math.min(document.lineCount - 1, Number(lineNumber || 1) - 1));
-    const text = document.lineAt(line).text;
-    const character = scalarColumnToUtf16(text, scalarColumn || 1);
-    return new vscode.Position(line, character);
-  }
-
-  async function compilerRange(document, location) {
-    const uri = sourceUri(document, location.file);
-    if (!uri) return undefined;
-    let target = document;
-    if (uri.toString() !== document.uri.toString()) {
-      try {
-        target = await vscode.workspace.openTextDocument(uri);
-      } catch (_) {
-        return undefined;
-      }
-    }
-    const start = compilerPositionInDocument(target, location.line, location.col);
-    const end = compilerPositionInDocument(
-      target,
-      location.end_line || location.line,
-      location.end_col || location.col
-    );
-    return { uri, range: new vscode.Range(start, end.isBefore(start) ? start : end) };
-  }
-
-  async function diagnosticFromCompiler(document, item) {
-    if (item.std || (item.file && String(item.file).startsWith('<'))) return undefined;
-    const primary = await compilerRange(document, item);
-    if (!primary) return undefined;
-
-    const severity = item.level === 'warning'
-      ? vscode.DiagnosticSeverity.Warning
-      : (item.level === 'info'
-        ? vscode.DiagnosticSeverity.Information
-        : vscode.DiagnosticSeverity.Error);
-    const notes = Array.isArray(item.notes) && item.notes.length ? '\n\n' + item.notes.join('\n') : '';
-    const diagnostic = new vscode.Diagnostic(primary.range, String(item.message || '') + notes, severity);
-    diagnostic.code = item.code || undefined;
-    diagnostic.source = 'nxc';
-
-    const related = [];
-    for (const label of Array.isArray(item.labels) ? item.labels : []) {
-      if (label.primary || !label.message) continue;
-      const location = await compilerRange(document, label);
-      if (location) {
-        related.push(new vscode.DiagnosticRelatedInformation(
-          new vscode.Location(location.uri, location.range),
-          label.message
-        ));
-      }
-    }
-    if (related.length) diagnostic.relatedInformation = related;
-    return { uri: primary.uri, diagnostic };
-  }
-
-  function republishDiagnostics() {
-    const merged = new Map();
-    for (const contribution of contributions.values()) {
-      for (const [key, entry] of contribution) {
-        if (!merged.has(key)) merged.set(key, { uri: entry.uri, diagnostics: [] });
-        merged.get(key).diagnostics.push.apply(merged.get(key).diagnostics, entry.diagnostics);
-      }
-    }
-    diagnostics.clear();
-    for (const entry of merged.values()) diagnostics.set(entry.uri, entry.diagnostics);
-  }
-
-  async function checkDocument(document) {
-    if (!isNexul(document)) return;
-    const rootKey = document.uri.fsPath;
-    try {
-      const result = await runNxc(executable(), ['check', document.uri.fsPath, '--json'], {
-        cwd: workingDirectory(document),
-        allowedExitCodes: [0, 1]
-      });
-      const raw = parseDiagnostics(result.stdout);
-      const contribution = new Map();
-      for (const item of raw) {
-        const entry = await diagnosticFromCompiler(document, item);
-        if (!entry) continue;
-        const key = entry.uri.toString();
-        if (!contribution.has(key)) contribution.set(key, { uri: entry.uri, diagnostics: [] });
-        contribution.get(key).diagnostics.push(entry.diagnostic);
-      }
-      contributions.set(rootKey, contribution);
-      republishDiagnostics();
-    } catch (error) {
-      reportFailure('nxc check', error);
-    }
+  async function formattingEdits(document, token) {
+    if (!vscode.workspace.isTrusted) return [];
+    if (!languageClient || !languageClient.isRunning()) throw lspUnavailableError();
+    const response = await sendLspRequest('textDocument/formatting', {
+      textDocument: { uri: document.uri.toString() },
+      options: { tabSize: 4, insertSpaces: true }
+    }, token);
+    if (!Array.isArray(response)) return [];
+    return response.map((item) => vscode.TextEdit.replace(
+      new vscode.Range(
+        new vscode.Position(item.range.start.line, item.range.start.character),
+        new vscode.Position(item.range.end.line, item.range.end.character)
+      ),
+      item.newText
+    ));
   }
 
   async function checkCurrentFile() {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
       return;
     }
     if (editor.document.isDirty && !(await editor.document.save())) return;
-    await checkDocument(editor.document);
+    try {
+      const result = await runNxc(executable(), ['check', editor.document.uri.fsPath, '--json'], {
+        cwd: workingDirectory(editor.document),
+        allowedExitCodes: [0, 1]
+      });
+      const items = parseDiagnostics(result.stdout);
+      const errors = items.filter((item) => item.level === 'error').length;
+      const warnings = items.filter((item) => item.level === 'warning').length;
+      output.appendLine('Vérification explicite : ' + errors + ' erreur(s), ' + warnings + ' avertissement(s).');
+      vscode.window.showInformationMessage(
+        errors || warnings
+          ? 'Vérification terminée : ' + errors + ' erreur(s), ' + warnings + ' avertissement(s). Consultez le panneau Sortie NEXUL.'
+          : 'Vérification NEXUL terminée sans erreur.'
+      );
+    } catch (error) {
+      reportFailure('nxc check', error);
+    }
   }
 
   async function formatCurrentDocument() {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
       return;
     }
     try {
-      const formatted = await formatText(editor.document);
-      if (formatted === editor.document.getText()) return;
+      const edits = await formattingEdits(editor.document);
+      if (!edits.length) return;
       const edit = new vscode.WorkspaceEdit();
-      edit.replace(
-        editor.document.uri,
-        new vscode.Range(editor.document.positionAt(0), editor.document.positionAt(editor.document.getText().length)),
-        formatted
-      );
+      for (const item of edits) edit.replace(editor.document.uri, item.range, item.newText);
       await vscode.workspace.applyEdit(edit);
     } catch (error) {
-      reportFailure('nxc ide format', error);
+      reportFailure('nxc LSP formatting', error);
     }
   }
 
   async function runCurrentTask(command, filter) {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
@@ -247,6 +173,7 @@ function activate(context) {
   }
 
   async function runSpecificTest(file, name) {
+    if (!vscode.workspace.isTrusted) return;
     if (!file || !name) return;
     let document;
     try {
@@ -268,183 +195,199 @@ function activate(context) {
     await vscode.tasks.executeTask(task);
   }
 
-  const completionKinds = {
-    function: vscode.CompletionItemKind.Function,
-    method: vscode.CompletionItemKind.Method,
-    field: vscode.CompletionItemKind.Field,
-    variable: vscode.CompletionItemKind.Variable,
-    constant: vscode.CompletionItemKind.Constant,
-    static: vscode.CompletionItemKind.Constant,
-    type: vscode.CompletionItemKind.TypeParameter,
-    struct: vscode.CompletionItemKind.Struct,
-    enum: vscode.CompletionItemKind.Enum,
-    trait: vscode.CompletionItemKind.Interface,
-    variant: vscode.CompletionItemKind.EnumMember,
-    module: vscode.CompletionItemKind.Module,
-    keyword: vscode.CompletionItemKind.Keyword
-  };
+  function startLanguageClient() {
+    if (!vscode.workspace.isTrusted || languageClient) return Promise.resolve();
+    if (startingClient) return startingClient;
 
-  const completionProvider = {
-    async provideCompletionItems(document, position, token) {
-      if (!isNexul(document)) return undefined;
-      const response = await safeIdeJson(document, 'completion', position, [], token);
-      if (!Array.isArray(response)) return undefined;
-
-      const before = document.lineAt(position.line).text.slice(0, position.character);
-      const prefix = /[A-Za-z0-9_]*$/.exec(before);
-      const start = position.character - (prefix ? prefix[0].length : 0);
-      const range = new vscode.Range(position.line, start, position.line, position.character);
-      return response.map((raw) => {
-        const item = new vscode.CompletionItem(
-          String(raw.label || ''),
-          completionKinds[raw.kind] || vscode.CompletionItemKind.Text
-        );
-        item.range = range;
-        if (raw.detail) item.detail = raw.detail;
-        if (raw.doc) item.documentation = new vscode.MarkdownString(raw.doc);
-        return item;
-      });
-    }
-  };
-
-  const hoverProvider = {
-    async provideHover(document, position, token) {
-      if (!isNexul(document)) return undefined;
-      const response = await safeIdeJson(document, 'hover', position, [], token);
-      if (!response || !response.code) return undefined;
-      const markdown = new vscode.MarkdownString();
-      markdown.appendCodeblock(response.code, 'nexul');
-      if (response.doc) markdown.appendMarkdown('\n' + response.doc);
-      return new vscode.Hover(markdown);
-    }
-  };
-
-  const definitionProvider = {
-    async provideDefinition(document, position, token) {
-      if (!isNexul(document)) return undefined;
-      const response = await safeIdeJson(document, 'definition', position, [], token);
-      if (!response || typeof response !== 'object') return undefined;
-      const location = await compilerRange(document, response);
-      return location ? new vscode.Location(location.uri, location.range) : undefined;
-    }
-  };
-
-  const referenceProvider = {
-    async provideReferences(document, position, _context, token) {
-      if (!isNexul(document)) return undefined;
-      const response = await safeIdeJson(document, 'references', position, [], token);
-      if (!Array.isArray(response)) return undefined;
-      const locations = await Promise.all(response.map((item) => compilerRange(document, item)));
-      return locations.filter(Boolean).map((item) => new vscode.Location(item.uri, item.range));
-    }
-  };
-
-  const renameProvider = {
-    async provideRenameEdits(document, position, newName, token) {
-      if (!isNexul(document)) return undefined;
-      const response = await safeIdeJson(document, 'rename', position, [newName], token);
-      if (!Array.isArray(response)) return undefined;
-      const edit = new vscode.WorkspaceEdit();
-      const locations = await Promise.all(response.map((item) => compilerRange(document, item)));
-      for (const location of locations) {
-        if (location) edit.replace(location.uri, location.range, newName);
+    const root = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
+    const serverArguments = ['lsp'];
+    const lspLog = typeof process !== 'undefined' && process.env && process.env.NEXUL_LSP_LOG;
+    if (lspLog) serverArguments.push('--log', lspLog);
+    const serverOptions = {
+      command: executable(),
+      args: serverArguments
+    };
+    if (root) serverOptions.options = { cwd: root.uri.fsPath };
+    const clientOptions = {
+      documentSelector: nexulSelector.map((selector) => ({ scheme: 'file', language: selector.language })),
+      outputChannel: output,
+      workspaceFolder: root,
+      uriConverters: {
+        code2Protocol: nexulProtocolUri,
+        protocol2Code: (uri) => vscode.Uri.parse(uri)
+      },
+      middleware: {
+        didOpen(document, next) {
+          synchronizedText.set(document.uri.toString(), document.getText());
+          return next(document);
+        },
+        didChange(event, next) {
+          const uri = event.document.uri.toString();
+          let eventToSend = event;
+          if (event.contentChanges.length > 1) {
+            const previousText = synchronizedText.get(uri);
+            if (previousText !== undefined) {
+              const previousLines = previousText.split('\n');
+              const lastLine = previousLines[previousLines.length - 1].replace(/\r$/, '');
+              eventToSend = {
+                ...event,
+                contentChanges: [{
+                  range: new vscode.Range(
+                    new vscode.Position(0, 0),
+                    new vscode.Position(previousLines.length - 1, lastLine.length)
+                  ),
+                  rangeOffset: 0,
+                  rangeLength: previousText.length,
+                  text: event.document.getText()
+                }]
+              };
+            }
+          }
+          const result = next(eventToSend);
+          if (result && typeof result.then === 'function') {
+            return result.finally(() => synchronizedText.set(uri, event.document.getText()));
+          }
+          synchronizedText.set(uri, event.document.getText());
+          return result;
+        },
+        didClose(document, next) {
+          synchronizedText.delete(document.uri.toString());
+          return next(document);
+        },
+        handleDiagnostics(uri, diagnostics, next) {
+          next(uri, diagnostics);
+        },
+        provideDocumentFormattingEdits(document, options, token, next) {
+          if (!vscode.workspace.isTrusted) return [];
+          return next(document, options, token);
+        }
       }
-      return edit;
-    }
-  };
+    };
+    const client = new LanguageClient('nexul', 'NEXUL Language Server', serverOptions, clientOptions);
+    languageClient = client;
+    startingClient = client.start().catch((error) => {
+      if (languageClient === client) languageClient = undefined;
+      reportFailure('démarrage de nxc lsp', error);
+    }).finally(() => {
+      startingClient = undefined;
+    });
+    return startingClient;
+  }
 
-  const formattingProvider = {
-    async provideDocumentFormattingEdits(document, _options, token) {
-      if (!isNexul(document)) return [];
+  async function restartLanguageClient() {
+    if (startingClient) await startingClient;
+    const previous = languageClient;
+    languageClient = undefined;
+    if (previous) await previous.stop();
+    await startLanguageClient();
+  }
+
+  async function provideStandardLibrarySource(uri, token) {
+    if (!vscode.workspace.isTrusted || !languageClient || !languageClient.isRunning()) {
+      throw lspUnavailableError();
+    }
+    const response = await sendLspRequest('nexul/stdSource', { uri: uri.toString() }, token);
+    if (!response || typeof response.text !== 'string') throw new Error('Réponse source nxc invalide.');
+    return response.text;
+  }
+
+  const codeLensProvider = {
+    onDidChangeCodeLenses: codeLensEmitter.event,
+    async provideCodeLenses(document, token) {
+      if (!vscode.workspace.isTrusted || !isNexul(document)) return [];
+      if (!languageClient || !languageClient.isRunning()) return [];
       try {
-        const formatted = await formatText(document, token);
-        if (formatted === document.getText()) return [];
-        return [vscode.TextEdit.replace(
-          new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
-          formatted
-        )];
+        const response = await sendLspRequest('nexul/tests', {
+          textDocument: { uri: document.uri.toString() }
+        }, token);
+        if (!Array.isArray(response)) return [];
+        return response.filter((item) => item && item.name && item.range && item.range.start)
+          .map((item) => new vscode.CodeLens(
+            new vscode.Range(item.range.start.line, 0, item.range.start.line, 0),
+            {
+              title: 'Exécuter le test',
+              command: 'nexul.runTest',
+              arguments: [document.uri.fsPath, item.name]
+            }
+          ));
       } catch (error) {
-        reportFailure('nxc ide format', error);
+        reportFailure('nxc LSP tests', error);
         return [];
       }
     }
   };
 
-  const codeLensProvider = {
-    onDidChangeCodeLenses: codeLensEmitter.event,
-    async provideCodeLenses(document, token) {
-      if (!isNexul(document)) return [];
-      const response = await safeIdeJson(document, 'tests', null, [], token);
-      if (!Array.isArray(response)) return [];
-      return response.filter((item) => Number.isInteger(item.line) && item.line > 0 && item.name).map((item) => {
-        const line = Math.min(document.lineCount - 1, item.line - 1);
-        return new vscode.CodeLens(
-          new vscode.Range(line, 0, line, 0),
-          {
-            title: 'Exécuter le test',
-            command: 'nexul.runTest',
-            arguments: [document.uri.fsPath, item.name]
-          }
-        );
-      });
-    }
-  };
-
   registerTaskProvider(vscode, context, executable);
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ language: 'nexul' }, codeLensProvider),
+    vscode.languages.registerCodeLensProvider(nexulSelector, codeLensProvider),
+    vscode.workspace.registerTextDocumentContentProvider('nexul-std', {
+      provideTextDocumentContent: provideStandardLibrarySource
+    }),
     vscode.commands.registerCommand('nexul.checkCurrentFile', checkCurrentFile),
     vscode.commands.registerCommand('nexul.buildCurrentFile', () => runCurrentTask('build')),
     vscode.commands.registerCommand('nexul.runCurrentFile', () => runCurrentTask('run')),
     vscode.commands.registerCommand('nexul.testCurrentFile', () => runCurrentTask('test')),
     vscode.commands.registerCommand('nexul.formatDocument', formatCurrentDocument),
     vscode.commands.registerCommand('nexul.runTest', runSpecificTest),
-    vscode.languages.registerCompletionItemProvider({ language: 'nexul' }, completionProvider, '.'),
-    vscode.languages.registerHoverProvider({ language: 'nexul' }, hoverProvider),
-    vscode.languages.registerDefinitionProvider({ language: 'nexul' }, definitionProvider),
-    vscode.languages.registerReferenceProvider({ language: 'nexul' }, referenceProvider),
-    vscode.languages.registerRenameProvider({ language: 'nexul' }, renameProvider),
-    vscode.languages.registerDocumentFormattingEditProvider({ language: 'nexul' }, formattingProvider),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      codeLensEmitter.fire();
+      void startLanguageClient();
+    }),
     vscode.workspace.onDidOpenTextDocument((document) => {
-      if (isNexul(document) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
-        void checkDocument(document);
-      }
+      void updateEditionLanguage(document)
+        .catch((error) => reportFailure('détection de l’édition', error));
+      codeLensEmitter.fire();
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      if (isNexul(document) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
-        void checkDocument(document);
+      if (path.basename(document.uri.fsPath).toLowerCase() === 'nexul.toml') {
+        for (const openDocument of vscode.workspace.textDocuments) {
+          if (isNexul(openDocument)) {
+            void updateEditionLanguage(openDocument)
+              .catch((error) => reportFailure('détection de l’édition', error));
+          }
+        }
+      } else if (isNexul(document)) {
+        void updateEditionLanguage(document)
+          .catch((error) => reportFailure('détection de l’édition', error));
       }
-    }),
-    vscode.workspace.onDidCloseTextDocument((document) => {
-      contributions.delete(document.uri.fsPath);
-      republishDiagnostics();
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (!isNexul(event.document)) return;
+      if (event.contentChanges.some((change) => change.range.start.line < 3 || change.range.end.line < 3)) {
+        void updateEditionLanguage(event.document)
+          .catch((error) => reportFailure('détection de l’édition', error));
+      }
       if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
       codeLensRefreshTimer = setTimeout(() => codeLensEmitter.fire(), 300);
     }),
-    vscode.workspace.onWillSaveTextDocument((event) => {
-      const document = event.document;
-      if (!isNexul(document) || !vscode.workspace.getConfiguration('nexul').get('formatOnSave', false)) return;
-      event.waitUntil(formatText(document).then((formatted) => {
-        if (formatted === document.getText()) return [];
-        return [vscode.TextEdit.replace(
-          new vscode.Range(document.positionAt(0), document.positionAt(document.getText().length)),
-          formatted
-        )];
-      }).catch((error) => {
-        reportFailure('nxc ide format (format on save)', error);
-        return [];
-      }));
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      if (event.affectsConfiguration('nexul.nxcPath') && vscode.workspace.isTrusted) {
+        void restartLanguageClient().catch((error) => reportFailure('redémarrage de nxc lsp', error));
+      }
     }),
     new vscode.Disposable(() => {
       if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
+    }),
+    new vscode.Disposable(() => {
+      const current = languageClient;
+      languageClient = undefined;
+      if (current) void current.stop();
     })
   );
+
+  deactivateLanguageClient = async () => {
+    const current = languageClient;
+    languageClient = undefined;
+    if (current) await current.stop();
+  };
+
+  const updateLanguages = Promise.all(vscode.workspace.textDocuments.map(updateEditionLanguage));
+  return updateLanguages.then(() => startLanguageClient());
 }
 
-function deactivate() {}
+function deactivate() {
+  return deactivateLanguageClient();
+}
 
 module.exports = {
   activate,

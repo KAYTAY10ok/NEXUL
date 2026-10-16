@@ -73,7 +73,8 @@ fn run_one(nx: &Path) -> Vec<String> {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-    let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}", std::process::id()));
+    let exe = dir.join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
     if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
         return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
@@ -277,7 +278,8 @@ fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<
 
 #[test]
 fn run_programs() {
-    let paths = files("tests/run");
+    let target = Target::host();
+    let paths: Vec<PathBuf> = files("tests/run").into_iter().filter(|p| runs_on(p, &target)).collect();
     assert!(!paths.is_empty(), "no tests found");
     let failures = parallel(&paths, run_one);
     if !failures.is_empty() {
@@ -285,14 +287,17 @@ fn run_programs() {
     }
 }
 
-/// `nxc migrate` keeps the meaning of programs: every program of `tests/run` written in 0.2
-/// (one file, no user module imported), migrated to edition 1, compiles and prints the same
-/// output with the same exit code.
+/// `nxc migrate` keeps the meaning of host-compatible programs: every single-file program
+/// of `tests/run` written in 0.2 (no user module imported), migrated to edition 1, compiles
+/// and prints the same output with the same exit code.
 #[test]
 fn migrated_programs_behave_the_same() {
     let paths: Vec<PathBuf> = files("tests/run")
         .into_iter()
         .filter(|p| {
+            if !runs_on(p, &Target::host()) {
+                return false;
+            }
             let t = std::fs::read_to_string(p).unwrap_or_default();
             !t.lines().take(3).any(|l| l.trim() == "// edition: 1") && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
         })
@@ -314,7 +319,8 @@ fn migrated_programs_behave_the_same() {
             return vec![format!("{}: the migrated program does not compile\n{}\n--- migrated ---\n{}", nx.display(), c.diagnostics, m.text)];
         }
         let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-        let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+        let dir = std::env::temp_dir().join(format!("nexul-suite-migrate-{}", std::process::id()));
+        let exe = dir.join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
         if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
             return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
         }
