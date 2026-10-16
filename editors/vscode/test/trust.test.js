@@ -242,7 +242,7 @@ test('granting trust resumes open-document checks and enables compiler tasks', a
   assert.ok(provided.every((task) => task.execution.executable === host.folderCompiler));
 });
 
-test('edition 1 switches language mode and does not invoke the incomplete formatter', async (t) => {
+test('edition 1 switches language mode and delegates formatting to nxc LSP', async (t) => {
   const host = activateWithWorkspace(true, {
     text: '// edition: 1\nfn main() {}'
   });
@@ -255,6 +255,7 @@ test('edition 1 switches language mode and does not invoke the incomplete format
   assert.ok(host.selectors.get('codeLens').some((selector) => selector.language === 'nexul1'));
   assert.ok(host.clients[0].clientOptions.documentSelector.some((selector) => selector.language === 'nexul1'));
   await host.commands.get('nexul.formatDocument')();
-  assert.equal(host.compilerCalls.length, 0, 'nxc must not run the 0.2 formatter on edition 1');
-  assert.ok(host.informationMessages.some((message) => message.includes('ne prend pas encore en charge l’édition 1')));
+  assert.equal(host.compilerCalls.length, 0, 'formatting must go through the LSP, not spawn another compiler process');
+  assert.ok(host.clients[0].requests.some((request) => request.method === 'textDocument/formatting'));
+  assert.equal(host.informationMessages.length, 0, 'Edition 1 formatting must not show an unsupported message');
 });

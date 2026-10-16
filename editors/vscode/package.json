@@ -1,7 +1,7 @@
 {
   "name": "nexul-language",
   "displayName": "NEXUL Language Support",
-  "description": "Coloration, outils nxc et fonctionnalités d’éditeur pour les fichiers NEXUL.",
+  "description": "Coloration, diagnostics, formatage automatique et outils de développement pour le langage NEXUL.",
   "version": "0.1.0",
   "publisher": "KAYTAY10ok",
   "license": "MIT OR Apache-2.0",
@@ -140,6 +140,16 @@
         }
       }
     ],
+    "configurationDefaults": {
+      "[nexul]": {
+        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
+        "editor.formatOnSave": true
+      },
+      "[nexul1]": {
+        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
+        "editor.formatOnSave": true
+      }
+    },
     "configuration": {
       "title": "NEXUL",
       "properties": {
@@ -148,11 +158,6 @@
           "default": "nxc",
           "scope": "machine-overridable",
           "description": "Chemin vers l’exécutable nxc. Laissez « nxc » si le compilateur est dans PATH."
-        },
-        "nexul.formatOnSave": {
-          "type": "boolean",
-          "default": false,
-          "description": "Formate le fichier NEXUL avant son enregistrement. Désactivé par défaut."
         }
       }
     }

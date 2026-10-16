@@ -1966,7 +1966,7 @@ pub fn format_source(text: &str) -> String {
 fn depth_neutral_continuation(code: &str) -> bool {
     const OPS: &[&str] = &[
         "+", "-", "*", "/", "%", "=", "==", "!=", "<", ">", "<=", ">=", "and", "or", "&", "|", "^",
-        "<<", ">>", "->", "=>",
+        "<<", ">>", "->", "=>", "|>",
     ];
     let t = code.trim_end();
     if t.ends_with("=>") || t.ends_with("->") {
