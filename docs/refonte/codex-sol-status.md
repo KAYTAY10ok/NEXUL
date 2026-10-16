@@ -19,12 +19,12 @@ Claude Main conserve la revue et l'intégration.
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
 | 3 | P9 — CLI et LSP | VALIDÉ_E2E sur `origin/main` `85b68b9` : `cargo +stable-x86_64-pc-windows-msvc test -p nxc` passe avec 11 tests unitaires, 6 fondations, 5 LSP et 10 de conformité; le test LSP de latence passe; le test Web reste ignoré par défaut. |
-| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. CI séparée par OS, en attente d'exécution dans la PR. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; CI séparée par OS en cours. |
 
 ## Travail courant
 
 - Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
-- L3 : branche `refonte/sol-l3`, poussée sur `origin`; PR à créer après rétablissement de l'accès GitHub en écriture.
+- L3 : branche `refonte/sol-l3`, poussée sur `origin`; [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
 - Branche L1 : `refonte/sol-l1-terminal` ; L2 : `refonte/sol-l2-dap`. Worktree indépendant sous
   `files-mentioned-by-the-user-prompt/work/NEXUL-sol`.
@@ -110,6 +110,6 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - `.github/workflows/rust.yml` sépare maintenant les plateformes : Ubuntu construit et
   teste le workspace en excluant `nexul-installer`; Windows lance les tests bac à sable
   de l'installateur avec `test-sandbox`.
-- `git diff --check` : réussi. Les nouveaux jobs Actions : en attente de création de la PR;
+- `git diff --check` : réussi. La PR #25 est ouverte; ses jobs Actions sont en cours;
   aucune réussite CI n'est déclarée ici. La construction de `studio/app` et du paquet
   complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.
