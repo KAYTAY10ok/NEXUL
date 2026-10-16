@@ -634,7 +634,9 @@ impl<'a> FnCtxt<'a> {
                 (Box::new(move |t, e| T::IfLet { pat: p, scrutinee: Box::new(s), then: t, else_: e, mutable }), then_b)
             }
         };
-        let else_x = else_.map(|e| self.check_branch(e, branch_expect));
+        // Without an expected type, the first branch gives one to the other (`.Name`).
+        let else_expect = self.after_first_branch(branch_expect, then_b.ty);
+        let else_x = else_.map(|e| self.check_branch(e, else_expect));
         let ty = if !expect.wants_value() {
             match &else_x {
                 Some(x) if tcx.is_never(then_b.ty) && tcx.is_never(self.shallow(x.ty)) => tcx.never,
@@ -679,6 +681,17 @@ impl<'a> FnCtxt<'a> {
         self.mk(kind, ty, span)
     }
 
+    /// The expectation of the later branches of an `if` or a `match`: without an expected
+    /// type, that of the branches already seen (unless they never end or are in error).
+    fn after_first_branch(&mut self, expect: Expect, seen: Ty) -> Expect {
+        let tcx = self.tcx();
+        let seen = self.shallow(seen);
+        match expect {
+            Expect::None if !tcx.is_never(seen) && !tcx.is_error(seen) => Expect::Has(seen),
+            other => other,
+        }
+    }
+
     /// How the bindings of a pattern hold the matched value (spec §5.6).
     pub(crate) fn scrutinee_mode(&mut self, s: &thir::Expr, mutable: bool) -> super::pat::BindMode {
         if mutable {
@@ -710,7 +723,11 @@ impl<'a> FnCtxt<'a> {
             self.push_scope();
             let p = self.check_pat(&arm.pat, s.ty, mode);
             let guard = arm.guard.as_ref().map(|g| self.check_expr_coerce(g, tcx.bool));
-            let body = self.check_branch(&arm.body, expect);
+            let arm_expect = match acc {
+                Some(a) => self.after_first_branch(expect, a),
+                None => expect,
+            };
+            let body = self.check_branch(&arm.body, arm_expect);
             self.pop_scope();
             all_never &= tcx.is_never(self.shallow(body.ty));
             if expect.wants_value() {

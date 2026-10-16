@@ -188,6 +188,8 @@ fn analyze_root(
     src.edition = edition;
     src.overlays = overlays.clone();
     src.deps = crate::pkg::deps_for_lsp(path).ok()?;
+    src.project_edition = Some(EDITION.get().copied().unwrap_or_else(|| crate::pkg::project_edition(path)));
+    src.dep_editions = crate::pkg::dep_editions(&src.deps);
     src.cfg = cfg.clone();
     let prog = nxc_sema::analyze(src, &mut sm, &diags);
     let root = prog.root;
@@ -1924,7 +1926,8 @@ pub fn format_source(text: &str) -> String {
         for _ in 0..leading {
             close(&mut levels);
         }
-        let starts_dot = normalized.starts_with('.') && !normalized.starts_with("..");
+        // `.method()` continues the previous line; `.Variant` (edition 1) starts one.
+        let starts_dot = normalized.strip_prefix('.').and_then(|r| r.chars().next()).is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_');
         let indent = levels.len() + if continuation || starts_dot { 1 } else { 0 };
         for _ in 0..indent {
             out.push_str("    ");
@@ -2172,5 +2175,19 @@ mod tests {
             .unwrap_err()
             .contains("standard library"));
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn format_keeps_variant_arms_and_indents_method_chains() {
+        let src = "fn f(Couleur c) {
+    when c {
+        .Rouge then 1
+        .Vert then 2
+    }
+    let n = v
+        .len()
+}
+";
+        assert_eq!(format_source(src), src);
     }
 }

@@ -49,8 +49,12 @@ pub struct CompileOptions {
     pub deps: Vec<(String, PathBuf)>,
     /// Unsaved imported sources, keyed by their filesystem path.
     pub overlays: Vec<(PathBuf, String)>,
-    /// The syntax of the program (ADR 0010): `--edition 0.2` (default) or `--edition 1`.
+    /// The syntax of the root file (ADR 0010): `--edition 0.2` (default) or `--edition 1`.
     pub edition: nxc_syntax::Edition,
+    /// The syntax of the other files of its project without `// edition:` (`None`: `edition`).
+    pub project_edition: Option<nxc_syntax::Edition>,
+    /// The syntax of each dependency (its `nexul.toml`).
+    pub dep_editions: Vec<(String, nxc_syntax::Edition)>,
 }
 
 impl CompileOptions {
@@ -66,6 +70,8 @@ impl CompileOptions {
             deps: Vec::new(),
             overlays: Vec::new(),
             edition: nxc_syntax::Edition::V0_2,
+            project_edition: None,
+            dep_editions: Vec::new(),
         }
     }
 }
@@ -169,6 +175,8 @@ pub fn compile_source(
     let mut src = ProgramSource::new(name.to_string(), text, root_dir.clone());
     src.deps = opts.deps.clone();
     src.edition = opts.edition;
+    src.project_edition = opts.project_edition;
+    src.dep_editions = opts.dep_editions.clone();
     src.overlays = opts.overlays.clone();
     src.cfg = Cfg {
         target: opts.target.clone(),

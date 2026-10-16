@@ -72,13 +72,41 @@ pub struct ProgramSource {
     pub overlays: Vec<(PathBuf, String)>,
     /// Target and build mode, for `@cfg`.
     pub cfg: Cfg,
-    /// The syntax of the program's own files (ADR 0010); the standard library stays in 0.2.
+    /// The syntax of the root file (ADR 0010); the standard library stays in 0.2.
     pub edition: nxc_syntax::Edition,
+    /// The syntax of the other files of the root's project that do not declare theirs
+    /// (`// edition: X`): its `nexul.toml`, or `--edition`. `None`: that of the root file.
+    pub project_edition: Option<nxc_syntax::Edition>,
+    /// The syntax of each dependency package (its own `nexul.toml`), for its files that do
+    /// not declare theirs; 0.2 when absent.
+    pub dep_editions: Vec<(String, nxc_syntax::Edition)>,
 }
 
 impl ProgramSource {
     pub fn new(root_name: impl Into<String>, root_text: impl Into<String>, root_dir: Option<PathBuf>) -> ProgramSource {
-        ProgramSource { root_name: root_name.into(), root_text: root_text.into(), root_dir, deps: Vec::new(), overlays: Vec::new(), cfg: Cfg::default(), edition: nxc_syntax::Edition::V0_2 }
+        ProgramSource {
+            root_name: root_name.into(),
+            root_text: root_text.into(),
+            root_dir,
+            deps: Vec::new(),
+            overlays: Vec::new(),
+            cfg: Cfg::default(),
+            edition: nxc_syntax::Edition::V0_2,
+            project_edition: None,
+            dep_editions: Vec::new(),
+        }
+    }
+
+    /// The syntax of an imported file (not of the standard library): the one its first
+    /// lines declare, else that of its package.
+    fn edition_of(&self, segs: &[String], text: &str) -> nxc_syntax::Edition {
+        if let Some(e) = nxc_syntax::header_edition(text) {
+            return e;
+        }
+        match self.deps.iter().find(|(name, _)| Some(name) == segs.first()) {
+            Some((name, _)) => self.dep_editions.iter().find(|(n, _)| n == name).map(|(_, e)| *e).unwrap_or_default(),
+            None => self.project_edition.unwrap_or(self.edition),
+        }
     }
 }
 
@@ -240,7 +268,12 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
                 }
             }
         };
-        let file = if is_std { sm.add(name.clone(), text) } else { sm.add_with_edition(name.clone(), text, src.edition) };
+        let file = if is_std {
+            sm.add(name.clone(), text)
+        } else {
+            let edition = src.edition_of(segs, &text);
+            sm.add_with_edition(name.clone(), text, edition)
+        };
         let mut ast = nxc_syntax::parse_file(sm, file, diags);
         apply_cfg(&mut ast, &src.cfg, diags);
         crate::derive::expand(&mut ast, sm, &name, diags);

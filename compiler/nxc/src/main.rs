@@ -293,6 +293,9 @@ fn compile_command(args: &Args) {
     copts.debug_info = !args.no_debug && !args.release;
     // The dependencies of the project (nexul.toml), if the file belongs to one.
     copts.deps = nxc_driver::pkg::deps_for(&file).unwrap_or_else(|e| fail(&e));
+    // The other files: their own `// edition:`, else their package's (ADR 0010).
+    copts.project_edition = Some(args.edition.unwrap_or_else(|| nxc_driver::pkg::project_edition(&file)));
+    copts.dep_editions = nxc_driver::pkg::dep_editions(&copts.deps);
     copts.overlays = overlays;
     let c = if stdin_text.is_some() && same_path(&file, &requested_file) {
         let name = file

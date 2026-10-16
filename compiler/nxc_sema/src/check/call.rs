@@ -318,7 +318,19 @@ impl<'a> FnCtxt<'a> {
     pub(crate) fn dot_variant(&mut self, name: &ast::Ident, expect: Expect) -> Option<(AdtId, u32)> {
         let tcx = self.tcx();
         let expected = expect.ty().map(|t| self.shallow(t));
+        // An error already reported: nothing more to say.
+        if expected.is_some_and(|t| tcx.is_error(t)) {
+            return None;
+        }
         let adt = expected.and_then(|t| tcx.as_adt(t)).map(|(id, _)| id);
+        if let Some(id) = adt.filter(|&id| matches!(self.p.adt(id).kind, crate::defs::AdtKind::Struct { .. })) {
+            let a = self.p.adt(id);
+            self.err(
+                Diagnostic::error("E0348", format!("`{}` is not an enumeration: `.{}` names a variant", a.name, name.name))
+                    .primary(name.span, format!("a value of type `{}` is expected here", a.name)),
+            );
+            return None;
+        }
         match adt {
             Some(id) => match self.p.adt(id).variant_index(&name.name) {
                 Some(v) => Some((id, v)),

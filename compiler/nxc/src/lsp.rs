@@ -1545,6 +1545,10 @@ fn compile_root(
     options.release = cfg.release;
     options.test_cfg = cfg.test;
     options.deps = crate::pkg::deps_for_lsp(&analysis.program_path)?;
+    // Each file in its edition (ADR 0010).
+    options.edition = crate::pkg::edition_for(&analysis.program_path, &root_text);
+    options.project_edition = Some(crate::pkg::project_edition(&analysis.program_path));
+    options.dep_editions = crate::pkg::dep_editions(&options.deps);
     options.overlays = documents
         .iter()
         .map(|DocumentSnapshot(d)| (d.path.clone(), d.text.clone()))

@@ -338,14 +338,22 @@ impl Studio {
         };
         let name: SharedString = rel.rsplit('/').next().unwrap_or(rel).to_string().into();
         let mut lang = explorer::language_of(&name);
-        // Edition 1 of the syntax (ADR 0010): the file or its project says so.
-        if lang == "nexul" && ide::edition_1(&root.join(rel), &text) {
-            lang = "nexul1";
-            self.check_nxc_edition_1(window, cx);
+        // Edition 1 of the syntax (ADR 0010): the file or its project says so. The editor
+        // gets the edition of the project; its highlighter follows `// edition: X`.
+        let mut editor_lang = lang;
+        if lang == "nexul" {
+            let path = root.join(rel);
+            if ide::project_edition_1(&path) {
+                editor_lang = "nexul1";
+            }
+            if ide::edition_1(&path, &text) {
+                lang = "nexul1";
+                self.check_nxc_edition_1(window, cx);
+            }
         }
         let saved_hash = text_hash(&text);
         let disk_hash = bytes_hash(&bytes);
-        let editor = cx.new(|cx| EditorState::new(window, cx).language(lang).line_number(true).searchable(true).default_value(text));
+        let editor = cx.new(|cx| EditorState::new(window, cx).language(editor_lang).line_number(true).searchable(true).default_value(text));
         let changes = cx.subscribe(&editor, |this: &mut Self, editor, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
                 if let Some(doc) = this.docs.iter_mut().find(|d| d.editor == editor) {
@@ -412,6 +420,10 @@ impl Studio {
                 doc.saved_hash = text_hash(&text);
                 doc.disk_hash = bytes_hash(&bytes);
                 doc.dirty = false;
+                // The edition shown follows a `// edition: X` added or removed.
+                if ide::is_nexul(doc.lang) {
+                    doc.lang = if ide::edition_1(&root.join(&doc.rel), &text) { "nexul1" } else { "nexul" };
+                }
                 let rel = doc.rel.clone();
                 self.delete_backup(&rel);
                 self.check_file(&rel, window, cx);

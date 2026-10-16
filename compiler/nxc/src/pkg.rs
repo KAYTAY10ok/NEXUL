@@ -113,6 +113,8 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
         deps: BTreeMap::new(),
     };
     let mut section = String::new();
+    // Notepad and PowerShell 5 write a byte order mark.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split(" #").next().unwrap_or("").trim();
         if line.is_empty() || line.starts_with('#') {
@@ -392,16 +394,41 @@ fn strip_verbatim(p: &Path) -> PathBuf {
 /// The syntax a file is written in (ADR 0010): `// edition: X` on one of its first three
 /// lines, else the `edition` of the `nexul.toml` of its project, else 0.2.
 pub fn edition_for(file: &Path, text: &str) -> nxc_syntax::Edition {
-    for l in text.lines().take(3) {
-        if let Some(e) = l.trim().strip_prefix("// edition:").and_then(|e| nxc_syntax::Edition::parse(e.trim())) {
-            return e;
-        }
-    }
-    find_project(file)
-        .and_then(|p| load_manifest(&p).ok())
+    nxc_syntax::header_edition(text).unwrap_or_else(|| project_edition(file))
+}
+
+/// The `edition` of the `nexul.toml` of the project containing `file`, else 0.2.
+pub fn project_edition(file: &Path) -> nxc_syntax::Edition {
+    find_project(file).map(|p| package_edition(&p)).unwrap_or_default()
+}
+
+/// The `edition` of the `nexul.toml` of a package folder, else 0.2.
+fn package_edition(pkg_dir: &Path) -> nxc_syntax::Edition {
+    load_manifest(pkg_dir)
+        .ok()
         .and_then(|m| m.edition)
         .and_then(|e| nxc_syntax::Edition::parse(&e))
         .unwrap_or_default()
+}
+
+/// The edition of each dependency, from the `nexul.toml` of its package (the source folder
+/// given to the compiler is the package folder or its `src`).
+pub fn dep_editions(deps: &[(String, PathBuf)]) -> Vec<(String, nxc_syntax::Edition)> {
+    deps.iter()
+        .map(|(name, src)| {
+            let pkg = if src.join(MANIFEST).is_file() { src.clone() } else { src.parent().map(Path::to_path_buf).unwrap_or_else(|| src.clone()) };
+            (name.clone(), package_edition(&pkg))
+        })
+        .collect()
+}
+
+/// The manifest of a dependency, to follow its own dependencies: none without a
+/// `nexul.toml`, an error when it cannot be read (rather than losing its dependencies).
+fn dependency_manifest(name: &str, dir: &Path) -> Result<Option<Manifest>, String> {
+    if !dir.join(MANIFEST).is_file() {
+        return Ok(None);
+    }
+    load_manifest(dir).map(Some).map_err(|e| format!("dependency `{}`: {}", name, e))
 }
 
 pub fn load_manifest(project: &Path) -> Result<Manifest, String> {
@@ -640,7 +667,7 @@ pub fn resolve(
                 ));
             }
         }
-        if let Ok(m) = load_manifest(&dir) {
+        if let Some(m) = dependency_manifest(&name, &dir)? {
             for (n, s) in m.deps {
                 queue.push((n, s, dir.clone()));
             }
@@ -736,7 +763,7 @@ pub fn deps_for_lsp(file: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             }
         };
         let source_path = source_dir(&dir);
-        if let Ok(dependency_manifest) = load_manifest(&dir) {
+        if let Some(dependency_manifest) = dependency_manifest(&name, &dir)? {
             for (child_name, child_source) in dependency_manifest.deps {
                 queue.push_back((child_name, child_source, dir.clone()));
             }

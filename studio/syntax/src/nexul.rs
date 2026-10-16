@@ -256,7 +256,9 @@ impl Lexer<'_> {
         let word = &self.s[lo..self.pos];
         let after_dot = self.prev == Prev::Dot;
         let kind = match keyword_kind(word) {
-            _ if self.ed1 && !after_dot && EDITION1_CONTROL.contains(&word) => Kind::Control,
+            // Edition 1: after a dot, a word is a member (`s.repeat(3)`), never a keyword.
+            _ if self.ed1 && after_dot => self.identifier_kind(word),
+            _ if self.ed1 && EDITION1_CONTROL.contains(&word) => Kind::Control,
             Some(k) => k,
             None if self.ed1 && !after_dot && EDITION1_KEYWORDS.contains(&word) => Kind::Keyword,
             None => self.identifier_kind(word),
@@ -272,8 +274,11 @@ impl Lexer<'_> {
 
     fn identifier_kind(&self, word: &str) -> Kind {
         match self.prev {
-            // Edition 1: `fn i32 carre(…)`: before the name comes the returned type.
-            Prev::Fn if self.ed1 && !self.called() => return Kind::Type,
+            // Edition 1: `fn i32 carre(…)`: before the name comes the returned type; in
+            // `fn i32(i32 x) => …` and `fn Point(…)`, a type is followed by `(`.
+            Prev::Fn if self.ed1 && (!self.called() || is_primitive_type(word) || word.as_bytes()[0].is_ascii_uppercase()) => {
+                return Kind::Type
+            }
             Prev::Fn => return Kind::Function,
             Prev::TypeDecl => return Kind::Type,
             _ => {}
@@ -824,6 +829,11 @@ mod tests {
         assert_eq!(k("type C is Forme {"), vec![Keyword, Type, Keyword, Type, Punctuation]);
         // After a dot, a word of edition 1 is a method of the library.
         assert_eq!(k("s.repeat(3)"), vec![Variable, Punctuation, Function, Punctuation, Number, Punctuation]);
+        assert_eq!(k("x.loop"), vec![Variable, Punctuation, Variable]);
+        assert_eq!(k("x.interface()"), vec![Variable, Punctuation, Function, Punctuation, Punctuation]);
+        // A function type or a closure: the returned type is followed by `(`.
+        assert_eq!(k("fn i32(i32 x) => x"), vec![Keyword, Type, Punctuation, Type, Variable, Punctuation, Operator, Variable]);
+        assert_eq!(k("fn Point(i32 x)"), vec![Keyword, Type, Punctuation, Type, Variable, Punctuation]);
         // In 0.2, they are names and `!` is invalid.
         assert_eq!(crate::tokens("nexul", "when!").into_iter().map(|t| t.kind).collect::<Vec<_>>(), vec![Variable, Invalid]);
     }

@@ -4,7 +4,7 @@
 //! The tokens come from `studio/syntax` (the lexer of NEXUL, kept in step with the one of
 //! the compiler); its incremental highlighter re-tokenizes only the lines an edit touches.
 
-use gpui_kit::component::input::{EditorState, FoldRange, HighlightStyleResolver, InputEdit, InputHighlighter, InputHighlighterFactory, Rope};
+use gpui_kit::component::input::{EditorState, FoldRange, HighlightStyleResolver, InputEdit, InputHighlighter, InputHighlighterFactory, Rope, RopeExt as _};
 use gpui_kit::{Context, HighlightStyle, SharedString, Window};
 use nexul_studio_syntax::{Highlighter, Kind};
 use std::ops::Range;
@@ -65,7 +65,12 @@ impl NexulHighlighter {
 
     /// Follows a change of `// edition: X` at the top of `text`: everything is highlighted again.
     fn follow_edition(&mut self, text: &Rope) -> bool {
-        let head = text.slice(0..text.len().min(300)).to_string();
+        // The first three lines, at most 4 KiB, cut on a character.
+        let mut end = text.line_end_offset(2).min(text.len()).min(4096);
+        while end > 0 && !text.is_char_boundary(end) {
+            end -= 1;
+        }
+        let head = text.slice(0..end).to_string();
         let ed1 = crate::ide::declared_edition(&head).unwrap_or(self.project_ed1);
         if ed1 == self.ed1 {
             return false;
@@ -210,6 +215,26 @@ mod tests {
         h.apply(Some((0, 0, 14)), &Rope::from(text));
         assert!(h.ed1);
         assert_eq!(names(&h, text.len()), vec!["comment", "keyword", "operator", "punctuation.bracket"]);
+        // Removing it goes back to the edition of the project.
+        h.apply(Some((0, 14, 0)), &Rope::from("when c! {"));
+        assert!(!h.ed1);
+        // A file of a project of edition 1 that declares 0.2.
+        let mut h = NexulHighlighter::new(true);
+        h.apply(None, &Rope::from("// edition: 0.2\nwhen c! {"));
+        assert!(!h.ed1);
+    }
+
+    #[test]
+    fn long_first_lines_with_accents() {
+        // Byte 300 and the end of the third line fall inside characters: no panic.
+        for pad in 0..4 {
+            let line = format!("// {}{}\n", "a".repeat(pad), "é".repeat(200));
+            let text = line.repeat(4);
+            let mut h = NexulHighlighter::new(false);
+            h.apply(None, &Rope::from(text.as_str()));
+            assert!(!h.ed1);
+            assert_eq!(h.spans(&(0..text.len())), tokens(&text));
+        }
     }
 
     #[test]

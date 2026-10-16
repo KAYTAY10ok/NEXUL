@@ -311,8 +311,10 @@ pub fn is_nexul(lang: &str) -> bool {
     lang == "nexul" || lang == "nexul1"
 }
 
-/// The edition the first lines of a text declare (`// edition: 1` or `// edition: 0.2`).
+/// The edition the first lines of a text declare (`// edition: 1` or `// edition: 0.2`),
+/// as `nxc` reads them (after a byte order mark).
 pub fn declared_edition(text: &str) -> Option<bool> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     text.lines().take(3).find_map(|l| match l.trim().strip_prefix("// edition:").map(str::trim) {
         Some("1") | Some("1.0") => Some(true),
         Some("0.2") => Some(false),
@@ -323,18 +325,42 @@ pub fn declared_edition(text: &str) -> Option<bool> {
 /// Is `file` written in edition 1? As `nxc` decides: its first lines, else the
 /// `edition` of the `nexul.toml` of its project.
 pub fn edition_1(file: &Path, text: &str) -> bool {
-    if let Some(e) = declared_edition(text) {
-        return e;
-    }
+    declared_edition(text).unwrap_or_else(|| project_edition_1(file))
+}
+
+/// Is the project containing `file` in edition 1 (`edition = "1"` in the `[package]` of
+/// the nearest `nexul.toml`)?
+pub fn project_edition_1(file: &Path) -> bool {
     let mut dir = file.parent();
     while let Some(d) = dir {
         if let Ok(manifest) = std::fs::read_to_string(d.join("nexul.toml")) {
-            return manifest.lines().any(|l| {
-                let l = l.split("#").next().unwrap_or("").trim();
-                l.strip_prefix("edition").map(|r| r.trim_start()).and_then(|r| r.strip_prefix('=')).is_some_and(|v| matches!(v.trim(), "\"1\"" | "\"1.0\""))
-            });
+            return manifest_edition_1(&manifest);
         }
         dir = d.parent();
+    }
+    false
+}
+
+/// The `edition` of the `[package]` of a manifest is 1 (read as `nxc` does: comments after
+/// ` #`, other sections ignored).
+fn manifest_edition_1(manifest: &str) -> bool {
+    let mut section = "";
+    for raw in manifest.strip_prefix('\u{feff}').unwrap_or(manifest).lines() {
+        let l = raw.split(" #").next().unwrap_or("").trim();
+        if l.starts_with('#') {
+            continue;
+        }
+        if l.starts_with('[') {
+            section = l.trim_matches(|c| c == '[' || c == ']').trim();
+            continue;
+        }
+        if section == "package" {
+            if let Some((k, v)) = l.split_once('=') {
+                if k.trim() == "edition" {
+                    return matches!(v.trim(), "\"1\"" | "\"1.0\"");
+                }
+            }
+        }
     }
     false
 }
@@ -378,6 +404,17 @@ mod tests {
         assert_eq!(p.range, Range::new(Position::new(7, 20), Position::new(7, 21)));
         assert_eq!(p.severity, Severity::Error);
         assert_eq!(p.message, "mismatched types : expected `String`, found `{integer}`");
+    }
+
+    #[test]
+    fn editions_of_files_and_projects() {
+        assert_eq!(declared_edition("\u{feff}// edition: 1\nfn main() {}"), Some(true));
+        assert_eq!(declared_edition("// a\n// b\n// edition: 0.2"), Some(false));
+        assert_eq!(declared_edition("// a\n// b\n// c\n// edition: 1"), None);
+        assert!(manifest_edition_1("\u{feff}[package]\nname = \"a\" # nom\nedition = \"1\" # édition\n"));
+        assert!(!manifest_edition_1("[package]\nname = \"a\"\n\n[dependencies]\nedition = \"1\"\n"));
+        assert!(!manifest_edition_1("[package]\n# edition = \"1\"\nname = \"a\"\n"));
+        assert!(!manifest_edition_1("[package]\nname = \"a\"\nedition = \"0.2\"\n"));
     }
 
     #[test]

@@ -10,29 +10,37 @@ ou un blocage : à Claude Main, qui relit et intègre chaque PR.
 
 ---
 
-## Codex Sol 6.1 — composants, outils, distribution
+## Codex Sol 6.1 — composants, outils, distribution (mis à jour le 16/10, objectif 0.3.0)
 
 ```
 Tu es Codex Sol 6.1 sur NEXUL, seul agent avec Claude Main (qui relit chacune de tes PR).
-Tu possèdes studio/terminal, studio/dap, studio/templates, studio/lsp, studio/syntax, editors/vscode,
-installer, benchmarks ; dans compiler/, seulement ce que Main te confie par écrit (nxc lsp, CLI).
-Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/taches.md.
-0. Sécurité (docs/refonte/revues-main.md) : editors/vscode — nexul.nxcPath non modifiable par un dossier non approuvé ;
-   installer — le processus élevé refait son inventaire au lieu d'exécuter job.txt de %TEMP%. Tests à l'appui.
-1. L1 studio/terminal : 2 tests ConPTY ne se terminent jamais (MSVC) ; build GNU en échec (dlltool).
-   Fini = cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml vert en < 1 min.
-2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap (LLVM 23).
-   Fini = lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step vert.
-3. P9 nxc : suivre exactement l'ADR docs/adr/0009-contrat-nxc-lsp.md (acceptée, voir sa décision finale) :
-   PR 1 fondations (lecture superposée, JSON v1, check --stdin, version --json), PR 2 serveur ; tests de son §12.
-4. L3 installateur : NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
-   comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; essais réels.
-En plus si fini : l'extension VS Code connaît l'édition 1 (ADR 0010 ; studio/syntax la colore déjà, langage "nexul1",
-ajouté par Main le 16/10 à la demande de l'utilisateur) ; L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
-compilateur intact) ; README des API terminal et DAP pour Main.
+Lis docs/refonte/AGENTS.md (encadré « Équipe réduite »), docs/refonte/taches.md et
+docs/refonte/master-plan.md §0.3.0. Objectif : la version 0.3.0 (édition 1, Studio natif,
+nxc lsp, extension VS Code, installateur). Publication (Marketplace, GitHub Release) :
+seulement par l'utilisateur lui-même ; tu prépares et tu testes.
+0. Marketplace (en cours) : VSIX 0.3.0 prêt, README/CHANGELOG/icône/licence, `vsce ls`
+   propre, essai d'installation du VSIX dans un VS Code isolé. Pas de publication.
+1. Retours de revue de Main sur les PR #20 (terminal), #21 (DAP), #25 (installateur + CI) :
+   docs/refonte/revues-main.md, section du 16/10. Corriger sur les mêmes branches ; Main fusionne.
+2. nxc lsp et éditions : Main a rendu l'édition propre à chaque fichier (en-tête, sinon
+   nexul.toml de son paquet, y compris les dépendances ; BOM accepté) et l'a branchée dans
+   lsp.rs (diagnostics JSON v1). Ajoute les tests LSP : projet d'édition 1 important un
+   module `// edition: 0.2`, dépendance 0.2 depuis un projet 1, en-tête ajouté/retiré en
+   cours d'édition (didChange) → diagnostics justes. Mesures de §8 de l'ADR 0009 en release.
+3. Formatage de l'édition 1 dans VS Code : `nxc fmt` ne réindente plus les bras `.Variante`
+   (test `format_keeps_variant_arms…`). Lève le blocage de l'extension si les essais
+   passent ; sinon, liste les cas restants dans ton fichier d'état.
+4. Paquet 0.3.0 : installateur 0.3.0 avec nxc/nxpm 0.3.0, Studio natif
+   (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release), VSIX optionnel ;
+   installation neuve, mise à niveau depuis 0.2 (réglages et projets gardés),
+   désinstallation, dans un bac à sable ; preuves dans la PR.
+5. CI (avec #25) : jobs Windows MSVC pour studio/terminal, studio/dap, studio/syntax,
+   studio/lsp, studio/templates et la construction de studio/app ; le job Linux ne
+   construit pas l'installateur Windows.
+En plus si fini : A1 benchmarks NEXUL/C/Rust/C# (mesures brutes, compilateur intact) ;
+L4 essais de l'extension sur Linux réel ; API README terminal/DAP à jour pour M6/M7.
 Branches refonte/sol-…, PR [sol], état docs/refonte/codex-sol-status.md.
 ```
-
 ## Claude Main — direction, langage, Studio
 
 1. **Langage (repris d'Outils)** : G1, trois propositions de syntaxe sur les 12 programmes,

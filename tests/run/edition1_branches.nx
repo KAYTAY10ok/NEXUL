@@ -1,0 +1,20 @@
+// edition: 1
+// The first branch gives its type to the others: `.Name` there needs no other hint.
+
+type Couleur = .Rouge | .Vert | .Bleu
+
+fn String nom(Couleur c) = when c {
+    .Rouge then "rouge"
+    .Vert then "vert"
+    .Bleu then "bleu"
+}
+
+fn main() {
+    let a = if true { Couleur.Vert } else { .Rouge }
+    let b = when 2 {
+        1 then Couleur.Rouge
+        2 then .Bleu
+        else .Vert
+    }
+    println("{nom(a)} {nom(b)}")
+}
