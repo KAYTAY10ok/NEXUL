@@ -431,6 +431,11 @@ impl Ctx<'_> {
                 self.add("opérateur: ? (propagation)", sp);
                 self.expr(x);
             }
+            ExprKind::Fallback(x, f) => {
+                self.add("repli: valeur else (édition 1)", sp);
+                self.expr(x);
+                self.expr(f);
+            }
             ExprKind::Move(x) => {
                 self.add("opérateur: move", sp);
                 self.expr(x);

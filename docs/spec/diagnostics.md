@@ -112,6 +112,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0346` | Invalid literal or range pattern. |
 | `E0347` | A range loop binds a single variable: `for i in 0..n`. |
 | `E0348` | `.Name` names a variant of the type the context expects (edition 1). |
+| `E0349` | `else` after a value (edition 1) gives a fallback for an `Option` that is empty or a `Result` that is an error. |
 | `E0350` | This value cannot be formatted. |
 | `E0351` | This format specification does not apply to the value's type. |
 | `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or the error |

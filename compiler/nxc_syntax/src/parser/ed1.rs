@@ -192,6 +192,10 @@ impl<'a> Parser<'a> {
                 let tspan = self.span();
                 let f = self.test1()?;
                 attrs.push(Attr { name: Ident { name: "test".into(), span: tspan }, args: Vec::new(), span: tspan });
+            if self.test_panics {
+                // A name that cannot be written: only `expects panic` gives it.
+                attrs.push(Attr { name: Ident { name: "expects panic".into(), span: tspan }, args: Vec::new(), span: tspan });
+            }
                 ItemKind::Fn(f)
             }
             TokenKind::Struct | TokenKind::Enum => {
@@ -579,12 +583,14 @@ impl<'a> Parser<'a> {
                 return Err(());
             }
         };
+        // `expects panic`: the test passes when it panics.
+        self.test_panics = false;
         if self.eat_word("expects") {
-            let span = self.prev_span();
-            while !matches!(self.peek(), TokenKind::LBrace | TokenKind::Newline | TokenKind::Eof) {
-                self.bump();
+            if !self.eat_word("panic") {
+                self.expected("`panic` after `expects`");
+                return Err(());
             }
-            self.not_yet(span.to(self.prev_span()), "a test that expects a panic (`expects panic`)");
+            self.test_panics = true;
         }
         let body = self.block()?;
         let name = Ident { name: self.test_name(&desc), span: dspan };
@@ -683,7 +689,7 @@ impl<'a> Parser<'a> {
                 }
                 self.expect(TokenKind::Eq, "`=` and a value")?;
                 let init = self.expr()?;
-                self.no_fallback()?;
+                let init = self.fallback(init)?;
                 StmtKind::Let { pat, ty, init }
             }
             TokenKind::Var => {
@@ -791,14 +797,58 @@ impl<'a> Parser<'a> {
         }))
     }
 
-    /// `… else fallback`: planned, refused for now.
-    pub(super) fn no_fallback(&mut self) -> PResult<()> {
-        if self.is(&TokenKind::Else) {
-            let span = self.span();
-            self.not_yet(span, "a fallback value (`else` after a value)");
-            return Err(());
+    /// `value else fallback`, after the value of a `let` or of a statement (ADR 0010 §6):
+    /// the fallback is a value or a block (`else { return }`).
+    pub(super) fn fallback(&mut self, value: Expr) -> PResult<Expr> {
+        if !self.eat(&TokenKind::Else) {
+            return Ok(value);
         }
-        Ok(())
+        let fb = if self.is(&TokenKind::LBrace) {
+            let b = self.block()?;
+            let span = b.span;
+            Expr { kind: ExprKind::Block(b), span }
+        } else {
+            self.expr()?
+        };
+        let span = value.span.to(fb.span);
+        Ok(Expr { kind: ExprKind::Fallback(Box::new(value), Box::new(fb)), span })
+    }
+
+    /// `x in a..b`, `x in a..=b` (bounds compared, `x` read once) and `x in c`
+    /// (`c.contains(x)`), after `in`.
+    pub(super) fn in_expr(&mut self, x: Expr) -> PResult<Expr> {
+        let lo = self.binary(4)?;
+        if !(self.is(&TokenKind::DotDot) || self.is(&TokenKind::DotDotEq)) {
+            let span = x.span.to(lo.span);
+            let method = Expr { kind: ExprKind::Field(Box::new(lo), Ident { name: "contains".into(), span }), span };
+            let arg = Arg { label: None, inout: None, span: x.span, expr: x };
+            return Ok(Expr { kind: ExprKind::Call(Box::new(method), vec![arg]), span });
+        }
+        let inclusive = self.bump().kind == TokenKind::DotDotEq;
+        let hi = self.binary(4)?;
+        let span = x.span.to(hi.span);
+        // A value that is not a simple name is computed once, in a hidden variable.
+        let simple = |e: &Expr| {
+            let mut e = e;
+            loop {
+                match &e.kind {
+                    ExprKind::Ident(_) | ExprKind::SelfValue | ExprKind::Lit(_) => return true,
+                    ExprKind::Field(b, _) | ExprKind::TupleField(b, _, _) | ExprKind::Paren(b) => e = b,
+                    _ => return false,
+                }
+            }
+        };
+        let (value, hidden) = if simple(&x) { (x, None) } else { (Expr { kind: ExprKind::Ident("<in>".into()), span: x.span }, Some(x)) };
+        let bin = |op, a: Expr, b: Expr| Expr { kind: ExprKind::Binary(op, Box::new(a), Box::new(b)), span };
+        let test = bin(BinOp::And, bin(BinOp::Le, lo, value.clone()), bin(if inclusive { BinOp::Le } else { BinOp::Lt }, value, hi));
+        Ok(match hidden {
+            None => test,
+            Some(x) => {
+                let pat = Pattern { kind: PatKind::Ident("<in>".into()), span: x.span };
+                let stmts = vec![Stmt { kind: StmtKind::Let { pat, ty: None, init: x }, span }, Stmt { kind: StmtKind::Expr(test), span }];
+                Expr { kind: ExprKind::Block(Block { stmts, span }), span }
+            }
+        })
     }
 
     // -----------------------------------------------------------------------

@@ -606,6 +606,7 @@ fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, di
             is_unsafe: false,
             kind: FnKind::Closure { n_captures: c.captures.len() },
             is_test: false,
+            expects_panic: false,
             track_caller: false,
             export: None,
             hints: vec![],

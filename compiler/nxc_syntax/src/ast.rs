@@ -409,6 +409,9 @@ pub enum ExprKind {
     /// `a[i]` or a generic instantiation `Vec[i32]`.
     Index(Box<Expr>, Vec<Expr>),
     Try(Box<Expr>),
+    /// `value else fallback` (edition 1): the value of an `Option` or a `Result`, else the
+    /// fallback (a value, or a block that leaves) when it is empty or an error.
+    Fallback(Box<Expr>, Box<Expr>),
     Move(Box<Expr>),
     Return(Option<Box<Expr>>),
     Break(Option<Ident>),

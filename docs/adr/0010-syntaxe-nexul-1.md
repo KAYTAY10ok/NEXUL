@@ -606,9 +606,21 @@ type rendu avant le nom), vérifié jeton par jeton contre le lexer de l'éditio
 choisit l'édition de chaque fichier de la même façon et change de coloration dès qu'on écrit
 `// edition: 1`.
 
-Reste : le repli `else`, `===`, `in`, types distincts et contraints,
-`expects panic`, formateur, coloration de l'extension VS Code, puis la migration effective de
-`lib/` et des tests.
+**Revue du 16/10** : chaque fichier importé et chaque dépendance gardent leur édition (en-tête,
+sinon le `nexul.toml` de leur paquet ; `--edition` ne vaut que pour le projet racine) ; un BOM
+UTF-8 n'empêche plus de lire l'en-tête ni le `nexul.toml` ; `.Nom` dans un `else` ou un bras
+suivant prend le type de la première branche ; le formateur garde les bras `.Variante`.
+
+**Tranche 4, 16/10/2026** : le repli `else` (`let i64 n = t.parse_int() else 0`, `else { return }`,
+en instruction `f() else println(…)`), compris comme `match valeur { Some(value) => value,
+_ => repli }` (ou `Ok`) ; une variable qui possède sa valeur la donne (`match move`) ;
+`E0349` si la valeur n'est ni `Option` ni `Result`. `x in a..b`, `x in a..=b` (bornes
+comparées, `x` lu une fois) et `x in c` (`c.contains(x)`, `Map.contains` ajouté).
+`test "…" expects panic` : le test passe s'il panique (code 101), échoue sinon. Tests :
+`tests/run/edition1_fallback.nx`, `tests/ui/edition1_fallback.nx`, `compiler/nxc/tests/editions.rs`.
+
+Reste : `===`/`!==` (avec les valeurs partagées), types distincts et contraints (`distinct`,
+`where`), contrats (`requires`, `ensures`), puis la migration effective de `lib/` et des tests.
 
 ## Conséquences
 

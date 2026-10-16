@@ -77,6 +77,23 @@ fn the_header_is_read_after_a_byte_order_mark() {
 }
 
 #[test]
+fn tests_that_expect_a_panic() {
+    let d = Dir::new("panic");
+    let f = d.write(
+        "t.nx",
+        "// edition: 1\ntest \"une addition\" {\n    assert(1 + 1 == 2)\n}\n\ntest \"un indice hors limites\" expects panic {\n    let Vec[i32] v = Vec.new()\n    println(\"{v[3]}\")\n}\n\ntest \"rien ne casse\" expects panic {\n    assert(true)\n}\n",
+    );
+    let out = Command::new(env!("CARGO_BIN_EXE_nxc")).arg("test").arg(&f).output().unwrap();
+    let text = String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n");
+    assert_eq!(out.status.code(), Some(1), "{}", text);
+    assert!(text.contains("test t.une_addition ... ok\n"), "{}", text);
+    assert!(text.contains("test t.un_indice_hors_limites ... ok (panicked as expected)"), "{}", text);
+    assert!(text.contains("test t.rien_ne_casse ... FAILED"), "{}", text);
+    assert!(text.contains("expected to panic"), "{}", text);
+    assert!(text.contains("2 passed; 1 failed"), "{}", text);
+}
+
+#[test]
 fn a_dependency_with_an_unknown_edition_is_reported() {
     let d = Dir::new("bad");
     d.write("bad/nexul.toml", "[package]\nname = \"bad\"\nedition = \"3\"\n");

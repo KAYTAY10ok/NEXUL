@@ -1,0 +1,30 @@
+error[E0349]: `else` after a value applies to `Option` and `Result`, not `{integer}`
+ --> edition1_fallback.nx:4:17
+  |
+4 |     let i32 x = 5 else 0
+  |                 ^ this value cannot be missing
+  |
+  = help: remove `else …`, or use `if … else …` for a choice
+
+error[E0302]: mismatched types
+ --> edition1_fallback.nx:5:20
+  |
+5 |     let String s = "a".parse_int() else "zéro"
+  |                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^ expected `String`, found `i64`
+
+error[E0302]: branches have different types
+ --> edition1_fallback.nx:5:41
+  |
+5 |     let String s = "a".parse_int() else "zéro"
+  |                                         ^^^^^^ this branch is `String`
+  |                    --------------- the first branch is `i64`
+
+error[E0302]: branches have different types
+ --> edition1_fallback.nx:7:9
+  |
+6 |     let i64 n = "1".parse_int() else {
+  |                 --------------- the first branch is `i64`
+7 |         println("pas un nombre")
+  |         ^^^^^^^^^^^^^^^^^^^^^^^^ this branch is `()`
+
+error: could not compile due to 4 errors

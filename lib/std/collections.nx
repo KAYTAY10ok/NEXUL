@@ -71,6 +71,11 @@ impl Map {
         return self.find(key, slot_hash(key)).is_some()
     }
 
+    /// Same as `contains_key`: `key in map` (edition 1).
+    pub fn contains(self, key: K) -> bool where K: Hash + Eq {
+        return self.find(key, slot_hash(key)).is_some()
+    }
+
     /// A copy of the value for `key`, or `None`.
     pub fn get(self, key: K) -> Option[V] where K: Hash + Eq, V: Clone {
         match self.find(key, slot_hash(key)) {

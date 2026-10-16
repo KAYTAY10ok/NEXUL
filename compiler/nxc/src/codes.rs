@@ -110,6 +110,7 @@ soft_float. Negate with `!` and combine alternatives with `|`:
     ("E0346", "Invalid literal or range pattern."),
     ("E0347", "A range loop binds a single variable: `for i in 0..n`."),
     ("E0348", "`.Name` names a variant of the type the context expects (edition 1).\n\nThe type must be known where `.Name` is written: the type of a variable (`var Option[i32] x = .None`), of a parameter (`nom(.Vert)`), of the returned value (`return .Some(v)`), or of the value examined by `when` and `is`. Otherwise name the type: `Couleur.Vert`. The variant must exist in that type."),
+    ("E0349", "`else` after a value (edition 1) gives a fallback for an `Option` that is empty or a `Result` that is an error.\n\n`let i64 n = texte.parse_int() else 0` keeps the number, or 0. The value before `else` must be an `Option` or a `Result`; for a choice between two values, write `if condition { a } else { b }`. The fallback has the type of the value inside, or leaves the function (`else { return }`)."),
     ("E0350", "This value cannot be formatted.\n\nInterpolation and `print` accept integers, floats, `bool`, `char` and `String` in\nNEXUL 0.1. Format the fields of a structure individually."),
     ("E0351", "This format specification does not apply to the value's type.\n\nPrecision applies to floats and strings; `x`, `X`, `o`, `b` to integers; `e` to floats."),
     ("E0360", "The `?` operator is applied to a value that is not `Option` or `Result`, or the error\ntypes differ.\n\nIn NEXUL 0.1, the error type of `?` must be exactly the error type of the function."),

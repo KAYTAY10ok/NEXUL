@@ -18,7 +18,7 @@ Contenu : ce qui est intégré et prouvé, rien de plus. Statuts au §1 et au §
 
 | Domaine | Dans la 0.3.0 | Propriétaire | Statut |
 |---|---|---|---|
-| Langage | édition 1 (ADR 0010) : tranches 1–3 + repli `else`, `in`, `expects panic` ; édition propre à chaque fichier et paquet ; `nxc migrate` | Main | tranches 1–3 INTÉGRÉES ; éditions par fichier : fait le 16/10 ; repli/`in`/`expects panic` : en cours |
+| Langage | édition 1 (ADR 0010) : tranches 1–3 + repli `else`, `in`, `expects panic` ; édition propre à chaque fichier et paquet ; `nxc migrate` | Main | tranches 1–4 INTÉGRÉES (repli `else`, `in`, `expects panic` le 16/10) ; éditions par fichier et par paquet |
 | Outils | `nxc lsp` (ADR 0009), `version --json` avec éditions, formateur compatible édition 1 | Sol (P9), Main | INTÉGRÉ (PR #24) ; tests d'éditions mélangées : Sol |
 | Studio natif | P1 (essai manuel passé), coloration 0.2/1, nouveau projet, recherche, exécuter/construire/tester, avertissement `nxc` trop ancien | Main | INTÉGRÉ ; paramètres et raccourcis (M9) en cours ; terminal (M6) et débogueur (M7) après fusion de #20/#21 |
 | VS Code | extension 0.3.0 (édition 1, LSP, format) prête pour la Marketplace | Sol | publication par l'utilisateur |

@@ -5,9 +5,8 @@ fn i32 f(i32 a) requires a > 0 {
 }
 
 fn main() {
-    let n = f(1) else 0
     let b = 1 === 1
+    let Metres m = 1.0
 }
 
-test "panique" expects panic {
-}
+type Metres = distinct f64

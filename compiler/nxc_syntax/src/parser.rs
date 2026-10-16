@@ -34,6 +34,8 @@ struct Parser<'a> {
     no_bang: bool,
     /// Edition 1: names given to the functions of the tests.
     test_names: Vec<String>,
+    /// The test being read expects a panic (`test "…" expects panic`).
+    test_panics: bool,
 }
 
 type PResult<T> = Result<T, ()>;
@@ -85,7 +87,7 @@ fn assign_op(k: &TokenKind) -> Option<AssignOp> {
 
 impl<'a> Parser<'a> {
     fn new(toks: Vec<Token>, diags: &'a DiagSink) -> Parser<'a> {
-        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new() }
+        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new(), test_panics: false }
     }
 
     // -----------------------------------------------------------------------
@@ -1049,10 +1051,9 @@ impl<'a> Parser<'a> {
                     let op_span = self.bump().span;
                     let value = self.expr()?;
                     StmtKind::Assign { op, op_span, target: e, value }
+                } else if self.ed1 {
+                    StmtKind::Expr(self.fallback(e)?)
                 } else {
-                    if self.ed1 {
-                        self.no_fallback()?;
-                    }
                     StmtKind::Expr(e)
                 }
             }
@@ -1116,6 +1117,7 @@ impl<'a> Parser<'a> {
         Ok(e)
     }
 
+
     fn binary(&mut self, min_prec: u8) -> PResult<Expr> {
         let mut lhs = self.cast_expr()?;
         loop {
@@ -1124,10 +1126,13 @@ impl<'a> Parser<'a> {
                     lhs = self.is_expr(lhs)?;
                     continue;
                 }
-                if matches!(self.peek(), TokenKind::EqEqEq | TokenKind::NotEqEq | TokenKind::In) {
+                if self.eat(&TokenKind::In) {
+                    lhs = self.in_expr(lhs)?;
+                    continue;
+                }
+                if matches!(self.peek(), TokenKind::EqEqEq | TokenKind::NotEqEq) {
                     let op_span = self.bump().span;
-                    let what = if self.toks[self.pos - 1].kind == TokenKind::In { "a membership test (`in`)" } else { "an identity comparison (`===`, `!==`)" };
-                    self.not_yet(op_span, what);
+                    self.not_yet(op_span, "an identity comparison (`===`, `!==`)");
                     let rhs = self.binary(4)?;
                     lhs = Expr { kind: ExprKind::Error, span: lhs.span.to(rhs.span) };
                     continue;

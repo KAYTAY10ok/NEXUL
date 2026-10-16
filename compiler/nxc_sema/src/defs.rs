@@ -267,6 +267,8 @@ pub struct FnDef {
     pub is_unsafe: bool,
     pub kind: FnKind,
     pub is_test: bool,
+    /// A test that passes when it panics (`test "…" expects panic`, edition 1).
+    pub expects_panic: bool,
     /// Panics inside report the caller's location (`@track_caller`, std only).
     pub track_caller: bool,
     /// `@export("symbol")`: the function is visible to other languages under this

@@ -388,7 +388,7 @@ fn compile_command(args: &Args) {
                 Err(e) => fail(&format!("cannot run `{}`: {}", out.display(), e)),
             }
         }
-        "test" => run_tests(&out, &c.tests, &args.rest),
+        "test" => run_tests(&out, &c.tests, &c.expects_panic, &args.rest),
         _ => {}
     }
 }
@@ -569,7 +569,7 @@ fn fmt_command(argv: &[String]) {
 }
 
 /// Runs the tests whose name contains one of `filters` (all without filter).
-fn run_tests(exe: &Path, all: &[String], filters: &[String]) {
+fn run_tests(exe: &Path, all: &[String], expects_panic: &[String], filters: &[String]) {
     let cleanup = || {
         let _ = std::fs::remove_file(exe);
         let _ = std::fs::remove_file(exe.with_extension("pdb"));
@@ -599,7 +599,14 @@ fn run_tests(exe: &Path, all: &[String], filters: &[String]) {
     let mut failed = Vec::new();
     for &(i, name) in &tests {
         let out = Command::new(exe).arg(i.to_string()).output();
+        // A panic ends the program with code 101 (std.rt).
+        let panics = expects_panic.contains(name);
         match out {
+            Ok(o) if panics && o.status.code() == Some(101) => println!("test {} ... ok (panicked as expected)", name),
+            Ok(o) if panics && o.status.success() => {
+                println!("test {} ... FAILED", name);
+                failed.push((name.clone(), "the test was expected to panic, and it ended normally".to_string()));
+            }
             Ok(o) if o.status.success() => println!("test {} ... ok", name),
             Ok(o) => {
                 println!("test {} ... FAILED", name);

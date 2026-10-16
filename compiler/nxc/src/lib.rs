@@ -85,6 +85,8 @@ pub struct Compilation {
     pub output: Option<Output>,
     /// Names of the test functions, in the order of their index.
     pub tests: Vec<String>,
+    /// Those of them that pass when they panic (`expects panic`).
+    pub expects_panic: Vec<String>,
     /// The same diagnostics as a JSON array (for editors and tools).
     pub json: String,
     /// Versioned diagnostic JSON (schema `nexul.diagnostics`, version 1).
@@ -115,6 +117,7 @@ pub fn compile_file(path: &Path, opts: &CompileOptions) -> Compilation {
                 warnings: 0,
                 output: None,
                 tests: vec![],
+                expects_panic: vec![],
                 json: format!(
                     "[{{\"level\":\"error\",\"code\":\"\",\"message\":{},\"file\":\"\",\"line\":0,\"col\":0,\"end_line\":0,\"end_col\":0,\"labels\":[],\"notes\":[]}}]",
                     json_str(&msg)
@@ -247,16 +250,14 @@ pub fn compile_source(
         Mode::Library => Entry::Library,
         Mode::Check => unreachable!(),
     };
-    let test_names = match &entry {
-        Entry::Tests(t) => t
-            .iter()
-            .map(|&f| {
-                let fd = prog.func(f);
-                let m = &prog.modules[fd.module.idx()].path;
-                format!("{}.{}", m, fd.name)
-            })
-            .collect(),
-        _ => vec![],
+    let test_name = |f: FnId| {
+        let fd = prog.func(f);
+        let m = &prog.modules[fd.module.idx()].path;
+        format!("{}.{}", m, fd.name)
+    };
+    let (test_names, expects_panic) = match &entry {
+        Entry::Tests(t) => (t.iter().map(|&f| test_name(f)).collect(), t.iter().filter(|&&f| prog.func(f).expects_panic).map(|&f| test_name(f)).collect()),
+        _ => (vec![], vec![]),
     };
     let root = root_dir
         .and_then(|d| std::fs::canonicalize(&d).ok().or(Some(d)))
@@ -274,7 +275,7 @@ pub fn compile_source(
         profile: opts.profile,
     };
     let out = nxc_codegen_llvm::generate(&prog, &sm, &bodies, &entry, &gen_opts);
-    finish(
+    let mut c = finish(
         &sm,
         &diags,
         Some(out),
@@ -282,7 +283,9 @@ pub fn compile_source(
         color,
         diagnostic_root_dir.as_deref(),
         &opts.target,
-    )
+    );
+    c.expects_panic = expects_panic;
+    c
 }
 
 fn finish(
@@ -310,6 +313,7 @@ fn finish(
         warnings,
         output: if errors == 0 { output } else { None },
         tests,
+        expects_panic: Vec::new(),
         json,
         json_v1,
     }

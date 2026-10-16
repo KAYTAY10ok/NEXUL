@@ -98,6 +98,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         is_unsafe: true,
                         kind: FnKind::Extern { abi: e.abi.clone(), link },
                         is_test: false,
+                        expects_panic: false,
                         track_caller: false,
                         export: None,
                         hints: vec![],
@@ -350,6 +351,7 @@ fn new_fn_def(f: &Rc<ast::FnDecl>, module: ModId, is_pub: bool, owner: Option<Ad
         is_unsafe: f.is_unsafe,
         kind,
         is_test: attrs.iter().any(|a| a.name.name == "test"),
+        expects_panic: attrs.iter().any(|a| a.name.name == "expects panic"),
         track_caller: attrs.iter().any(|a| a.name.name == "track_caller"),
         export: export_name(attrs, &f.name.name),
         hints: attrs.iter().filter(|a| matches!(a.name.name.as_str(), "cold" | "inline" | "no_builtins")).map(|a| a.name.name.clone()).collect(),
@@ -391,7 +393,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" => {}
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
                 if !is_std {
                     diags.emit(
@@ -409,7 +411,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             }
         }
         let ok_target = match (name, &item.kind) {
-            ("test", ItemKind::Fn(_)) => true,
+            ("test" | "expects panic", ItemKind::Fn(_)) => true,
             ("link", ItemKind::ExternFn(_)) => true,
             ("lang", ItemKind::Struct(_) | ItemKind::Enum(_) | ItemKind::Fn(_) | ItemKind::Trait(_)) => true,
             ("intrinsic", ItemKind::Fn(_)) => true,

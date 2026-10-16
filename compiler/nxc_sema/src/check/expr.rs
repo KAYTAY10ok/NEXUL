@@ -164,6 +164,7 @@ impl<'a> FnCtxt<'a> {
             A::Call(callee, args) => self.check_call(callee, args, expect, span),
             A::Index(base, args) => self.check_index(e, base, args, expect, span),
             A::Try(inner) => self.check_try(inner, span),
+            A::Fallback(value, fallback) => self.check_fallback(value, fallback, expect, span),
             A::Move(inner) => {
                 let x = self.check_expr(inner, expect);
                 let ok = match &x.kind {
@@ -712,8 +713,58 @@ impl<'a> FnCtxt<'a> {
     }
 
     fn check_match(&mut self, scrutinee: &ast::Expr, arms: &[ast::Arm], mutable: bool, expect: Expect, span: Span) -> thir::Expr {
-        let tcx = self.tcx();
         let s = self.check_expr(scrutinee, Expect::None);
+        self.check_match_on(s, arms, mutable, expect, span)
+    }
+
+    /// `value else fallback` (edition 1): `match value { Some(value) => value, _ => fallback }`,
+    /// with `Ok` for a `Result`. A variable that owns its value gives it, as with
+    /// `match move value`.
+    fn check_fallback(&mut self, value: &ast::Expr, fallback: &ast::Expr, expect: Expect, span: Span) -> thir::Expr {
+        let tcx = self.tcx();
+        let mut s = self.check_expr(value, Expect::None);
+        if let T::Local(l) = &s.kind {
+            if matches!(self.locals[*l as usize].kind, LocalKind::Let | LocalKind::Var | LocalKind::Hidden | LocalKind::Param(ast::Convention::Owned)) {
+                let ty = s.ty;
+                s = self.mk(T::Move(Box::new(s)), ty, value.span);
+            }
+        }
+        let st = self.shallow(s.ty);
+        let adt = tcx.as_adt(st).map(|(id, _)| id);
+        let ctor = if adt.is_some() && adt == self.p.lang.option {
+            "Some"
+        } else if adt.is_some() && adt == self.p.lang.result {
+            "Ok"
+        } else {
+            if matches!(&*tcx.kind(st), TyKind::Infer(_)) {
+                self.need_type(value.span);
+            } else if !tcx.is_error(st) {
+                self.err(
+                    Diagnostic::error("E0349", format!("`else` after a value applies to `Option` and `Result`, not `{}`", self.ty_str(st)))
+                        .primary(value.span, "this value cannot be missing")
+                        .help("remove `else …`, or use `if … else …` for a choice"),
+                );
+            }
+            self.check_expr(fallback, Expect::None);
+            return self.error_expr(span);
+        };
+        let at = value.span;
+        let name = |n: &str| ast::Ident { name: n.to_string(), span: at };
+        let binding = ast::Pattern { kind: ast::PatKind::Ident("value".into()), span: at };
+        let arms = [
+            ast::Arm {
+                pat: ast::Pattern { kind: ast::PatKind::Ctor { path: vec![name(ctor)], args: vec![ast::PatArg::Positional(binding)] }, span: at },
+                guard: None,
+                body: ast::Expr { kind: A::Ident("value".into()), span: at },
+                span: at,
+            },
+            ast::Arm { pat: ast::Pattern { kind: ast::PatKind::Wild, span: fallback.span }, guard: None, body: fallback.clone(), span: fallback.span },
+        ];
+        self.check_match_on(s, &arms, false, expect, span)
+    }
+
+    fn check_match_on(&mut self, s: thir::Expr, arms: &[ast::Arm], mutable: bool, expect: Expect, span: Span) -> thir::Expr {
+        let tcx = self.tcx();
         let mode = self.scrutinee_mode(&s, mutable);
         let mut out = Vec::new();
         let mut acc: Option<Ty> = None;
