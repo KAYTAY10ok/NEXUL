@@ -13,11 +13,6 @@ async function run() {
   const extension = vscode.extensions.getExtension('KAYTAY10ok.nexul-language');
   assert.ok(extension, 'The development extension must be available to the Extension Host.');
   await extension.activate();
-  await vscode.workspace.getConfiguration('nexul').update(
-    'nxcPath',
-    path.resolve(compiler),
-    vscode.ConfigurationTarget.Global
-  );
 
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
   assert.ok(folder, 'The edition 1 fixture workspace must be open.');
@@ -26,8 +21,15 @@ async function run() {
   await vscode.window.showTextDocument(document);
   await waitFor(() => document.languageId === 'nexul1', 'NEXUL Edition 1 language mode');
 
+  await waitForAsync(async () => {
+    const codeLenses = await vscode.commands.executeCommand('vscode.executeCodeLensProvider', document.uri);
+    return codeLenses.some((lens) => lens.command.command === 'nexul.runTest'
+      && lens.command.arguments[1] === 'addition');
+  }, 'nexul/tests CodeLens');
+  assert.deepEqual(vscode.languages.getDiagnostics(document.uri), [],
+    'valid Edition 1 source must not receive false LSP errors');
+
   await vscode.commands.executeCommand('nexul.checkCurrentFile');
-  assert.deepEqual(vscode.languages.getDiagnostics(document.uri), []);
 
   for (const command of ['build', 'run', 'test']) {
     const exitCode = await runNexulTask(command, file);
@@ -47,8 +49,23 @@ async function run() {
   await vscode.commands.executeCommand('nexul.formatDocument');
   assert.notEqual(legacyDocument.getText(), unformatted, 'nxc formatting must work for Edition 0.2');
   await vscode.commands.executeCommand('nexul.checkCurrentFile');
-  assert.deepEqual(vscode.languages.getDiagnostics(legacyDocument.uri), []);
-  console.log('Edition 0.2 formatting and check passed; Edition 1 formatting stayed disabled.');
+
+  const validLegacy = legacyDocument.getText();
+  const badStatement = 'let broken = ;';
+  const badText = validLegacy.replace('println(', badStatement + ' // ');
+  const badEdit = new vscode.WorkspaceEdit();
+  badEdit.replace(legacyDocument.uri,
+    new vscode.Range(legacyDocument.positionAt(0), legacyDocument.positionAt(validLegacy.length)), badText);
+  await vscode.workspace.applyEdit(badEdit);
+  await waitFor(() => vscode.languages.getDiagnostics(legacyDocument.uri).some((item) => item.severity === vscode.DiagnosticSeverity.Error),
+    'unsaved Edition 0.2 LSP diagnostics');
+  const restoreLegacy = new vscode.WorkspaceEdit();
+  restoreLegacy.replace(legacyDocument.uri,
+    new vscode.Range(legacyDocument.positionAt(0), legacyDocument.positionAt(legacyDocument.getText().length)), validLegacy);
+  await vscode.workspace.applyEdit(restoreLegacy);
+  await waitFor(() => vscode.languages.getDiagnostics(legacyDocument.uri).length === 0,
+    'Edition 0.2 LSP diagnostics to clear after correction');
+  console.log('LSP CodeLens, Edition 0.2 live diagnostics and formatting passed; Edition 1 formatting stayed disabled.');
 }
 
 function waitFor(predicate, label) {
@@ -58,6 +75,22 @@ function waitFor(predicate, label) {
       if (predicate()) return resolve();
       if (Date.now() >= deadline) return reject(new Error('Timed out waiting for ' + label));
       setTimeout(poll, 50);
+    };
+    poll();
+  });
+}
+
+function waitForAsync(predicate, label) {
+  const deadline = Date.now() + 10000;
+  return new Promise((resolve, reject) => {
+    const poll = async () => {
+      try {
+        if (await predicate()) return resolve();
+        if (Date.now() >= deadline) return reject(new Error('Timed out waiting for ' + label));
+        setTimeout(poll, 50);
+      } catch (error) {
+        reject(error);
+      }
     };
     poll();
   });

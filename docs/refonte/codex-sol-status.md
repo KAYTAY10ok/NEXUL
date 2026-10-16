@@ -20,13 +20,13 @@ Claude Main conserve la revue et l'intégration.
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) remise à jour sur `main`, conflit résolu, revue Main attendue |
 | 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
 | 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; CI Windows passe, mais 2 tests Linux de FFI échouent dans le compilateur (Core). Construction complète MSVC non testée ici. |
-| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte, CI en cours. Le formateur de l’édition 1 reste indisponible dans `nxc` et l’extension le bloque sans modifier le document. |
+| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte et fusionnable. La CI Linux échoue en compilant l’installateur Windows (`std::os::windows`, `kernel32`), problème déjà couvert par le changement de workflow de la PR #25 en attente de revue Main. Le formateur édition 1 reste bloqué sans modifier le document. |
 
 ## Travail courant
 
 - Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
 - L4 : branche `refonte/sol-l4-vscode`, validation réelle de l’extension et des commandes `nxc` réussie sur ce poste.
-- PR #26 : branche propre et fusionnable sur `main` au moment de l’ouverture ; contrôle CI lancé.
+- PR #26 : fusionnable ; le contrôle Linux utilise encore le build global du workspace et échoue sur l’installateur Windows. La PR #25 porte le changement de workflow pour séparer les cibles portables de l’installateur Windows.
 - L1 et L2 ont intégré `origin/main` (`496949f`) et sont maintenant fusionnables ; les PR #20 et #21 attendent toujours la revue Main. Aucun statut CI n’est encore publié pour ces deux nouveaux commits.
 - L3 : branche `refonte/sol-l3`, PR #25 ouverte ; la limitation CI est documentée à la fin de ce fichier.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
@@ -120,13 +120,14 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - `cargo build --release -p nxc` réussi depuis la base `496949f`.
 - `cargo test -p nxc` : 32 tests réussis (11 unitaires, 6 fondations, 5 LSP, 10 conformité), 0 échec ; 1 test Web ignoré comme prévu sans sa chaîne dédiée.
 - `npm ci` : réussi, 0 vulnérabilité signalée. `npm test` : **14/14** réussis.
-- `npm run package` : réussi depuis un dossier `dist` absent ; le script le crée avant
-  l’assemblage du VSIX (16 fichiers, 22,61 Ko).
-- `npm run test:host` avec le vrai binaire `nxc` du dépôt : hôte d’extension VS Code
-  Insiders avec profil et workspace temporaires. Le test détecte `edition = "1"` depuis
-  `nexul.toml`, passe le check/build/run/test réels, et vérifie le formatage 0.2 ainsi
-  que le contrôle du document après formatage. Pour l’édition 1, la commande de formatage
-  prévient et laisse le texte intact.
+- `npm run package` : réussi ; le VSIX (331 fichiers, 479,95 Ko) inclut le client LSP et
+  ses dépendances d’exécution.
+- `npm run test:host` avec le vrai binaire `nxc` du dépôt : réussi dans VS Code Insiders
+  avec profil et workspace temporaires. Le test vérifie le démarrage de `nxc lsp`, le
+  CodeLens, l’absence de faux diagnostics sur le fichier Edition 1 valide, puis les
+  commandes `check`, `build`, `run` et `test`. En 0.2, formatage, diagnostic après une
+  édition non enregistrée et effacement du diagnostic après correction passent aussi.
+  Pour l’édition 1, la commande de formatage prévient et laisse le texte intact.
 - `git diff --check` : réussi. Le VSIX n’a pas été installé dans une instance utilisateur
   et l’extension n’a pas été publiée sur le Marketplace. Le formatage Edition 1 dépend
   de son implémentation par Core dans `nxc`.
