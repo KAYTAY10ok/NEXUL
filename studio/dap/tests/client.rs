@@ -1,6 +1,7 @@
 use nexul_studio_dap::{AdapterCommand, Breakpoint, DapClient, DapError};
 use serde_json::json;
 use std::path::Path;
+use std::thread;
 use std::time::Duration;
 
 fn next_event(client: &DapClient, wanted: &str) -> bool {
@@ -21,8 +22,9 @@ fn fake_adapter_exercises_dap_lifecycle_requests_and_events() {
     let initialized = client.initialize("nexul-test", "NEXUL DAP test").unwrap();
     assert!(initialized.success);
     assert_eq!(initialized.body["adapterID"], "nexul");
-    let launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
+    let mut launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
     assert!(next_event(&client, "initialized"));
+    assert!(launch.try_wait().unwrap().is_none());
     let breakpoints = [Breakpoint::new(9).condition("answer == 42")];
     assert!(
         client
@@ -31,6 +33,19 @@ fn fake_adapter_exercises_dap_lifecycle_requests_and_events() {
             .success
     );
     assert!(client.configuration_done().unwrap().success);
+    let started = std::time::Instant::now();
+    let launch_response = loop {
+        if let Some(response) = launch.try_wait().unwrap() {
+            break response;
+        }
+        assert!(
+            started.elapsed() < Duration::from_secs(1),
+            "launch response timed out"
+        );
+        thread::sleep(Duration::from_millis(5));
+    };
+    assert!(launch_response.success);
+    assert!(launch.try_wait().unwrap().is_none());
     assert!(launch.wait(Duration::from_secs(1)).unwrap().success);
     assert!(next_event(&client, "stopped"));
     assert_eq!(client.threads().unwrap().body["threads"][0]["id"], 7);
@@ -92,14 +107,20 @@ fn late_response_after_timeout_or_abandon_does_not_break_routing() {
 
 #[test]
 fn pending_launch_reports_adapter_exit() {
-    let adapter = AdapterCommand::new(env!("CARGO_BIN_EXE_fake-dap-adapter"));
+    let adapter =
+        AdapterCommand::new(env!("CARGO_BIN_EXE_fake-dap-adapter")).arg("--exit-after-launch");
     let mut client = DapClient::spawn(&adapter).unwrap();
     assert!(client.initialize("test", "test").unwrap().success);
     let launch = client.begin_launch(json!({ "program": "fake" })).unwrap();
     assert!(next_event(&client, "initialized"));
-    client.shutdown(Duration::from_secs(1)).unwrap();
+    assert!(next_event(&client, "adapterExited"));
     assert!(matches!(
-        launch.wait(Duration::from_secs(1)),
+        launch.wait(Duration::from_secs(2)),
         Err(DapError::AdapterExited)
     ));
+    assert!(matches!(
+        client.request_timeout("threads", json!({}), Duration::from_secs(2)),
+        Err(DapError::AdapterExited)
+    ));
+    client.shutdown(Duration::from_secs(1)).unwrap();
 }
