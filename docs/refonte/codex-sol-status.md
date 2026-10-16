@@ -157,3 +157,21 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+## Preuves P9 — éditions LSP et performances (16/10/2026)
+
+- Ajout dans `compiler/nxc/tests/lsp.rs` de tests d’intégration avec un vrai processus
+  `nxc lsp` : projet d’édition 1 important un module ouvert d’édition 0.2, projet 1
+  important une dépendance locale sans édition explicite (donc 0.2), et diagnostics
+  recalculés après ajout/retrait de l’en-tête d’édition pendant `didChange`.
+- Trois tests ciblés en profil debug : **3 réussis**.
+- `cargo test --release -p nxc --test lsp -- --nocapture` : **8 réussis, 0 échec,
+  0 ignoré**. Mesure Windows release sur ce poste : P95 à chaud — hover **0,322 ms**,
+  définition **0,371 ms**, complétion **0,841 ms** ; diagnostics après modification
+  **261,93 ms** (attente de 200 ms comprise) ; écart de mémoire de travail sur 1 000
+  modifications **16,80 Mio**. Les trois critères de performance de l’ADR 0009 §8 passent.
+- `rustfmt --edition 2021 --check compiler/nxc/tests/lsp.rs` : réussi. La vérification
+  `cargo fmt --check` de tout le crate signale des fichiers préexistants non formatés ;
+  aucun autre fichier n’a été reformaté.
+- Non testé : client VS Code/Studio réel, Linux bare metal, macOS et dépendance Git
+  téléchargée. Aucun téléchargement n’est fait par le serveur LSP.

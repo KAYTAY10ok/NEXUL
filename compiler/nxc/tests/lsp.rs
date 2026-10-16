@@ -529,6 +529,205 @@ fn lsp_requests_cover_open_project_documents_and_standard_library() {
 }
 
 #[test]
+fn lsp_uses_each_open_project_module_edition_for_diagnostics() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    std::fs::create_dir_all(scratch.path().join("src/tools")).unwrap();
+    std::fs::write(
+        scratch.path().join("nexul.toml"),
+        "[package]\nname = \"lsp-mixed-module-editions\"\nedition = \"1\"\n",
+    )
+    .unwrap();
+
+    let main_path = scratch.path().join("src/main.nx");
+    let module_path = scratch.path().join("src/tools/calc.nx");
+    let main = "// edition: 1\nimport tools.calc\nfn main() {\n    let i32 answer = calc.carre(4)\n    println(\"{answer}\")\n}\n";
+    let module = "// edition: 0.2\npub fn carre(x: i32) -> i32 { return x * x }\n";
+    std::fs::write(&main_path, main).unwrap();
+    std::fs::write(&module_path, module).unwrap();
+    let main_uri = uri(&main_path);
+    let module_uri = uri(&module_path);
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&main_uri),
+            quote(main)
+        ),
+    );
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&module_uri),
+            quote(module)
+        ),
+    );
+
+    let main_diagnostics = client.diagnostics(&main_uri, 1);
+    let module_diagnostics = client.diagnostics(&module_uri, 1);
+    assert!(
+        main_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-1 project diagnostics: {main_diagnostics}"
+    );
+    assert!(
+        module_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-0.2 module diagnostics: {module_diagnostics}"
+    );
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
+fn lsp_uses_cached_dependency_package_edition_in_edition_one_project() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    std::fs::create_dir_all(scratch.path().join("legacy/src")).unwrap();
+    std::fs::create_dir_all(scratch.path().join("app/src")).unwrap();
+    std::fs::write(
+        scratch.path().join("legacy/nexul.toml"),
+        "[package]\nname = \"legacy\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.path().join("legacy/src/lib.nx"),
+        "pub fn carre(x: i32) -> i32 { return x * x }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.path().join("app/nexul.toml"),
+        "[package]\nname = \"lsp-edition-one-app\"\nedition = \"1\"\n\n[dependencies]\nlegacy = { path = \"../legacy\" }\n",
+    )
+    .unwrap();
+
+    let main_path = scratch.path().join("app/src/main.nx");
+    let dependency_path = scratch.path().join("legacy/src/lib.nx");
+    let main = "// edition: 1\nimport legacy\nfn main() {\n    let i32 answer = legacy.carre(5)\n    println(\"{answer}\")\n}\n";
+    let dependency = std::fs::read_to_string(&dependency_path).unwrap();
+    std::fs::write(&main_path, main).unwrap();
+    let main_uri = uri(&main_path);
+    let dependency_uri = uri(&dependency_path);
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&main_uri),
+            quote(main)
+        ),
+    );
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&dependency_uri),
+            quote(&dependency)
+        ),
+    );
+
+    let main_diagnostics = client.diagnostics(&main_uri, 1);
+    let dependency_diagnostics = client.diagnostics(&dependency_uri, 1);
+    assert!(
+        main_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-1 app diagnostics with edition-0.2 dependency: {main_diagnostics}"
+    );
+    assert!(
+        dependency_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-0.2 dependency diagnostics: {dependency_diagnostics}"
+    );
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
+fn lsp_header_edition_changes_recompute_diagnostics() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    let path = scratch.path().join("changing-edition.nx");
+    let document_uri = uri(&path);
+    let edition_02 = "fn answer() -> i32 { return 42 }\n";
+    let edition_1_with_old_syntax = format!("// edition: 1\n{edition_02}");
+    let edition_1 = "// edition: 1\nfn i32 answer() = 42\n";
+    let edition_1_without_header = "fn i32 answer() = 42\n";
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&document_uri),
+            quote(edition_02)
+        ),
+    );
+    let initial = client.diagnostics(&document_uri, 1);
+    assert!(initial.contains("\"diagnostics\":[]"), "{initial}");
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(&edition_1_with_old_syntax)
+        ),
+    );
+    let added_header = client.diagnostics(&document_uri, 2);
+    assert!(
+        !added_header.contains("\"diagnostics\":[]"),
+        "adding an edition-1 header did not switch editions: {added_header}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":3}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_1)
+        ),
+    );
+    let fixed_edition_1 = client.diagnostics(&document_uri, 3);
+    assert!(
+        fixed_edition_1.contains("\"diagnostics\":[]"),
+        "{fixed_edition_1}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":4}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_1_without_header)
+        ),
+    );
+    let removed_header = client.diagnostics(&document_uri, 4);
+    assert!(
+        !removed_header.contains("\"diagnostics\":[]"),
+        "removing the edition-1 header did not restore edition 0.2: {removed_header}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":5}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_02)
+        ),
+    );
+    let fixed_edition_02 = client.diagnostics(&document_uri, 5);
+    assert!(
+        fixed_edition_02.contains("\"diagnostics\":[]"),
+        "{fixed_edition_02}"
+    );
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
 fn lsp_did_change_applies_utf8_and_utf16_positions_across_crlf_and_emoji() {
     let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
     let scratch = Scratch::new();
