@@ -116,6 +116,7 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   test de raccourci unitaire passe. Le second passage échoue ensuite dans `tests/run/ffi.nx` :
   `abs`, `strlen` et `sqrt` ne sont pas résolus parce que l'éditeur de liens Linux NEXUL
   produit des exécutables statiques sans libc. Ce code relève de `compiler/**` (Core).
-  L'assertion d'installation complète compare maintenant les chemins canonisés et attend
-  une nouvelle validation Windows. La construction de `studio/app` et du paquet
+  `Path::canonicalize` ne résolvait pas le nom court 8.3 dans l'environnement sandbox.
+  Les tests Windows utilisent maintenant `GetLongPathNameW` pour comparer les cibles; la
+  validation CI de ce correctif reste en attente. La construction de `studio/app` et du paquet
   complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.

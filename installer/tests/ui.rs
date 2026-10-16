@@ -7,7 +7,7 @@
 mod common;
 
 use common::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
 /// Width, height and number of distinct colors of a 32-bit `.bmp` saved by the self-test.
@@ -93,7 +93,10 @@ fn install_then_uninstall_with_the_window() {
     assert_eq!(std::fs::read_dir(sb.path(r"Home\NEXUL - anciennes versions")).unwrap().count(), 1);
     let uninstall_key = sb.key(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NEXUL");
     assert_eq!(reg_value(&uninstall_key, Some("InstallLocation")).unwrap().1, dir.display().to_string());
-    assert_eq!(PathBuf::from(shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk"))), dir.join(r"bin\NEXUL Studio.exe"));
+    assert_eq!(
+        long_path(Path::new(&shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk")))),
+        long_path(&dir.join(r"bin\NEXUL Studio.exe"))
+    );
 
     // The uninstaller, with its window.
     let shots = sb.path("captures-desinstallation");

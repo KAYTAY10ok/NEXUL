@@ -110,6 +110,26 @@ pub fn shortcut_target(lnk: &Path) -> String {
     String::from_utf8_lossy(&out.stdout).trim().to_string()
 }
 
+/// Expands Windows 8.3 path components so shortcut targets can be compared with long paths.
+pub fn long_path(path: &Path) -> PathBuf {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::{OsStrExt, OsStringExt};
+
+    #[link(name = "kernel32")]
+    extern "system" {
+        fn GetLongPathNameW(short_path: *const u16, long_path: *mut u16, size: u32) -> u32;
+    }
+
+    let input: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    let needed = unsafe { GetLongPathNameW(input.as_ptr(), std::ptr::null_mut(), 0) };
+    assert_ne!(needed, 0, "cannot expand short path {}", path.display());
+    let mut buffer = vec![0u16; needed as usize];
+    let written = unsafe { GetLongPathNameW(input.as_ptr(), buffer.as_mut_ptr(), needed) };
+    assert!(written > 0 && written < needed, "cannot expand short path {}", path.display());
+    buffer.truncate(written as usize);
+    PathBuf::from(OsString::from_wide(&buffer))
+}
+
 pub fn create_shortcut(lnk: &Path, target: &Path) {
     let script = format!(
         "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('{}'); $s.TargetPath='{}'; $s.Save()",

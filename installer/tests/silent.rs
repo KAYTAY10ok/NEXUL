@@ -192,16 +192,16 @@ fn install_update_uninstall() {
     // Shortcuts: in the sandbox, and they open the right programs.
     let studio = bin.join("NEXUL Studio.exe");
     assert_eq!(
-        PathBuf::from(shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk"))).canonicalize().unwrap(),
-        studio.canonicalize().unwrap()
+        long_path(Path::new(&shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk")))),
+        long_path(&studio)
     );
     assert_eq!(
-        PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\NEXUL Studio.lnk"))).canonicalize().unwrap(),
-        studio.canonicalize().unwrap()
+        long_path(Path::new(&shortcut_target(&sb.path(r"Programs\NEXUL\NEXUL Studio.lnk")))),
+        long_path(&studio)
     );
     assert_eq!(
-        PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\Désinstaller NEXUL.lnk"))).canonicalize().unwrap(),
-        dir.join(UNINSTALLER).canonicalize().unwrap()
+        long_path(Path::new(&shortcut_target(&sb.path(r"Programs\NEXUL\Désinstaller NEXUL.lnk")))),
+        long_path(&dir.join(UNINSTALLER))
     );
 
     // Rule 8: the real settings of the user are not touched.
@@ -259,7 +259,10 @@ fn install_update_uninstall() {
     assert!(backups[0].join("LISEZ-MOI - sauvegarde.txt").is_file());
     assert!(!old_link.exists());
     assert_eq!(path_value(), bin.display().to_string(), "PATH after the update");
-    assert_eq!(PathBuf::from(shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk"))), studio);
+    assert_eq!(
+        long_path(Path::new(&shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk")))),
+        long_path(&studio)
+    );
 
     // ---- Uninstallation, with a program running and a file of the user in the folder.
     std::fs::write(dir.join("notes de l'utilisateur.txt"), "à garder").unwrap();
