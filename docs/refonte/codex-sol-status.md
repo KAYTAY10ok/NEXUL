@@ -28,6 +28,8 @@ Claude Main conserve la revue et l'intégration.
 - Base de cette branche : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026.
 - Les PR #20, #21, #25, #26, #27 et #28 sont présentes dans l’historique de `origin/main`.
 - Branche de préparation du VSIX 0.3.0 : `refonte/sol-vscode-release`; voir les preuves ci-dessous.
+- La PR [#30](https://github.com/KAYTAY10ok/NEXUL/pull/30) est ouverte vers `main`. Le run CI `38903204531` a terminé avec succès sur Linux et Windows ; revue/intégration de Main attendue. La branche est à jour avec `origin/main` au commit `c40acbd`.
+- Le Marketplace sert actuellement la version `0.1.0` de `KAYTAY10ok.nexul-language`. Le VSIX `0.3.0` est préparé et testé, mais pas publié ; la publication reste à la charge de l’utilisateur.
 - Le contrat accepté de `nxc lsp` est `docs/adr/0009-contrat-nxc-lsp.md`. Le code P9 est intégré ; aucune grammaire ni règle de typage n’a été changée dans le lot Sol.
 
 ## Mise à jour — VSIX 0.3.0
