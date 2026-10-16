@@ -117,6 +117,8 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   `abs`, `strlen` et `sqrt` ne sont pas résolus parce que l'éditeur de liens Linux NEXUL
   produit des exécutables statiques sans libc. Ce code relève de `compiler/**` (Core).
   `Path::canonicalize` ne résolvait pas le nom court 8.3 dans l'environnement sandbox.
-  Les tests Windows utilisent maintenant `GetLongPathNameW` pour comparer les cibles; la
-  validation CI de ce correctif reste en attente. La construction de `studio/app` et du paquet
+  `GetLongPathNameW` a corrigé les comparaisons, puis le test E2E a révélé que cette aliasation
+  empêchait aussi la désinstallation de reconnaître son propre raccourci. `old::norm` étend
+  maintenant les chemins existants avant le contrôle de contenance; le job Windows doit
+  confirmer cette correction. La construction de `studio/app` et du paquet
   complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.

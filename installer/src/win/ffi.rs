@@ -191,6 +191,7 @@ extern "system" {
     pub fn Process32FirstW(snapshot: HANDLE, entry: *mut PROCESSENTRY32W) -> BOOL;
     pub fn Process32NextW(snapshot: HANDLE, entry: *mut PROCESSENTRY32W) -> BOOL;
     pub fn ExpandEnvironmentStringsW(src: *const u16, dst: *mut u16, size: u32) -> u32;
+    pub fn GetLongPathNameW(short_path: *const u16, long_path: *mut u16, size: u32) -> u32;
     pub fn GetLocalTime(time: *mut SYSTEMTIME);
     pub fn GetLastError() -> u32;
     pub fn GetModuleHandleW(name: *const u16) -> HANDLE;

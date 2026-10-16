@@ -147,6 +147,26 @@ pub fn read_shortcut(lnk: &Path) -> Option<(String, String)> {
     Some((from_wide(&target), from_wide(&args)))
 }
 
+/// Expands 8.3 path components when the target exists. Returns None if Windows cannot
+/// resolve the path; callers can then use the original spelling.
+pub fn long_path(path: &Path) -> Option<PathBuf> {
+    if path.as_os_str().to_string_lossy().contains('\0') {
+        return None;
+    }
+    let input = wide(path);
+    let needed = unsafe { GetLongPathNameW(input.as_ptr(), std::ptr::null_mut(), 0) };
+    if needed == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u16; needed as usize];
+    let written = unsafe { GetLongPathNameW(input.as_ptr(), buffer.as_mut_ptr(), needed) };
+    if written == 0 || written >= needed {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    Some(PathBuf::from(from_wide(&buffer)))
+}
+
 /// Tells the shell that file associations changed (icons, "open with"). Not in the
 /// sandbox of the tests.
 pub fn notify_associations() {
