@@ -1,0 +1,19 @@
+// A line cut in two: the second half is a statement whose value is lost (E0110).
+fn main() {
+    let a = 5
+    let b = 3
+    let total = a
+        - b
+    let ok = true
+    not ok
+    (a + b)
+    // Kept: calls, assignments, the value of a block, let _ =.
+    let _ = a * 2
+    println("{total}")
+    let v = if ok {
+        a + b
+    } else {
+        0
+    }
+    println("{v}")
+}

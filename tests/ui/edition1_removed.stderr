@@ -1,0 +1,41 @@
+error[E0112]: `struct` does not exist in edition 1
+ --> edition1_removed.nx:3:1
+  |
+3 | struct Point {
+  | ^^^^^^ written differently in edition 1
+  |
+  = help: write `type Name { Type field … }` or `type Name = .A | .B`
+
+error[E0112]: `name: Type` does not exist in edition 1
+ --> edition1_removed.nx:7:6
+  |
+7 | fn f(a: i32) -> i32 {
+  |      ^ written differently in edition 1
+  |
+  = help: write the type before the name: `Type name`
+
+error[E0112]: `let name: Type` does not exist in edition 1
+  --> edition1_removed.nx:12:10
+   |
+12 |     let x: i32 = 5
+   |          ^ written differently in edition 1
+   |
+   = help: write the type before the name: `let Type name = …`
+
+error[E0112]: `match` does not exist in edition 1
+  --> edition1_removed.nx:14:5
+   |
+14 |     match y {
+   |     ^^^^^ written differently in edition 1
+   |
+   = help: write `when value { .Case then … }`
+
+error[E0112]: `if let P = e` does not exist in edition 1
+  --> edition1_removed.nx:17:8
+   |
+17 |     if let z = y {
+   |        ^^^ written differently in edition 1
+   |
+   = help: write `if e is P`
+
+error: could not compile due to 5 errors

@@ -57,10 +57,40 @@ impl Span {
     }
 }
 
+/// The syntax a file is written in (ADR 0010). The standard library stays in 0.2 until it
+/// is migrated; a program chooses its edition (`--edition`, `edition` of `nexul.toml`).
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub enum Edition {
+    /// NEXUL 0.2: `struct`, `x: T`, `-> T`, `match`, `&x`…
+    #[default]
+    V0_2,
+    /// NEXUL 1: `type`, `T x`, `fn T f()`, `when`, `x!`…
+    V1,
+}
+
+impl Edition {
+    /// `0.2` or `1` (also `1.0`).
+    pub fn parse(s: &str) -> Option<Edition> {
+        match s {
+            "0.2" => Some(Edition::V0_2),
+            "1" | "1.0" => Some(Edition::V1),
+            _ => None,
+        }
+    }
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Edition::V0_2 => "0.2",
+            Edition::V1 => "1",
+        }
+    }
+}
+
 pub struct SourceFile {
     /// Name shown in diagnostics (usually a path relative to the source root).
     pub name: String,
     pub text: String,
+    pub edition: Edition,
     /// Byte offset of the first character of each line.
     line_starts: Vec<u32>,
 }
@@ -73,7 +103,7 @@ impl SourceFile {
                 line_starts.push(i as u32 + 1);
             }
         }
-        SourceFile { name, text, line_starts }
+        SourceFile { name, text, edition: Edition::V0_2, line_starts }
     }
 
     /// 0-based line index containing byte offset `pos`.
@@ -127,6 +157,13 @@ impl SourceMap {
     pub fn add(&mut self, name: impl Into<String>, text: impl Into<String>) -> FileId {
         let id = FileId(self.files.len() as u32);
         self.files.push(SourceFile::new(name.into(), text.into()));
+        id
+    }
+
+    /// Adds a file written in `edition`.
+    pub fn add_with_edition(&mut self, name: impl Into<String>, text: impl Into<String>, edition: Edition) -> FileId {
+        let id = self.add(name, text);
+        self.files[id.0 as usize].edition = edition;
         id
     }
 

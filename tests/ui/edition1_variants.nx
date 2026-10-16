@@ -1,0 +1,13 @@
+// edition: 1
+// `.Name` must name a variant of the expected type (E0348).
+type Couleur = .Rouge | .Vert
+
+fn main() {
+    let Couleur c = .Vret
+    let d = .Rouge
+    when Couleur.Vert {
+        .Rouge then println("r")
+        .Vret then println("v")
+        else println("?")
+    }
+}

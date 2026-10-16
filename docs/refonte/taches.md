@@ -17,6 +17,8 @@ Tu es Codex Sol 6.1 sur NEXUL, seul agent avec Claude Main (qui relit chacune de
 Tu possèdes studio/terminal, studio/dap, studio/templates, studio/lsp, studio/syntax, editors/vscode,
 installer, benchmarks ; dans compiler/, seulement ce que Main te confie par écrit (nxc lsp, CLI).
 Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/taches.md.
+0. Sécurité (docs/refonte/revues-main.md) : editors/vscode — nexul.nxcPath non modifiable par un dossier non approuvé ;
+   installer — le processus élevé refait son inventaire au lieu d'exécuter job.txt de %TEMP%. Tests à l'appui.
 1. L1 studio/terminal : 2 tests ConPTY ne se terminent jamais (MSVC) ; build GNU en échec (dlltool).
    Fini = cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/terminal/Cargo.toml vert en < 1 min.
 2. L2 studio/dap : Timeout("launch") avec le vrai lldb-dap (LLVM 23).
@@ -25,7 +27,8 @@ Lis docs/refonte/AGENTS.md (encadré « Équipe réduite ») et docs/refonte/tac
    PR 1 fondations (lecture superposée, JSON v1, check --stdin, version --json), PR 2 serveur ; tests de son §12.
 4. L3 installateur : NEXUL-Studio-Native.exe (cd studio/app; cargo +stable-x86_64-pc-windows-msvc build --release)
    comme Studio par défaut ; raccourcis, .nx, désinstallation, migration ; essais réels.
-En plus si fini : L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
+En plus si fini : l'extension VS Code connaît l'édition 1 (ADR 0010 ; studio/syntax la colore déjà, langage "nexul1",
+ajouté par Main le 16/10 à la demande de l'utilisateur) ; L4 extension VS Code testée avec nxc réel ; A1 benchmarks NEXUL/C/Rust/C# (mesures brutes,
 compilateur intact) ; README des API terminal et DAP pour Main.
 Branches refonte/sol-…, PR [sol], état docs/refonte/codex-sol-status.md.
 ```

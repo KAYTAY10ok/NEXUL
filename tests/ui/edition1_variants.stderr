@@ -1,0 +1,25 @@
+error[E0348]: `Couleur` has no variant `Vret`
+ --> edition1_variants.nx:6:22
+  |
+6 |     let Couleur c = .Vret
+  |                      ^^^^ unknown variant
+  |
+  = note: the variants of `Couleur` are .Rouge, .Vert
+
+error[E0348]: cannot tell which type `.Rouge` belongs to
+ --> edition1_variants.nx:7:14
+  |
+7 |     let d = .Rouge
+  |              ^^^^^ the expected type is not known here
+  |
+  = help: name the type: `Type.Rouge`, or give the type of the variable
+
+error[E0202]: cannot find variant or struct `Vret`
+  --> edition1_variants.nx:10:10
+   |
+10 |         .Vret then println("v")
+   |          ^^^^ not found
+   |
+   = help: did you mean `Vert`?
+
+error: could not compile due to 3 errors

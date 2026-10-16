@@ -64,6 +64,10 @@ impl<'a> FnCtxt<'a> {
             A::Unit => self.mk(T::Lit(ConstValue::Unit), tcx.unit, span),
             A::Paren(inner) => self.check_expr(inner, expect),
             A::Ident(_) | A::SelfValue | A::SelfType | A::Field(..) => self.check_path_expr(e, expect),
+            A::Variant(name) => match self.dot_variant(name, expect) {
+                Some((id, v)) => self.fieldless_variant(id, v, None, expect, span),
+                None => self.error_expr(span),
+            },
             A::TupleField(base, idx, idx_span) => {
                 let b = self.check_expr(base, Expect::None);
                 let bt = self.shallow(b.ty);

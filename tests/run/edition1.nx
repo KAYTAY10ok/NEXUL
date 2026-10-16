@@ -1,0 +1,111 @@
+// edition: 1
+// The syntax of edition 1 (ADR 0010): the forms the compiler accepts today.
+
+interface Forme {
+    fn f64 aire(self)
+    fn String nom(self)
+}
+
+type Cercle is Forme {
+    f64 r
+    fn f64 aire(self) = 3.0 * self.r * self.r
+    fn String nom(self) = "cercle"
+}
+
+type Rectangle is Forme {
+    f64 l
+    f64 h
+    fn f64 aire(self) = self.l * self.h
+    fn String nom(self) = "rectangle"
+}
+
+type Couleur = .Rouge | .Vert | .Rgb(u8 r, u8 g, u8 b)
+
+type Pile[T] {
+    Vec[T] elements
+    fn empiler(self!, owned T x) { self.elements!.push(move x) }
+    fn Option[T] depiler(self!) = self.elements!.pop()
+    fn usize taille(self) = self.elements.len()
+}
+
+extend Couleur {
+    fn bool chaude(self) = self is .Rouge
+}
+
+const i32 LIMITE = 3
+
+fn String nom(Couleur c) = when c {
+    .Rouge then "rouge"
+    .Vert then "vert"
+    .Rgb(r, _, _) if r > 200 then "rougeâtre"
+    else "autre"
+}
+
+fn Option[T] plus_grand[T is Ord and Clone](Vec[T] valeurs) {
+    var Option[T] meilleur = .None
+    for v in valeurs {
+        var bool plus_grand_vu = true
+        if meilleur is .Some(m) { plus_grand_vu = v > m }
+        if plus_grand_vu { meilleur = .Some(v.clone()) }
+    }
+    return meilleur
+}
+
+fn Result[i64, String] diviser(i64 a, i64 b) {
+    if b == 0 { return .Err("division par zéro") }
+    return .Ok(a / b)
+}
+
+fn Result[i64, String] calcul() {
+    let x = diviser(10, 2)?
+    return .Ok(diviser(x, 0)?)
+}
+
+fn doubler(i64 x!) { x = x * 2 }
+
+fn i32 appliquer(fn i32(i32) f, i32 x) = f(x)
+
+fn i32 ajouter(i32 a, i32 b) = a + b
+
+fn main() {
+    var Vec[any Forme] formes = Vec.new()
+    formes!.push(Cercle(r: 1.0))
+    formes!.push(Rectangle(l: 2.0, h: 3.0))
+    for f in formes { println("{f.nom()} : {f.aire():.1}") }
+
+    println("{nom(.Rouge)} {nom(.Vert)} {nom(Couleur.Rgb(250, 0, 0))} {nom(.Rgb(10, 0, 0))}")
+    let Couleur c = .Rouge
+    println("chaude : {c.chaude()}")
+
+    var Pile[i32] p = Pile(elements: Vec.new())
+    p!.empiler(1)
+    p!.empiler(2)
+    println("taille {p.taille()}")
+    while p!.depiler() is .Some(x) { println("dépilé {x}") }
+
+    var Vec[i32] nombres = Vec.new()
+    for k in [3, 9, 4] { nombres!.push(k) }
+    println("{plus_grand(nombres).unwrap()}")
+    when calcul() {
+        .Ok(v) then println("résultat {v}")
+        .Err(e) then println("erreur : {e}")
+    }
+    var i64 n = 21
+    doubler(n!)
+    println("n = {n}")
+
+    var Vec[i32] notes = Vec.new()
+    repeat 3 { notes!.push(notes.len() as i32 + 1) }
+    for note! in notes { note += 10 }
+    println("{notes[0]} {notes[2]}")
+
+    var i32 tours = 0
+    #exterieur loop {
+        repeat LIMITE {
+            tours += 1
+            if tours == 5 { break #exterieur }
+        }
+    }
+    println("tours {tours}")
+    println("{appliquer(fn(i32 x) => x * 3, 4)} {5 |> ajouter(2)}")
+}

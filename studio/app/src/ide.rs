@@ -290,6 +290,39 @@ fn problem(d: &Value, dir: &Path) -> Problem {
 }
 
 /// Paths compared as Windows does (case-insensitive there).
+/// A NEXUL editor: edition 0.2 (`nexul`) or edition 1 of the syntax (`nexul1`, ADR 0010).
+pub fn is_nexul(lang: &str) -> bool {
+    lang == "nexul" || lang == "nexul1"
+}
+
+/// The edition the first lines of a text declare (`// edition: 1` or `// edition: 0.2`).
+pub fn declared_edition(text: &str) -> Option<bool> {
+    text.lines().take(3).find_map(|l| match l.trim().strip_prefix("// edition:").map(str::trim) {
+        Some("1") | Some("1.0") => Some(true),
+        Some("0.2") => Some(false),
+        _ => None,
+    })
+}
+
+/// Is `file` written in edition 1? As `nxc` decides: its first lines, else the
+/// `edition` of the `nexul.toml` of its project.
+pub fn edition_1(file: &Path, text: &str) -> bool {
+    if let Some(e) = declared_edition(text) {
+        return e;
+    }
+    let mut dir = file.parent();
+    while let Some(d) = dir {
+        if let Ok(manifest) = std::fs::read_to_string(d.join("nexul.toml")) {
+            return manifest.lines().any(|l| {
+                let l = l.split("#").next().unwrap_or("").trim();
+                l.strip_prefix("edition").map(|r| r.trim_start()).and_then(|r| r.strip_prefix('=')).is_some_and(|v| matches!(v.trim(), "\"1\"" | "\"1.0\""))
+            });
+        }
+        dir = d.parent();
+    }
+    false
+}
+
 pub fn same_file(a: &Path, b: &Path) -> bool {
     let norm = |p: &Path| {
         let s = p.to_string_lossy().replace('/', "\\");

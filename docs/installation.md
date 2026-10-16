@@ -67,6 +67,13 @@ traiter (seule cette opération est faite avec ces droits ; NEXUL reste install�
 compte). Si vous refusez, l'installation continue et la version reste en place ; la page
 finale le signale.
 
+Le processus lancé avec ces droits refait l'inventaire des versions lui-même. Le
+fichier de relais temporaire transmet seulement les choix (Supprimer ou Sauvegarder)
+sur des éléments retrouvés dans cet inventaire ; il ne contient aucune opération à
+exécuter. Les opérations brutes, choix invalides et cibles absentes du nouvel inventaire
+sont refusés avant toute opération. Le résultat revient par le code de sortie du processus, sans écrire
+de journal avec les droits d'administrateur dans un chemin fourni par l'appelant.
+
 ### Installation sans fenêtre
 
 ```

@@ -85,6 +85,7 @@ pub fn language_of(name: &str) -> &'static str {
 pub fn language_name(lang: &str) -> &'static str {
     match lang {
         "nexul" => "NEXUL",
+        "nexul1" => "NEXUL 1",
         "rust" => "Rust",
         "javascript" => "JavaScript",
         "typescript" | "tsx" => "TypeScript",

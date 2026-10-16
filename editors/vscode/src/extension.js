@@ -40,7 +40,7 @@ function activate(context) {
   }
 
   function reportFailure(operation, error) {
-    if (!error || error.name === 'CancellationError') return;
+    if (!error || error.name === 'CancellationError' || error.code === 'NEXUL_UNTRUSTED_WORKSPACE') return;
     const details = error.stderr || error.message || String(error);
     output.appendLine('[' + operation + '] ' + details.trim());
     if (error.code === 'ENOENT' && !missingCompilerWasReported) {
@@ -63,6 +63,11 @@ function activate(context) {
   }
 
   async function ideRequest(document, request, position, extraArgs, token) {
+    if (!vscode.workspace.isTrusted) {
+      const error = new Error('Les outils nxc nécessitent un espace de travail approuvé.');
+      error.code = 'NEXUL_UNTRUSTED_WORKSPACE';
+      throw error;
+    }
     const args = ['ide', request, document.uri.fsPath];
     if (position) args.push.apply(args, compilerPosition(document, position));
     if (extraArgs && extraArgs.length) args.push.apply(args, extraArgs);
@@ -172,7 +177,7 @@ function activate(context) {
   }
 
   async function checkDocument(document) {
-    if (!isNexul(document)) return;
+    if (!vscode.workspace.isTrusted || !isNexul(document)) return;
     const rootKey = document.uri.fsPath;
     try {
       const result = await runNxc(executable(), ['check', document.uri.fsPath, '--json'], {
@@ -196,6 +201,7 @@ function activate(context) {
   }
 
   async function checkCurrentFile() {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
@@ -206,6 +212,7 @@ function activate(context) {
   }
 
   async function formatCurrentDocument() {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
@@ -227,6 +234,7 @@ function activate(context) {
   }
 
   async function runCurrentTask(command, filter) {
+    if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
     if (!editor || !isNexul(editor.document)) {
       vscode.window.showInformationMessage('Ouvrez un fichier .nx pour utiliser NEXUL.');
@@ -247,6 +255,7 @@ function activate(context) {
   }
 
   async function runSpecificTest(file, name) {
+    if (!vscode.workspace.isTrusted) return;
     if (!file || !name) return;
     let document;
     try {
@@ -405,6 +414,12 @@ function activate(context) {
     vscode.languages.registerReferenceProvider({ language: 'nexul' }, referenceProvider),
     vscode.languages.registerRenameProvider({ language: 'nexul' }, renameProvider),
     vscode.languages.registerDocumentFormattingEditProvider({ language: 'nexul' }, formattingProvider),
+    vscode.workspace.onDidGrantWorkspaceTrust(() => {
+      codeLensEmitter.fire();
+      if (vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
+        for (const document of vscode.workspace.textDocuments) void checkDocument(document);
+      }
+    }),
     vscode.workspace.onDidOpenTextDocument((document) => {
       if (isNexul(document) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
         void checkDocument(document);

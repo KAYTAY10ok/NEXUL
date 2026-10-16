@@ -1,0 +1,789 @@
+//! `nxc migrate`: rewrites a file of NEXUL 0.2 in the syntax of edition 1 (ADR 0010).
+//!
+//! The file is parsed as 0.2; the rewriting is a list of small edits at the positions the
+//! syntax tree records, so comments and layout are kept. Constructs whose order of parts
+//! changes (`let x: T` → `let T x`, `if let P = e` → `if e is P`, function headers) are
+//! rebuilt from the tree. The result is parsed again as edition 1: what could not be
+//! rewritten is reported, with its line, to be finished by hand.
+
+use nxc_syntax::ast::*;
+use nxc_syntax::{lexer, parser, DiagSink, Edition, SourceMap};
+
+/// The result of a migration.
+pub struct Migration {
+    pub text: String,
+    pub edits: usize,
+    /// Places to finish by hand: line and reason.
+    pub manual: Vec<(usize, String)>,
+    /// Names renamed because edition 1 reserves them (`repeat` → `repeat_`).
+    pub renamed: Vec<String>,
+}
+
+#[derive(Clone, Debug)]
+struct Edit {
+    lo: usize,
+    hi: usize,
+    text: String,
+    seq: usize,
+}
+
+struct Migrator<'a> {
+    src: &'a str,
+    edits: Vec<Edit>,
+    seq: usize,
+    manual: Vec<(usize, String)>,
+}
+
+/// Words that edition 1 reserves; a 0.2 program that uses them as names must rename them.
+const NEW_WORDS: &[&str] = &[
+    "when", "then", "is", "interface", "extend", "any", "distinct", "it", "repeat", "test", "expects", "requires", "ensures", "with", "every",
+    "within", "spawn", "loop",
+];
+
+/// Migrates the text of one file. `Err`: the file is not valid NEXUL 0.2 (the diagnostics).
+pub fn migrate(name: &str, src: &str) -> Result<Migration, String> {
+    let (renamed_src, renamed, mut unsafe_words) = rename_reserved(src);
+    let src = renamed_src.as_str();
+    let mut sm = SourceMap::new();
+    let file = sm.add(name, src);
+    let diags = DiagSink::new();
+    let toks = lexer::lex(src, file, &diags);
+    let module = parser::parse_module(toks, &diags);
+    if diags.has_errors() {
+        let list = diags.take_sorted();
+        return Err(list.iter().map(|d| format!("error[{}]: {}", d.code, d.message)).collect::<Vec<_>>().join("\n"));
+    }
+    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new() };
+    for item in &module.items {
+        m.item(item);
+    }
+    for (pos, w) in unsafe_words.drain(..) {
+        m.manual(pos, format!("`{}` is a keyword in edition 1 and is also a field or method name: rename it", w));
+    }
+    let edits = m.edits.len();
+    let text = m.render(0, src.len(), &m.edits.clone());
+    // What edition 1 still refuses is left to the reader.
+    let mut sm1 = SourceMap::new();
+    let f1 = sm1.add_with_edition(name, text.clone(), Edition::V1);
+    let d1 = DiagSink::new();
+    let toks1 = lexer::lex_in(&text, f1, &d1, Edition::V1);
+    let _ = parser::parse_module_in(toks1, &d1, Edition::V1);
+    let mut manual = m.manual;
+    for d in d1.take_sorted() {
+        let line = d.primary_span().map(|s| sm1.get(f1).line_col(s.lo).0).unwrap_or(0);
+        manual.push((line, format!("{} [{}]", d.message, d.code)));
+    }
+    manual.sort();
+    manual.dedup();
+    Ok(Migration { text, edits, manual, renamed })
+}
+
+impl<'a> Migrator<'a> {
+    // -----------------------------------------------------------------------
+    // Edits
+
+    fn rep(&mut self, lo: usize, hi: usize, text: impl Into<String>) {
+        self.seq += 1;
+        self.edits.push(Edit { lo, hi, text: text.into(), seq: self.seq });
+    }
+
+    fn ins(&mut self, at: usize, text: impl Into<String>) {
+        self.rep(at, at, text);
+    }
+
+    /// The edits made by `f`, kept apart (to rebuild a construct whose parts move).
+    fn capture(&mut self, f: impl FnOnce(&mut Self)) -> Vec<Edit> {
+        let saved = std::mem::take(&mut self.edits);
+        f(self);
+        std::mem::replace(&mut self.edits, saved)
+    }
+
+    /// The text of `lo..hi` with the edits that fall inside it.
+    fn render(&self, lo: usize, hi: usize, edits: &[Edit]) -> String {
+        let mut inside: Vec<&Edit> = edits.iter().filter(|e| e.lo >= lo && e.hi <= hi).collect();
+        inside.sort_by_key(|e| (e.lo, e.seq));
+        let mut out = String::new();
+        let mut at = lo;
+        for e in inside {
+            if e.lo < at {
+                continue; // overlapping: the first edit wins
+            }
+            out.push_str(&self.src[at..e.lo]);
+            out.push_str(&e.text);
+            at = e.hi;
+        }
+        out.push_str(&self.src[at..hi]);
+        out
+    }
+
+    fn text(&self, lo: usize, hi: usize) -> &str {
+        &self.src[lo..hi]
+    }
+
+    fn line_of(&self, pos: usize) -> usize {
+        self.src[..pos.min(self.src.len())].matches('\n').count() + 1
+    }
+
+    fn manual(&mut self, pos: usize, why: impl Into<String>) {
+        let line = self.line_of(pos);
+        self.manual.push((line, why.into()));
+    }
+
+    /// Position of `needle` in `lo..hi`, outside strings and comments as far as headers go.
+    fn find(&self, lo: usize, hi: usize, needle: &str) -> Option<usize> {
+        self.src.get(lo..hi)?.find(needle).map(|i| lo + i)
+    }
+
+    fn rfind(&self, lo: usize, hi: usize, needle: &str) -> Option<usize> {
+        self.src.get(lo..hi)?.rfind(needle).map(|i| lo + i)
+    }
+
+    /// The first non-blank position at or after `pos`.
+    fn skip_blank(&self, mut pos: usize) -> usize {
+        let b = self.src.as_bytes();
+        while pos < b.len() && (b[pos] == b' ' || b[pos] == b'\t') {
+            pos += 1;
+        }
+        pos
+    }
+
+    // -----------------------------------------------------------------------
+    // Printing (types, parameters, generics)
+
+    fn ty(&self, t: &TypeExpr) -> String {
+        match &t.kind {
+            TypeExprKind::Path { segments, args } => {
+                let mut s = segments.iter().map(|i| i.name.as_str()).collect::<Vec<_>>().join(".");
+                if !args.is_empty() {
+                    s.push('[');
+                    s.push_str(&args.iter().map(|a| self.ty(a)).collect::<Vec<_>>().join(", "));
+                    s.push(']');
+                }
+                s
+            }
+            TypeExprKind::SelfType => "Self".into(),
+            TypeExprKind::Array(elem, len) => format!("[{}; {}]", self.ty(elem), self.text(len.span.lo as usize, len.span.hi as usize)),
+            TypeExprKind::Unit => "()".into(),
+            TypeExprKind::Tuple(ts) => format!("({})", ts.iter().map(|t| self.ty(t)).collect::<Vec<_>>().join(", ")),
+            TypeExprKind::Fn(params, ret) => {
+                let ps: Vec<String> = params
+                    .iter()
+                    .map(|(c, t)| match c {
+                        Convention::Inout => format!("{}!", self.ty(t)),
+                        Convention::Owned => format!("owned {}", self.ty(t)),
+                        Convention::Borrow => self.ty(t),
+                    })
+                    .collect();
+                match ret {
+                    Some(r) => format!("fn {}({})", self.ty(r), ps.join(", ")),
+                    None => format!("fn({})", ps.join(", ")),
+                }
+            }
+            TypeExprKind::Dyn(inner) => format!("any {}", self.ty(inner)),
+            TypeExprKind::Error => self.text(t.span.lo as usize, t.span.hi as usize).to_string(),
+        }
+    }
+
+    fn param(&self, p: &Param) -> String {
+        match &p.kind {
+            ParamKind::SelfParam => match p.conv {
+                Convention::Inout => "self!".into(),
+                Convention::Owned => "owned self".into(),
+                Convention::Borrow => "self".into(),
+            },
+            ParamKind::Named { name, ty } => match p.conv {
+                Convention::Inout => format!("{} {}!", self.ty(ty), name.name),
+                Convention::Owned => format!("owned {} {}", self.ty(ty), name.name),
+                Convention::Borrow => format!("{} {}", self.ty(ty), name.name),
+            },
+        }
+    }
+
+    /// `[T is A and B, U]`
+    fn generics(&self, names: &[Ident], bounds: &[BoundDecl]) -> String {
+        if names.is_empty() {
+            return String::new();
+        }
+        let parts: Vec<String> = names
+            .iter()
+            .map(|n| {
+                let traits: Vec<String> = bounds.iter().filter(|b| b.param.name == n.name).flat_map(|b| b.traits.iter().map(|t| self.ty(t))).collect();
+                if traits.is_empty() {
+                    n.name.clone()
+                } else {
+                    format!("{} is {}", n.name, traits.join(" and "))
+                }
+            })
+            .collect();
+        format!("[{}]", parts.join(", "))
+    }
+
+    // -----------------------------------------------------------------------
+    // Items
+
+    fn item(&mut self, item: &Item) {
+        let lo = item.span.lo as usize;
+        match &item.kind {
+            ItemKind::Fn(f) => {
+                let test = item.attrs.iter().find(|a| a.name.name == "test" && a.args.is_empty());
+                if let Some(a) = test {
+                    let fn_lo = f.span.lo as usize;
+                    // `@test` and the line break before `fn` disappear.
+                    self.rep(a.span.lo as usize, fn_lo, "");
+                    self.fn_decl(f, Some(&f.name.name));
+                } else {
+                    self.fn_decl(f, None);
+                }
+            }
+            ItemKind::Struct(s) => {
+                if let Some(k) = self.find(lo, s.name.span.lo as usize, "struct") {
+                    self.rep(k, k + "struct".len(), "type");
+                }
+                for fd in &s.fields {
+                    let mut t = String::new();
+                    if fd.is_pub {
+                        t.push_str("pub ");
+                    }
+                    if fd.indirect {
+                        t.push_str("indirect ");
+                    }
+                    t.push_str(&format!("{} {}", self.ty(&fd.ty), fd.name.name));
+                    self.rep(fd.span.lo as usize, fd.span.hi as usize, t);
+                }
+            }
+            ItemKind::Enum(e) => self.enum_decl(item, e),
+            ItemKind::Impl(i) => {
+                let Some(k) = self.find(lo, item.span.hi as usize, "impl") else { return };
+                let open = i.items.first().map(|x| x.span.lo as usize).unwrap_or(item.span.hi as usize);
+                let Some(brace) = self.rfind(k, open, "{") else { return };
+                let ty = match &i.ty.kind {
+                    TypeExprKind::Path { segments, args } if !i.bounds.is_empty() => {
+                        let names: Vec<Ident> = args
+                            .iter()
+                            .filter_map(|a| match &a.kind {
+                                TypeExprKind::Path { segments, .. } => segments.first().cloned(),
+                                _ => None,
+                            })
+                            .collect();
+                        format!("{}{}", segments.iter().map(|s| s.name.as_str()).collect::<Vec<_>>().join("."), self.generics(&names, &i.bounds))
+                    }
+                    _ => self.ty(&i.ty),
+                };
+                let head = match &i.trait_ {
+                    Some(t) => format!("extend {} is {} ", ty, self.ty(t)),
+                    None => format!("extend {} ", ty),
+                };
+                self.rep(k, brace, head);
+                for it in &i.items {
+                    self.item(it);
+                }
+            }
+            ItemKind::Trait(t) => {
+                let Some(k) = self.find(lo, t.name.span.lo as usize, "trait") else { return };
+                let open = t.items.first().map(|x| x.span.lo as usize).unwrap_or(item.span.hi as usize);
+                let Some(brace) = self.rfind(k, open, "{") else { return };
+                let mut head = format!("interface {}", t.name.name);
+                if !t.supertraits.is_empty() {
+                    head.push_str(&format!(" is {}", t.supertraits.iter().map(|s| self.ty(s)).collect::<Vec<_>>().join(" and ")));
+                }
+                head.push(' ');
+                self.rep(k, brace, head);
+                for it in &t.items {
+                    self.item(it);
+                }
+            }
+            ItemKind::Const(c) => {
+                if let Some(k) = self.find(lo, c.name.span.lo as usize, "const") {
+                    let eq = self.find(c.ty.span.hi as usize, c.value.span.lo as usize, "=").unwrap_or(c.ty.span.hi as usize);
+                    self.rep(k, eq, format!("const {} {} ", self.ty(&c.ty), c.name.name));
+                }
+                self.expr(&c.value);
+            }
+            ItemKind::Static(s) => {
+                if let Some(k) = self.find(lo, s.name.span.lo as usize, "static") {
+                    let eq = self.find(s.ty.span.hi as usize, s.value.span.lo as usize, "=").unwrap_or(s.ty.span.hi as usize);
+                    let var = if s.mutable { "var " } else { "" };
+                    self.rep(k, eq, format!("static {}{} {} ", var, self.ty(&s.ty), s.name.name));
+                }
+                self.expr(&s.value);
+            }
+            ItemKind::TypeAlias(a) => {
+                let printed = self.ty(&a.ty);
+                self.rep(a.ty.span.lo as usize, a.ty.span.hi as usize, printed);
+            }
+            ItemKind::ExternFn(e) => {
+                let Some(k) = self.find(lo, e.name.span.lo as usize, "fn") else { return };
+                let ret = e.ret.as_ref().map(|r| format!("{} ", self.ty(r))).unwrap_or_default();
+                let params: Vec<String> = e.params.iter().map(|(n, t)| format!("{} {}", self.ty(t), n.name)).collect();
+                self.rep(k, item.span.hi as usize, format!("fn {}{}({})", ret, e.name.name, params.join(", ")));
+            }
+        }
+    }
+
+    /// `fn name[G](params) -> R where … {` → `fn R name[G](params) {` (or `test "name" {`).
+    fn fn_decl(&mut self, f: &FnDecl, test: Option<&str>) {
+        let start = f.span.lo as usize;
+        let head_end = match &f.body {
+            Some(b) => b.span.lo as usize,
+            None => f.span.hi as usize,
+        };
+        let header = self.text(start, head_end);
+        if header.contains("//") || header.contains("/*") {
+            self.manual(start, "comment inside a function header: moved out by the rewriting, check it");
+        }
+        let new = match test {
+            Some(name) => format!("test \"{}\" ", name),
+            None => {
+                let mut s = String::new();
+                if f.is_unsafe {
+                    s.push_str("unsafe ");
+                }
+                s.push_str("fn ");
+                if let Some(r) = &f.ret {
+                    s.push_str(&self.ty(r));
+                    s.push(' ');
+                }
+                s.push_str(&f.name.name);
+                s.push_str(&self.generics(&f.generics, &f.bounds));
+                s.push('(');
+                s.push_str(&f.params.iter().map(|p| self.param(p)).collect::<Vec<_>>().join(", "));
+                s.push(')');
+                if f.body.is_some() {
+                    s.push(' ');
+                }
+                s
+            }
+        };
+        self.rep(start, head_end, new);
+        if let Some(b) = &f.body {
+            self.block(b);
+        }
+    }
+
+    /// `enum E { A, B(T) }` → `type E = .A | .B(T)`, one variant per line if long.
+    fn enum_decl(&mut self, item: &Item, e: &EnumDecl) {
+        let lo = item.span.lo as usize;
+        let Some(k) = self.find(lo, e.name.span.lo as usize, "enum") else { return };
+        let end = item.span.hi as usize;
+        let body = self.text(e.name.span.hi as usize, end);
+        let comments: Vec<String> = body.lines().filter_map(|l| l.find("//").map(|i| l[i..].trim().to_string())).collect();
+        let variants: Vec<String> = e
+            .variants
+            .iter()
+            .map(|v| {
+                let mut s = String::new();
+                if v.indirect {
+                    s.push_str("indirect ");
+                }
+                s.push('.');
+                s.push_str(&v.name.name);
+                if !v.fields.is_empty() {
+                    s.push_str(&format!("({})", v.fields.iter().map(|t| self.ty(t)).collect::<Vec<_>>().join(", ")));
+                }
+                s
+            })
+            .collect();
+        let generics = if e.generics.is_empty() { String::new() } else { format!("[{}]", e.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")) };
+        let one_line = format!("type {}{} = {}", e.name.name, generics, variants.join(" | "));
+        let indent: String = self.src[..k].rsplit('\n').next().unwrap_or("").chars().take_while(|c| c.is_whitespace()).collect();
+        let mut text = String::new();
+        for c in &comments {
+            text.push_str(c);
+            text.push('\n');
+            text.push_str(&indent);
+        }
+        if one_line.len() + indent.len() <= 100 && comments.is_empty() {
+            text.push_str(&one_line);
+        } else {
+            text.push_str(&format!("type {}{} =", e.name.name, generics));
+            for v in &variants {
+                text.push_str(&format!("\n{}    | {}", indent, v));
+            }
+        }
+        self.rep(k, end, text);
+    }
+
+    // -----------------------------------------------------------------------
+    // Statements
+
+    fn block(&mut self, b: &Block) {
+        for s in &b.stmts {
+            self.stmt(s);
+        }
+    }
+
+    fn stmt(&mut self, s: &Stmt) {
+        match &s.kind {
+            StmtKind::Let { pat, ty, init } => {
+                if let Some(t) = ty {
+                    let printed = self.ty(t);
+                    self.ins(pat.span.lo as usize, format!("{} ", printed));
+                    self.rep(pat.span.hi as usize, t.span.hi as usize, "");
+                }
+                self.pat(pat);
+                self.expr(init);
+            }
+            StmtKind::Var { name, ty, init } => {
+                if let Some(t) = ty {
+                    let printed = self.ty(t);
+                    self.rep(name.span.hi as usize, t.span.hi as usize, "");
+                    self.ins(name.span.lo as usize, format!("{} ", printed));
+                }
+                if let Some(e) = init {
+                    self.expr(e);
+                }
+            }
+            StmtKind::Assign { target, value, .. } => {
+                self.expr(target);
+                self.expr(value);
+            }
+            StmtKind::Expr(e) => self.expr(e),
+            StmtKind::While { label, cond, body } => {
+                let lo = s.span.lo as usize;
+                self.label(label);
+                let kw = self.find(lo, body.span.lo as usize, "while").unwrap_or(lo);
+                // `while let P = e { … }` was parsed as `while true { if let P = e { … } else { break } }`.
+                if self.text(cond.span.lo as usize, cond.span.hi as usize).starts_with("while") {
+                    if let [Stmt { kind: StmtKind::Expr(Expr { kind: ExprKind::If { cond: Cond::Let(p, e, mutable), then, .. }, .. }), .. }] = body.stmts.as_slice() {
+                        let inner = self.capture(|m| {
+                            m.pat(p);
+                            m.expr(e);
+                        });
+                        let pt = self.render(p.span.lo as usize, p.span.hi as usize, &inner);
+                        let et = self.render(e.span.lo as usize, e.span.hi as usize, &inner);
+                        let bang = if *mutable { "!" } else { "" };
+                        self.rep(kw, then.span.lo as usize, format!("while {}{} is {} ", et, bang, pt));
+                        self.block(then);
+                        return;
+                    }
+                }
+                if matches!(cond.kind, ExprKind::Lit(Lit::Bool(true))) {
+                    self.rep(kw, cond.span.hi as usize, "loop");
+                } else {
+                    self.expr(cond);
+                }
+                self.block(body);
+            }
+            StmtKind::For { label, pat, iter, body } => {
+                self.label(label);
+                self.pat(pat);
+                match iter {
+                    ForIter::Range { start, end, .. } => {
+                        self.expr(start);
+                        self.expr(end);
+                    }
+                    ForIter::Expr { expr, mutable } => {
+                        if *mutable {
+                            if let Some(amp) = self.rfind(pat.span.hi as usize, expr.span.lo as usize, "&") {
+                                self.rep(amp, amp + 1, "");
+                            }
+                            self.ins(pat.span.hi as usize, "!");
+                        }
+                        self.expr(expr);
+                    }
+                }
+                self.block(body);
+            }
+        }
+    }
+
+    /// `name: while` → `#name while`.
+    fn label(&mut self, label: &Option<Ident>) {
+        if let Some(l) = label {
+            let lo = l.span.lo as usize;
+            if let Some(colon) = self.find(l.span.hi as usize, self.src.len(), ":") {
+                let after = self.skip_blank(colon + 1);
+                self.rep(lo, after, format!("#{} ", l.name));
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Patterns
+
+    fn is_variant_name(name: &str) -> bool {
+        name.chars().next().is_some_and(|c| c.is_ascii_uppercase()) && name.chars().any(|c| c.is_ascii_lowercase())
+    }
+
+    fn pat(&mut self, p: &Pattern) {
+        match &p.kind {
+            PatKind::Ident(name) if Self::is_variant_name(name) => self.ins(p.span.lo as usize, "."),
+            PatKind::Ctor { path, args } => {
+                if path.len() == 1 {
+                    self.ins(p.span.lo as usize, ".");
+                }
+                for a in args {
+                    match a {
+                        PatArg::Positional(q) | PatArg::Named(_, q) => self.pat(q),
+                        PatArg::Rest(_) => {}
+                    }
+                }
+            }
+            PatKind::Tuple(ps) | PatKind::Or(ps) => {
+                for q in ps {
+                    self.pat(q);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Expressions
+
+    fn expr(&mut self, e: &Expr) {
+        match &e.kind {
+            ExprKind::Interp(parts) => {
+                for p in parts {
+                    if let StrPartAst::Interp { expr, .. } = p {
+                        self.expr(expr);
+                    }
+                }
+            }
+            ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Try(x) | ExprKind::Move(x) => self.expr(x),
+            ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
+                for x in xs {
+                    self.expr(x);
+                }
+            }
+            ExprKind::ArrayRepeat(a, b) | ExprKind::Binary(_, a, b) => {
+                self.expr(a);
+                self.expr(b);
+            }
+            ExprKind::Cast(x, t) => {
+                self.expr(x);
+                let printed = self.ty(t);
+                if printed != self.text(t.span.lo as usize, t.span.hi as usize) {
+                    self.rep(t.span.lo as usize, t.span.hi as usize, printed);
+                }
+            }
+            ExprKind::Call(f, args) => {
+                self.expr(f);
+                for a in args {
+                    if let Some(amp) = a.inout {
+                        self.rep(amp.lo as usize, amp.hi as usize, "");
+                        self.ins(a.expr.span.hi as usize, "!");
+                    }
+                    self.expr(&a.expr);
+                }
+            }
+            ExprKind::Index(x, args) => {
+                self.expr(x);
+                for a in args {
+                    self.expr(a);
+                }
+            }
+            ExprKind::Type(t) => {
+                let printed = self.ty(t);
+                if printed != self.text(t.span.lo as usize, t.span.hi as usize) {
+                    self.rep(t.span.lo as usize, t.span.hi as usize, printed);
+                }
+            }
+            ExprKind::Return(Some(x)) => self.expr(x),
+            ExprKind::Break(Some(l)) | ExprKind::Continue(Some(l)) => self.ins(l.span.lo as usize, "#"),
+            ExprKind::If { cond, then, else_ } => {
+                match cond {
+                    Cond::Expr(c) => self.expr(c),
+                    Cond::Let(p, x, mutable) => {
+                        if let Some(kw) = self.find(e.span.lo as usize, p.span.lo as usize, "let") {
+                            let inner = self.capture(|m| {
+                                m.pat(p);
+                                m.expr(x);
+                            });
+                            let pt = self.render(p.span.lo as usize, p.span.hi as usize, &inner);
+                            let xt = self.render(x.span.lo as usize, x.span.hi as usize, &inner);
+                            let bang = if *mutable { "!" } else { "" };
+                            self.rep(kw, x.span.hi as usize, format!("{}{} is {}", xt, bang, pt));
+                        }
+                    }
+                }
+                self.block(then);
+                if let Some(x) = else_ {
+                    self.expr(x);
+                }
+            }
+            ExprKind::Match { scrutinee, arms, mutable } => {
+                let lo = e.span.lo as usize;
+                self.rep(lo, lo + "match".len(), "when");
+                if *mutable {
+                    if let Some(amp) = self.find(lo, scrutinee.span.lo as usize, "&") {
+                        self.rep(amp, amp + 1, "");
+                    }
+                    self.ins(scrutinee.span.hi as usize, "!");
+                }
+                self.expr(scrutinee);
+                for (i, a) in arms.iter().enumerate() {
+                    self.pat(&a.pat);
+                    let before = a.guard.as_ref().map(|g| g.span.hi).unwrap_or(a.pat.span.hi) as usize;
+                    if let Some(arrow) = self.find(before, a.body.span.lo as usize, "=>") {
+                        self.rep(arrow, arrow + 2, "then");
+                    }
+                    if let Some(g) = &a.guard {
+                        self.expr(g);
+                    }
+                    self.expr(&a.body);
+                    // `A => 1, B => 2`: the arms of `when` are separated by lines or `;`.
+                    let after = self.skip_blank(a.body.span.hi as usize);
+                    if self.src.as_bytes().get(after) == Some(&b',') {
+                        let next = self.skip_blank(after + 1);
+                        let same_line = !matches!(self.src.as_bytes().get(next), Some(b'\n') | Some(b'\r') | Some(b'}') | Some(b'/') | None);
+                        if same_line && i + 1 < arms.len() {
+                            self.rep(after, after + 1, ";");
+                        } else {
+                            self.rep(after, after + 1, "");
+                        }
+                    }
+                }
+            }
+            ExprKind::Block(b) | ExprKind::Unsafe(b) => self.block(b),
+            ExprKind::Closure(c) => {
+                let lo = e.span.lo as usize;
+                let body_lo = match &c.body {
+                    ClosureBody::Block(b) => b.span.lo as usize,
+                    ClosureBody::Expr(x) => self.rfind(lo, x.span.lo as usize, "=>").unwrap_or(x.span.lo as usize),
+                };
+                let params: Vec<String> = c
+                    .params
+                    .iter()
+                    .map(|p| {
+                        let base = match &p.ty {
+                            Some(t) => format!("{} {}", self.ty(t), p.name.name),
+                            None => p.name.name.clone(),
+                        };
+                        match p.conv {
+                            Convention::Inout => format!("{}!", base),
+                            Convention::Owned => format!("owned {}", base),
+                            Convention::Borrow => base,
+                        }
+                    })
+                    .collect();
+                let ret = c.ret.as_ref().map(|r| format!(" {}", self.ty(r))).unwrap_or_default();
+                self.rep(lo, body_lo, format!("fn{}({}) ", ret, params.join(", ")));
+                match &c.body {
+                    ClosureBody::Block(b) => self.block(b),
+                    ClosureBody::Expr(x) => self.expr(x),
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Renames the names that edition 1 reserves (`repeat` → `repeat_`) in the source, when the
+/// name is never used after a `.` (a field or a method, which other files may use): the
+/// renamed source, the names renamed, and the places where renaming is not safe.
+fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
+    use nxc_syntax::token::TokenKind as K;
+    let mut sm = SourceMap::new();
+    let file = sm.add("rename.nx", src);
+    let diags = DiagSink::new();
+    // The tokens of the interpolations (`"{x}"`) count too.
+    fn flatten(toks: Vec<nxc_syntax::token::Token>, out: &mut Vec<nxc_syntax::token::Token>) {
+        for t in toks {
+            if let K::Str(s) = &t.kind {
+                for p in &s.parts {
+                    if let nxc_syntax::token::StrPart::Interp { tokens, .. } = p {
+                        flatten(tokens.clone(), out);
+                    }
+                }
+            }
+            out.push(t);
+        }
+    }
+    let mut toks = Vec::new();
+    flatten(lexer::lex(src, file, &diags), &mut toks);
+    toks.retain(|t| !matches!(t.kind, K::Str(_)));
+    toks.sort_by_key(|t| t.span.lo);
+    let is_name = |i: usize| -> bool {
+        let K::Ident(n) = &toks[i].kind else { return false };
+        // `@test` is the attribute, not a name.
+        NEW_WORDS.contains(&n.as_str()) && !(n == "test" && i > 0 && toks[i - 1].kind == K::At)
+    };
+    let mut after_dot: Vec<String> = Vec::new();
+    for i in 0..toks.len() {
+        if is_name(i) && i > 0 && toks[i - 1].kind == K::Dot {
+            if let K::Ident(n) = &toks[i].kind {
+                after_dot.push(n.clone());
+            }
+        }
+    }
+    let mut out = String::with_capacity(src.len());
+    let mut at = 0;
+    let mut renamed: Vec<String> = Vec::new();
+    let mut unsafe_words = Vec::new();
+    for i in 0..toks.len() {
+        if !is_name(i) {
+            continue;
+        }
+        let K::Ident(n) = &toks[i].kind else { continue };
+        let (lo, hi) = (toks[i].span.lo as usize, toks[i].span.hi as usize);
+        // After a dot (`s.repeat(3)`, a method of the library) the word stays valid.
+        if i > 0 && toks[i - 1].kind == K::Dot {
+            continue;
+        }
+        // A field or a method declared here and used after a dot elsewhere: renaming only the
+        // declaration would break its uses.
+        let declares = (i > 0 && toks[i - 1].kind == K::Fn) || toks.get(i + 1).is_some_and(|t| t.kind == K::Colon);
+        if declares && after_dot.contains(n) {
+            unsafe_words.push((lo, n.clone()));
+            continue;
+        }
+        out.push_str(&src[at..hi]);
+        out.push('_');
+        at = hi;
+        if !renamed.contains(n) {
+            renamed.push(n.clone());
+        }
+    }
+    out.push_str(&src[at..]);
+    unsafe_words.dedup_by(|a, b| a.1 == b.1);
+    (out, renamed, unsafe_words)
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn m(src: &str) -> String {
+        let r = migrate("t.nx", src).unwrap();
+        assert!(r.manual.is_empty(), "{:?}\n{}", r.manual, r.text);
+        r.text
+    }
+
+    #[test]
+    fn declarations() {
+        assert_eq!(m("fn carre(x: i32) -> i32 {\n    return x * x\n}\n"), "fn i32 carre(i32 x) {\n    return x * x\n}\n");
+        assert_eq!(m("struct P {\n    pub x: f64\n}\n"), "type P {\n    pub f64 x\n}\n");
+        assert_eq!(m("enum C {\n    Rouge\n    Rgb(u8, u8)\n}\n"), "type C = .Rouge | .Rgb(u8, u8)\n");
+        assert_eq!(
+            m("impl P {\n    fn bouge(inout self, owned n: String, inout q: P) {\n    }\n}\n"),
+            "extend P {\n    fn bouge(self!, owned String n, P q!) {\n    }\n}\n"
+        );
+        assert_eq!(m("trait T: A + B {\n    fn f(self) -> dyn A\n}\n"), "interface T is A and B {\n    fn any A f(self)\n}\n");
+        assert_eq!(m("fn g[T: Ord + Clone](v: Vec[T]) -> fn(i32) -> i32 {\n}\n"), "fn fn i32(i32) g[T is Ord and Clone](Vec[T] v) {\n}\n");
+        assert_eq!(m("@test\nfn ok() {\n}\n"), "test \"ok\" {\n}\n");
+        assert_eq!(m("const MAX: i32 = 3\n"), "const i32 MAX = 3\n");
+    }
+
+    #[test]
+    fn statements_and_expressions() {
+        let src = "fn f(c: C) {\n    let x: i32 = 1 // garde\n    var v: Vec[i32] = Vec.new()\n    doubler(&v)\n    match c {\n        Rouge => 1, Vert => 2\n        Rgb(r, _) if r > 2 => 3\n        _ => 0\n    }\n    if let Some(n) = trouve(x) {\n    }\n    while let Some(y) = v.pop() {\n    }\n    exterieur: while true {\n        break exterieur\n    }\n    for e in &v {\n    }\n    let g = fn(a: i32) -> i32 => a + 1\n}\n";
+        let out = m(src);
+        assert_eq!(
+            out,
+            "fn f(C c) {\n    let i32 x = 1 // garde\n    var Vec[i32] v = Vec.new()\n    doubler(v!)\n    when c {\n        .Rouge then 1; .Vert then 2\n        .Rgb(r, _) if r > 2 then 3\n        _ then 0\n    }\n    if trouve(x) is .Some(n) {\n    }\n    while v.pop() is .Some(y) {\n    }\n    #exterieur loop {\n        break #exterieur\n    }\n    for e! in v {\n    }\n    let g = fn i32(i32 a) => a + 1\n}\n"
+        );
+    }
+
+    #[test]
+    fn reports_what_is_left() {
+        let r = migrate("t.nx", "fn main() {\n    let test = 1\n    println(\"{test}\")\n}\n").unwrap();
+        assert_eq!(r.text, "fn main() {\n    let test_ = 1\n    println(\"{test_}\")\n}\n");
+        assert_eq!(r.renamed, vec!["test"]);
+        // A field declared here and read after a dot: left to the reader.
+        let r = migrate("t.nx", "struct S {\n    with: i32\n}\nfn f(s: S) -> i32 {\n    return s.with\n}\n").unwrap();
+        assert!(r.manual.iter().any(|(l, w)| *l == 2 && w.contains("`with`")), "{:?}", r.manual);
+        // A local name is renamed; a method of the library after a dot is kept.
+        let r = migrate("t.nx", "fn main() {\n    let with = 1\n    x.with()\n}\n").unwrap();
+        assert_eq!(r.text, "fn main() {\n    let with_ = 1\n    x.with()\n}\n");
+    }
+}
