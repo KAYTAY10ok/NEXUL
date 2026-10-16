@@ -24,13 +24,16 @@
   "main": "./src/extension.js",
   "activationEvents": [
     "onLanguage:nexul",
+    "onLanguage:nexul1",
     "workspaceContains:nexul.toml"
   ],
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
       "description": "La coloration et les snippets restent disponibles. Les outils nxc nécessitent un espace de travail approuvé.",
-      "restrictedConfigurations": ["nexul.nxcPath"]
+      "restrictedConfigurations": [
+        "nexul.nxcPath"
+      ]
     }
   },
   "contributes": {
@@ -45,6 +48,14 @@
           ".nx"
         ],
         "configuration": "./language-configuration.json"
+      },
+      {
+        "id": "nexul1",
+        "aliases": [
+          "NEXUL (édition 1)",
+          "nexul1"
+        ],
+        "configuration": "./language-configuration.json"
       }
     ],
     "grammars": [
@@ -52,12 +63,21 @@
         "language": "nexul",
         "scopeName": "source.nexul",
         "path": "./syntaxes/nexul.tmLanguage.json"
+      },
+      {
+        "language": "nexul1",
+        "scopeName": "source.nexul1",
+        "path": "./syntaxes/nexul1.tmLanguage.json"
       }
     ],
     "snippets": [
       {
         "language": "nexul",
         "path": "./snippets/nexul.json"
+      },
+      {
+        "language": "nexul1",
+        "path": "./snippets/nexul1.json"
       }
     ],
     "commands": [
@@ -129,11 +149,6 @@
           "scope": "machine-overridable",
           "description": "Chemin vers l’exécutable nxc. Laissez « nxc » si le compilateur est dans PATH."
         },
-        "nexul.checkOnSave": {
-          "type": "boolean",
-          "default": true,
-          "description": "Met à jour les diagnostics NEXUL après l’enregistrement du fichier."
-        },
         "nexul.formatOnSave": {
           "type": "boolean",
           "default": false,
@@ -143,10 +158,15 @@
     }
   },
   "scripts": {
-    "test": "node --test",
-    "package": "vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
+    "test": "node --test test/cli.test.js test/edition.test.js test/trust.test.js",
+    "test:host": "node test/run-host-tests.js",
+    "package": "node -e \"require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
   },
   "devDependencies": {
+    "@vscode/test-electron": "^3.1.0",
     "@vscode/vsce": "^4.0.0"
+  },
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
   }
 }

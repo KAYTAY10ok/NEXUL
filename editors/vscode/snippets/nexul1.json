@@ -1,0 +1,66 @@
+{
+  "Main function": {
+    "prefix": "main",
+    "body": [
+      "fn main() {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Point d’entrée d’un programme NEXUL édition 1"
+  },
+  "Function": {
+    "prefix": "fn",
+    "body": [
+      "fn ${1:Retour} ${2:nom}(${3}) {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Déclare une fonction en édition 1"
+  },
+  "Type": {
+    "prefix": "type",
+    "body": [
+      "type ${1:Nom} {",
+      "    ${2:i32} ${3:champ}",
+      "}"
+    ],
+    "description": "Déclare un type en édition 1"
+  },
+  "Interface": {
+    "prefix": "interface",
+    "body": [
+      "interface ${1:Nom} {",
+      "    fn ${2:nom}(${3:self})",
+      "}"
+    ],
+    "description": "Déclare une interface en édition 1"
+  },
+  "Test": {
+    "prefix": "test",
+    "body": [
+      "test \"${1:comportement attendu}\" {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Déclare un test en édition 1"
+  },
+  "When": {
+    "prefix": "when",
+    "body": [
+      "when ${1:valeur} {",
+      "    .${2:Variante} then ${3:expression}",
+      "    else ${0}",
+      "}"
+    ],
+    "description": "Correspondance par motifs en édition 1"
+  },
+  "For loop": {
+    "prefix": "for",
+    "body": [
+      "for ${1:element} in ${2:collection} {",
+      "    ${0}",
+      "}"
+    ],
+    "description": "Boucle for en édition 1"
+  }
+}

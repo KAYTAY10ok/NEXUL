@@ -1,7 +1,7 @@
 # État de Codex Sol — composants, outils et distribution
 
-Mis à jour le 16 octobre 2026. Mandat : `prompt-codex-sol.md` et charte « Équipe
-réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
+Mis à jour le 16 octobre 2026 après validation L4/L5 et contrôle des PRs ouvertes. Mandat : `prompt-codex-sol.md` et
+charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
 
 ## Périmètre
 
@@ -16,14 +16,20 @@ Claude Main conserve la revue et l'intégration.
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
 | 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
-| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
-| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
-| 3 | P9 — CLI et LSP | VALIDÉ_E2E sur `origin/main` `85b68b9` : `cargo +stable-x86_64-pc-windows-msvc test -p nxc` passe avec 11 tests unitaires, 6 fondations, 5 LSP et 10 de conformité; le test LSP de latence passe; le test Web reste ignoré par défaut. |
-| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. |
+| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) remise à jour sur `main`, fusionnable, revue Main attendue ; CI Linux bloquée par le build global de l’installateur Windows |
+| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) remise à jour sur `main`, fusionnable, revue Main attendue ; CI Linux bloquée par le build global de l’installateur Windows |
+| 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; tests Windows de l’installateur réussis ; 2 tests Linux FFI échouent dans le compilateur (Core). Construction complète MSVC non testée ici. |
+| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte et fusionnable. Son CI Linux échoue en compilant l’installateur Windows (`std::os::windows`, `kernel32`), problème couvert par la séparation de workflow de la PR #25, en attente de revue Main. Le formatage édition 1 reste bloqué sans modifier le document. |
+| 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
 
 ## Travail courant
 
-- Base actuelle : `origin/main` à `85b68b9`, récupérée le 16 octobre 2026.
+- Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
+- L4 : branche `refonte/sol-l4-vscode`, validation réelle de l’extension, du serveur LSP et des commandes `nxc` réussie sur ce poste.
+- Les PR #20, #21, #26 et #27 sont ouvertes et fusionnables ; leurs runs Linux respectifs (#11, #12, #16 et #15) échouent au build global sur l’installateur Windows (`std::os::windows`, `kernel32`). Les tests restent ignorés après cet échec.
+- La PR #25 porte la séparation des jobs Linux/Windows. Son run #10 passe les tests Windows et le build Linux, mais 2 tests Linux FFI échouent sur `abs`, `strlen` et `sqrt`, dans `compiler/**` / Core. Revue Main attendue avant intégration de cette correction de workflow.
+- L1 et L2 ont intégré `origin/main` (`496949f`) et sont fusionnables ; revue Main attendue. L3, L4 et L5 ont leurs PR ouvertes et attendent aussi revue/intégration.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
 - Branche L1 : `refonte/sol-l1-terminal` ; L2 : `refonte/sol-l2-dap`. Worktree indépendant sous
   `files-mentioned-by-the-user-prompt/work/NEXUL-sol`.
@@ -99,3 +105,30 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   sont répétés avant suppression ; pas de verrouillage complet de tous les composants
   Windows contre une course de remplacement d'une jonction.
 - Main : revue sécurité et validation de l'élévation réelle demandées avant intégration.
+
+## Preuves L3 — installateur natif
+
+- Tests du bac à sable Windows : installation, mise à jour et désinstallation, Studio
+  natif par défaut, migration des préférences, association `.nx` et raccourci vérifiés.
+- Sur le commit `868aced` de la PR #25, le run Actions `38867914441` passe le build Linux
+  et les tests Windows de l’installateur. Huit tests Linux passent ; deux échouent dans
+  `tests/run/ffi.nx` car `ld.lld` ne résout pas `abs`, `strlen` et `sqrt`. Ces chemins
+  appartiennent à `compiler/**` / Core.
+- Construction de `studio/app` et paquet complet via MSVC : non testés sur cette machine.
+
+## Preuves L4 — extension VS Code et édition 1
+
+- `cargo build --release -p nxc` réussi depuis la base `496949f`.
+- `cargo test -p nxc` : 32 tests réussis (11 unitaires, 6 fondations, 5 LSP, 10 conformité), 0 échec ; 1 test Web ignoré comme prévu sans sa chaîne dédiée.
+- `npm ci` : réussi, 0 vulnérabilité signalée. `npm test` : **14/14** réussis.
+- `npm run package` : réussi ; le VSIX (331 fichiers, 479,95 Ko) inclut le client LSP et
+  ses dépendances d’exécution.
+- `npm run test:host` avec le vrai binaire `nxc` du dépôt : réussi dans VS Code Insiders
+  avec profil et workspace temporaires. Le test vérifie le démarrage de `nxc lsp`, le
+  CodeLens, l’absence de faux diagnostics sur le fichier Edition 1 valide, puis les
+  commandes `check`, `build`, `run` et `test`. En 0.2, formatage, diagnostic après une
+  édition non enregistrée et effacement du diagnostic après correction passent aussi.
+  Pour l’édition 1, la commande de formatage prévient et laisse le texte intact.
+- `git diff --check` : réussi. Le VSIX n’a pas été installé dans une instance utilisateur
+  et l’extension n’a pas été publiée sur le Marketplace. Le formatage Edition 1 dépend
+  de son implémentation par Core dans `nxc`.
