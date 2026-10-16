@@ -110,7 +110,8 @@ function activateWithWorkspace(isTrusted, options = {}) {
             // Mode: the execution guards must also work without host filtering.
             return folderCompiler;
           }
-          if (key === 'checkOnSave' || key === 'formatOnSave') return true;
+          if (key === 'formatOnSave') return options.formatOnSave !== false;
+          if (key === 'checkOnSave') return true;
           return fallback;
         }
       }),
@@ -164,8 +165,8 @@ function activateWithWorkspace(isTrusted, options = {}) {
       if (name === './edition') return require('../src/edition');
       if (name === './cli') return {
         ...cli,
-        runNxc: async (executable, args) => {
-          compilerCalls.push({ executable, args });
+        runNxc: async (executable, args, runOptions) => {
+          compilerCalls.push({ executable, args, input: runOptions && runOptions.input });
           return { stdout: args[0] === 'check' ? '[]' : (args[1] === 'format' ? document.getText() : 'null') };
         }
       };
@@ -184,6 +185,7 @@ function activateWithWorkspace(isTrusted, options = {}) {
 
 test('manifest restricts workspace compiler overrides and execution commands by trust', () => {
   assert.equal(manifest.contributes.configuration.properties['nexul.nxcPath'].scope, 'machine-overridable');
+  assert.equal(manifest.contributes.configuration.properties['nexul.formatOnSave'].default, true);
   assert.equal(manifest.capabilities.untrustedWorkspaces.supported, 'limited');
   assert.equal(manifest.contributes.configuration.properties['nexul.checkOnSave'], undefined,
     'LSP diagnostics are pushed continuously and no longer use the old check-on-save switch');
@@ -200,7 +202,10 @@ test('untrusted folder compiler is never used by editor hooks, providers, comman
   const { callbacks, commands, providers, document } = host;
   callbacks.get('open')(document);
   callbacks.get('save')(document);
-  callbacks.get('willSave')({ document, waitUntil: (result) => { assert.ok(result); } });
+  let waitedForSave = false;
+  callbacks.get('willSave')({ document, waitUntil: () => { waitedForSave = true; } });
+  assert.equal(waitedForSave, false, 'untrusted format-on-save must not invoke the compiler');
+  callbacks.get('change')({ document, contentChanges: [] });
   await host.activated;
   await providers.get('codeLens').provideCodeLenses(document);
   for (const [name, command] of commands) {
@@ -258,4 +263,23 @@ test('edition 1 switches language mode and delegates formatting to nxc LSP', asy
   assert.equal(host.compilerCalls.length, 0, 'formatting must go through the LSP, not spawn another compiler process');
   assert.ok(host.clients[0].requests.some((request) => request.method === 'textDocument/formatting'));
   assert.equal(host.informationMessages.length, 0, 'Edition 1 formatting must not show an unsupported message');
+
+  let saveEdits;
+  host.callbacks.get('willSave')({ document: host.document, waitUntil: (result) => { saveEdits = result; } });
+  assert.ok(saveEdits, 'format-on-save must register its edits before the save completes');
+  assert.deepEqual(Array.from(await saveEdits), [], 'the formatter returns no edits for an already formatted document');
+  const saveFormat = host.compilerCalls.find((call) => call.args[0] === 'ide' && call.args[1] === 'format');
+  assert.ok(saveFormat, 'format-on-save must format unsaved text through nxc');
+  assert.equal(saveFormat.input, host.document.getText());
+});
+
+test('format-on-save can be disabled per workspace', async (t) => {
+  const host = activateWithWorkspace(true, { formatOnSave: false });
+  t.after(host.dispose);
+  await host.activated;
+
+  let waitedForSave = false;
+  host.callbacks.get('willSave')({ document: host.document, waitUntil: () => { waitedForSave = true; } });
+  assert.equal(waitedForSave, false);
+  assert.equal(host.compilerCalls.length, 0);
 });

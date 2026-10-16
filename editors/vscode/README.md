@@ -51,7 +51,7 @@ npm test
 
 npm run package
 
-Le VSIX est produit sous dist/kaytay10ok.nexul-language-0.1.0.vsix. Dans VS Code, ouvrir la palette de commandes, choisir Extensions: Install from VSIX..., puis sélectionner ce fichier. On peut également exécuter code --install-extension <chemin-du-vsix>.
+Le VSIX 0.3.0 est produit sous `dist/kaytay10ok.nexul-language-0.3.0.vsix`. Dans VS Code, ouvrir la palette de commandes, choisir **Extensions: Install from VSIX...**, puis sélectionner ce fichier. On peut également exécuter `code --install-extension <chemin-du-vsix>`. Le formatage à l’enregistrement est activé par défaut et peut être désactivé avec `nexul.formatOnSave`.
 
 Le VSIX local sert à valider ou à installer manuellement une version de développement. Pour être trouvée dans le Marketplace, une version doit être publiée par le propriétaire du publisher VS Code.
 
@@ -97,4 +97,4 @@ $env:NEXUL_NXC = "C:\chemin\vers\nxc.exe"
 npm run test:host
 ```
 
-Le test utilise VS Code Insiders et un profil isolé. Il vérifie le démarrage du vrai serveur `nxc lsp`, le CodeLens et l’absence de faux diagnostics sur le projet d’édition 1, puis les commandes `check`, `build`, `run` et `test` avec le compilateur réel. Pour les éditions 0.2 et 1, il vérifie le formatage ; pour l’édition 0.2, il vérifie aussi les diagnostics sur une édition non enregistrée et leur effacement après correction.
+Le test construit le VSIX, l’installe dans un profil et un dossier d’extensions isolés de VS Code Insiders, puis ouvre un projet avec le vrai `nxc`. Il vérifie le démarrage du serveur `nxc lsp`, le CodeLens et l’absence de faux diagnostics sur le projet d’édition 1, puis les commandes `check`, `build`, `run` et `test`. Il vérifie le formatage automatique à l’enregistrement pour les éditions 0.2 et 1, le formatage manuel de NEXUL 0.2 et les diagnostics sur un document 0.2 non enregistré, puis leur effacement après correction.
