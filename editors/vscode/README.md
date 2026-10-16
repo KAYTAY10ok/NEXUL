@@ -4,7 +4,8 @@ Cette extension donne à VS Code la coloration et les outils de développement d
 
 ## Fonctions
 
-- Coloration lexicale NEXUL 0.2, commentaires imbriqués, chaînes, interpolations et attributs.
+- Coloration lexicale NEXUL 0.2 ou édition 1, commentaires imbriqués, chaînes, interpolations et attributs.
+- L’édition est choisie depuis `// edition: 1` dans les trois premières lignes ou depuis `edition = "1"` sous `[package]` dans le `nexul.toml` le plus proche. Le mode de langage VS Code et la grammaire changent en conséquence; l’édition 0.2 reste le choix par défaut.
 - Snippets pour main, fonctions, structures, tests, match et boucles.
 - Diagnostics du compilateur dans le panneau Problèmes après l’ouverture et l’enregistrement. La commande Vérifier le fichier courant enregistre d’abord le document.
 - Complétion, survol, aller à la définition, références et renommage via nxc ide, avec le contenu non enregistré du document.
@@ -13,7 +14,7 @@ Cette extension donne à VS Code la coloration et les outils de développement d
 
 L’extension ne contient pas de compilateur NEXUL ni de serveur LSP distinct. Elle réutilise le nxc configuré. La commande nxc lsp n’existe pas dans la version de référence; les fonctionnalités de langage utilisent les requêtes ponctuelles nxc ide jusqu’à l’arrivée du serveur officiel. Les diagnostics du compilateur sont mis à jour à l’ouverture et à l’enregistrement; le contenu non enregistré est pris en charge par les fonctionnalités nxc ide et le formateur.
 
-La grammaire et les snippets suivent la syntaxe documentée du compilateur NEXUL 0.2. Ils devront être révisés quand l’ADR de la prochaine syntaxe sera approuvée.
+Les grammaires et snippets suivent séparément la syntaxe documentée des éditions 0.2 et 1 (ADR 0010). Le formateur `nxc ide format` ne prend pas encore en charge l’édition 1 : l’extension laisse le document inchangé et le signale au lieu de lui appliquer le formateur 0.2.
 
 ## Prérequis
 
@@ -73,6 +74,15 @@ Le lancement du programme utilise ProcessExecution avec arguments séparés, san
 
 ## Développement de l’extension
 
-npm test exécute les tests unitaires Node.js sans exiger VS Code. npm run package vérifie que le manifeste et les fichiers requis peuvent être assemblés en VSIX.
+npm test exécute les tests unitaires Node.js sans exiger VS Code. Ils vérifient notamment la détection de l’édition, la grammaire et les snippets. npm run package vérifie que le manifeste et les fichiers requis peuvent être assemblés en VSIX.
+
+Pour lancer aussi le test dans un vrai hôte d’extension VS Code avec le `nxc` construit depuis le dépôt :
+
+```powershell
+$env:NEXUL_NXC = "C:\chemin\vers\nxc.exe"
+npm run test:host
+```
+
+Le test utilise VS Code Insiders et un profil isolé. Il vérifie la détection de l’édition 1 par le manifeste du projet, puis les commandes `check`, `build`, `run` et `test` avec le compilateur réel. L’extension bloque le formatage de l’édition 1 tant que `nxc` ne le prend pas en charge.
 
 La validation complète en hôte d’extension VS Code reste à effectuer sur une installation Windows avec nxc disponible. L’extension n’active pas un serveur LSP imaginaire; son remplacement par nxc lsp devra se faire lorsque le compilateur l’implémentera.

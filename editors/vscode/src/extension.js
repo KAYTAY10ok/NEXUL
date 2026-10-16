@@ -10,12 +10,14 @@ const {
   scalarColumnToUtf16,
   utf16ColumnToScalar
 } = require('./cli');
+const { editionForFile } = require('./edition');
 const { createCliTask, registerTaskProvider } = require('./tasks');
 
 function activate(context) {
   const output = vscode.window.createOutputChannel('NEXUL');
   const diagnostics = vscode.languages.createDiagnosticCollection('nexul');
   const contributions = new Map();
+  const nexulSelector = [{ language: 'nexul' }, { language: 'nexul1' }];
   const codeLensEmitter = new vscode.EventEmitter();
   let codeLensRefreshTimer;
   let missingCompilerWasReported = false;
@@ -36,13 +38,30 @@ function activate(context) {
   }
 
   function isNexul(document) {
-    return document.languageId === 'nexul' || path.extname(document.uri.fsPath).toLowerCase() === '.nx';
+    return document.languageId === 'nexul'
+      || document.languageId === 'nexul1'
+      || path.extname(document.uri.fsPath).toLowerCase() === '.nx';
+  }
+
+  function documentEdition(document) {
+    return editionForFile(document.getText(), document.uri.fsPath);
+  }
+
+  async function updateEditionLanguage(document) {
+    if (path.extname(document.uri.fsPath).toLowerCase() !== '.nx') return document;
+    const language = documentEdition(document) === '1' ? 'nexul1' : 'nexul';
+    if (document.languageId === language) return document;
+    return vscode.languages.setTextDocumentLanguage(document, language);
   }
 
   function reportFailure(operation, error) {
     if (!error || error.name === 'CancellationError' || error.code === 'NEXUL_UNTRUSTED_WORKSPACE') return;
     const details = error.stderr || error.message || String(error);
     output.appendLine('[' + operation + '] ' + details.trim());
+    if (error.code === 'NEXUL_EDITION1_FORMAT_UNAVAILABLE') {
+      vscode.window.showInformationMessage(error.message);
+      return;
+    }
     if (error.code === 'ENOENT' && !missingCompilerWasReported) {
       missingCompilerWasReported = true;
       vscode.window.showErrorMessage(
@@ -90,6 +109,11 @@ function activate(context) {
   }
 
   async function formatText(document, token) {
+    if (documentEdition(document) === '1') {
+      const error = new Error('Le formateur nxc ne prend pas encore en charge l’édition 1.');
+      error.code = 'NEXUL_EDITION1_FORMAT_UNAVAILABLE';
+      throw error;
+    }
     return ideRequest(document, 'format', null, [], token);
   }
 
@@ -401,33 +425,53 @@ function activate(context) {
 
   registerTaskProvider(vscode, context, executable);
   context.subscriptions.push(
-    vscode.languages.registerCodeLensProvider({ language: 'nexul' }, codeLensProvider),
+    vscode.languages.registerCodeLensProvider(nexulSelector, codeLensProvider),
     vscode.commands.registerCommand('nexul.checkCurrentFile', checkCurrentFile),
     vscode.commands.registerCommand('nexul.buildCurrentFile', () => runCurrentTask('build')),
     vscode.commands.registerCommand('nexul.runCurrentFile', () => runCurrentTask('run')),
     vscode.commands.registerCommand('nexul.testCurrentFile', () => runCurrentTask('test')),
     vscode.commands.registerCommand('nexul.formatDocument', formatCurrentDocument),
     vscode.commands.registerCommand('nexul.runTest', runSpecificTest),
-    vscode.languages.registerCompletionItemProvider({ language: 'nexul' }, completionProvider, '.'),
-    vscode.languages.registerHoverProvider({ language: 'nexul' }, hoverProvider),
-    vscode.languages.registerDefinitionProvider({ language: 'nexul' }, definitionProvider),
-    vscode.languages.registerReferenceProvider({ language: 'nexul' }, referenceProvider),
-    vscode.languages.registerRenameProvider({ language: 'nexul' }, renameProvider),
-    vscode.languages.registerDocumentFormattingEditProvider({ language: 'nexul' }, formattingProvider),
+    vscode.languages.registerCompletionItemProvider(nexulSelector, completionProvider, '.'),
+    vscode.languages.registerHoverProvider(nexulSelector, hoverProvider),
+    vscode.languages.registerDefinitionProvider(nexulSelector, definitionProvider),
+    vscode.languages.registerReferenceProvider(nexulSelector, referenceProvider),
+    vscode.languages.registerRenameProvider(nexulSelector, renameProvider),
+    vscode.languages.registerDocumentFormattingEditProvider(nexulSelector, formattingProvider),
     vscode.workspace.onDidGrantWorkspaceTrust(() => {
       codeLensEmitter.fire();
       if (vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
-        for (const document of vscode.workspace.textDocuments) void checkDocument(document);
+        for (const document of vscode.workspace.textDocuments) {
+          void updateEditionLanguage(document).then((activeDocument) => checkDocument(activeDocument))
+            .catch((error) => reportFailure('détection de l’édition', error));
+        }
       }
     }),
     vscode.workspace.onDidOpenTextDocument((document) => {
-      if (isNexul(document) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
-        void checkDocument(document);
-      }
+      void updateEditionLanguage(document).then((activeDocument) => {
+        if (isNexul(activeDocument) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
+          void checkDocument(activeDocument);
+        }
+      }).catch((error) => reportFailure('détection de l’édition', error));
     }),
     vscode.workspace.onDidSaveTextDocument((document) => {
-      if (isNexul(document) && vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
-        void checkDocument(document);
+      if (path.basename(document.uri.fsPath).toLowerCase() === 'nexul.toml') {
+        for (const openDocument of vscode.workspace.textDocuments) {
+          if (!isNexul(openDocument)) continue;
+          void updateEditionLanguage(openDocument).then((activeDocument) => {
+            if (vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
+              void checkDocument(activeDocument);
+            }
+          }).catch((error) => reportFailure('détection de l’édition', error));
+        }
+        return;
+      }
+      if (isNexul(document)) {
+        void updateEditionLanguage(document).then((activeDocument) => {
+          if (vscode.workspace.getConfiguration('nexul').get('checkOnSave', true)) {
+            void checkDocument(activeDocument);
+          }
+        }).catch((error) => reportFailure('détection de l’édition', error));
       }
     }),
     vscode.workspace.onDidCloseTextDocument((document) => {
@@ -436,6 +480,10 @@ function activate(context) {
     }),
     vscode.workspace.onDidChangeTextDocument((event) => {
       if (!isNexul(event.document)) return;
+      if (event.contentChanges.some((change) => change.range.start.line < 3 || change.range.end.line < 3)) {
+        void updateEditionLanguage(event.document)
+          .catch((error) => reportFailure('détection de l’édition', error));
+      }
       if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
       codeLensRefreshTimer = setTimeout(() => codeLensEmitter.fire(), 300);
     }),
@@ -457,6 +505,10 @@ function activate(context) {
       if (codeLensRefreshTimer) clearTimeout(codeLensRefreshTimer);
     })
   );
+
+  for (const document of vscode.workspace.textDocuments) {
+    void updateEditionLanguage(document).catch((error) => reportFailure('détection de l’édition', error));
+  }
 }
 
 function deactivate() {}

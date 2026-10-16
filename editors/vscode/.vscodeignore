@@ -2,6 +2,7 @@ node_modules/**
 test/**
 dist/**
 .vscode/**
+.vscode-test/**
 .git/**
 .gitignore
 .vscodeignore

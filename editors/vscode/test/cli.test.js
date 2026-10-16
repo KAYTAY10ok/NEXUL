@@ -42,10 +42,20 @@ test('extension manifest registers .nx, grammar and snippets', () => {
   const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'package.json'), 'utf8'));
   const grammar = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'syntaxes', 'nexul.tmLanguage.json'), 'utf8'));
   const snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'snippets', 'nexul.json'), 'utf8'));
+  const edition1Grammar = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'syntaxes', 'nexul1.tmLanguage.json'), 'utf8'));
+  const edition1Snippets = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'snippets', 'nexul1.json'), 'utf8'));
   const languageConfig = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'language-configuration.json'), 'utf8'));
   assert.ok(manifest.contributes.languages.some((language) => language.id === 'nexul' && language.extensions.includes('.nx')));
+  assert.ok(manifest.contributes.languages.some((language) => language.id === 'nexul1' && (!language.extensions || language.extensions.length === 0)));
+  assert.ok(manifest.activationEvents.includes('onLanguage:nexul1'));
   assert.equal(grammar.scopeName, 'source.nexul');
+  assert.equal(edition1Grammar.scopeName, 'source.nexul1');
+  assert.match(edition1Grammar.repository.keywords.match, /when|then|interface/);
+  assert.doesNotMatch(edition1Grammar.repository.keywords.match, /struct|match|trait/);
+  assert.ok(manifest.contributes.grammars.some((item) => item.language === 'nexul1'));
+  assert.ok(manifest.contributes.snippets.some((item) => item.language === 'nexul1'));
   assert.ok(snippets['Main function']);
+  assert.ok(edition1Snippets['Test'].body[0].startsWith('test '));
   assert.equal(languageConfig.comments.lineComment, '//');
 });
 

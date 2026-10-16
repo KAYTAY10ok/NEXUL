@@ -1,0 +1,7 @@
+fn main() {
+    println("NEXUL VS Code Edition 1")
+}
+
+test "addition" {
+    assert(2 + 2 == 4)
+}
