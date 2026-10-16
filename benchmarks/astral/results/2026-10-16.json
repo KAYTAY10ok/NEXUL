@@ -1,0 +1,2544 @@
+{
+  "date_local": "2026-10-16T14:07:13+02:00",
+  "source_commit": "c40acbd83f4818d3ee46ec420d0e479caa92b801",
+  "machine": "Intel(R) Core(TM) i7-8700 CPU @ 3.20GHz",
+  "os": "Windows-11-10.0.26200-SP0",
+  "toolchains": {
+    "Clang": "clang version 23.1.3 (https://github.com/llvm/llvm-project 0d261d1ca552c95a8f007e061c787ac7132fbcbc)",
+    "Rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "C#": ".NET SDK 10.0.401 (Release JIT, TieredPGO)",
+    "NEXUL": "nxc 0.2.0 (NEXUL 0.2) (binary: C:\\Users\\Admin\\AppData\\Local\\Programs\\NEXUL\\bin\\nxc.EXE)"
+  },
+  "builds": {
+    "C": {
+      "wall_seconds": 0.7217780000000857,
+      "peak_working_set_bytes": 18751488,
+      "peak_working_set_mib": 17.8828125,
+      "programs": [
+        {
+          "program": "scientific",
+          "wall_seconds": 0.3656946999999491,
+          "peak_working_set_bytes": 18743296
+        },
+        {
+          "program": "dynamic",
+          "wall_seconds": 0.35608330000013666,
+          "peak_working_set_bytes": 18751488
+        }
+      ]
+    },
+    "Rust": {
+      "wall_seconds": 0.6678573999997752,
+      "peak_working_set_bytes": 12328960,
+      "peak_working_set_mib": 11.7578125,
+      "programs": [
+        {
+          "program": "scientific",
+          "wall_seconds": 0.280457199999546,
+          "peak_working_set_bytes": 12328960
+        },
+        {
+          "program": "dynamic",
+          "wall_seconds": 0.38740020000022923,
+          "peak_working_set_bytes": 12255232
+        }
+      ]
+    },
+    "C#": {
+      "wall_seconds": 3.3763441999999486,
+      "peak_working_set_bytes": 135970816,
+      "peak_working_set_mib": 129.671875,
+      "programs": [
+        {
+          "program": "scientific",
+          "wall_seconds": 1.697324199999457,
+          "peak_working_set_bytes": 135970816
+        },
+        {
+          "program": "dynamic",
+          "wall_seconds": 1.6790200000004916,
+          "peak_working_set_bytes": 134643712
+        }
+      ]
+    },
+    "NEXUL": {
+      "wall_seconds": 0.13650630000029196,
+      "peak_working_set_bytes": 25624576,
+      "peak_working_set_mib": 24.4375,
+      "programs": [
+        {
+          "program": "scientific",
+          "wall_seconds": 0.05941320000056294,
+          "peak_working_set_bytes": 25624576
+        },
+        {
+          "program": "dynamic",
+          "wall_seconds": 0.07709309999972902,
+          "peak_working_set_bytes": 25378816
+        }
+      ]
+    }
+  },
+  "sizes": [
+    1000000,
+    10000000,
+    100000000
+  ],
+  "repetitions": 3,
+  "measurement": {
+    "time": "program-internal monotonic nanoseconds; excludes process launch and output parsing",
+    "memory": "Windows kernel PeakWorkingSetSize, sampled after each child process exits",
+    "c_options": [
+      "-O2",
+      "-ffp-contract=off",
+      "-fno-fast-math"
+    ],
+    "rust_options": [
+      "--edition=2021",
+      "-C opt-level=2",
+      "x86_64-pc-windows-msvc"
+    ],
+    "csharp_options": [
+      "Release",
+      "TieredCompilation=1",
+      "TieredPGO=1"
+    ],
+    "nexul_options": [
+      "nxc build --release"
+    ]
+  },
+  "measurements": {
+    "scientific": {
+      "1000000": {
+        "C": {
+          "median_ms": 10.6008,
+          "stdev_ms": 0.17623992169766758,
+          "median_wall_ms": 55.972400000428024,
+          "median_peak_working_set_bytes": 3858432,
+          "median_peak_working_set_mib": 3.6796875,
+          "max_peak_working_set_bytes": 3858432,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 10.9049,
+              "wall_ms": 65.26729999950476,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 10.6008,
+              "wall_ms": 55.972400000428024,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 10.5985,
+              "wall_ms": 29.428200000438665,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 12.1884,
+          "stdev_ms": 0.11637617167330022,
+          "median_wall_ms": 34.2252999998891,
+          "median_peak_working_set_bytes": 4276224,
+          "median_peak_working_set_mib": 4.078125,
+          "max_peak_working_set_bytes": 4280320,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 12.3496,
+              "wall_ms": 65.26430000030814,
+              "peak_working_set_bytes": 4280320,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 12.1236,
+              "wall_ms": 32.005199999730394,
+              "peak_working_set_bytes": 4272128,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 12.1884,
+              "wall_ms": 34.2252999998891,
+              "peak_working_set_bytes": 4276224,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 12.4391,
+          "stdev_ms": 0.5891001018502706,
+          "median_wall_ms": 92.4659000002066,
+          "median_peak_working_set_bytes": 22667264,
+          "median_peak_working_set_mib": 21.6171875,
+          "max_peak_working_set_bytes": 22687744,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 12.1674,
+              "wall_ms": 91.06400000018766,
+              "peak_working_set_bytes": 22687744,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 13.2961,
+              "wall_ms": 92.4659000002066,
+              "peak_working_set_bytes": 22667264,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 12.4391,
+              "wall_ms": 94.8709999993298,
+              "peak_working_set_bytes": 22659072,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 10.9062,
+          "stdev_ms": 0.7169071929708432,
+          "median_wall_ms": 18.081300000631018,
+          "median_peak_working_set_bytes": 3198976,
+          "median_peak_working_set_mib": 3.05078125,
+          "max_peak_working_set_bytes": 3198976,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 11.731,
+              "wall_ms": 42.073799999343464,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 10.9062,
+              "wall_ms": 17.582100000254286,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            },
+            {
+              "internal_ms": 10.3029,
+              "wall_ms": 18.081300000631018,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 500000.5000000001,
+                "sum_x2": 333333.8333335003,
+                "harmonic": 14.3927267229,
+                "basel": 1.6449330668,
+                "ln2": 0.6931466806,
+                "pi_leibniz": 3.1415916536,
+                "pi_integral": 3.1415916536,
+                "quarter_circle": 3.1415906524,
+                "sqrt_integral": 0.6666671665,
+                "inverse_sqrt_integral": 0.8284269783,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736745616,
+                "velocity": -1.7309364909,
+                "population": 0.4965851821,
+                "energy": 1.9247599178,
+                "error_squared": 3.333e-07
+              }
+            }
+          ]
+        }
+      },
+      "10000000": {
+        "C": {
+          "median_ms": 114.8735,
+          "stdev_ms": 4.149010846374509,
+          "median_wall_ms": 134.74700000006123,
+          "median_peak_working_set_bytes": 3858432,
+          "median_peak_working_set_mib": 3.6796875,
+          "max_peak_working_set_bytes": 3862528,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 121.5436,
+              "wall_ms": 144.4552000002659,
+              "peak_working_set_bytes": 3862528,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 114.8735,
+              "wall_ms": 134.74700000006123,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 113.9336,
+              "wall_ms": 134.60219999979017,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 125.6106,
+          "stdev_ms": 1.2688961199930133,
+          "median_wall_ms": 146.78549999916868,
+          "median_peak_working_set_bytes": 4280320,
+          "median_peak_working_set_mib": 4.08203125,
+          "max_peak_working_set_bytes": 4280320,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 125.6106,
+              "wall_ms": 149.13000000069587,
+              "peak_working_set_bytes": 4272128,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 127.5666,
+              "wall_ms": 146.78549999916868,
+              "peak_working_set_bytes": 4280320,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 125.1883,
+              "wall_ms": 145.21349999995437,
+              "peak_working_set_bytes": 4280320,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 123.9807,
+          "stdev_ms": 4.235887298233203,
+          "median_wall_ms": 197.50870000007126,
+          "median_peak_working_set_bytes": 22835200,
+          "median_peak_working_set_mib": 21.77734375,
+          "max_peak_working_set_bytes": 22843392,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 129.4292,
+              "wall_ms": 206.0554999998203,
+              "peak_working_set_bytes": 22667264,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 121.0868,
+              "wall_ms": 197.50870000007126,
+              "peak_working_set_bytes": 22835200,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 123.9807,
+              "wall_ms": 197.17170000058104,
+              "peak_working_set_bytes": 22843392,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 102.8882,
+          "stdev_ms": 1.4738686723495176,
+          "median_wall_ms": 111.27900000064983,
+          "median_peak_working_set_bytes": 3198976,
+          "median_peak_working_set_mib": 3.05078125,
+          "max_peak_working_set_bytes": 3198976,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 102.8882,
+              "wall_ms": 111.55130000042845,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 104.3749,
+              "wall_ms": 111.27900000064983,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            },
+            {
+              "internal_ms": 101.4272,
+              "wall_ms": 109.01449999983015,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 5000000.500000002,
+                "sum_x2": 3333333.833333595,
+                "harmonic": 16.6953113659,
+                "basel": 1.6449339668,
+                "ln2": 0.6931471306,
+                "pi_leibniz": 3.1415925536,
+                "pi_integral": 3.1415925536,
+                "quarter_circle": 3.1415924536,
+                "sqrt_integral": 0.6666667167,
+                "inverse_sqrt_integral": 0.8284271101,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736737446,
+                "velocity": -1.7309364914,
+                "population": 0.4965852916,
+                "energy": 1.9247607471,
+                "error_squared": 3.33e-08
+              }
+            }
+          ]
+        }
+      },
+      "100000000": {
+        "C": {
+          "median_ms": 1121.2183,
+          "stdev_ms": 7.833958088348503,
+          "median_wall_ms": 1137.9493999993429,
+          "median_peak_working_set_bytes": 3854336,
+          "median_peak_working_set_mib": 3.67578125,
+          "max_peak_working_set_bytes": 3858432,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1122.6581,
+              "wall_ms": 1141.9872000005853,
+              "peak_working_set_bytes": 3858432,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1108.4268,
+              "wall_ms": 1125.9054000001925,
+              "peak_working_set_bytes": 3854336,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1121.2183,
+              "wall_ms": 1137.9493999993429,
+              "peak_working_set_bytes": 3854336,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 1257.0085,
+          "stdev_ms": 3.9731686250817106,
+          "median_wall_ms": 1281.4189999999144,
+          "median_peak_working_set_bytes": 4276224,
+          "median_peak_working_set_mib": 4.078125,
+          "max_peak_working_set_bytes": 4280320,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1255.4513,
+              "wall_ms": 1281.4189999999144,
+              "peak_working_set_bytes": 4276224,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1257.0085,
+              "wall_ms": 1281.2966000001325,
+              "peak_working_set_bytes": 4276224,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1262.9782,
+              "wall_ms": 1282.9861999998684,
+              "peak_working_set_bytes": 4280320,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 1237.4615,
+          "stdev_ms": 1.456720182464738,
+          "median_wall_ms": 1314.724799999567,
+          "median_peak_working_set_bytes": 22753280,
+          "median_peak_working_set_mib": 21.69921875,
+          "max_peak_working_set_bytes": 22769664,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1236.6138,
+              "wall_ms": 1315.651699999762,
+              "peak_working_set_bytes": 22769664,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1237.4615,
+              "wall_ms": 1310.3993000004266,
+              "peak_working_set_bytes": 22740992,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1239.4516,
+              "wall_ms": 1314.724799999567,
+              "peak_working_set_bytes": 22753280,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 1002.651,
+          "stdev_ms": 29.849739213322053,
+          "median_wall_ms": 1011.9487000001754,
+          "median_peak_working_set_bytes": 3198976,
+          "median_peak_working_set_mib": 3.05078125,
+          "max_peak_working_set_bytes": 3198976,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1002.5564,
+              "wall_ms": 1011.9487000001754,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1002.651,
+              "wall_ms": 1009.5479000001433,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            },
+            {
+              "internal_ms": 1054.3049,
+              "wall_ms": 1064.3185999997513,
+              "peak_working_set_bytes": 3198976,
+              "outputs": {
+                "sum_x": 50000000.499999985,
+                "sum_x2": 33333333.833322257,
+                "harmonic": 18.9978964139,
+                "basel": 1.6449340578,
+                "ln2": 0.6931471756,
+                "pi_leibniz": 3.1415926436,
+                "pi_integral": 3.1415926436,
+                "quarter_circle": 3.1415926336,
+                "sqrt_integral": 0.6666666717,
+                "inverse_sqrt_integral": 0.8284271233,
+                "e_approx": 2.7182818285,
+                "sin_approx": 0.8414709848,
+                "cos_approx": 0.5403023059,
+                "position": -0.3736736629,
+                "velocity": -1.7309364915,
+                "population": 0.4965853026,
+                "energy": 1.9247608301,
+                "error_squared": 3.3e-09
+              }
+            }
+          ]
+        }
+      }
+    },
+    "vectors": {
+      "1000000": {
+        "C": {
+          "median_ms": 3.8913,
+          "stdev_ms": 0.1596455553196936,
+          "median_wall_ms": 10.744299999714713,
+          "median_peak_working_set_bytes": 19554304,
+          "median_peak_working_set_mib": 18.6484375,
+          "max_peak_working_set_bytes": 19554304,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 4.1387,
+              "wall_ms": 48.07119999986753,
+              "peak_working_set_bytes": 19554304,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 3.8402,
+              "wall_ms": 10.744299999714713,
+              "peak_working_set_bytes": 19554304,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 3.8913,
+              "wall_ms": 10.579900000266207,
+              "peak_working_set_bytes": 19554304,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 3.8821,
+          "stdev_ms": 0.01970211494569391,
+          "median_wall_ms": 11.502999999720487,
+          "median_peak_working_set_bytes": 19939328,
+          "median_peak_working_set_mib": 19.015625,
+          "max_peak_working_set_bytes": 19943424,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 3.9023,
+              "wall_ms": 52.00619999959599,
+              "peak_working_set_bytes": 19939328,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 3.8629,
+              "wall_ms": 11.169999999765423,
+              "peak_working_set_bytes": 19943424,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 3.8821,
+              "wall_ms": 11.502999999720487,
+              "peak_working_set_bytes": 19939328,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 4.2327,
+          "stdev_ms": 0.11515017730482834,
+          "median_wall_ms": 66.62890000006882,
+          "median_peak_working_set_bytes": 40476672,
+          "median_peak_working_set_mib": 38.6015625,
+          "max_peak_working_set_bytes": 40636416,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 4.3482,
+              "wall_ms": 70.20659999943746,
+              "peak_working_set_bytes": 40468480,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 4.1179,
+              "wall_ms": 65.62740000026679,
+              "peak_working_set_bytes": 40636416,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 4.2327,
+              "wall_ms": 66.62890000006882,
+              "peak_working_set_bytes": 40476672,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 8.1344,
+          "stdev_ms": 0.1534886423594051,
+          "median_wall_ms": 15.027899999950023,
+          "median_peak_working_set_bytes": 19296256,
+          "median_peak_working_set_mib": 18.40234375,
+          "max_peak_working_set_bytes": 19296256,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 8.2699,
+              "wall_ms": 35.15510000033828,
+              "peak_working_set_bytes": 19296256,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 7.9636,
+              "wall_ms": 14.7199000002729,
+              "peak_working_set_bytes": 19296256,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 8.1344,
+              "wall_ms": 15.027899999950023,
+              "peak_working_set_bytes": 19296256,
+              "outputs": {
+                "checksum": 16683305995,
+                "length": 1000000
+              }
+            }
+          ]
+        }
+      },
+      "10000000": {
+        "C": {
+          "median_ms": 40.1814,
+          "stdev_ms": 1.971077555551786,
+          "median_wall_ms": 50.0317999994877,
+          "median_peak_working_set_bytes": 163553280,
+          "median_peak_working_set_mib": 155.9765625,
+          "max_peak_working_set_bytes": 163553280,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 39.6717,
+              "wall_ms": 50.0317999994877,
+              "peak_working_set_bytes": 163553280,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 40.1814,
+              "wall_ms": 46.5371000000232,
+              "peak_working_set_bytes": 163553280,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 43.3119,
+              "wall_ms": 50.62090000046737,
+              "peak_working_set_bytes": 163553280,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 40.7131,
+          "stdev_ms": 0.5800514546141584,
+          "median_wall_ms": 49.3784999998752,
+          "median_peak_working_set_bytes": 163938304,
+          "median_peak_working_set_mib": 156.34375,
+          "max_peak_working_set_bytes": 163942400,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 40.8814,
+              "wall_ms": 50.650499999392196,
+              "peak_working_set_bytes": 163938304,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 39.8032,
+              "wall_ms": 49.3784999998752,
+              "peak_working_set_bytes": 163942400,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 40.7131,
+              "wall_ms": 48.64550000002055,
+              "peak_working_set_bytes": 163938304,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 40.4932,
+          "stdev_ms": 3.676685551326537,
+          "median_wall_ms": 114.9024999995163,
+          "median_peak_working_set_bytes": 184500224,
+          "median_peak_working_set_mib": 175.953125,
+          "max_peak_working_set_bytes": 184524800,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 39.1801,
+              "wall_ms": 114.9024999995163,
+              "peak_working_set_bytes": 184524800,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 40.4932,
+              "wall_ms": 109.37029999968217,
+              "peak_working_set_bytes": 184496128,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 46.1025,
+              "wall_ms": 115.62639999920066,
+              "peak_working_set_bytes": 184500224,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 83.3599,
+          "stdev_ms": 1.2345009450516193,
+          "median_wall_ms": 92.36429999964457,
+          "median_peak_working_set_bytes": 163295232,
+          "median_peak_working_set_mib": 155.73046875,
+          "max_peak_working_set_bytes": 163295232,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 82.7204,
+              "wall_ms": 92.36429999964457,
+              "peak_working_set_bytes": 163295232,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 83.3599,
+              "wall_ms": 92.16160000050877,
+              "peak_working_set_bytes": 163295232,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 85.1054,
+              "wall_ms": 93.4715999992477,
+              "peak_working_set_bytes": 163295232,
+              "outputs": {
+                "checksum": 166833305995,
+                "length": 10000000
+              }
+            }
+          ]
+        }
+      },
+      "100000000": {
+        "C": {
+          "median_ms": 444.4533,
+          "stdev_ms": 5.997673264691893,
+          "median_wall_ms": 452.9069000000163,
+          "median_peak_working_set_bytes": 1603551232,
+          "median_peak_working_set_mib": 1529.265625,
+          "max_peak_working_set_bytes": 1603555328,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 438.3256,
+              "wall_ms": 448.1490999996822,
+              "peak_working_set_bytes": 1603555328,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 450.32,
+              "wall_ms": 459.40580000024056,
+              "peak_working_set_bytes": 1603551232,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 444.4533,
+              "wall_ms": 452.9069000000163,
+              "peak_working_set_bytes": 1603547136,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 425.1913,
+          "stdev_ms": 10.832641265637854,
+          "median_wall_ms": 433.0272999995941,
+          "median_peak_working_set_bytes": 1603936256,
+          "median_peak_working_set_mib": 1529.6328125,
+          "max_peak_working_set_bytes": 1603940352,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 442.761,
+              "wall_ms": 453.2233999998425,
+              "peak_working_set_bytes": 1603940352,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 422.9981,
+              "wall_ms": 431.57280000014,
+              "peak_working_set_bytes": 1603936256,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 425.1913,
+              "wall_ms": 433.0272999995941,
+              "peak_working_set_bytes": 1603936256,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 422.0188,
+          "stdev_ms": 5.602674457792447,
+          "median_wall_ms": 567.0772000003126,
+          "median_peak_working_set_bytes": 1625030656,
+          "median_peak_working_set_mib": 1549.75,
+          "max_peak_working_set_bytes": 1625137152,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 422.0188,
+              "wall_ms": 567.0772000003126,
+              "peak_working_set_bytes": 1625030656,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 422.7766,
+              "wall_ms": 568.122300000141,
+              "peak_working_set_bytes": 1625006080,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 412.7158,
+              "wall_ms": 541.2634000003891,
+              "peak_working_set_bytes": 1625137152,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 866.8749,
+          "stdev_ms": 8.3068391680189,
+          "median_wall_ms": 878.7514999994528,
+          "median_peak_working_set_bytes": 1603293184,
+          "median_peak_working_set_mib": 1529.01953125,
+          "max_peak_working_set_bytes": 1603293184,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 866.8749,
+              "wall_ms": 878.7514999994528,
+              "peak_working_set_bytes": 1603293184,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 864.1869,
+              "wall_ms": 873.0863000000681,
+              "peak_working_set_bytes": 1603293184,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 879.7292,
+              "wall_ms": 888.6947999999393,
+              "peak_working_set_bytes": 1603293184,
+              "outputs": {
+                "checksum": 1668333305995,
+                "length": 100000000
+              }
+            }
+          ]
+        }
+      }
+    },
+    "allocations": {
+      "1000000": {
+        "C": {
+          "median_ms": 45.1351,
+          "stdev_ms": 2.9046638399879154,
+          "median_wall_ms": 56.25580000014452,
+          "median_peak_working_set_bytes": 3833856,
+          "median_peak_working_set_mib": 3.65625,
+          "max_peak_working_set_bytes": 3833856,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 40.3413,
+              "wall_ms": 54.97120000018185,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 45.58,
+              "wall_ms": 56.508499999836204,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 45.1351,
+              "wall_ms": 56.25580000014452,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 49.5319,
+          "stdev_ms": 63.94954924782504,
+          "median_wall_ms": 61.84780000057799,
+          "median_peak_working_set_bytes": 4247552,
+          "median_peak_working_set_mib": 4.05078125,
+          "max_peak_working_set_bytes": 4247552,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 45.3449,
+              "wall_ms": 58.971399999791174,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 49.5319,
+              "wall_ms": 61.84780000057799,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 158.1429,
+              "wall_ms": 170.5898000000161,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 6.2239,
+          "stdev_ms": 1.50843275952228,
+          "median_wall_ms": 72.57540000045992,
+          "median_peak_working_set_bytes": 29020160,
+          "median_peak_working_set_mib": 27.67578125,
+          "max_peak_working_set_bytes": 29118464,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 5.7047,
+              "wall_ms": 70.19140000011248,
+              "peak_working_set_bytes": 29020160,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 8.538,
+              "wall_ms": 72.57540000045992,
+              "peak_working_set_bytes": 29118464,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 6.2239,
+              "wall_ms": 74.11919999958627,
+              "peak_working_set_bytes": 29020160,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 54.2538,
+          "stdev_ms": 1.7973287326845195,
+          "median_wall_ms": 67.85330000002432,
+          "median_peak_working_set_bytes": 3190784,
+          "median_peak_working_set_mib": 3.04296875,
+          "max_peak_working_set_bytes": 3190784,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 54.2538,
+              "wall_ms": 67.85330000002432,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 56.709,
+              "wall_ms": 68.24839999990218,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 53.2076,
+              "wall_ms": 66.38519999978598,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 3000269770688,
+                "length": 1000000
+              }
+            }
+          ]
+        }
+      },
+      "10000000": {
+        "C": {
+          "median_ms": 459.5082,
+          "stdev_ms": 25.308639327510267,
+          "median_wall_ms": 470.229699999436,
+          "median_peak_working_set_bytes": 3833856,
+          "median_peak_working_set_mib": 3.65625,
+          "max_peak_working_set_bytes": 3837952,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 444.0033,
+              "wall_ms": 458.5359000002427,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 493.4844,
+              "wall_ms": 506.7331000000195,
+              "peak_working_set_bytes": 3837952,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 459.5082,
+              "wall_ms": 470.229699999436,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 461.9102,
+          "stdev_ms": 8.828389422954425,
+          "median_wall_ms": 476.2929999997141,
+          "median_peak_working_set_bytes": 4247552,
+          "median_peak_working_set_mib": 4.05078125,
+          "max_peak_working_set_bytes": 4251648,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 461.9102,
+              "wall_ms": 476.2929999997141,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 469.2477,
+              "wall_ms": 481.5078000001449,
+              "peak_working_set_bytes": 4251648,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 451.6706,
+              "wall_ms": 464.87299999989773,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 48.7832,
+          "stdev_ms": 3.9184891939793993,
+          "median_wall_ms": 118.58950000078039,
+          "median_peak_working_set_bytes": 29003776,
+          "median_peak_working_set_mib": 27.66015625,
+          "max_peak_working_set_bytes": 29032448,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 48.7832,
+              "wall_ms": 118.58950000078039,
+              "peak_working_set_bytes": 29003776,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 48.654,
+              "wall_ms": 115.43299999993906,
+              "peak_working_set_bytes": 29003776,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 55.5047,
+              "wall_ms": 123.7050999998246,
+              "peak_working_set_bytes": 29032448,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 545.2786,
+          "stdev_ms": 22.311918618158607,
+          "median_wall_ms": 556.5767000007327,
+          "median_peak_working_set_bytes": 3190784,
+          "median_peak_working_set_mib": 3.04296875,
+          "max_peak_working_set_bytes": 3194880,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 519.0689,
+              "wall_ms": 532.6903999994101,
+              "peak_working_set_bytes": 3186688,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 545.2786,
+              "wall_ms": 556.5767000007327,
+              "peak_working_set_bytes": 3194880,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 563.4508,
+              "wall_ms": 578.3180999997057,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 300000177937792,
+                "length": 10000000
+              }
+            }
+          ]
+        }
+      },
+      "100000000": {
+        "C": {
+          "median_ms": 4310.7152,
+          "stdev_ms": 98.90210068082456,
+          "median_wall_ms": 4327.202899999975,
+          "median_peak_working_set_bytes": 3833856,
+          "median_peak_working_set_mib": 3.65625,
+          "max_peak_working_set_bytes": 3833856,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 4310.7152,
+              "wall_ms": 4327.202899999975,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 4409.6374,
+              "wall_ms": 4423.751399999674,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 4211.8332,
+              "wall_ms": 4223.382899999706,
+              "peak_working_set_bytes": 3833856,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 4528.2123,
+          "stdev_ms": 66.5456560859035,
+          "median_wall_ms": 4544.4986000002245,
+          "median_peak_working_set_bytes": 4247552,
+          "median_peak_working_set_mib": 4.05078125,
+          "max_peak_working_set_bytes": 4259840,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 4528.2123,
+              "wall_ms": 4544.4986000002245,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 4493.6717,
+              "wall_ms": 4509.91890000023,
+              "peak_working_set_bytes": 4247552,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 4622.2532,
+              "wall_ms": 4634.533899999951,
+              "peak_working_set_bytes": 4259840,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 499.6513,
+          "stdev_ms": 9.53091135359048,
+          "median_wall_ms": 565.5245999996623,
+          "median_peak_working_set_bytes": 29081600,
+          "median_peak_working_set_mib": 27.734375,
+          "max_peak_working_set_bytes": 29208576,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 499.6513,
+              "wall_ms": 565.5245999996623,
+              "peak_working_set_bytes": 29208576,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 497.4873,
+              "wall_ms": 565.2197999997952,
+              "peak_working_set_bytes": 29065216,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 514.9706,
+              "wall_ms": 582.5675000005504,
+              "peak_working_set_bytes": 29081600,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 5203.9926,
+          "stdev_ms": 75.209687497977,
+          "median_wall_ms": 5218.389299999217,
+          "median_peak_working_set_bytes": 3190784,
+          "median_peak_working_set_mib": 3.04296875,
+          "max_peak_working_set_bytes": 3190784,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 5203.9926,
+              "wall_ms": 5218.389299999217,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 5173.6417,
+              "wall_ms": 5187.288300000546,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 5316.4048,
+              "wall_ms": 5330.566999999974,
+              "peak_working_set_bytes": 3190784,
+              "outputs": {
+                "checksum": 30000000831727360,
+                "length": 100000000
+              }
+            }
+          ]
+        }
+      }
+    },
+    "strings": {
+      "1000000": {
+        "C": {
+          "median_ms": 0.9475,
+          "stdev_ms": 0.1860291106251922,
+          "median_wall_ms": 8.522199999788427,
+          "median_peak_working_set_bytes": 4833280,
+          "median_peak_working_set_mib": 4.609375,
+          "max_peak_working_set_bytes": 4837376,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1.2502,
+              "wall_ms": 12.00669999980164,
+              "peak_working_set_bytes": 4829184,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 0.9115,
+              "wall_ms": 8.37000000046828,
+              "peak_working_set_bytes": 4837376,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 0.9475,
+              "wall_ms": 8.522199999788427,
+              "peak_working_set_bytes": 4833280,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 1.3035,
+          "stdev_ms": 0.006615889962809214,
+          "median_wall_ms": 8.589000000029046,
+          "median_peak_working_set_bytes": 5251072,
+          "median_peak_working_set_mib": 5.0078125,
+          "max_peak_working_set_bytes": 5255168,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1.3035,
+              "wall_ms": 10.014700000283483,
+              "peak_working_set_bytes": 5251072,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 1.3074,
+              "wall_ms": 8.589000000029046,
+              "peak_working_set_bytes": 5255168,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 1.2945,
+              "wall_ms": 8.085599999503756,
+              "peak_working_set_bytes": 5251072,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 1.232,
+          "stdev_ms": 0.06719615564400486,
+          "median_wall_ms": 69.57929999953194,
+          "median_peak_working_set_bytes": 24936448,
+          "median_peak_working_set_mib": 23.78125,
+          "max_peak_working_set_bytes": 24940544,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 1.232,
+              "wall_ms": 65.5323999999382,
+              "peak_working_set_bytes": 24940544,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 1.2092,
+              "wall_ms": 69.57929999953194,
+              "peak_working_set_bytes": 24887296,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 1.3353,
+              "wall_ms": 72.93089999984659,
+              "peak_working_set_bytes": 24936448,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 4.734,
+          "stdev_ms": 1.252940525324327,
+          "median_wall_ms": 13.07749999978114,
+          "median_peak_working_set_bytes": 4210688,
+          "median_peak_working_set_mib": 4.015625,
+          "max_peak_working_set_bytes": 4210688,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 6.5426,
+              "wall_ms": 16.43170000079408,
+              "peak_working_set_bytes": 4210688,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 4.734,
+              "wall_ms": 13.07749999978114,
+              "peak_working_set_bytes": 4210688,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            },
+            {
+              "internal_ms": 4.1362,
+              "wall_ms": 10.160900000300899,
+              "peak_working_set_bytes": 4210688,
+              "outputs": {
+                "checksum": 109499916,
+                "length": 1000000
+              }
+            }
+          ]
+        }
+      },
+      "10000000": {
+        "C": {
+          "median_ms": 9.3647,
+          "stdev_ms": 0.8740887273803122,
+          "median_wall_ms": 18.364800000199466,
+          "median_peak_working_set_bytes": 13402112,
+          "median_peak_working_set_mib": 12.78125,
+          "max_peak_working_set_bytes": 13402112,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 9.2961,
+              "wall_ms": 18.364800000199466,
+              "peak_working_set_bytes": 13402112,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 9.3647,
+              "wall_ms": 15.804500000740518,
+              "peak_working_set_bytes": 13402112,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 10.8432,
+              "wall_ms": 18.919699999969453,
+              "peak_working_set_bytes": 13398016,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 13.4374,
+          "stdev_ms": 0.39863177662265387,
+          "median_wall_ms": 21.52950000072451,
+          "median_peak_working_set_bytes": 13783040,
+          "median_peak_working_set_mib": 13.14453125,
+          "max_peak_working_set_bytes": 13783040,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 13.412,
+              "wall_ms": 22.424700000556186,
+              "peak_working_set_bytes": 13783040,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 13.4374,
+              "wall_ms": 20.161999999800173,
+              "peak_working_set_bytes": 13778944,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 14.1148,
+              "wall_ms": 21.52950000072451,
+              "peak_working_set_bytes": 13783040,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 12.1515,
+          "stdev_ms": 1.615246609654389,
+          "median_wall_ms": 78.85290000012901,
+          "median_peak_working_set_bytes": 43061248,
+          "median_peak_working_set_mib": 41.06640625,
+          "max_peak_working_set_bytes": 43069440,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 14.8578,
+              "wall_ms": 80.72790000005625,
+              "peak_working_set_bytes": 43069440,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 12.1515,
+              "wall_ms": 75.22840000001452,
+              "peak_working_set_bytes": 43020288,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 11.9769,
+              "wall_ms": 78.85290000012901,
+              "peak_working_set_bytes": 43061248,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 43.4758,
+          "stdev_ms": 2.669636111907388,
+          "median_wall_ms": 50.491100000726874,
+          "median_peak_working_set_bytes": 13139968,
+          "median_peak_working_set_mib": 12.53125,
+          "max_peak_working_set_bytes": 13139968,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 42.2132,
+              "wall_ms": 50.491100000726874,
+              "peak_working_set_bytes": 13135872,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 47.3373,
+              "wall_ms": 52.9660000001968,
+              "peak_working_set_bytes": 13139968,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            },
+            {
+              "internal_ms": 43.4758,
+              "wall_ms": 50.11780000040744,
+              "peak_working_set_bytes": 13139968,
+              "outputs": {
+                "checksum": 1094999920,
+                "length": 10000000
+              }
+            }
+          ]
+        }
+      },
+      "100000000": {
+        "C": {
+          "median_ms": 102.5166,
+          "stdev_ms": 4.385138953708689,
+          "median_wall_ms": 110.36429999967368,
+          "median_peak_working_set_bytes": 103399424,
+          "median_peak_working_set_mib": 98.609375,
+          "max_peak_working_set_bytes": 103403520,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 95.1082,
+              "wall_ms": 106.251300000622,
+              "peak_working_set_bytes": 103399424,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 102.5166,
+              "wall_ms": 110.36429999967368,
+              "peak_working_set_bytes": 103403520,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 102.8775,
+              "wall_ms": 112.19999999957508,
+              "peak_working_set_bytes": 103399424,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "Rust": {
+          "median_ms": 144.672,
+          "stdev_ms": 6.284037251109617,
+          "median_wall_ms": 153.39240000048449,
+          "median_peak_working_set_bytes": 103784448,
+          "median_peak_working_set_mib": 98.9765625,
+          "max_peak_working_set_bytes": 103788544,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 153.7278,
+              "wall_ms": 165.26499999963562,
+              "peak_working_set_bytes": 103788544,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 144.672,
+              "wall_ms": 153.39240000048449,
+              "peak_working_set_bytes": 103772160,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 141.6526,
+              "wall_ms": 149.66629999980796,
+              "peak_working_set_bytes": 103784448,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "C#": {
+          "median_ms": 128.2931,
+          "stdev_ms": 1.7056261812015026,
+          "median_wall_ms": 205.40770000025077,
+          "median_peak_working_set_bytes": 223068160,
+          "median_peak_working_set_mib": 212.734375,
+          "max_peak_working_set_bytes": 223068160,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 128.2931,
+              "wall_ms": 205.40770000025077,
+              "peak_working_set_bytes": 222941184,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 125.482,
+              "wall_ms": 205.28230000036274,
+              "peak_working_set_bytes": 223068160,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 128.5611,
+              "wall_ms": 207.6204000004509,
+              "peak_working_set_bytes": 223068160,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            }
+          ]
+        },
+        "NEXUL": {
+          "median_ms": 449.953,
+          "stdev_ms": 14.022710212485082,
+          "median_wall_ms": 459.4053000000713,
+          "median_peak_working_set_bytes": 103141376,
+          "median_peak_working_set_mib": 98.36328125,
+          "max_peak_working_set_bytes": 103141376,
+          "outputs_match_c": true,
+          "samples": [
+            {
+              "internal_ms": 466.7504,
+              "wall_ms": 475.5547000004299,
+              "peak_working_set_bytes": 103141376,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 438.9019,
+              "wall_ms": 445.8946000004289,
+              "peak_working_set_bytes": 103141376,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            },
+            {
+              "internal_ms": 449.953,
+              "wall_ms": 459.4053000000713,
+              "peak_working_set_bytes": 103141376,
+              "outputs": {
+                "checksum": 10949999956,
+                "length": 100000000
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}
