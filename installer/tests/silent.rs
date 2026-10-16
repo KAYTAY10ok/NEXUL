@@ -191,11 +191,17 @@ fn install_update_uninstall() {
     );
     // Shortcuts: in the sandbox, and they open the right programs.
     let studio = bin.join("NEXUL Studio.exe");
-    assert_eq!(PathBuf::from(shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk"))), studio);
-    assert_eq!(PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\NEXUL Studio.lnk"))), studio);
     assert_eq!(
-        PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\Désinstaller NEXUL.lnk"))),
-        dir.join(UNINSTALLER)
+        PathBuf::from(shortcut_target(&sb.path(r"Desktop\NEXUL Studio.lnk"))).canonicalize().unwrap(),
+        studio.canonicalize().unwrap()
+    );
+    assert_eq!(
+        PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\NEXUL Studio.lnk"))).canonicalize().unwrap(),
+        studio.canonicalize().unwrap()
+    );
+    assert_eq!(
+        PathBuf::from(shortcut_target(&sb.path(r"Programs\NEXUL\Désinstaller NEXUL.lnk"))).canonicalize().unwrap(),
+        dir.join(UNINSTALLER).canonicalize().unwrap()
     );
 
     // Rule 8: the real settings of the user are not touched.

@@ -19,7 +19,7 @@ Claude Main conserve la revue et l'intégration.
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
 | 3 | P9 — CLI et LSP | VALIDÉ_E2E sur `origin/main` `85b68b9` : `cargo +stable-x86_64-pc-windows-msvc test -p nxc` passe avec 11 tests unitaires, 6 fondations, 5 LSP et 10 de conformité; le test LSP de latence passe; le test Web reste ignoré par défaut. |
-| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; corrections aux deux échecs CI poussées pour revalidation. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; correctif des chemins de raccourcis en cours de revalidation, CI Linux bloquée par le lien des imports C de `tests/run/ffi.nx`. |
 
 ## Travail courant
 
@@ -111,8 +111,11 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   teste le workspace en excluant `nexul-installer`; Windows lance les tests bac à sable
   de l'installateur avec `test-sandbox`.
 - `git diff --check` : réussi. Le premier passage de la PR #25 a révélé deux échecs :
-  l'LLVM fourni par Ubuntu rejette le debug record `#dbg_declare`, et Windows compare
-  un chemin court 8.3 au chemin long équivalent. Le workflow installe et sélectionne LLVM 19;
-  le test Windows compare les chemins canonisés. Les contrôles du commit de correction
-  doivent encore confirmer ces changements. La construction de `studio/app` et du paquet
+  l'LLVM fourni par Ubuntu rejetait le debug record `#dbg_declare`, et Windows comparait
+  un chemin court 8.3 au chemin long équivalent. LLVM 19 corrige le premier problème; le
+  test de raccourci unitaire passe. Le second passage échoue ensuite dans `tests/run/ffi.nx` :
+  `abs`, `strlen` et `sqrt` ne sont pas résolus parce que l'éditeur de liens Linux NEXUL
+  produit des exécutables statiques sans libc. Ce code relève de `compiler/**` (Core).
+  L'assertion d'installation complète compare maintenant les chemins canonisés et attend
+  une nouvelle validation Windows. La construction de `studio/app` et du paquet
   complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.
