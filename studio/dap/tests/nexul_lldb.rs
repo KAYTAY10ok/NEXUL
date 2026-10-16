@@ -44,7 +44,7 @@ fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
     });
     fs::write(
         &source,
-        "fn main() {\n    let answer = 42\n    println(\"answer = {answer}\")\n}\n",
+        "fn main() {\n    let answer = 42\n    println(\"answer = {answer}\")\n    println(\"debug complete\")\n}\n",
     )
     .unwrap();
     let program = build_nexul_program(&nxc, &source, &output).unwrap();
@@ -56,34 +56,40 @@ fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
     }
 
     let mut client = DapClient::spawn(&adapter).unwrap();
+    eprintln!(
+        "Real DAP test: nxc={}, lldb-dap={}",
+        nxc.display(),
+        adapter.program.display()
+    );
     assert!(
         client
             .initialize("nexul-test", "NEXUL Studio DAP integration")
             .unwrap()
             .success
     );
-    assert!(
-        client
-            .launch(lldb_launch_arguments(
-                &program.executable,
-                &root,
-                &[],
-                false
-            ))
-            .unwrap()
-            .success
-    );
+    let launch = client
+        .begin_launch(lldb_launch_arguments(
+            &program.executable,
+            &root,
+            &[],
+            false,
+        ))
+        .unwrap();
     assert!(
         next_matching(&client, &["initialized"], Duration::from_secs(10)).is_some(),
         "adapter did not initialize"
     );
-    assert!(
-        client
-            .set_breakpoints(&source, &[Breakpoint::new(3)])
-            .unwrap()
-            .success
+    let breakpoints = client
+        .set_breakpoints(&source, &[Breakpoint::new(3)])
+        .unwrap();
+    assert!(breakpoints.success, "{}", breakpoints.body);
+    assert_eq!(
+        breakpoints.body["breakpoints"][0]["verified"], true,
+        "{}",
+        breakpoints.body
     );
     assert!(client.configuration_done().unwrap().success);
+    assert!(launch.wait(Duration::from_secs(15)).unwrap().success);
     let stopped = next_matching(
         &client,
         &["stopped", "terminated", "exited"],
@@ -95,6 +101,7 @@ fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
         .as_i64()
         .expect("stopped event has no threadId");
     let stack = client.stack_trace(thread_id, Some(0), Some(20)).unwrap();
+    assert_eq!(stack.body["stackFrames"][0]["line"], 3, "{}", stack.body);
     let frame = stack.body["stackFrames"][0]["id"]
         .as_i64()
         .expect("no stack frame");
@@ -112,8 +119,10 @@ fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
     assert!(
         variables.body["variables"]
             .as_array()
-            .is_some_and(|items| items.iter().any(|item| item["name"] == "answer")),
-        "local variable `answer` was not visible: {}",
+            .is_some_and(|items| items
+                .iter()
+                .any(|item| item["name"] == "answer" && item["value"] == "42")),
+        "local variable `answer = 42` was not visible: {}",
         variables.body
     );
     assert!(client.next(thread_id).unwrap().success);
@@ -124,6 +133,12 @@ fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
     )
     .expect("step did not stop the program");
     assert_eq!(stepped.event, "stopped");
+    let stepped_stack = client.stack_trace(thread_id, Some(0), Some(20)).unwrap();
+    assert_eq!(
+        stepped_stack.body["stackFrames"][0]["line"], 4,
+        "{}",
+        stepped_stack.body
+    );
     let _ = client.continue_execution(thread_id);
     let _ = next_matching(&client, &["exited", "terminated"], Duration::from_secs(15));
     let _ = client.disconnect(true);

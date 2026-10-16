@@ -333,6 +333,58 @@ pub struct DapResponse {
     pub body: Value,
 }
 
+/// An already-sent request whose reply can be awaited after other DAP messages.
+/// Dropping this handle removes its local response subscription.
+#[must_use = "wait for the response, or drop the handle to abandon it"]
+pub struct PendingRequest {
+    sequence: i64,
+    command: String,
+    receiver: Receiver<Value>,
+    pending: Arc<Mutex<HashMap<i64, Sender<Value>>>>,
+}
+
+impl PendingRequest {
+    /// Wait at most `timeout` from this call, while the client can still route events.
+    pub fn wait(self, timeout: Duration) -> Result<DapResponse, DapError> {
+        let value = match self.receiver.recv_timeout(timeout) {
+            Ok(value) => value,
+            Err(RecvTimeoutError::Timeout) => return Err(DapError::Timeout(self.command.clone())),
+            Err(RecvTimeoutError::Disconnected) => return Err(DapError::AdapterExited),
+        };
+        let response = value
+            .as_object()
+            .ok_or_else(|| DapError::InvalidMessage("response is not an object".into()))?;
+        Ok(DapResponse {
+            request_seq: response
+                .get("request_seq")
+                .and_then(Value::as_i64)
+                .unwrap_or(0),
+            command: response
+                .get("command")
+                .and_then(Value::as_str)
+                .unwrap_or(&self.command)
+                .to_owned(),
+            success: response
+                .get("success")
+                .and_then(Value::as_bool)
+                .unwrap_or(false),
+            message: response
+                .get("message")
+                .and_then(Value::as_str)
+                .map(str::to_owned),
+            body: response.get("body").cloned().unwrap_or(Value::Null),
+        })
+    }
+}
+
+impl Drop for PendingRequest {
+    fn drop(&mut self) {
+        if let Ok(mut pending) = self.pending.lock() {
+            pending.remove(&self.sequence);
+        }
+    }
+}
+
 #[derive(Serialize)]
 struct BreakpointRequest<'a> {
     line: u32,
@@ -443,6 +495,16 @@ impl DapClient {
         arguments: Value,
         timeout: Duration,
     ) -> Result<DapResponse, DapError> {
+        self.request_async(command, arguments)?.wait(timeout)
+    }
+
+    /// Send a request without waiting for its reply. Useful when an adapter needs
+    /// configuration requests before it can complete `launch` or `attach`.
+    pub fn request_async(
+        &self,
+        command: &str,
+        arguments: Value,
+    ) -> Result<PendingRequest, DapError> {
         if self.closed {
             return Err(DapError::AdapterExited);
         }
@@ -452,54 +514,21 @@ impl DapClient {
             .lock()
             .map_err(|_| DapError::InvalidMessage("pending request lock poisoned".into()))?
             .insert(seq, tx);
+        let request = PendingRequest {
+            sequence: seq,
+            command: command.to_owned(),
+            receiver: rx,
+            pending: self.pending.clone(),
+        };
         let message = json!({"seq":seq,"type":"request","command":command,"arguments":arguments});
-        if let Err(error) = write_frame(
+        write_frame(
             &mut *self
                 .writer
                 .lock()
                 .map_err(|_| DapError::InvalidMessage("adapter input lock poisoned".into()))?,
             &message,
-        ) {
-            self.pending
-                .lock()
-                .ok()
-                .map(|mut pending| pending.remove(&seq));
-            return Err(error);
-        }
-        let value = match rx.recv_timeout(timeout) {
-            Ok(value) => value,
-            Err(RecvTimeoutError::Timeout) => {
-                self.pending
-                    .lock()
-                    .ok()
-                    .map(|mut pending| pending.remove(&seq));
-                return Err(DapError::Timeout(command.to_owned()));
-            }
-            Err(RecvTimeoutError::Disconnected) => return Err(DapError::AdapterExited),
-        };
-        let response = value
-            .as_object()
-            .ok_or_else(|| DapError::InvalidMessage("response is not an object".into()))?;
-        Ok(DapResponse {
-            request_seq: response
-                .get("request_seq")
-                .and_then(Value::as_i64)
-                .unwrap_or(0),
-            command: response
-                .get("command")
-                .and_then(Value::as_str)
-                .unwrap_or(command)
-                .to_owned(),
-            success: response
-                .get("success")
-                .and_then(Value::as_bool)
-                .unwrap_or(false),
-            message: response
-                .get("message")
-                .and_then(Value::as_str)
-                .map(str::to_owned),
-            body: response.get("body").cloned().unwrap_or(Value::Null),
-        })
+        )?;
+        Ok(request)
     }
 
     pub fn initialize(&self, client_id: &str, client_name: &str) -> Result<DapResponse, DapError> {
@@ -516,9 +545,19 @@ impl DapClient {
         )
     }
 
+    /// Start launch, then configure on `initialized` before awaiting the reply.
+    pub fn begin_launch(&self, arguments: Value) -> Result<PendingRequest, DapError> {
+        self.request_async("launch", arguments)
+    }
+    pub fn begin_attach(&self, arguments: Value) -> Result<PendingRequest, DapError> {
+        self.request_async("attach", arguments)
+    }
+    /// Blocking convenience for adapters which do not defer the launch response.
+    /// For LLDB and normal session setup, use `begin_launch` instead.
     pub fn launch(&self, arguments: Value) -> Result<DapResponse, DapError> {
         self.request("launch", arguments)
     }
+    /// Blocking convenience; use `begin_attach` if configuration is still needed.
     pub fn attach(&self, arguments: Value) -> Result<DapResponse, DapError> {
         self.request("attach", arguments)
     }
