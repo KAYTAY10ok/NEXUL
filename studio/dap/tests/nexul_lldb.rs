@@ -22,11 +22,17 @@ fn next_matching(client: &DapClient, event_names: &[&str], timeout: Duration) ->
 #[test]
 fn lldb_dap_debugs_a_nexul_program_with_breakpoint_variables_and_step() {
     let Some(nxc) = find_nxc() else {
+        if std::env::var_os("NEXUL_NXC").is_some() {
+            panic!("NEXUL_NXC is set, but it does not point to an existing compiler binary");
+        }
         eprintln!("SKIP: set NEXUL_NXC or put nxc in PATH to run the NEXUL/LLDB integration test");
         return;
     };
     let registry = AdapterRegistry::discover(Some(&nxc));
     let Some(adapter) = registry.get(AdapterKind::LldbDap).cloned() else {
+        if std::env::var_os("NEXUL_LLVM").is_some() {
+            panic!("NEXUL_LLVM is set, but no lldb-dap executable was found under that LLVM path");
+        }
         eprintln!("SKIP: lldb-dap was not found; install it with LLVM or NEXUL");
         return;
     };

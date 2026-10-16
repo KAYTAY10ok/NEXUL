@@ -38,6 +38,7 @@ fn main() -> io::Result<()> {
     let mut reader = BufReader::new(stdin.lock());
     let stdout = io::stdout();
     let mut writer = stdout.lock();
+    let exit_after_launch = std::env::args().any(|arg| arg == "--exit-after-launch");
     let mut pending_start = None;
     while let Some(message) = read_frame(&mut reader)? {
         let seq = message["seq"].as_i64().unwrap_or(0);
@@ -50,6 +51,9 @@ fn main() -> io::Result<()> {
                     &mut writer,
                     json!({ "seq": 500, "type": "event", "event": "initialized", "body": {} }),
                 )?;
+                if exit_after_launch {
+                    break;
+                }
                 continue;
             }
             "initialize" => {

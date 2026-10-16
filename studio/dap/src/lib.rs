@@ -8,7 +8,7 @@ use std::io::{self, BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicI64, Ordering};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -333,23 +333,67 @@ pub struct DapResponse {
     pub body: Value,
 }
 
+#[derive(Clone, Debug)]
+enum PendingResult {
+    Response(Value),
+    AdapterExited,
+    ReaderFailed(String),
+}
+
+#[derive(Default)]
+struct PendingRequests {
+    adapter_exited: bool,
+    requests: HashMap<i64, Sender<PendingResult>>,
+}
+
 /// An already-sent request whose reply can be awaited after other DAP messages.
 /// Dropping this handle removes its local response subscription.
 #[must_use = "wait for the response, or drop the handle to abandon it"]
 pub struct PendingRequest {
     sequence: i64,
     command: String,
-    receiver: Receiver<Value>,
-    pending: Arc<Mutex<HashMap<i64, Sender<Value>>>>,
+    receiver: Receiver<PendingResult>,
+    pending: Arc<Mutex<PendingRequests>>,
+    completed: Option<PendingResult>,
 }
 
 impl PendingRequest {
     /// Wait at most `timeout` from this call, while the client can still route events.
-    pub fn wait(self, timeout: Duration) -> Result<DapResponse, DapError> {
-        let value = match self.receiver.recv_timeout(timeout) {
-            Ok(value) => value,
-            Err(RecvTimeoutError::Timeout) => return Err(DapError::Timeout(self.command.clone())),
-            Err(RecvTimeoutError::Disconnected) => return Err(DapError::AdapterExited),
+    pub fn wait(mut self, timeout: Duration) -> Result<DapResponse, DapError> {
+        let result = match self.completed.take() {
+            Some(result) => result,
+            None => match self.receiver.recv_timeout(timeout) {
+                Ok(result) => result,
+                Err(RecvTimeoutError::Timeout) => {
+                    return Err(DapError::Timeout(self.command.clone()))
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(DapError::AdapterExited),
+            },
+        };
+        self.decode_result(result)
+    }
+
+    /// Return immediately with `None` while the adapter has not replied yet.
+    /// The response subscription stays active after `None` and can be polled again.
+    pub fn try_wait(&mut self) -> Result<Option<DapResponse>, DapError> {
+        if self.completed.is_some() {
+            return Ok(None);
+        }
+        match self.receiver.try_recv() {
+            Ok(result) => {
+                self.completed = Some(result.clone());
+                self.decode_result(result).map(Some)
+            }
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => Err(DapError::AdapterExited),
+        }
+    }
+
+    fn decode_result(&self, result: PendingResult) -> Result<DapResponse, DapError> {
+        let value = match result {
+            PendingResult::Response(value) => value,
+            PendingResult::AdapterExited => return Err(DapError::AdapterExited),
+            PendingResult::ReaderFailed(message) => return Err(DapError::InvalidMessage(message)),
         };
         let response = value
             .as_object()
@@ -380,7 +424,7 @@ impl PendingRequest {
 impl Drop for PendingRequest {
     fn drop(&mut self) {
         if let Ok(mut pending) = self.pending.lock() {
-            pending.remove(&self.sequence);
+            pending.requests.remove(&self.sequence);
         }
     }
 }
@@ -431,7 +475,7 @@ impl Breakpoint {
 pub struct DapClient {
     adapter_id: String,
     writer: Arc<Mutex<std::process::ChildStdin>>,
-    pending: Arc<Mutex<HashMap<i64, Sender<Value>>>>,
+    pending: Arc<Mutex<PendingRequests>>,
     events: Receiver<DapEvent>,
     sequence: AtomicI64,
     child: Child,
@@ -464,7 +508,7 @@ impl DapClient {
             .stderr
             .take()
             .ok_or_else(|| DapError::InvalidMessage("adapter stderr was not piped".into()))?;
-        let pending = Arc::new(Mutex::new(HashMap::<i64, Sender<Value>>::new()));
+        let pending = Arc::new(Mutex::new(PendingRequests::default()));
         let (event_tx, events) = mpsc::channel();
         let reader_thread = Some(spawn_reader_thread(
             stdout,
@@ -510,24 +554,33 @@ impl DapClient {
         }
         let seq = self.sequence.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = mpsc::channel();
-        self.pending
-            .lock()
-            .map_err(|_| DapError::InvalidMessage("pending request lock poisoned".into()))?
-            .insert(seq, tx);
+        {
+            let mut pending = self
+                .pending
+                .lock()
+                .map_err(|_| DapError::InvalidMessage("pending request lock poisoned".into()))?;
+            if pending.adapter_exited {
+                return Err(DapError::AdapterExited);
+            }
+            pending.requests.insert(seq, tx);
+        }
         let request = PendingRequest {
             sequence: seq,
             command: command.to_owned(),
             receiver: rx,
             pending: self.pending.clone(),
+            completed: None,
         };
         let message = json!({"seq":seq,"type":"request","command":command,"arguments":arguments});
-        write_frame(
-            &mut *self
-                .writer
-                .lock()
-                .map_err(|_| DapError::InvalidMessage("adapter input lock poisoned".into()))?,
-            &message,
-        )?;
+        let write_result = self
+            .writer
+            .lock()
+            .map_err(|_| DapError::InvalidMessage("adapter input lock poisoned".into()))
+            .and_then(|mut writer| write_frame(&mut *writer, &message));
+        if let Err(error) = write_result {
+            drop(request);
+            return Err(error);
+        }
         Ok(request)
     }
 
@@ -554,10 +607,12 @@ impl DapClient {
     }
     /// Blocking convenience for adapters which do not defer the launch response.
     /// For LLDB and normal session setup, use `begin_launch` instead.
+    #[deprecated(note = "use begin_launch and handle the initialized event before waiting")]
     pub fn launch(&self, arguments: Value) -> Result<DapResponse, DapError> {
         self.request("launch", arguments)
     }
     /// Blocking convenience; use `begin_attach` if configuration is still needed.
+    #[deprecated(note = "use begin_attach and handle the initialized event before waiting")]
     pub fn attach(&self, arguments: Value) -> Result<DapResponse, DapError> {
         self.request("attach", arguments)
     }
@@ -689,33 +744,36 @@ impl Drop for DapClient {
 
 fn spawn_reader_thread(
     stdout: std::process::ChildStdout,
-    pending: Arc<Mutex<HashMap<i64, Sender<Value>>>>,
+    pending: Arc<Mutex<PendingRequests>>,
     events: Sender<DapEvent>,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name("nexul-dap-reader".into())
         .spawn(move || {
             let mut reader = BufReader::new(stdout);
-            loop {
+            let terminal_result = loop {
                 match read_frame(&mut reader) {
                     Ok(Some(value)) => route_message(value, &pending, &events),
-                    Ok(None) => break,
+                    Ok(None) => break PendingResult::AdapterExited,
                     Err(error) => {
+                        let message = error.to_string();
                         let _ = events.send(DapEvent {
                             event: "protocolError".into(),
-                            body: json!({ "message": error.to_string() }),
+                            body: json!({ "message": message }),
                         });
-                        break;
+                        break PendingResult::ReaderFailed(message);
                     }
                 }
-            }
-            let pending = pending
-                .lock()
-                .ok()
-                .map(|mut pending| std::mem::take(&mut *pending))
-                .unwrap_or_default();
-            for (_, sender) in pending {
-                drop(sender);
+            };
+            let requests = {
+                let mut state = pending
+                    .lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                state.adapter_exited = true;
+                std::mem::take(&mut state.requests)
+            };
+            for (_, sender) in requests {
+                let _ = sender.send(terminal_result.clone());
             }
             let _ = events.send(DapEvent {
                 event: "adapterExited".into(),
@@ -742,16 +800,14 @@ fn spawn_stderr_thread(
         .expect("failed to start DAP stderr thread")
 }
 
-fn route_message(
-    value: Value,
-    pending: &Arc<Mutex<HashMap<i64, Sender<Value>>>>,
-    events: &Sender<DapEvent>,
-) {
+fn route_message(value: Value, pending: &Arc<Mutex<PendingRequests>>, events: &Sender<DapEvent>) {
     match value.get("type").and_then(Value::as_str) {
         Some("response") => {
             let request_seq = value.get("request_seq").and_then(Value::as_i64);
-            if let Some(sender) = request_seq.and_then(|seq| pending.lock().ok()?.remove(&seq)) {
-                let _ = sender.send(value);
+            if let Some(sender) =
+                request_seq.and_then(|seq| pending.lock().ok()?.requests.remove(&seq))
+            {
+                let _ = sender.send(PendingResult::Response(value));
             }
         }
         Some("event") => {
@@ -885,10 +941,20 @@ pub fn lldb_launch_arguments(
 
 /// Find `nxc` from an explicit environment path or from `PATH`.
 pub fn find_nxc() -> Option<PathBuf> {
-    std::env::var_os("NEXUL_NXC")
-        .map(PathBuf::from)
-        .filter(|path| path.is_file())
-        .or_else(|| find_executable(&["nxc.exe", "nxc"]))
+    let explicit = std::env::var_os("NEXUL_NXC").map(PathBuf::from);
+    let path_candidate = if explicit.is_none() {
+        find_executable(&["nxc.exe", "nxc"])
+    } else {
+        None
+    };
+    select_nxc(explicit, path_candidate)
+}
+
+fn select_nxc(explicit: Option<PathBuf>, path_candidate: Option<PathBuf>) -> Option<PathBuf> {
+    match explicit {
+        Some(path) => path.is_file().then_some(path),
+        None => path_candidate.filter(|path| path.is_file()),
+    }
 }
 
 #[cfg(test)]
@@ -926,5 +992,24 @@ mod tests {
         let value = read_frame(&mut io::Cursor::new(frame)).unwrap().unwrap();
         assert_eq!(value["event"], "stopped");
         assert_eq!(value["body"]["threadId"], 3);
+    }
+
+    #[test]
+    fn invalid_explicit_nxc_path_does_not_fall_back_to_path() {
+        assert!(select_nxc(
+            Some(std::env::temp_dir()),
+            Some(std::env::current_exe().unwrap())
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn explicit_nxc_path_takes_precedence_over_path_candidate() {
+        let explicit = std::env::current_exe().unwrap();
+        let path_candidate = std::env::temp_dir().join("another-nxc-candidate.exe");
+        assert_eq!(
+            select_nxc(Some(explicit.clone()), Some(path_candidate)),
+            Some(explicit)
+        );
     }
 }
