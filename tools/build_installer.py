@@ -23,7 +23,7 @@ STAGING = os.path.join(ROOT, "target", "installer-staging")
 COMPONENTS = [
     ("core", True, True, "Compilateur NEXUL", "nxc et nxpm : compiler, tester, formater, gérer les paquets. La bibliothèque standard est incluse."),
     ("llvm", True, True, "Génération de code LLVM", "LLVM et l'éditeur de liens LLD : code machine optimisé pour Windows, Linux, macOS, WebAssembly et microcontrôleurs."),
-    ("studio", False, True, "NEXUL Studio", "L'environnement de développement : complétion, documentation au survol, refactorisation, tests, paquets, extensions, aperçu web."),
+    ("studio", False, True, "NEXUL Studio", "L'application native est utilisée par défaut; l'ancienne interface web reste disponible séparément."),
     ("debugger", False, True, "Débogueur", "Points d'arrêt, pas à pas, variables et pile d'appels dans NEXUL Studio (LLDB et son moteur Python)."),
     ("samples", False, True, "Exemples et documentation", "Programmes d'exemple, guide du langage, spécification et documentation des extensions de Studio."),
 ]
@@ -71,6 +71,9 @@ def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.expanduser("~"), "Desktop", "NEXUL Setup.exe")
     print("== compilation")
     subprocess.check_call(["cargo", "build", "--release", "--workspace"], cwd=ROOT)
+    print("== Studio natif (MSVC)")
+    app = os.path.join(ROOT, "studio", "app")
+    subprocess.check_call(["cargo", "+stable-x86_64-pc-windows-msvc", "build", "--release"], cwd=app)
     if os.path.isdir(STAGING):
         shutil.rmtree(STAGING)
     os.makedirs(STAGING)
@@ -100,7 +103,8 @@ def main():
                 "==============================================================================\n"
                 + apache + "\n" + exception)
     # studio
-    copy(os.path.join(TARGET, "NEXUL-Studio.exe"), st("studio", "bin", "NEXUL Studio.exe"))
+    copy(os.path.join(app, "target", "release", "NEXUL-Studio-Native.exe"), st("studio", "bin", "NEXUL Studio.exe"))
+    copy(os.path.join(TARGET, "NEXUL-Studio.exe"), st("studio", "bin", "NEXUL Studio (web).exe"))
     copy_tree(os.path.join(ROOT, "studio", "plugins"), st("studio", "bin", "plugins"))
     copy(os.path.join(ROOT, "studio", "assets", "nexul-studio.ico"), st("studio", "bin", "nexul-studio.ico"))
     # debugger

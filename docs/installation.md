@@ -10,7 +10,7 @@ installe NEXUL **pour votre compte**, sans droits d'administrateur, par défaut 
 |---|---|
 | Compilateur NEXUL *(requis)* | `nxc` et `nxpm`, avec la bibliothèque standard intégrée |
 | Génération de code LLVM *(requis)* | `LLVM-C.dll` et l'éditeur de liens LLD (`lld-link`, `ld.lld`, `wasm-ld`, `ld64.lld`) |
-| NEXUL Studio | l'environnement de développement et ses extensions d'exemple |
+| NEXUL Studio | l'application native et ses extensions d'exemple; l'ancienne interface web est conservée séparément |
 | Débogueur | LLDB (`lldb-dap`, `liblldb.dll`) et le moteur Python qu'il utilise |
 | Exemples et documentation | `examples\`, `docs\` (guide, spécification, API des extensions) |
 
@@ -18,7 +18,7 @@ Dossier installé :
 
 ```
 NEXUL\
-  bin\        nxc.exe, nxpm.exe, NEXUL Studio.exe, plugins\
+  bin\        nxc.exe, nxpm.exe, NEXUL Studio.exe (natif), NEXUL Studio (web).exe, plugins\
   llvm\       bin\ (LLVM, LLD, LLDB, python\)
   examples\   docs\
   Désinstaller NEXUL.exe   install.txt   nexul.ico
@@ -28,6 +28,12 @@ Options de l'assistant : ajout de `bin\` au **PATH** de l'utilisateur (avec la v
 `NEXUL_HOME`), raccourci sur le **Bureau**, dossier **NEXUL** dans le menu Démarrer
 (Studio, guide, désinstallation), ouverture des fichiers **`.nx`** avec NEXUL Studio.
 L'installation est inscrite dans *Paramètres → Applications installées*.
+Le raccourci, l'association `.nx` et le bouton « Lancer NEXUL Studio » ouvrent l'application
+native sans Edge. `NEXUL Studio (web).exe` reste disponible pour ouvrir l'ancienne interface
+pendant la transition. Lors de la première installation native, les préférences compatibles
+de `%APPDATA%\NEXUL Studio\state.json` (thème, dernier dossier, onglets ouverts, panneau,
+barre latérale et sauvegarde automatique) sont reprises dans `native.json`; des réglages
+natifs déjà présents sont conservés.
 
 Chaque fichier est vérifié (SHA-256) après décompression : un programme d'installation
 endommagé est détecté avant toute écriture incorrecte.
@@ -123,14 +129,24 @@ target/release/nxc run examples/bonjour.nx
 `nxc` trouve LLVM dans `NEXUL_LLVM`, dans un dossier `llvm` installé à côté de lui, puis
 dans les emplacements habituels et le `PATH` (spécification §10.4).
 
+L'application Studio native se construit séparément avec la chaîne MSVC :
+
+```
+cd studio/app
+cargo +stable-x86_64-pc-windows-msvc build --release
+```
+
+Sa configuration lie statiquement le runtime C; l'installation ne demande pas le
+redistribuable Visual C++.
+
 ## Construire `NEXUL Setup.exe`
 
 ```
 python -I tools/build_installer.py ["chemin\NEXUL Setup.exe"]
 ```
 
-Le script compile l'espace de travail en mode release, rassemble les composants dans
-`target/installer-staging/` puis les empaquette avec `nexul-pack` (compression LZMS de
+Le script compile l'espace de travail en mode release, construit aussi Studio natif avec
+MSVC, rassemble les composants dans `target/installer-staging/` puis les empaquette avec `nexul-pack` (compression LZMS de
 Windows, SHA-256 de chaque fichier). Il prend LLVM, LLD et LLDB dans `NEXUL_LLVM` ou
 `C:\Program Files\LLVM`, et le moteur Python du débogueur dans la plus récente
 installation de Python 3 (ou `NEXUL_PYTHON`) : seules la bibliothèque standard de Python

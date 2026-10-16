@@ -22,6 +22,7 @@ mod http;
 mod old;
 #[allow(dead_code)]
 mod payload;
+mod migrate;
 mod ui;
 mod win;
 
@@ -232,6 +233,15 @@ pub(crate) fn install(st: &State, o: &Options) -> Result<(), String> {
     let bin = o.dir.join("bin");
     let studio = bin.join("NEXUL Studio.exe");
     let has_studio = studio.is_file();
+    if has_studio {
+        match migrate::migrate_legacy_settings() {
+            Ok(true) => log(st, "Préférences de l'ancien Studio migrées"),
+            Ok(false) => {}
+            Err(error) => set_progress(st, |p| {
+                p.warnings.push(format!("Les préférences de l'ancien Studio n'ont pas pu être migrées : {error}"));
+            }),
+        }
+    }
     let mut options = Vec::new();
     // PATH of the user.
     if o.path {

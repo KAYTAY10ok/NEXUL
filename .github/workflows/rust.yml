@@ -25,3 +25,18 @@ jobs:
     - uses: actions/checkout@v4
     - name: Build
       run: cargo build --workspace --verbose
+    - name: Run installer tests in a sandbox
+      run: cargo test --verbose --manifest-path installer/Cargo.toml --features test-sandbox --test silent --bins
+    # The crates of Studio have their own Cargo workspaces (MSVC on Windows).
+    - name: Test studio/syntax
+      timeout-minutes: 10
+      run: cargo test --manifest-path studio/syntax/Cargo.toml
+    - name: Test studio/terminal (ConPTY)
+      timeout-minutes: 10
+      run: cargo test --manifest-path studio/terminal/Cargo.toml
+    - name: Test studio/dap (fake adapter; the lldb-dap test needs NEXUL_NXC)
+      timeout-minutes: 10
+      run: cargo test --manifest-path studio/dap/Cargo.toml
+    - name: Test studio/lsp
+      timeout-minutes: 10
+      run: cargo test --manifest-path studio/lsp/Cargo.toml

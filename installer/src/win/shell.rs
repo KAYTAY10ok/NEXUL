@@ -147,6 +147,26 @@ pub fn read_shortcut(lnk: &Path) -> Option<(String, String)> {
     Some((from_wide(&target), from_wide(&args)))
 }
 
+/// Expands 8.3 path components when the target exists. Returns None if Windows cannot
+/// resolve the path; callers can then use the original spelling.
+pub fn long_path(path: &Path) -> Option<PathBuf> {
+    if path.as_os_str().to_string_lossy().contains('\0') {
+        return None;
+    }
+    let input = wide(path);
+    let needed = unsafe { GetLongPathNameW(input.as_ptr(), std::ptr::null_mut(), 0) };
+    if needed == 0 {
+        return None;
+    }
+    let mut buffer = vec![0u16; needed as usize];
+    let written = unsafe { GetLongPathNameW(input.as_ptr(), buffer.as_mut_ptr(), needed) };
+    if written == 0 || written >= needed {
+        return None;
+    }
+    buffer.truncate(written as usize);
+    Some(PathBuf::from(from_wide(&buffer)))
+}
+
 /// Tells the shell that file associations changed (icons, "open with"). Not in the
 /// sandbox of the tests.
 pub fn notify_associations() {
@@ -316,13 +336,15 @@ mod tests {
         };
         create_shortcut(&lnk, &s).unwrap();
         let (t, a) = read_shortcut(&lnk).unwrap();
-        assert_eq!(PathBuf::from(t), target);
+        assert_eq!(PathBuf::from(t).canonicalize().unwrap(), target.canonicalize().unwrap());
         assert_eq!(a, r#""C:\projets\a b""#);
         // Replacing an existing shortcut.
         let other = target_dir.join("nxc.exe");
         std::fs::write(&other, b"MZ").unwrap();
         create_shortcut(&lnk, &Shortcut { target: &other, arguments: "", ..s }).unwrap();
-        assert_eq!(read_shortcut(&lnk).map(|(t, a)| (PathBuf::from(t), a)), Some((other, String::new())));
+        let (actual, arguments) = read_shortcut(&lnk).unwrap();
+        assert_eq!(PathBuf::from(actual).canonicalize().unwrap(), other.canonicalize().unwrap());
+        assert_eq!(arguments, "");
         assert_eq!(read_shortcut(&d.join("absent.lnk")), None);
         assert!(create_shortcut(&d.join("absent").join("x.lnk"), &s).is_err());
         let _ = std::fs::remove_dir_all(&d);

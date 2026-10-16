@@ -121,7 +121,10 @@ fn nexul_shortcuts(dir: &Path, out: &mut Vec<PathBuf>) {
 
 /// A path for comparisons: lowercase, `\`, no final `\`.
 fn norm(p: &str) -> String {
-    p.trim().trim_matches('"').replace('/', "\\").trim_end_matches('\\').to_lowercase()
+    let p = p.trim().trim_matches('"').replace('/', "\\");
+    let path = Path::new(&p);
+    let expanded = shell::long_path(path).unwrap_or_else(|| PathBuf::from(&p));
+    expanded.to_string_lossy().replace('/', "\\").trim_end_matches('\\').to_lowercase()
 }
 
 /// `p` is `root` or inside it.

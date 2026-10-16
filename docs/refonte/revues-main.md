@@ -61,3 +61,47 @@ correction demandée** (propriétaire : Codex Sol).
 2. `quality-matrix.md` et `manual-studio-checklist.md` décrivent `main` à `548b1f6` : ils
    sont dépassés (fermeture avec dialogue, coloration et modèles raccordés, extension VS
    Code livrée). Main les met à jour avec l'essai manuel M19.
+
+## 16/10/2026 — PR #20, #21, #25 (Codex Sol) : intégrées par Main
+
+Revue outillée (un relecteur par PR, worktree propre, `main` fusionné, vrais tests MSVC).
+
+**#20 L1 terminal ConPTY — INTÉGRÉE.** Le blocage est corrigé : sur `main`, les 2 tests
+ConPTY dépassaient 60 s ; avec la PR, 5 suites et 90 exécutions directes (dont 6 processus
+en parallèle) passent en 0,4–1,4 s ; 30 cycles lancement/arrêt sans fuite de handles ni
+de threads ; un seul `Exited` par terminal. À reprendre par Sol (faible) :
+1. Le lecteur écrit les réponses DSR sous le verrou d'entrée : risque d'interblocage Unix
+   avec un grand collage. Passer par un fil d'écriture dédié (canal) ou `try_lock` + file.
+2. Le surveillant interroge `try_wait` toutes les 10 ms sous le verrou du processus :
+   préférer `clone_killer()` + `wait()` bloquant.
+3. `lock().unwrap()` dans le nettoyage du surveillant → `unwrap_or_else(|e| e.into_inner())`.
+4. Unix : `stop()` peut attendre tant qu'un travail d'arrière-plan garde le PTY (antérieur
+   à la PR) : délai de grâce ou limite documentée.
+
+**#21 L2 DAP avec le vrai `lldb-dap` — INTÉGRÉE.** Sur `main`, le test réel échoue
+(`Timeout("launch")`, 16 s) ; avec la PR : 3 + 4 + 1 réel (point d'arrêt vérifié,
+`answer = 42`, pas à pas), 30 + 10 exécutions stables ; corrélation par numéro de
+séquence correcte. À reprendre par Sol :
+1. (moyen) `launch()`/`attach()` bloquants restent publics mais attendent toujours 15 s avec
+   `lldb-dap` 23 : `#[deprecated]` vers `begin_launch`/`begin_attach`, ou un test qui les couvre.
+2. `PendingRequest::wait` consomme la requête : ajouter `try_wait` (sondage sans blocage
+   pour l'interface, M7).
+3. Une requête envoyée après l'arrêt du lecteur attend son délai au lieu de
+   `AdapterExited` (antérieur) ; le README l'affirme pourtant.
+4. Avec `NEXUL_NXC`/`NEXUL_LLVM` définis, un outil absent doit faire échouer le test réel
+   au lieu de le sauter.
+
+**#25 L3 installateur natif + CI — INTÉGRÉE avec corrections de Main.** Conflits résolus :
+le CI de `main` (PR #28, déjà vert) est gardé, plus l'étape des tests bac à sable de
+l'installateur et des étapes Windows pour `studio/syntax`, `terminal`, `dap`, `lsp` ;
+l'étape LLVM 19 est abandonnée (inutile depuis `f8fc0d3`). Corrigé par Main dans
+`installer/src/migrate.rs` :
+- l'analyseur JSON était quadratique (1 Mio : 193 s) → copie des suites de caractères,
+  linéaire ; test `large_strings_parse_in_linear_time` ;
+- un dossier `NEXUL Studio` ou un `state.json` qui est un lien ou une jonction, ou qui
+  sort de `%APPDATA%`, annule la migration (installateur élevé) ;
+- deux dossiers ne différant que par la casse gardent la session la plus récente (`t`) ;
+  test `folders_differing_only_in_case_keep_the_most_recent_session`.
+Tests : `cargo test --manifest-path installer/Cargo.toml --features test-sandbox --test
+silent --bins` (24 + 4) et `--test ui` (2) verts sur cette machine (session administrateur).
+Non testé : `tools/build_installer.py` complet avec Studio natif MSVC (tâche 4 de Sol).

@@ -16,10 +16,10 @@ Claude Main conserve la revue et l'intégration.
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
 | 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
-| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) remise à jour sur `main`, fusionnable, revue Main attendue ; CI Linux bloquée par le build global de l’installateur Windows |
-| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) remise à jour sur `main`, fusionnable, revue Main attendue ; CI Linux bloquée par le build global de l’installateur Windows |
+| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉ** par Main le 16/10 (revue : 5 suites + 90 exécutions sans blocage ; suites dans `revues-main.md`) |
+| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉ** par Main le 16/10 (vrai `lldb-dap` 23 revérifié ; suites dans `revues-main.md`) |
 | 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
-| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; tests Windows de l’installateur réussis ; 2 tests Linux FFI échouent dans le compilateur (Core). Construction complète MSVC non testée ici. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) **INTÉGRÉ** par Main le 16/10 avec le CI de `main` (PR #28 : échecs FFI Linux corrigés par `e78a357`), l'analyseur JSON de la migration rendu linéaire et la migration sautée en mode élevé (revue). |
 | 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte et fusionnable. Son CI Linux échoue en compilant l’installateur Windows (`std::os::windows`, `kernel32`), problème couvert par la séparation de workflow de la PR #25, en attente de revue Main. Le formatage édition 1 reste bloqué sans modifier le document. |
 | 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
 
@@ -132,3 +132,28 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - `git diff --check` : réussi. Le VSIX n’a pas été installé dans une instance utilisateur
   et l’extension n’a pas été publiée sur le Marketplace. Le formatage Edition 1 dépend
   de son implémentation par Core dans `nxc`.
+
+## Diagnostic et correction de la CI L3
+
+- Le journal reçu est un échec réel de `cargo build --verbose` sous Ubuntu : le workspace
+  compile `nexul-installer`, qui importe `std::os::windows::ffi::OsStrExt`, utilise
+  `encode_wide` et lie `kernel32`. La compilation se termine avec le code 101; ce n'est
+  pas un avertissement à ignorer et les tests ne démarrent pas.
+- `.github/workflows/rust.yml` sépare maintenant les plateformes : Ubuntu construit et
+  teste le workspace en excluant `nexul-installer`; Windows lance les tests bac à sable
+  de l'installateur avec `test-sandbox`.
+- `git diff --check` : réussi. Le premier passage de la PR #25 a révélé deux échecs :
+  l'LLVM fourni par Ubuntu rejetait le debug record `#dbg_declare`, et Windows comparait
+  un chemin court 8.3 au chemin long équivalent. LLVM 19 corrige le premier problème; le
+  test de raccourci unitaire passe. Le second passage échoue ensuite dans `tests/run/ffi.nx` :
+  `abs`, `strlen` et `sqrt` ne sont pas résolus parce que l'éditeur de liens Linux NEXUL
+  produit des exécutables statiques sans libc. Ce code relève de `compiler/**` (Core).
+  `Path::canonicalize` ne résolvait pas le nom court 8.3 dans l'environnement sandbox.
+  `GetLongPathNameW` a corrigé les comparaisons, puis le test E2E a révélé que cette aliasation
+  empêchait aussi la désinstallation de reconnaître son propre raccourci. `old::norm` étend
+  maintenant les chemins existants avant le contrôle de contenance. Sur le run GitHub Actions
+  `38867503229` du commit `0a61b50`, le build Linux et le job Windows réussissent; les tests
+  Linux échouent ensuite dans `tests/run/ffi.nx` sur les symboles C `abs`, `strlen` et `sqrt`
+  non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
+  La construction de `studio/app` et du paquet complet reste à vérifier par
+  `tools/build_installer.py` sur Windows avec MSVC.
