@@ -22,12 +22,12 @@ Claude Main conserve la revue et l'intégration.
 | 4 | L3 — installateur Studio natif | INTÉGRÉ dans [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ; scénario installation/mise à jour/désinstallation validé en bac à sable. Build complet de Studio MSVC non vérifié dans ce lot. |
 | 5 | L4 — extension VS Code | INTÉGRÉ dans [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26), puis formatage automatique dans [PR #28](https://github.com/KAYTAY10ok/NEXUL/pull/28). VSIX public sous `KAYTAY10ok.nexul-language`; édition 1 passe par le formateur LSP et garde ses limites documentées. |
 | 6 | L5 — modèles de projet | INTÉGRÉ dans [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ; 5 tests unitaires et 2 fonctionnels passés sous Windows MSVC et Linux. |
-| 7 | A1 — benchmarks P13 | VALIDÉ_E2E sur le commit figé `c40acbd` : 4 langages × 4 charges × 3 tailles × 3 répétitions ; toutes les sorties concordent avec C. Sources et mesures datées sous `benchmarks/astral/` ; [PR #29](https://github.com/KAYTAY10ok/NEXUL/pull/29) ouverte, vérifications Linux/Windows en attente. |
+| 7 | A1 — benchmarks P13 | VALIDÉ_E2E sur le commit figé `c40acbd` : 4 langages × 4 charges × 3 tailles × 3 répétitions ; toutes les sorties concordent avec C. Sources et mesures datées sous `benchmarks/astral/` ; [PR #29](https://github.com/KAYTAY10ok/NEXUL/pull/29) ouverte. CI Windows réussie ; CI Linux réussie après relance d’un échec intermittent `Text file busy` dans un test Core non modifié par cette PR. |
 
 ## Travail courant
 
 - Base de travail A1 : branche `refonte/sol-a1-benchmarks`, créée depuis `origin/main` à `c40acbd`.
-- PR #29 ouverte depuis `refonte/sol-a1-benchmarks` ; CI Linux et Windows en cours. Intégration laissée à la revue de Main.
+- PR #29 ouverte depuis `refonte/sol-a1-benchmarks` ; Windows et Linux passent sur le commit `f80096b` (run 31, seconde tentative Linux). La première tentative Linux a échoué une fois dans `migrated_programs_behave_the_same` avec `ExecutableFileBusy` (`Text file busy`), puis a passé sans changement du compilateur. Intégration laissée à la revue de Main.
 - Les tâches 0 à 6 du prompt sont fusionnées. La publication Marketplace existe ; aucun nouveau VSIX n'a été publié pendant le lot A1.
 - Le rapport daté inclut les versions d'outils, les options d'optimisation, les temps de compilation, le pic du working set, les sorties et les mesures individuelles.
 - Les résultats sont une base sur une seule machine Windows x64; ils ne permettent pas une promesse générale de performance.
