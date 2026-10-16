@@ -2,7 +2,7 @@
 //! and the tokenization of interpolated strings (spec §1.5).
 
 use crate::diag::{DiagSink, Diagnostic};
-use crate::source::{FileId, Span};
+use crate::source::{Edition, FileId, Span};
 use crate::token::{keyword, Align, FormatKind, FormatSpec, StrLit, StrPart, Token, TokenKind, RESERVED};
 
 /// Bidirectional control characters forbidden everywhere ("Trojan Source").
@@ -11,6 +11,12 @@ fn is_bidi_control(c: char) -> bool {
 }
 
 pub fn lex(text: &str, file: FileId, diags: &DiagSink) -> Vec<Token> {
+    lex_in(text, file, diags, Edition::V0_2)
+}
+
+/// Lexes a file written in `edition` (ADR 0010: `!`, `===`, `!==`, `|>`, `#` and the words
+/// `interface` and `loop` exist only in edition 1).
+pub fn lex_in(text: &str, file: FileId, diags: &DiagSink, edition: Edition) -> Vec<Token> {
     // Security pre-pass: report every forbidden bidirectional control character once.
     for (i, c) in text.char_indices() {
         if is_bidi_control(c) {
@@ -23,6 +29,7 @@ pub fn lex(text: &str, file: FileId, diags: &DiagSink) -> Vec<Token> {
         }
     }
     let mut lx = Lexer::new(text, file, 0, text.len(), diags, false);
+    lx.ed1 = edition == Edition::V1;
     lx.run();
     lx.tokens
 }
@@ -40,6 +47,8 @@ struct Lexer<'a> {
     saw_newline: bool,
     /// Inside an interpolation: newlines are never significant.
     nested: bool,
+    /// Edition 1 (ADR 0010).
+    ed1: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -55,6 +64,7 @@ impl<'a> Lexer<'a> {
             delims: Vec::new(),
             saw_newline: false,
             nested,
+            ed1: false,
         }
     }
 
@@ -108,11 +118,13 @@ impl<'a> Lexer<'a> {
         let line_start = self.saw_newline;
         if self.saw_newline {
             self.saw_newline = false;
-            // Rule 3: a line starting with `.ident` or `.0` continues the previous line.
-            let continues = kind == TokenKind::Dot && {
+            // Rule 3: a line starting with `.ident` or `.0` continues the previous line. In
+            // edition 1, `.Name` (capital) starts a variant (an arm of `when`), and a line
+            // starting with `|>` or `|` (variants of a `type`) continues.
+            let continues = (kind == TokenKind::Dot && {
                 let c = self.bytes.get(hi).copied().unwrap_or(0);
-                c.is_ascii_alphanumeric() || c == b'_'
-            };
+                if self.ed1 { c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'_' } else { c.is_ascii_alphanumeric() || c == b'_' }
+            }) || (self.ed1 && matches!(kind, TokenKind::PipeGt | TokenKind::Pipe));
             if !continues && self.newline_significant() {
                 let at = self.tokens.last().map(|t| t.span.hi as usize).unwrap_or(lo);
                 self.tokens.push(Token { kind: TokenKind::Newline, span: self.span(at, at), line_start: false });
@@ -213,7 +225,7 @@ impl<'a> Lexer<'a> {
             if let Some(kw) = keyword(word) {
                 self.push(kw, lo, self.pos);
             } else {
-                if RESERVED.contains(&word) {
+                if RESERVED.contains(&word) && !(self.ed1 && matches!(word, "interface" | "loop")) {
                     self.diags.emit(
                         Diagnostic::error("E0010", format!("`{}` is a reserved keyword", word))
                             .primary(self.span(lo, self.pos), "reserved for a future version of NEXUL")
@@ -256,6 +268,8 @@ impl<'a> Lexer<'a> {
         let two = (c, self.peek_at(1));
         let three = (c, self.peek_at(1), self.peek_at(2));
         let (kind, len) = match three {
+            (b'=', b'=', b'=') if self.ed1 => (EqEqEq, 3),
+            (b'!', b'=', b'=') if self.ed1 => (NotEqEq, 3),
             (b'<', b'<', b'=') => (ShlEq, 3),
             (b'>', b'>', b'=') => (ShrEq, 3),
             (b'+', b'%', b'=') => (PlusWrapEq, 3),
@@ -282,6 +296,7 @@ impl<'a> Lexer<'a> {
                 (b'>', b'=') => (Ge, 2),
                 (b'-', b'>') => (Arrow, 2),
                 (b'=', b'>') => (FatArrow, 2),
+                (b'|', b'>') if self.ed1 => (PipeGt, 2),
                 (b'.', b'.') => (DotDot, 2),
                 _ => match c {
                     b'+' => (Plus, 1),
@@ -308,6 +323,8 @@ impl<'a> Lexer<'a> {
                     b';' => (Semi, 1),
                     b'?' => (Question, 1),
                     b'@' => (At, 1),
+                    b'!' if self.ed1 => (Bang, 1),
+                    b'#' if self.ed1 => (Hash, 1),
                     _ => {
                         self.pos += 1;
                         let msg = if c == b'!' {
@@ -714,6 +731,7 @@ impl<'a> Lexer<'a> {
             return None;
         }
         let mut sub = Lexer::new(self.src, self.file, start, expr_end, self.diags, true);
+        sub.ed1 = self.ed1;
         sub.run();
         let spec = colon.map(|c| self.format_spec(c + 1, close));
         Some(StrPart::Interp { tokens: sub.tokens, spec, span: self.span(start, expr_end) })

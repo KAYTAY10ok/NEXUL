@@ -32,7 +32,7 @@ fn walk(dir: &Path, prefix: &str, depth: usize, expanded: &HashSet<String>, new_
         .flatten()
         .filter_map(|e| {
             let name = e.file_name().to_string_lossy().to_string();
-            if watch::IGNORED.contains(&name.as_str()) {
+            if watch::IGNORED.contains(&name.as_str()) || watch::is_hidden_name(&name) {
                 return None;
             }
             Some((e.file_type().ok()?.is_dir(), name))
@@ -85,6 +85,7 @@ pub fn language_of(name: &str) -> &'static str {
 pub fn language_name(lang: &str) -> &'static str {
     match lang {
         "nexul" => "NEXUL",
+        "nexul1" => "NEXUL 1",
         "rust" => "Rust",
         "javascript" => "JavaScript",
         "typescript" | "tsx" => "TypeScript",

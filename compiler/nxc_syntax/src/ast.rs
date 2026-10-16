@@ -391,6 +391,8 @@ pub enum ExprKind {
     /// String literal with interpolations.
     Interp(Vec<StrPartAst>),
     Ident(String),
+    /// Edition 1: `.Name`, a variant of the type the context expects (ADR 0010).
+    Variant(Ident),
     SelfValue,
     SelfType,
     Unit,

@@ -1,0 +1,28 @@
+error[E0110]: this expression has no effect: its value is lost
+ --> inert_statement.nx:6:9
+  |
+6 |         - b
+  |         ^^^ computed, then dropped
+  |
+  = help: if this line continues the previous one, end the previous line with the operator (`a -` then `b`)
+  = help: to compute a value and drop it on purpose, write `let _ = ...`
+
+error[E0110]: this expression has no effect: its value is lost
+ --> inert_statement.nx:8:5
+  |
+8 |     not ok
+  |     ^^^^^^ computed, then dropped
+  |
+  = help: if this line continues the previous one, end the previous line with the operator (`a -` then `b`)
+  = help: to compute a value and drop it on purpose, write `let _ = ...`
+
+error[E0110]: this expression has no effect: its value is lost
+ --> inert_statement.nx:9:5
+  |
+9 |     (a + b)
+  |     ^^^^^^^ computed, then dropped
+  |
+  = help: if this line continues the previous one, end the previous line with the operator (`a -` then `b`)
+  = help: to compute a value and drop it on purpose, write `let _ = ...`
+
+error: could not compile due to 3 errors

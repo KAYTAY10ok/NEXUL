@@ -184,7 +184,7 @@ impl Studio {
     pub(super) fn format_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(nxc) = self.nxc.clone() else { return };
         let Some(doc) = self.active.and_then(|i| self.docs.get(i)) else { return };
-        if doc.lang != "nexul" {
+        if !ide::is_nexul(doc.lang) {
             return;
         }
         let (editor, file) = (doc.editor.clone(), doc.file.borrow().clone());
@@ -211,7 +211,7 @@ impl Studio {
     /// Asks the new name of the symbol under the cursor, then renames it everywhere.
     pub(super) fn ask_rename_symbol(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some(doc) = self.active.and_then(|i| self.docs.get(i)) else { return };
-        if doc.lang != "nexul" || self.nxc.is_none() {
+        if !ide::is_nexul(doc.lang) || self.nxc.is_none() {
             return;
         }
         let (word, at) = {
@@ -230,7 +230,7 @@ impl Studio {
                 this.rename_symbol(at, name, window, cx);
             }
         });
-        self.rename_box = Some(subscription);
+        self.dialog_input = Some(subscription);
         let first = Cell::new(true);
         window.open_dialog(cx, move |dialog, window, cx| {
             if first.replace(false) {
@@ -261,7 +261,7 @@ impl Studio {
     /// Renames the symbol at `at` of the active file: nxc gives the places; the open
     /// editors are changed (can be undone), the other files on disk.
     pub(super) fn rename_symbol(&mut self, at: Position, name: String, window: &mut Window, cx: &mut Context<Self>) {
-        self.rename_box = None;
+        self.dialog_input = None;
         if name.is_empty() || !name.chars().all(|c| c.is_alphanumeric() || c == '_') || name.starts_with(|c: char| c.is_ascii_digit()) {
             return self.notify_error(&format!("« {} » n'est pas un nom valide.", name), window, cx);
         }

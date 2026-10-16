@@ -1,0 +1,33 @@
+error[E0111]: a contract (`requires`, `ensures`) is not supported yet
+ --> edition1_not_yet.nx:3:17
+  |
+3 | fn i32 f(i32 a) requires a > 0 {
+  |                 ^^^^^^^^^^^^^^ planned in edition 1 (ADR 0010), not implemented
+  |
+  = note: the compiler refuses it rather than accept it without checking it
+
+error[E0111]: a fallback value (`else` after a value) is not supported yet
+ --> edition1_not_yet.nx:8:18
+  |
+8 |     let n = f(1) else 0
+  |                  ^^^^ planned in edition 1 (ADR 0010), not implemented
+  |
+  = note: the compiler refuses it rather than accept it without checking it
+
+error[E0111]: an identity comparison (`===`, `!==`) is not supported yet
+ --> edition1_not_yet.nx:9:15
+  |
+9 |     let b = 1 === 1
+  |               ^^^ planned in edition 1 (ADR 0010), not implemented
+  |
+  = note: the compiler refuses it rather than accept it without checking it
+
+error[E0111]: a test that expects a panic (`expects panic`) is not supported yet
+  --> edition1_not_yet.nx:12:16
+   |
+12 | test "panique" expects panic {
+   |                ^^^^^^^^^^^^^ planned in edition 1 (ADR 0010), not implemented
+   |
+   = note: the compiler refuses it rather than accept it without checking it
+
+error: could not compile due to 4 errors

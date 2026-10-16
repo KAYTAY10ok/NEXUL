@@ -114,6 +114,18 @@ pub enum TokenKind {
     Question,
     At,
 
+    // Edition 1 only (ADR 0010).
+    /// Postfix `!`: the value is modified here.
+    Bang,
+    /// `===`: same object.
+    EqEqEq,
+    /// `!==`: not the same object.
+    NotEqEq,
+    /// `|>`: passes the value on.
+    PipeGt,
+    /// `#`: a loop label (`#outer`).
+    Hash,
+
     /// A significant line break (see spec §1.7).
     Newline,
     Eof,
@@ -232,6 +244,7 @@ impl TokenKind {
                 | RBracket
                 | RBrace
                 | Question
+                | Bang
         )
     }
 
@@ -350,6 +363,11 @@ impl fmt::Display for TokenKind {
             Semi => ";",
             Arrow => "->",
             FatArrow => "=>",
+            Bang => "!",
+            EqEqEq => "===",
+            NotEqEq => "!==",
+            PipeGt => "|>",
+            Hash => "#",
             Question => "?",
             At => "@",
             Newline => "end of line",

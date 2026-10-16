@@ -6,11 +6,19 @@
 
 use crate::ast::*;
 use crate::diag::{DiagSink, Diagnostic};
-use crate::source::Span;
+use crate::source::{Edition, Span};
 use crate::token::{StrPart, Token, TokenKind};
 
+mod ed1;
+
 pub fn parse_module(tokens: Vec<Token>, diags: &DiagSink) -> Module {
+    parse_module_in(tokens, diags, Edition::V0_2)
+}
+
+/// Parses a module written in `edition` (ADR 0010). Both editions give the same AST.
+pub fn parse_module_in(tokens: Vec<Token>, diags: &DiagSink, edition: Edition) -> Module {
     let mut p = Parser::new(tokens, diags);
+    p.ed1 = edition == Edition::V1;
     p.module()
 }
 
@@ -20,6 +28,12 @@ struct Parser<'a> {
     diags: &'a DiagSink,
     /// Position of the last token at which an error was reported (suppresses cascades).
     last_error_at: Option<usize>,
+    /// The file is written in edition 1 (ADR 0010).
+    ed1: bool,
+    /// Edition 1: a final `!` belongs to the enclosing construct (`when e! {`).
+    no_bang: bool,
+    /// Edition 1: names given to the functions of the tests.
+    test_names: Vec<String>,
 }
 
 type PResult<T> = Result<T, ()>;
@@ -71,7 +85,7 @@ fn assign_op(k: &TokenKind) -> Option<AssignOp> {
 
 impl<'a> Parser<'a> {
     fn new(toks: Vec<Token>, diags: &'a DiagSink) -> Parser<'a> {
-        Parser { toks, pos: 0, diags, last_error_at: None }
+        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new() }
     }
 
     // -----------------------------------------------------------------------
@@ -165,6 +179,13 @@ impl<'a> Parser<'a> {
         match self.peek().clone() {
             TokenKind::Ident(name) if name != "_" => {
                 let span = self.bump().span;
+                if self.ed1 && ed1::WORDS.contains(&name.as_str()) {
+                    self.error_here(
+                        Diagnostic::error("E0010", format!("`{}` is a keyword in edition 1", name))
+                            .primary(span, "reserved word")
+                            .help(format!("choose another name, for example `{}_`", name)),
+                    );
+                }
                 Ok(Ident { name, span })
             }
             _ => {
@@ -297,9 +318,10 @@ impl<'a> Parser<'a> {
                 self.recover_item();
                 continue;
             }
-            match self.item(false) {
-                Ok(item) => {
-                    items.push(item);
+            let parsed = if self.ed1 { self.items1() } else { self.item(false).map(|i| vec![i]) };
+            match parsed {
+                Ok(new_items) => {
+                    items.extend(new_items);
                     if self.expect_terminator(&TokenKind::Eof).is_err() {
                         self.recover_item();
                     }
@@ -803,6 +825,11 @@ impl<'a> Parser<'a> {
     // Types
 
     fn type_expr(&mut self) -> PResult<TypeExpr> {
+        if self.ed1 {
+            if let Some(t) = self.type_expr1()? {
+                return Ok(t);
+            }
+        }
         let start = self.span();
         let kind = match self.peek().clone() {
             TokenKind::LParen => {
@@ -948,11 +975,32 @@ impl<'a> Parser<'a> {
             }
         }
         let close = self.bump().span;
+        // A statement that computes a value and drops it, before the end of the block, is
+        // almost always a line cut in two: `let total = a` then `- b` (audit G0, §4.1).
+        if let Some((_, before_last)) = stmts.split_last() {
+            for s in before_last {
+                if let StmtKind::Expr(e) = &s.kind {
+                    if is_inert(e) {
+                        self.diags.emit(
+                            Diagnostic::error("E0110", "this expression has no effect: its value is lost")
+                                .primary(e.span, "computed, then dropped")
+                                .help("if this line continues the previous one, end the previous line with the operator (`a -` then `b`)")
+                                .help("to compute a value and drop it on purpose, write `let _ = ...`"),
+                        );
+                    }
+                }
+            }
+        }
         Ok(Block { stmts, span: open.to(close) })
     }
 
     fn stmt(&mut self) -> PResult<Stmt> {
         let start = self.span();
+        if self.ed1 {
+            if let Some(kind) = self.stmt1()? {
+                return Ok(Stmt { kind, span: start.to(self.prev_span()) });
+            }
+        }
         let kind = match self.peek().clone() {
             TokenKind::Let => {
                 self.bump();
@@ -1002,6 +1050,9 @@ impl<'a> Parser<'a> {
                     let value = self.expr()?;
                     StmtKind::Assign { op, op_span, target: e, value }
                 } else {
+                    if self.ed1 {
+                        self.no_fallback()?;
+                    }
                     StmtKind::Expr(e)
                 }
             }
@@ -1058,12 +1109,30 @@ impl<'a> Parser<'a> {
     // Expressions
 
     fn expr(&mut self) -> PResult<Expr> {
-        self.binary(1)
+        let mut e = self.binary(1)?;
+        while self.ed1 && self.is(&TokenKind::PipeGt) {
+            e = self.pipe1(e)?;
+        }
+        Ok(e)
     }
 
     fn binary(&mut self, min_prec: u8) -> PResult<Expr> {
         let mut lhs = self.cast_expr()?;
         loop {
+            if self.ed1 && min_prec <= 3 {
+                if self.is_word("is") {
+                    lhs = self.is_expr(lhs)?;
+                    continue;
+                }
+                if matches!(self.peek(), TokenKind::EqEqEq | TokenKind::NotEqEq | TokenKind::In) {
+                    let op_span = self.bump().span;
+                    let what = if self.toks[self.pos - 1].kind == TokenKind::In { "a membership test (`in`)" } else { "an identity comparison (`===`, `!==`)" };
+                    self.not_yet(op_span, what);
+                    let rhs = self.binary(4)?;
+                    lhs = Expr { kind: ExprKind::Error, span: lhs.span.to(rhs.span) };
+                    continue;
+                }
+            }
             let found = BINOPS.iter().find(|(k, _, _)| k == self.peek());
             let (op, prec) = match found {
                 Some((_, op, prec)) if *prec >= min_prec => (*op, *prec),
@@ -1184,6 +1253,17 @@ impl<'a> Parser<'a> {
                     let span = e.span.to(q);
                     e = Expr { kind: ExprKind::Try(Box::new(e)), span };
                 }
+                // Edition 1: `value!` marks a value modified here (an argument, the receiver of
+                // a method); the analysis checks the conventions as for 0.2.
+                TokenKind::Bang if self.ed1 => {
+                    if self.no_bang && self.peek_at(1) == &TokenKind::LBrace {
+                        break;
+                    }
+                    self.bump();
+                    if !self.is(&TokenKind::Dot) {
+                        break;
+                    }
+                }
                 _ => break,
             }
         }
@@ -1204,8 +1284,16 @@ impl<'a> Parser<'a> {
             } else {
                 None
             };
-            let inout = if self.is(&TokenKind::Amp) { Some(self.bump().span) } else { None };
+            if self.ed1 && self.is(&TokenKind::Amp) {
+                let span = self.span();
+                self.removed(span, "&x", "`x!` after the argument");
+                return Err(());
+            }
+            let mut inout = if self.is(&TokenKind::Amp) { Some(self.bump().span) } else { None };
             let expr = self.expr()?;
+            if self.ed1 && self.toks[self.pos - 1].kind == TokenKind::Bang {
+                inout = Some(self.prev_span());
+            }
             args.push(Arg { label, inout, expr, span: start.to(self.prev_span()) });
             if !self.eat(&TokenKind::Comma) {
                 self.expect(TokenKind::RParen, "`,` or `)`")?;
@@ -1218,6 +1306,42 @@ impl<'a> Parser<'a> {
     fn primary(&mut self) -> PResult<Expr> {
         let start = self.span();
         let lit = |k: ExprKind, span: Span| Ok(Expr { kind: k, span });
+        if self.ed1 {
+            match self.peek().clone() {
+                TokenKind::Ident(w) if w == "when" => return self.when1(),
+                TokenKind::Ident(w) if w == "spawn" => {
+                    self.not_yet(start, "a task (`spawn`)");
+                    return Err(());
+                }
+                TokenKind::Ident(w) if w == "it" => {
+                    self.not_yet(start, "`it`");
+                    return Err(());
+                }
+                TokenKind::Match => {
+                    self.removed(start, "match", "`when value { .Case then … }`");
+                    return Err(());
+                }
+                TokenKind::Fn => return self.closure1(),
+                // `.Name`: a variant of the type the context expects.
+                TokenKind::Dot if matches!(self.peek_at(1), TokenKind::Ident(_)) => {
+                    self.bump();
+                    let name = self.ident("a variant name")?;
+                    return lit(ExprKind::Variant(name), start.to(self.prev_span()));
+                }
+                TokenKind::Amp => {
+                    self.removed(start, "&x", "`x!` after the argument");
+                    return Err(());
+                }
+                TokenKind::Break | TokenKind::Continue => {
+                    let is_break = self.is(&TokenKind::Break);
+                    self.bump();
+                    let label = if self.eat(&TokenKind::Hash) { Some(self.ident("a label")?) } else { None };
+                    let span = start.to(self.prev_span());
+                    return lit(if is_break { ExprKind::Break(label) } else { ExprKind::Continue(label) }, span);
+                }
+                _ => {}
+            }
+        }
         match self.peek().clone() {
             TokenKind::Int(v) => {
                 self.bump();
@@ -1250,6 +1374,7 @@ impl<'a> Parser<'a> {
                         StrPart::Text(t) => parts.push(StrPartAst::Text(t.clone())),
                         StrPart::Interp { tokens, spec, span } => {
                             let mut sub = Parser::new(tokens.clone(), self.diags);
+                            sub.ed1 = self.ed1;
                             let e = match sub.expr() {
                                 Ok(e) => {
                                     if !sub.at_eof() {
@@ -1429,6 +1554,11 @@ impl<'a> Parser<'a> {
 
     fn if_expr(&mut self) -> PResult<Expr> {
         let start = self.bump().span; // if
+        if self.ed1 && self.is(&TokenKind::Let) {
+            let span = self.span();
+            self.removed(span, "if let P = e", "`if e is P`");
+            return Err(());
+        }
         let cond = if self.eat(&TokenKind::Let) {
             let pat = self.pattern()?;
             self.expect(TokenKind::Eq, "`=`")?;
@@ -1436,7 +1566,12 @@ impl<'a> Parser<'a> {
             let e = self.expr()?;
             Cond::Let(Box::new(pat), Box::new(e), mutable)
         } else {
-            Cond::Expr(Box::new(self.expr()?))
+            let e = self.expr()?;
+            match ed1::is_test(&e) {
+                // `if e is P` binds the names of `P` in the block.
+                Some((pat, x, mutable)) if self.ed1 => Cond::Let(Box::new(pat), Box::new(x), mutable),
+                _ => Cond::Expr(Box::new(e)),
+            }
         };
         let then = self.block()?;
         // Allow `}` and `else` on separate lines.
@@ -1518,6 +1653,31 @@ impl<'a> Parser<'a> {
     // -----------------------------------------------------------------------
     // Patterns
 
+    /// The values of a constructor pattern, after `(`.
+    fn pat_args(&mut self) -> PResult<Vec<PatArg>> {
+        let mut args = Vec::new();
+        loop {
+            if self.eat(&TokenKind::RParen) {
+                break;
+            }
+            if self.is(&TokenKind::DotDot) {
+                args.push(PatArg::Rest(self.bump().span));
+            } else if matches!(self.peek(), TokenKind::Ident(_)) && self.peek_at(1) == &TokenKind::Colon {
+                let field = self.ident("a field name")?;
+                self.bump();
+                let p = self.pattern()?;
+                args.push(PatArg::Named(field, p));
+            } else {
+                args.push(PatArg::Positional(self.pattern()?));
+            }
+            if !self.eat(&TokenKind::Comma) {
+                self.expect(TokenKind::RParen, "`,` or `)`")?;
+                break;
+            }
+        }
+        Ok(args)
+    }
+
     fn pattern(&mut self) -> PResult<Pattern> {
         let first = self.pattern_simple()?;
         if !self.is(&TokenKind::Pipe) {
@@ -1581,6 +1741,13 @@ impl<'a> Parser<'a> {
 
     fn pattern_simple(&mut self) -> PResult<Pattern> {
         let start = self.span();
+        if self.ed1 && self.is(&TokenKind::Dot) {
+            // `.Name` or `.Name(…)`: a variant of the type examined (never a new variable).
+            self.bump();
+            let name = self.ident("a variant name")?;
+            let kind = if self.eat(&TokenKind::LParen) { PatKind::Ctor { path: vec![name], args: self.pat_args()? } } else { PatKind::Path(vec![name]) };
+            return Ok(Pattern { kind, span: start.to(self.prev_span()) });
+        }
         let kind = match self.peek().clone() {
             TokenKind::Ident(name) if name == "_" => {
                 self.bump();
@@ -1593,28 +1760,13 @@ impl<'a> Parser<'a> {
                     path.push(self.ident("a variant name")?);
                 }
                 if self.eat(&TokenKind::LParen) {
-                    let mut args = Vec::new();
-                    loop {
-                        if self.eat(&TokenKind::RParen) {
-                            break;
-                        }
-                        if self.is(&TokenKind::DotDot) {
-                            args.push(PatArg::Rest(self.bump().span));
-                        } else if matches!(self.peek(), TokenKind::Ident(_)) && self.peek_at(1) == &TokenKind::Colon {
-                            let field = self.ident("a field name")?;
-                            self.bump();
-                            let p = self.pattern()?;
-                            args.push(PatArg::Named(field, p));
-                        } else {
-                            args.push(PatArg::Positional(self.pattern()?));
-                        }
-                        if !self.eat(&TokenKind::Comma) {
-                            self.expect(TokenKind::RParen, "`,` or `)`")?;
-                            break;
-                        }
-                    }
+                    let args = self.pat_args()?;
                     PatKind::Ctor { path, args }
                 } else if path.len() == 1 {
+                    // Edition 1: `x!` binds a value modified in place (`when e! { … }`).
+                    if self.ed1 && self.is(&TokenKind::Bang) && self.peek_at(1) != &TokenKind::In {
+                        self.bump();
+                    }
                     PatKind::Ident(path.pop().unwrap().name)
                 } else {
                     PatKind::Path(path)
@@ -1666,6 +1818,17 @@ impl<'a> Parser<'a> {
     }
 }
 
+/// An expression without effect: no call, no `?`, no control flow, no block. Used as a
+/// statement, it computes a value nobody reads.
+fn is_inert(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Lit(_) | ExprKind::Interp(_) | ExprKind::Ident(_) | ExprKind::Variant(_) | ExprKind::SelfValue | ExprKind::SelfType | ExprKind::Unit => true,
+        ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Cast(x, _) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Move(x) => is_inert(x),
+        ExprKind::Binary(_, a, b) | ExprKind::ArrayRepeat(a, b) => is_inert(a) && is_inert(b),
+        ExprKind::Tuple(xs) | ExprKind::Array(xs) => xs.iter().all(is_inert),
+        _ => false,
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1759,6 +1922,10 @@ fn main() {
     fn error_codes() {
         assert_eq!(parse("fn f() { let x = a < b < c }").1, vec!["E0104"]);
         assert_eq!(parse("fn f() { let x = }").1, vec!["E0102"]);
+        // A value computed and dropped before the end of a block: a line cut in two.
+        assert_eq!(parse("fn f() {\n let t = a\n - b\n g()\n}").1, vec!["E0110"]);
+        assert_eq!(parse("fn f() {\n not ok\n (a + 1)\n g()\n}").1, vec!["E0110", "E0110"]);
+        assert!(parse("fn f() {\n g()\n let _ = a - b\n x = 1\n a - b\n}").1.is_empty());
         assert_eq!(parse("let x = 1").1, vec!["E0108"]);
         assert_eq!(parse("fn f() { x = { 1 } }").1, vec!["E0102"]);
         assert_eq!(parse("fn f() -> Vec<i32> { }").1, vec!["E0106"]);

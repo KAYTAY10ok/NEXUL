@@ -16,7 +16,8 @@ use crate::http::json_str;
 use crate::win::shell::{self, Folder};
 use crate::win::{env, process, reg};
 use crate::{hidden, UNINSTALL_EXE};
-use std::path::{Path, PathBuf};
+use std::io::Read;
+use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -417,37 +418,77 @@ pub enum Op {
     AssocRemove,
 }
 
-impl Op {
-    pub fn to_line(&self) -> String {
-        match self {
-            Op::Kill(p) => format!("kill\t{}", p.display()),
-            Op::Unrecord(p) => format!("unrecord\t{}", p.display()),
-            Op::RemoveDir(p) => format!("rmdir\t{}", p.display()),
-            Op::Move(a, b, t) => format!("move\t{}\t{}\t{}", a.display(), b.display(), t),
-            Op::DeleteFile(p) => format!("del\t{}", p.display()),
-            Op::RegDelete(k) => format!("reg\t{}", k),
-            Op::PathRemove(s, d) => format!("path\t{}\t{}", s, d),
-            Op::HomeRemove => "home".into(),
-            Op::AssocRemove => "assoc".into(),
-        }
+/// A user choice, never an operation supplied by the non-elevated process.
+#[derive(Clone, Debug, PartialEq)]
+pub struct JobChoice {
+    kind: Kind,
+    location: PathBuf,
+    scope: String,
+    action: String,
+}
+
+impl JobChoice {
+    pub fn new(item: &Item, action: &str) -> Self {
+        Self { kind: item.kind, location: item.location.clone(), scope: item.scope.clone(), action: action.into() }
     }
 
-    pub fn from_line(line: &str) -> Option<Op> {
-        let f: Vec<&str> = line.split('\t').collect();
-        let p = |i: usize| f.get(i).map(PathBuf::from);
-        Some(match f[0] {
-            "kill" => Op::Kill(p(1)?),
-            "unrecord" => Op::Unrecord(p(1)?),
-            "rmdir" => Op::RemoveDir(p(1)?),
-            "move" => Op::Move(p(1)?, p(2)?, f.get(3)?.to_string()),
-            "del" => Op::DeleteFile(p(1)?),
-            "reg" => Op::RegDelete(f.get(1)?.to_string()),
-            "path" => Op::PathRemove(f.get(1)?.to_string(), f.get(2)?.to_string()),
-            "home" => Op::HomeRemove,
-            "assoc" => Op::AssocRemove,
-            _ => return None,
-        })
+    fn to_line(&self) -> String {
+        format!("choice\t{}\t{}\t{}\t{}", self.kind.name(), self.scope, self.action, self.location.display())
     }
+
+    fn from_line(line: &str) -> Option<Self> {
+        let f: Vec<&str> = line.split('\t').collect();
+        if f.len() != 5 || f[0] != "choice" || f[4].chars().any(char::is_control) {
+            return None;
+        }
+        let kind = match f[1] {
+            "install" => Kind::Install,
+            "folder" => Kind::Folder,
+            "path" => Kind::PathEntry,
+            "shortcut" => Kind::Shortcut,
+            "assoc" => Kind::Assoc,
+            _ => return None,
+        };
+        let valid_scope = if kind == Kind::PathEntry { matches!(f[2], "User" | "Machine") } else { f[2].is_empty() };
+        if !valid_scope || !matches!(f[3], "remove" | "keep" | "backup") || (f[3] == "backup" && !kind.is_version()) {
+            return None;
+        }
+        let location = PathBuf::from(f[4]);
+        if !location.is_absolute() {
+            return None;
+        }
+        Some(Self { kind, location, scope: f[2].into(), action: f[3].into() })
+    }
+}
+
+/// Resolve every selection against the fresh privileged inventory before doing
+/// anything. The relay cannot provide files to delete, registry keys or move targets.
+fn job_operations(text: &str, inventory: &Scan) -> Option<Vec<Op>> {
+    let choices: Vec<JobChoice> = text.lines().map(JobChoice::from_line).collect::<Option<_>>()?;
+    if choices.is_empty() {
+        return None;
+    }
+    let mut seen = Vec::new();
+    let mut ops = Vec::new();
+    for choice in choices {
+        let index = inventory.items.iter().position(|item| {
+            item.kind == choice.kind && item.scope == choice.scope
+                && norm(&item.location.to_string_lossy()) == norm(&choice.location.to_string_lossy())
+        })?;
+        if seen.contains(&index) {
+            return None;
+        }
+        seen.push(index);
+        ops.extend(inventory.ops_for(&inventory.items[index], &choice.action));
+    }
+    // A freshly discovered installation can still have a user-controlled manifest.
+    // Validate every manifest before even detaching any of the selected versions.
+    for op in &ops {
+        if let Op::Unrecord(dir) = op {
+            record_files(dir).ok()?;
+        }
+    }
+    Some(ops)
 }
 
 fn safe_name(s: &str) -> String {
@@ -551,30 +592,89 @@ fn reg_delete(key: &str) -> Result<(), String> {
     reg::delete_tree(key).map_err(|_| format!("impossible de supprimer la clé {}", key))
 }
 
-/// Removes the files of the installation in `dir` (listed in its `install.txt`), then the
-/// folders left empty. The files added by the user are kept. `progress(fraction, file)`.
-pub fn unrecord(dir: &Path, progress: &dyn Fn(f64, &str)) {
-    let record = std::fs::read_to_string(dir.join("install.txt")).unwrap_or_default();
+/// The manifest only contains ordinary relative filenames. Check both separator styles
+/// explicitly: Windows would otherwise normalize dots, spaces, device paths and streams.
+fn record_relative_file(file: &str) -> Option<PathBuf> {
+    if file.is_empty() || file.chars().any(|c| c.is_control() || "<>:\"|?*".contains(c)) {
+        return None;
+    }
+    for part in file.split(['/', '\\']) {
+        if part.is_empty() || matches!(part, "." | "..") || part.ends_with(['.', ' ']) {
+            return None;
+        }
+        let base = part.split('.').next()?.to_ascii_uppercase();
+        if matches!(base.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+            || (base.len() == 4 && (base.starts_with("COM") || base.starts_with("LPT")) && matches!(base.as_bytes()[3], b'1'..=b'9'))
+        {
+            return None;
+        }
+    }
+    let path = PathBuf::from(file.replace('/', "\\"));
+    path.components().all(|part| matches!(part, Component::Normal(_))).then_some(path)
+}
+
+/// A missing file has nothing to remove. Existing links and junctions must resolve
+/// inside the canonical installation root, including on the final file component.
+fn record_target_exists(path: &Path, root: &Path) -> Result<bool, String> {
+    match path.canonicalize() {
+        Ok(target) if target != root && target.starts_with(root) => Ok(true),
+        Ok(_) => Err(format!("Le manifeste d'installation sort de son dossier : {}", path.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(format!("Impossible de vérifier {} : {}", path.display(), e)),
+    }
+}
+
+/// Validate the complete record before removing any file, including the record itself.
+fn record_files(dir: &Path) -> Result<(PathBuf, Vec<(PathBuf, String)>), String> {
+    let root = dir.canonicalize().map_err(|e| format!("{} : {}", dir.display(), e))?;
+    let manifest = root.join("install.txt");
+    record_target_exists(&manifest, &root)?;
+    let record = std::fs::read_to_string(&manifest).map_err(|e| format!("{} : {}", manifest.display(), e))?;
     let mut files: Vec<String> = record.lines().filter_map(|l| l.strip_prefix("file\t")).map(|s| s.to_string()).collect();
     files.push("install.txt".into());
     files.push("nexul.ico".into());
+    let mut paths = Vec::new();
+    for file in files {
+        let relative = record_relative_file(&file).ok_or_else(|| format!("Chemin refusé dans le manifeste d'installation : {}", file))?;
+        let path = root.join(relative);
+        record_target_exists(&path, &root)?;
+        paths.push((path, file));
+    }
+    Ok((root, paths))
+}
+
+/// Removes the recorded files only after validating the complete manifest. User files
+/// are kept; invalid or escaping manifests leave the installation untouched.
+pub fn unrecord(dir: &Path, progress: &dyn Fn(f64, &str)) {
+    let _ = unrecord_checked(dir, progress);
+}
+
+fn unrecord_checked(dir: &Path, progress: &dyn Fn(f64, &str)) -> Result<(), String> {
+    let (root, files) = record_files(dir)?;
     let me = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
     let n = files.len().max(1);
-    for (i, f) in files.iter().enumerate() {
-        let p = dir.join(f.replace('/', "\\"));
+    for (i, (p, file)) in files.iter().enumerate() {
+        // Recheck immediately before deletion as the filesystem may have changed
+        // since the whole manifest was validated.
+        if !record_target_exists(p, &root)? {
+            continue;
+        }
         if me.is_some() && p.canonicalize().ok() == me {
             continue; // the uninstaller itself: removed once it has exited
         }
-        let _ = std::fs::remove_file(&p);
-        progress(i as f64 / n as f64, f);
+        let _ = std::fs::remove_file(p);
+        progress(i as f64 / n as f64, file);
     }
     // Empty folders, deepest first, up to `dir` itself.
-    let mut dirs: Vec<PathBuf> = files.iter().filter_map(|f| Path::new(&f.replace('/', "\\")).parent().map(|p| dir.join(p))).collect();
+    let mut dirs: Vec<PathBuf> = files.iter().filter_map(|(p, _)| p.parent().map(Path::to_path_buf)).collect();
     dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
     dirs.dedup();
     for d in dirs {
         let mut cur = d;
-        while cur.starts_with(dir) && cur != dir {
+        while cur.starts_with(&root) && cur != root {
+            if !record_target_exists(&cur, &root)? {
+                break;
+            }
             if std::fs::remove_dir(&cur).is_err() {
                 break;
             }
@@ -583,7 +683,8 @@ pub fn unrecord(dir: &Path, progress: &dyn Fn(f64, &str)) {
             }
         }
     }
-    let _ = std::fs::remove_dir(dir);
+    let _ = std::fs::remove_dir(&root);
+    Ok(())
 }
 
 fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -641,8 +742,7 @@ pub fn run(ops: &[Op], elevated: bool, report: &mut dyn FnMut(&str)) -> Vec<Stri
             }
             Op::Unrecord(d) => {
                 report(&format!("Suppression de {}", d.display()));
-                unrecord(d, &|_, _| {});
-                Ok(())
+                unrecord_checked(d, &|_, _| {})
             }
             Op::RemoveDir(d) => {
                 report(&format!("Suppression de {}", d.display()));
@@ -697,54 +797,40 @@ pub fn run(ops: &[Op], elevated: bool, report: &mut dyn FnMut(&str)) -> Vec<Stri
 
 /// Does the operations in this program started with the rights of an administrator.
 /// Returns `(done, problems)`.
-pub fn run_elevated(exe: &Path, ops: &[Op]) -> (Vec<String>, Vec<String>) {
+pub fn run_elevated(exe: &Path, choices: &[JobChoice]) -> (Vec<String>, Vec<String>) {
     let dir = std::env::temp_dir().join(format!("nexul-setup-{}", std::process::id()));
     let _ = std::fs::create_dir_all(&dir);
     let job = dir.join("job.txt");
-    let log = dir.join("job.log");
-    let _ = std::fs::remove_file(&log);
-    let text: String = ops.iter().map(|o| o.to_line() + "\n").collect();
+    let text: String = choices.iter().map(|choice| choice.to_line() + "\n").collect();
     if let Err(e) = std::fs::write(&job, text) {
         return (vec![], vec![e.to_string()]);
     }
     let started = shell::run_and_wait("runas", exe, &format!("--old-versions-job \"{}\"", job.display()));
-    let mut done = Vec::new();
-    let mut problems = Vec::new();
-    match std::fs::read_to_string(&log) {
-        Ok(text) => {
-            for line in text.lines() {
-                match line.split_once('\t') {
-                    Some(("log", m)) => done.push(m.to_string()),
-                    Some(("problem", m)) => problems.push(m.to_string()),
-                    _ => {}
-                }
-            }
-        }
-        Err(_) => problems.push(match started {
-            Err(crate::win::ffi::ERROR_CANCELLED) => "Les droits d'administrateur n'ont pas été accordés : les anciennes versions qui les demandent n'ont pas été traitées.".to_string(),
-            Err(code) => format!("Les anciennes versions qui demandent les droits d'administrateur n'ont pas pu être traitées ({}).", shell::run_error_text(code)),
-            Ok(_) => "Les anciennes versions qui demandent les droits d'administrateur n'ont pas pu être traitées.".to_string(),
-        }),
-    }
+    // The elevated process never writes a log through a caller-controlled path.
+    // Its exit code is the only privileged result trusted by this process.
+    let (done, problems) = match started {
+        Ok(0) => (vec!["Traitement administratif des anciennes versions terminé".into()], vec![]),
+        Ok(_) => (vec![], vec!["Les anciennes versions demandant les droits d'administrateur n'ont pas toutes pu être traitées ; réexaminez leur état.".into()]),
+        Err(crate::win::ffi::ERROR_CANCELLED) => (vec![], vec!["Les droits d'administrateur n'ont pas été accordés : les anciennes versions qui les demandent n'ont pas été traitées.".into()]),
+        Err(code) => (vec![], vec![format!("Les anciennes versions qui demandent les droits d'administrateur n'ont pas pu être traitées ({}).", shell::run_error_text(code))]),
+    };
     let _ = std::fs::remove_dir_all(&dir);
     (done, problems)
 }
 
 /// `--old-versions-job <file>`: the part of the program started with elevation.
 pub fn job_main(job: &Path) -> i32 {
-    let text = std::fs::read_to_string(job).unwrap_or_default();
-    let ops: Vec<Op> = text.lines().filter_map(Op::from_line).collect();
-    let mut out = String::new();
-    let problems = run(&ops, true, &mut |m| {
-        out.push_str("log\t");
-        out.push_str(m);
-        out.push('\n');
-    });
-    for p in &problems {
-        out.push_str(&format!("problem\t{}\n", p.replace('\n', " ")));
+    if !process::is_elevated() && crate::win::sandbox().is_none() {
+        return 2;
     }
-    let _ = std::fs::write(job.with_file_name("job.log"), out);
-    0
+    let Ok(file) = std::fs::File::open(job) else { return 2 };
+    let mut text = String::new();
+    if file.take(65_537).read_to_string(&mut text).is_err() || text.len() > 65_536 {
+        return 2;
+    }
+    // Inventory and all operation arguments are computed in this process.
+    let Some(ops) = job_operations(&text, &scan()) else { return 2 };
+    if run(&ops, true, &mut |_| {}).is_empty() { 0 } else { 1 }
 }
 
 #[cfg(test)]
@@ -761,17 +847,25 @@ mod tests {
     }
 
     #[test]
-    fn ops_round_trip() {
-        let ops = vec![
-            Op::Kill(r"C:\Program Files\NEXUL Studio".into()),
-            Op::Unrecord(r"C:\a\NEXUL".into()),
-            Op::Move(r"C:\Program Files\NEXUL Studio".into(), r"C:\Users\é\NEXUL - anciennes versions\NEXUL Studio 0.1.0 - 2026-10-14 15h02".into(), "NEXUL Studio 0.1.0".into()),
-            Op::PathRemove("Machine".into(), r"C:\x\bin".into()),
-            Op::RegDelete(r"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Uninstall\NEXUL".into()),
-            Op::AssocRemove,
-        ];
-        for op in ops {
-            assert_eq!(Op::from_line(&op.to_line()), Some(op));
+    fn manifest_paths_are_only_normal_relative_files() {
+        for file in ["bin/nxc.exe", r"bin\nxc.exe", "notes de l'utilisateur.txt", "Désinstaller NEXUL.exe"] {
+            assert!(record_relative_file(file).is_some(), "{file}");
         }
+        for file in ["", ".", "..", "../victim", r"bin\..\victim", r"C:\victim", r"C:victim", r"\victim", r"\\server\victim", "file:stream", "bin//nxc.exe", "bin/./nxc.exe", "bin /nxc.exe", "bin./nxc.exe", "CON.txt", "LPT1", "bad\tfile"] {
+            assert!(record_relative_file(file).is_none(), "{file}");
+        }
+    }
+
+    #[test]
+    fn elevated_job_only_uses_fresh_inventory() {
+        let item = Item { kind: Kind::Folder, name: "NEXUL Studio".into(), version: "0.1".into(), location: r"C:\Program Files\NEXUL Studio".into(), size: 0, admin: false, details: vec![], scope: String::new() };
+        let choice = JobChoice::new(&item, "remove");
+        assert_eq!(JobChoice::from_line(&choice.to_line()), Some(choice.clone()));
+        let scan = Scan { items: vec![item.clone()], ..Default::default() };
+        assert_eq!(job_operations(&choice.to_line(), &scan), Some(scan.ops_for(&item, "remove")));
+        assert_eq!(job_operations(&choice.to_line(), &Scan::default()), None);
+        assert_eq!(job_operations("del\tC:\\important.txt", &scan), None);
+        assert_eq!(job_operations("choice\tfolder\t\tremove\tC:\\important", &scan), None);
+        assert_eq!(job_operations(&(choice.to_line() + "\ndel\tC:\\important.txt"), &scan), None);
     }
 }

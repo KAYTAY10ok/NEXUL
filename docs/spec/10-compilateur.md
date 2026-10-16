@@ -67,6 +67,7 @@ nxc check  programme.nx                            analyse sans générer de cod
 nxc test   programme.nx [nom...]                   exécute les fonctions @test
 nxc fmt    programme.nx [--check]                  met en forme
 nxc ide    <requête> programme.nx [ligne colonne]  services d'éditeur (JSON)
+nxc migrate programme.nx… [--write]                 réécrit la 0.2 dans la syntaxe de l'édition 1 (ADR 0010)
 nxc explain E0402                                  explique un code de diagnostic
 nxc targets                                        liste les cibles
 nxc version
@@ -83,6 +84,7 @@ nxc version
 | `--no-debug` | sans informations de débogage |
 | `--link-arg <arg>` | argument supplémentaire pour l'éditeur de liens |
 | `--json` | diagnostics en JSON sur la sortie standard (éditeurs) |
+| `--edition <e>` | syntaxe du programme : `0.2` (par défaut) ou `1` ([ADR 0010](../adr/0010-syntaxe-nexul-1.md)) ; la bibliothèque standard reste en 0.2 |
 
 - Mode **debug** par défaut (`-O0`, informations de débogage : PDB sur Windows, DWARF
   ailleurs), **release** avec `--release`. Les vérifications de sûreté (débordement,

@@ -1,0 +1,8 @@
+# The C runtime is linked into NEXUL-Studio-Native.exe, so that Studio starts on a Windows
+# without the Visual C++ redistributable (issue #9). Cargo reads this file when it runs
+# from this folder: build the release here, `cargo +stable-x86_64-pc-windows-msvc build --release`.
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

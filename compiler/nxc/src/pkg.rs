@@ -15,7 +15,7 @@
 //! The source of a package is its `src` folder (or the package folder itself):
 //! `import json` reads `src/lib.nx`, `import json.parser` reads `src/parser.nx`.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -25,7 +25,12 @@ pub const LOCK: &str = "nexul.lock";
 #[derive(Clone, Debug, PartialEq)]
 pub enum Source {
     Path(String),
-    Git { url: String, rev: Option<String>, tag: Option<String>, branch: Option<String> },
+    Git {
+        url: String,
+        rev: Option<String>,
+        tag: Option<String>,
+        branch: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -34,6 +39,8 @@ pub struct Manifest {
     pub version: String,
     pub description: String,
     pub main: Option<String>,
+    /// `edition = "1"`: the syntax of the project's files (ADR 0010).
+    pub edition: Option<String>,
     pub deps: BTreeMap<String, Source>,
 }
 
@@ -97,7 +104,14 @@ fn parse_inline(s: &str) -> Option<BTreeMap<String, String>> {
 }
 
 pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
-    let mut m = Manifest { name: String::new(), version: "0.1.0".into(), description: String::new(), main: None, deps: BTreeMap::new() };
+    let mut m = Manifest {
+        name: String::new(),
+        version: "0.1.0".into(),
+        description: String::new(),
+        main: None,
+        edition: None,
+        deps: BTreeMap::new(),
+    };
     let mut section = String::new();
     for (i, raw) in text.lines().enumerate() {
         let line = raw.split(" #").next().unwrap_or("").trim();
@@ -105,19 +119,31 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
             continue;
         }
         if line.starts_with('[') {
-            section = line.trim_matches(|c| c == '[' || c == ']').trim().to_string();
+            section = line
+                .trim_matches(|c| c == '[' || c == ']')
+                .trim()
+                .to_string();
             continue;
         }
-        let Some((k, v)) = line.split_once('=') else { return Err(format!("{}:{}: expected `key = value`", MANIFEST, i + 1)) };
+        let Some((k, v)) = line.split_once('=') else {
+            return Err(format!("{}:{}: expected `key = value`", MANIFEST, i + 1));
+        };
         let (k, v) = (k.trim(), v.trim());
         match section.as_str() {
             "package" => {
-                let s = unquote(v).ok_or_else(|| format!("{}:{}: `{}` must be a string", MANIFEST, i + 1, k))?;
+                let s = unquote(v)
+                    .ok_or_else(|| format!("{}:{}: `{}` must be a string", MANIFEST, i + 1, k))?;
                 match k {
                     "name" => m.name = s,
                     "version" => m.version = s,
                     "description" => m.description = s,
                     "main" => m.main = Some(s),
+                    "edition" => {
+                        if nxc_syntax::Edition::parse(&s).is_none() {
+                            return Err(format!("{}:{}: unknown edition `{}` (expected `0.2` or `1`)", MANIFEST, i + 1, s));
+                        }
+                        m.edition = Some(s)
+                    }
                     _ => {}
                 }
             }
@@ -125,13 +151,29 @@ pub fn parse_manifest(text: &str) -> Result<Manifest, String> {
                 let src = if let Some(s) = unquote(v) {
                     Source::Path(s)
                 } else {
-                    let t = parse_inline(v).ok_or_else(|| format!("{}:{}: expected `{{ path = \"...\" }}` or `{{ git = \"...\" }}`", MANIFEST, i + 1))?;
+                    let t = parse_inline(v).ok_or_else(|| {
+                        format!(
+                            "{}:{}: expected `{{ path = \"...\" }}` or `{{ git = \"...\" }}`",
+                            MANIFEST,
+                            i + 1
+                        )
+                    })?;
                     if let Some(p) = t.get("path") {
                         Source::Path(p.clone())
                     } else if let Some(u) = t.get("git") {
-                        Source::Git { url: u.clone(), rev: t.get("rev").cloned(), tag: t.get("tag").cloned(), branch: t.get("branch").cloned() }
+                        Source::Git {
+                            url: u.clone(),
+                            rev: t.get("rev").cloned(),
+                            tag: t.get("tag").cloned(),
+                            branch: t.get("branch").cloned(),
+                        }
                     } else {
-                        return Err(format!("{}:{}: dependency `{}` needs `path` or `git`", MANIFEST, i + 1, k));
+                        return Err(format!(
+                            "{}:{}: dependency `{}` needs `path` or `git`",
+                            MANIFEST,
+                            i + 1,
+                            k
+                        ));
                     }
                 };
                 m.deps.insert(k.to_string(), src);
@@ -150,18 +192,30 @@ fn quote(s: &str) -> String {
 }
 
 pub fn write_manifest(m: &Manifest) -> String {
-    let mut s = format!("[package]\nname = {}\nversion = {}\n", quote(&m.name), quote(&m.version));
+    let mut s = format!(
+        "[package]\nname = {}\nversion = {}\n",
+        quote(&m.name),
+        quote(&m.version)
+    );
     if !m.description.is_empty() {
         s.push_str(&format!("description = {}\n", quote(&m.description)));
     }
     if let Some(main) = &m.main {
         s.push_str(&format!("main = {}\n", quote(main)));
     }
+    if let Some(e) = &m.edition {
+        s.push_str(&format!("edition = {}\n", quote(e)));
+    }
     s.push_str("\n[dependencies]\n");
     for (name, src) in &m.deps {
         match src {
             Source::Path(p) => s.push_str(&format!("{} = {{ path = {} }}\n", name, quote(p))),
-            Source::Git { url, rev, tag, branch } => {
+            Source::Git {
+                url,
+                rev,
+                tag,
+                branch,
+            } => {
                 let mut parts = vec![format!("git = {}", quote(url))];
                 if let Some(r) = rev {
                     parts.push(format!("rev = {}", quote(r)));
@@ -184,13 +238,21 @@ pub fn write_manifest(m: &Manifest) -> String {
 
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     const K: [u32; 64] = [
-        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74,
-        0x80deb1fe, 0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d,
-        0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e,
-        0x92722c85, 0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5,
-        0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3, 0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2,
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
     ];
-    let mut h: [u32; 8] = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
     let mut msg = data.to_vec();
     let bit_len = (data.len() as u64).wrapping_mul(8);
     msg.push(0x80);
@@ -201,22 +263,43 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     for chunk in msg.chunks(64) {
         let mut w = [0u32; 64];
         for i in 0..16 {
-            w[i] = u32::from_be_bytes([chunk[4 * i], chunk[4 * i + 1], chunk[4 * i + 2], chunk[4 * i + 3]]);
+            w[i] = u32::from_be_bytes([
+                chunk[4 * i],
+                chunk[4 * i + 1],
+                chunk[4 * i + 2],
+                chunk[4 * i + 3],
+            ]);
         }
         for i in 16..64 {
             let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
             let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
-            w[i] = w[i - 16].wrapping_add(s0).wrapping_add(w[i - 7]).wrapping_add(s1);
+            w[i] = w[i - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[i - 7])
+                .wrapping_add(s1);
         }
         let mut v = h;
         for i in 0..64 {
             let s1 = v[4].rotate_right(6) ^ v[4].rotate_right(11) ^ v[4].rotate_right(25);
             let ch = (v[4] & v[5]) ^ (!v[4] & v[6]);
-            let t1 = v[7].wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+            let t1 = v[7]
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(K[i])
+                .wrapping_add(w[i]);
             let s0 = v[0].rotate_right(2) ^ v[0].rotate_right(13) ^ v[0].rotate_right(22);
             let maj = (v[0] & v[1]) ^ (v[0] & v[2]) ^ (v[1] & v[2]);
             let t2 = s0.wrapping_add(maj);
-            v = [t1.wrapping_add(t2), v[0], v[1], v[2], v[3].wrapping_add(t1), v[4], v[5], v[6]];
+            v = [
+                t1.wrapping_add(t2),
+                v[0],
+                v[1],
+                v[2],
+                v[3].wrapping_add(t1),
+                v[4],
+                v[5],
+                v[6],
+            ];
         }
         for i in 0..8 {
             h[i] = h[i].wrapping_add(v[i]);
@@ -252,7 +335,9 @@ pub fn checksum(dir: &Path) -> String {
 }
 
 fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
-    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let Ok(rd) = std::fs::read_dir(dir) else {
+        return;
+    };
     for e in rd.flatten() {
         let p = e.path();
         let name = e.file_name().to_string_lossy().to_string();
@@ -262,7 +347,12 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
         if p.is_dir() {
             collect_files(root, &p, out);
         } else if name.ends_with(".nx") || name == MANIFEST {
-            out.push(p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('\\', "/"));
+            out.push(
+                p.strip_prefix(root)
+                    .unwrap_or(&p)
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            );
         }
     }
 }
@@ -272,7 +362,11 @@ fn collect_files(root: &Path, dir: &Path, out: &mut Vec<String>) {
 
 /// The project containing `start` (a file or folder): the folder of its `nexul.toml`.
 pub fn find_project(start: &Path) -> Option<PathBuf> {
-    let mut dir = if start.is_dir() { start.to_path_buf() } else { start.parent()?.to_path_buf() };
+    let mut dir = if start.is_dir() {
+        start.to_path_buf()
+    } else {
+        start.parent()?.to_path_buf()
+    };
     if dir.as_os_str().is_empty() {
         dir = PathBuf::from(".");
     }
@@ -295,8 +389,24 @@ fn strip_verbatim(p: &Path) -> PathBuf {
     }
 }
 
+/// The syntax a file is written in (ADR 0010): `// edition: X` on one of its first three
+/// lines, else the `edition` of the `nexul.toml` of its project, else 0.2.
+pub fn edition_for(file: &Path, text: &str) -> nxc_syntax::Edition {
+    for l in text.lines().take(3) {
+        if let Some(e) = l.trim().strip_prefix("// edition:").and_then(|e| nxc_syntax::Edition::parse(e.trim())) {
+            return e;
+        }
+    }
+    find_project(file)
+        .and_then(|p| load_manifest(&p).ok())
+        .and_then(|m| m.edition)
+        .and_then(|e| nxc_syntax::Edition::parse(&e))
+        .unwrap_or_default()
+}
+
 pub fn load_manifest(project: &Path) -> Result<Manifest, String> {
-    let text = std::fs::read_to_string(project.join(MANIFEST)).map_err(|e| format!("cannot read {}: {}", MANIFEST, e))?;
+    let text = std::fs::read_to_string(project.join(MANIFEST))
+        .map_err(|e| format!("cannot read {}: {}", MANIFEST, e))?;
     parse_manifest(&text)
 }
 
@@ -316,9 +426,14 @@ pub fn main_file(project: &Path, m: &Manifest) -> PathBuf {
 /// Where Git packages are kept: `%LOCALAPPDATA%\nexul\packages` or `~/.cache/nexul/packages`.
 fn packages_dir() -> PathBuf {
     let base = if cfg!(windows) {
-        std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("nexul")
+        std::env::var_os("LOCALAPPDATA")
+            .map(PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir)
+            .join("nexul")
     } else {
-        std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".cache").join("nexul")).unwrap_or_else(std::env::temp_dir)
+        std::env::var_os("HOME")
+            .map(|h| PathBuf::from(h).join(".cache").join("nexul"))
+            .unwrap_or_else(std::env::temp_dir)
     };
     base.join("packages")
 }
@@ -339,9 +454,18 @@ fn git(args: &[&str], dir: Option<&Path>) -> Result<String, String> {
     if let Some(d) = dir {
         cmd.current_dir(d);
     }
-    let out = cmd.output().map_err(|e| format!("cannot run git ({}); install Git to use Git dependencies", e))?;
+    let out = cmd.output().map_err(|e| {
+        format!(
+            "cannot run git ({}); install Git to use Git dependencies",
+            e
+        )
+    })?;
     if !out.status.success() {
-        return Err(format!("git {} failed: {}", args.join(" "), String::from_utf8_lossy(&out.stderr).trim()));
+        return Err(format!(
+            "git {} failed: {}",
+            args.join(" "),
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
 }
@@ -349,11 +473,19 @@ fn git(args: &[&str], dir: Option<&Path>) -> Result<String, String> {
 /// Reads `nexul.lock`: name -> (source, checksum).
 pub fn read_lock(project: &Path) -> BTreeMap<String, (String, String)> {
     let mut map = BTreeMap::new();
-    let Ok(text) = std::fs::read_to_string(project.join(LOCK)) else { return map };
+    let Ok(text) = std::fs::read_to_string(project.join(LOCK)) else {
+        return map;
+    };
     let (mut name, mut source, mut sum) = (String::new(), String::new(), String::new());
-    let flush = |name: &mut String, source: &mut String, sum: &mut String, map: &mut BTreeMap<String, (String, String)>| {
+    let flush = |name: &mut String,
+                 source: &mut String,
+                 sum: &mut String,
+                 map: &mut BTreeMap<String, (String, String)>| {
         if !name.is_empty() {
-            map.insert(std::mem::take(name), (std::mem::take(source), std::mem::take(sum)));
+            map.insert(
+                std::mem::take(name),
+                (std::mem::take(source), std::mem::take(sum)),
+            );
         }
     };
     for line in text.lines() {
@@ -377,9 +509,16 @@ pub fn read_lock(project: &Path) -> BTreeMap<String, (String, String)> {
 }
 
 fn write_lock(project: &Path, deps: &[Resolved]) -> Result<(), String> {
-    let mut s = String::from("# nexul.lock: exact versions and integrity of the dependencies (generated by nxpm).\n");
+    let mut s = String::from(
+        "# nexul.lock: exact versions and integrity of the dependencies (generated by nxpm).\n",
+    );
     for d in deps {
-        s.push_str(&format!("\n[[package]]\nname = {}\nsource = {}\nchecksum = {}\n", quote(&d.name), quote(&d.source), quote(&d.checksum)));
+        s.push_str(&format!(
+            "\n[[package]]\nname = {}\nsource = {}\nchecksum = {}\n",
+            quote(&d.name),
+            quote(&d.source),
+            quote(&d.checksum)
+        ));
     }
     std::fs::write(project.join(LOCK), s).map_err(|e| format!("cannot write {}: {}", LOCK, e))
 }
@@ -388,7 +527,11 @@ fn write_lock(project: &Path, deps: &[Resolved]) -> Result<(), String> {
 /// Git dependencies move to the newest commit of their branch or tag; otherwise the
 /// commits of `nexul.lock` are used. The checksum of every package is compared with the
 /// lock file: a package changed since it was locked is refused.
-pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Result<Vec<Resolved>, String> {
+pub fn resolve(
+    project: &Path,
+    update: bool,
+    log: &mut dyn FnMut(&str),
+) -> Result<Vec<Resolved>, String> {
     let lock = read_lock(project);
     let mut out: Vec<Resolved> = Vec::new();
     let mut queue: Vec<(String, Source, PathBuf)> = Vec::new();
@@ -404,14 +547,30 @@ pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Resul
             Source::Path(p) => {
                 let dir = base.join(p);
                 if !dir.is_dir() {
-                    return Err(format!("dependency `{}`: folder `{}` not found", name, dir.display()));
+                    return Err(format!(
+                        "dependency `{}`: folder `{}` not found",
+                        name,
+                        dir.display()
+                    ));
                 }
-                let dir = std::fs::canonicalize(&dir).map(|d| strip_verbatim(&d)).unwrap_or(dir);
+                let dir = std::fs::canonicalize(&dir)
+                    .map(|d| strip_verbatim(&d))
+                    .unwrap_or(dir);
                 (dir.clone(), format!("path+{}", p))
             }
-            Source::Git { url, rev, tag, branch } => {
-                let locked = lock.get(&name).and_then(|(s, _)| s.strip_prefix(&format!("git+{}#", url)).map(|c| c.to_string()));
-                let mirror = packages_dir().join("git").join(hex(&sha256(url.as_bytes()))[..16].to_string());
+            Source::Git {
+                url,
+                rev,
+                tag,
+                branch,
+            } => {
+                let locked = lock.get(&name).and_then(|(s, _)| {
+                    s.strip_prefix(&format!("git+{}#", url))
+                        .map(|c| c.to_string())
+                });
+                let mirror = packages_dir()
+                    .join("git")
+                    .join(hex(&sha256(url.as_bytes()))[..16].to_string());
                 if !mirror.join(".git").is_dir() {
                     log(&format!("cloning {}", url));
                     std::fs::create_dir_all(mirror.parent().unwrap()).map_err(|e| e.to_string())?;
@@ -427,13 +586,42 @@ pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Resul
                     (_, _, Some(b), _, _) => format!("origin/{}", b),
                     _ => "origin/HEAD".to_string(),
                 };
-                let commit = git(&["rev-parse", &format!("{}^{{commit}}", wanted)], Some(&mirror))?;
-                let dir = packages_dir().join(format!("{}-{}", name, &commit[..12.min(commit.len())]));
+                let commit = git(
+                    &["rev-parse", &format!("{}^{{commit}}", wanted)],
+                    Some(&mirror),
+                )?;
+                let dir =
+                    packages_dir().join(format!("{}-{}", name, &commit[..12.min(commit.len())]));
                 if !dir.is_dir() {
-                    log(&format!("checking out {} {}", name, &commit[..12.min(commit.len())]));
-                    git(&["worktree", "add", "--force", "--detach", &dir.to_string_lossy(), &commit], Some(&mirror)).or_else(|_| {
+                    log(&format!(
+                        "checking out {} {}",
+                        name,
+                        &commit[..12.min(commit.len())]
+                    ));
+                    git(
+                        &[
+                            "worktree",
+                            "add",
+                            "--force",
+                            "--detach",
+                            &dir.to_string_lossy(),
+                            &commit,
+                        ],
+                        Some(&mirror),
+                    )
+                    .or_else(|_| {
                         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-                        git(&["--work-tree", &dir.to_string_lossy(), "checkout", &commit, "--", "."], Some(&mirror))
+                        git(
+                            &[
+                                "--work-tree",
+                                &dir.to_string_lossy(),
+                                "checkout",
+                                &commit,
+                                "--",
+                                ".",
+                            ],
+                            Some(&mirror),
+                        )
                     })?;
                 }
                 (dir, format!("git+{}#{}", url, commit))
@@ -441,7 +629,11 @@ pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Resul
         };
         let sum = checksum(&dir);
         if let Some((lsrc, lsum)) = lock.get(&name) {
-            if *lsrc == source && !lsum.is_empty() && *lsum != sum && !matches!(src, Source::Path(_)) {
+            if *lsrc == source
+                && !lsum.is_empty()
+                && *lsum != sum
+                && !matches!(src, Source::Path(_))
+            {
                 return Err(format!(
                     "integrity check failed for `{}`: its content changed since it was locked\n  expected {}\n  found    {}\n(run `nxpm update {}` if the change is intended)",
                     name, lsum, sum, name
@@ -453,7 +645,12 @@ pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Resul
                 queue.push((n, s, dir.clone()));
             }
         }
-        out.push(Resolved { name, source, dir, checksum: sum });
+        out.push(Resolved {
+            name,
+            source,
+            dir,
+            checksum: sum,
+        });
     }
     out.sort_by(|a, b| a.name.cmp(&b.name));
     write_lock(project, &out)?;
@@ -463,22 +660,110 @@ pub fn resolve(project: &Path, update: bool, log: &mut dyn FnMut(&str)) -> Resul
 /// The dependencies of the project containing `file`, as given to the compiler:
 /// (package name, source folder). Packages already fetched are used as locked.
 pub fn deps_for(file: &Path) -> Result<Vec<(String, PathBuf)>, String> {
-    let Some(project) = find_project(file) else { return Ok(vec![]) };
+    let Some(project) = find_project(file) else {
+        return Ok(vec![]);
+    };
     let m = load_manifest(&project)?;
     if m.deps.is_empty() {
         return Ok(vec![]);
     }
     let resolved = resolve(&project, false, &mut |msg| eprintln!("nxpm: {}", msg))?;
-    Ok(resolved.into_iter().map(|r| (r.name, source_dir(&r.dir))).collect())
+    Ok(resolved
+        .into_iter()
+        .map(|r| (r.name, source_dir(&r.dir)))
+        .collect())
+}
+
+/// Dependencies already available to editor services. Unlike `deps_for`, this function
+/// never fetches a Git repository or writes a lock file.
+pub fn deps_for_lsp(file: &Path) -> Result<Vec<(String, PathBuf)>, String> {
+    let Some(project) = find_project(file) else {
+        return Ok(vec![]);
+    };
+    let manifest = load_manifest(&project)?;
+    let lock = read_lock(&project);
+    let mut queue = VecDeque::new();
+    for (name, source) in manifest.deps {
+        queue.push_back((name, source, project.clone()));
+    }
+
+    let mut resolved: BTreeMap<String, PathBuf> = BTreeMap::new();
+    while let Some((name, source, base)) = queue.pop_front() {
+        if resolved.contains_key(&name) {
+            continue;
+        }
+        let dir = match &source {
+            Source::Path(path) => {
+                let path = base.join(path);
+                if !path.is_dir() {
+                    return Err(format!(
+                        "dependency `{}`: folder `{}` not found; run `nxpm install` after making it available",
+                        name,
+                        path.display()
+                    ));
+                }
+                std::fs::canonicalize(&path).unwrap_or(path)
+            }
+            Source::Git { url, .. } => {
+                let Some((locked_source, locked_checksum)) = lock.get(&name) else {
+                    return Err(format!(
+                        "dependency `{}` is not installed locally; run `nxpm install` to fetch it before using the language server",
+                        name
+                    ));
+                };
+                let prefix = format!("git+{}#", url);
+                let Some(commit) = locked_source.strip_prefix(&prefix) else {
+                    return Err(format!(
+                        "dependency `{}` does not match its `nexul.lock` entry; run `nxpm install` to refresh it",
+                        name
+                    ));
+                };
+                let package =
+                    packages_dir().join(format!("{}-{}", name, &commit[..12.min(commit.len())]));
+                if !package.is_dir() {
+                    return Err(format!(
+                        "dependency `{}` is not installed locally; run `nxpm install` to fetch it before using the language server",
+                        name
+                    ));
+                }
+                if checksum(&package) != *locked_checksum {
+                    return Err(format!(
+                        "integrity check failed for dependency `{}`; run `nxpm install` or `nxpm update`",
+                        name
+                    ));
+                }
+                package
+            }
+        };
+        let source_path = source_dir(&dir);
+        if let Ok(dependency_manifest) = load_manifest(&dir) {
+            for (child_name, child_source) in dependency_manifest.deps {
+                queue.push_back((child_name, child_source, dir.clone()));
+            }
+        }
+        resolved.insert(name, source_path);
+    }
+    Ok(resolved.into_iter().collect())
 }
 
 /// A new project: `nexul.toml`, `src/main.nx` and a `.gitignore`.
 pub fn new_project(dir: &Path, name: &str) -> Result<(), String> {
     if dir.join(MANIFEST).exists() {
-        return Err(format!("`{}` already contains a {}", dir.display(), MANIFEST));
+        return Err(format!(
+            "`{}` already contains a {}",
+            dir.display(),
+            MANIFEST
+        ));
     }
     std::fs::create_dir_all(dir.join("src")).map_err(|e| e.to_string())?;
-    let m = Manifest { name: name.to_string(), version: "0.1.0".into(), description: String::new(), main: None, deps: BTreeMap::new() };
+    let m = Manifest {
+        name: name.to_string(),
+        version: "0.1.0".into(),
+        description: String::new(),
+        main: None,
+        edition: None,
+        deps: BTreeMap::new(),
+    };
     std::fs::write(dir.join(MANIFEST), write_manifest(&m)).map_err(|e| e.to_string())?;
     let main = dir.join("src").join("main.nx");
     if !main.exists() {
@@ -501,10 +786,19 @@ mod tests {
 
     #[test]
     fn sha256_vectors() {
-        assert_eq!(hex(&sha256(b"")), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
-        assert_eq!(hex(&sha256(b"abc")), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
+        assert_eq!(
+            hex(&sha256(b"")),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            hex(&sha256(b"abc")),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
         let long = vec![b'a'; 1_000_000];
-        assert_eq!(hex(&sha256(&long)), "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0");
+        assert_eq!(
+            hex(&sha256(&long)),
+            "cdc76e5c9914fb9281a1c7e284d73e67f1809a48a497200e046d39ccc7112cd0"
+        );
     }
 
     #[test]

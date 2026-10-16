@@ -161,9 +161,16 @@ let total = a +
     b               // OK : la ligne se termine par `+`, pas de FIN
 let total = a
     + b             // deux instructions : `let total = a` puis `+b` (erreur E0102)
+let ecart = a
+    - b             // deux instructions : `let ecart = a` puis `-b` (erreur E0110)
 let r = valeur
     .methode()      // OK : règle 3
 ```
+
+Une instruction qui calcule une valeur sans effet (opérateurs, littéraux, noms, parenthèses,
+tableaux, sans appel ni `?`) et qui n'est pas la dernière de son bloc est refusée (`E0110`) :
+c'est presque toujours une ligne coupée en deux. Pour abandonner une valeur exprès :
+`let _ = expression`.
 
 Le parseur ignore un `FIN` situé juste avant `else`, ce qui permet le style
 `}` / `else {` sur deux lignes.

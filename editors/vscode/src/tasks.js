@@ -44,6 +44,7 @@ function createCliTask(vscode, executable, folder, command, file, filter, cwdOve
 function registerTaskProvider(vscode, context, getExecutable) {
   const provider = {
     async provideTasks() {
+      if (!vscode.workspace.isTrusted) return [];
       const tasks = [];
       for (const folder of vscode.workspace.workspaceFolders || []) {
         const manifest = await vscode.workspace.findFiles(
@@ -73,6 +74,7 @@ function registerTaskProvider(vscode, context, getExecutable) {
     },
 
     resolveTask(task) {
+      if (!vscode.workspace.isTrusted) return undefined;
       const definition = task.definition;
       if (!definition || definition.type !== 'nexul' || !COMMANDS.includes(definition.command)) return undefined;
       const folder = definition.cwd

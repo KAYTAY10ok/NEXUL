@@ -2,7 +2,11 @@
 //! editors in tabs, output panel and status bar.
 
 mod files;
+mod find;
 mod lang;
+mod palette;
+mod project;
+mod safety;
 
 use crate::explorer;
 use crate::ide;
@@ -24,7 +28,9 @@ use gpui_kit::assets::IconName as Lucide;
 use gpui_kit::prelude::FluentBuilder as _;
 use gpui_kit::*;
 use files::{Clip, Dragged, Naming};
+use find::{Find, SideView};
 use lang::PanelTab;
+use palette::{Palette, PaletteMode};
 use nexul_studio::workspace::Kind;
 use nexul_studio::{compiler, runner, watch, workspace};
 use std::collections::HashSet;
@@ -34,6 +40,26 @@ use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+/// What F5 and the menu Exécution start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Task {
+    Run,
+    Build,
+    BuildRelease,
+    Test,
+}
+
+impl Task {
+    /// The command of nxc and nxpm.
+    fn verb(self) -> &'static str {
+        match self {
+            Task::Run => "run",
+            Task::Build | Task::BuildRelease => "build",
+            Task::Test => "test",
+        }
+    }
+}
 
 /// An open file.
 struct Doc {
@@ -47,6 +73,9 @@ struct Doc {
     dirty: bool,
     /// Hash of the text on disk, to tell real changes from reloads.
     saved_hash: u64,
+    /// Hash of the bytes on disk when the file was read or saved: a different file on
+    /// disk at the next save is a conflict.
+    disk_hash: u64,
     /// The next change event comes from a reload, not from the user.
     reloading: bool,
     _changes: Subscription,
@@ -56,6 +85,13 @@ fn text_hash(text: &str) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
     text.hash(&mut h);
+    h.finish()
+}
+
+fn bytes_hash(bytes: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    bytes.hash(&mut h);
     h.finish()
 }
 
@@ -84,8 +120,24 @@ pub struct Studio {
     /// Checks running.
     checking: usize,
     panel_tab: PanelTab,
-    /// The name box of the symbol to rename.
-    rename_box: Option<Subscription>,
+    /// The name box of the open dialog (symbol to rename, new project).
+    dialog_input: Option<Subscription>,
+    /// « Rechercher dans les fichiers », once opened.
+    find: Option<Find>,
+    /// The view of the side bar.
+    side_view: SideView,
+    /// The tools found for the project templates (looked for once).
+    tools: Option<Rc<nexul_studio_templates::ToolchainRegistry>>,
+    /// The file to show once a folder opens: a project just created.
+    pending_open: Option<(PathBuf, String)>,
+    /// The palette of commands or of files, when open.
+    palette: Option<Palette>,
+    /// Unsaved changes not yet copied to the recovery folder, since then.
+    backup_due: Option<std::time::Instant>,
+    /// The last change of a text (automatic saving).
+    last_change: Option<std::time::Instant>,
+    /// The window may close: the unsaved changes were dealt with.
+    allow_close: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -121,7 +173,15 @@ impl Studio {
             problems: Vec::new(),
             checking: 0,
             panel_tab: PanelTab::Output,
-            rename_box: None,
+            dialog_input: None,
+            tools: None,
+            find: None,
+            side_view: SideView::Explorer,
+            pending_open: None,
+            palette: None,
+            backup_due: None,
+            last_change: None,
+            allow_close: false,
             _subscriptions: subscriptions,
         };
         this.apply_theme(window, cx);
@@ -141,6 +201,9 @@ impl Studio {
             _ => {}
         }
         this.poll(window, cx);
+        // Closing the window with unsaved changes asks first.
+        let studio = cx.entity().downgrade();
+        window.on_window_should_close(cx, move |window, cx| studio.update(cx, |this, cx| this.window_should_close(window, cx)).unwrap_or(true));
         this
     }
 
@@ -164,6 +227,12 @@ impl Studio {
         for rel in &session.open {
             if root.join(rel).is_file() {
                 self.open_file(rel, window, cx);
+            }
+        }
+        // The main file of a project just created.
+        if let Some((dir, rel)) = self.pending_open.take() {
+            if std::fs::canonicalize(&dir).map(|p| strip_verbatim(&p)).ok().as_ref() == Some(&root) && root.join(&rel).is_file() {
+                self.open_file(&rel, window, cx);
             }
         }
         if let Some(a) = &session.active {
@@ -217,6 +286,8 @@ impl Studio {
                         this.reload_unmodified(window, cx);
                     }
                     this.update_output(window, cx);
+                    this.tick_safety(window, cx);
+                    this.tick_find(cx);
                 })
                 .is_ok();
             if !alive {
@@ -234,6 +305,7 @@ impl Studio {
                 continue;
             }
             let Ok(bytes) = std::fs::read(root.join(&doc.rel)) else { continue };
+            doc.disk_hash = bytes_hash(&bytes);
             let Some((text, encoding)) = workspace::decode_text(&bytes) else { continue };
             let current = doc.editor.read(cx).value();
             if current.as_ref() != text.as_str() {
@@ -262,8 +334,13 @@ impl Studio {
             return self.notify_error(&format!("« {} » est un fichier binaire.", rel), window, cx);
         };
         let name: SharedString = rel.rsplit('/').next().unwrap_or(rel).to_string().into();
-        let lang = explorer::language_of(&name);
+        let mut lang = explorer::language_of(&name);
+        // Edition 1 of the syntax (ADR 0010): the file or its project says so.
+        if lang == "nexul" && ide::edition_1(&root.join(rel), &text) {
+            lang = "nexul1";
+        }
         let saved_hash = text_hash(&text);
+        let disk_hash = bytes_hash(&bytes);
         let editor = cx.new(|cx| EditorState::new(window, cx).language(lang).line_number(true).searchable(true).default_value(text));
         let changes = cx.subscribe(&editor, |this: &mut Self, editor, event: &InputEvent, cx| {
             if matches!(event, InputEvent::Change) {
@@ -279,18 +356,23 @@ impl Studio {
                         doc.dirty = true;
                         cx.notify();
                     }
+                    let now = std::time::Instant::now();
+                    this.backup_due.get_or_insert(now);
+                    this.last_change = Some(now);
                 }
             }
         });
         let file: ide::FileRef = Rc::new(RefCell::new(root.join(rel)));
-        if lang == "nexul" {
+        if ide::is_nexul(lang) {
             editor.update(cx, |e, cx| e.set_highlighter_factory(crate::highlight::factory(), cx));
             self.attach_services(&editor, &file, cx);
         }
-        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, file, encoding, dirty: false, saved_hash, reloading: false, _changes: changes });
+        self.docs.push(Doc { rel: rel.to_string(), name, lang, editor, file, encoding, dirty: false, saved_hash, disk_hash, reloading: false, _changes: changes });
+        // Changes not saved when Studio stopped (crash, power cut) come back.
+        self.restore_backup(self.docs.len() - 1, window, cx);
         self.activate(self.docs.len() - 1, window, cx);
         self.save_session();
-        if lang == "nexul" {
+        if ide::is_nexul(lang) {
             self.check_file(rel, window, cx);
         } else {
             self.show_diagnostics(cx);
@@ -306,7 +388,17 @@ impl Studio {
     }
 
     fn save_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        self.save_doc_as_is(ix, false, window, cx)
+    }
+
+    /// Saves a file; unless `overwrite`, a file changed on disk since it was read asks
+    /// what to do instead of being overwritten.
+    fn save_doc_as_is(&mut self, ix: usize, overwrite: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let Some(root) = self.root.clone() else { return false };
+        if !overwrite && self.changed_on_disk(ix) {
+            self.ask_conflict(ix, window, cx);
+            return false;
+        }
         let Some(doc) = self.docs.get_mut(ix) else { return false };
         let text = doc.editor.read(cx).value().to_string();
         let (bytes, encoding) = workspace::encode_text(&text, doc.encoding);
@@ -314,8 +406,10 @@ impl Studio {
             Ok(()) => {
                 doc.encoding = encoding;
                 doc.saved_hash = text_hash(&text);
+                doc.disk_hash = bytes_hash(&bytes);
                 doc.dirty = false;
                 let rel = doc.rel.clone();
+                self.delete_backup(&rel);
                 self.check_file(&rel, window, cx);
                 cx.notify();
                 true
@@ -327,18 +421,10 @@ impl Studio {
         }
     }
 
-    fn close_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
+    /// Closes an editor without saving (the caller dealt with its changes).
+    fn remove_doc(&mut self, ix: usize, window: &mut Window, cx: &mut Context<Self>) {
         if ix >= self.docs.len() {
             return;
-        }
-        // The text is compared, not only the flag: the last keystroke may not have been
-        // reported yet.
-        let modified = self.docs[ix].dirty || text_hash(&self.docs[ix].editor.read(cx).value()) != self.docs[ix].saved_hash;
-        if modified {
-            // Unsaved changes: saved before closing (as with automatic saving).
-            if !self.save_doc(ix, window, cx) {
-                return;
-            }
         }
         self.docs.remove(ix);
         self.active = if self.docs.is_empty() { None } else { Some(ix.min(self.docs.len() - 1)) };
@@ -350,34 +436,57 @@ impl Studio {
     }
 
     fn notify_error(&mut self, message: &str, window: &mut Window, cx: &mut Context<Self>) {
-        window.push_notification(gpui_kit::component::notification::Notification::error(message.to_string()), cx);
+        let note = gpui_kit::component::notification::Notification::error(message.to_string());
+        // Deferred: while the window is being built (files reopened at start), its layer
+        // of notifications does not exist yet.
+        cx.defer_in(window, move |_, window, cx| window.push_notification(note, cx));
     }
 
     // -------------------------------------------------------------- running
 
-    fn run_active(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(ix) = self.active else { return };
-        if !self.save_doc(ix, window, cx) {
-            return;
-        }
-        let (Some(root), Some(doc)) = (self.root.clone(), self.docs.get(ix)) else { return };
-        if doc.lang != "nexul" {
-            return self.notify_error("F5 exécute un programme NEXUL (fichier .nx).", window, cx);
-        }
+    /// Runs, builds or tests: the project of the folder with nxpm when it has a
+    /// `nexul.toml`, else the active NEXUL file with nxc. The files are saved first.
+    pub(super) fn start_task(&mut self, task: Task, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(root) = self.root.clone() else {
+            return self.notify_error("Ouvrez d'abord un dossier.", window, cx);
+        };
         let Some(nxc) = self.nxc.clone() else {
             return self.notify_error("Compilateur nxc introuvable : installez NEXUL ou définissez NEXUL_NXC.", window, cx);
         };
+        let project = root.join("nexul.toml").is_file();
+        // A project builds every file: all are saved; a file alone, itself.
+        let to_save: Vec<usize> = if project { (0..self.docs.len()).filter(|&i| self.is_modified(i, cx)).collect() } else { self.active.into_iter().collect() };
+        for ix in to_save {
+            if !self.save_doc(ix, window, cx) {
+                return;
+            }
+        }
+        let (program, mut args, shown) = if project {
+            let Some(nxpm) = compiler::nxpm_of(&nxc) else {
+                return self.notify_error("nxpm introuvable à côté de nxc : le projet (nexul.toml) ne peut pas être construit.", window, cx);
+            };
+            (nxpm, vec![task.verb().to_string()], format!("nxpm {}", task.verb()))
+        } else {
+            let Some(doc) = self.active.and_then(|i| self.docs.get(i)).filter(|d| ide::is_nexul(d.lang)) else {
+                return self.notify_error("Ouvrez un fichier NEXUL (.nx), ou un projet avec nexul.toml.", window, cx);
+            };
+            let file = root.join(&doc.rel).to_string_lossy().to_string();
+            (nxc, vec![task.verb().to_string(), file], format!("nxc {} {}", task.verb(), doc.rel))
+        };
+        if task == Task::BuildRelease {
+            args.push("--release".into());
+        }
         if let Some(id) = self.run.take() {
             self.runs.kill(id);
         }
-        let file = root.join(&doc.rel).to_string_lossy().to_string();
         let step = runner::Step {
-            banner: format!("▶ nxc run {}\n", doc.rel),
-            cmd: runner::command(&nxc, &["run".into(), file], &root),
+            banner: format!("▶ {}{}\n", shown, if task == Task::BuildRelease { " --release" } else { "" }),
+            cmd: runner::command(&program, &args, &root),
             interactive: false,
             report: None,
         };
         self.run = Some(self.runs.start(vec![step], Vec::new()));
+        self.panel_tab = PanelTab::Output;
         self.settings.panel = true;
         self.settings.save();
         cx.notify();
@@ -430,7 +539,7 @@ impl Studio {
         cx.spawn_in(window, async move |this, cx| {
             if let Ok(Ok(Some(mut paths))) = paths.await {
                 if let Some(p) = paths.pop() {
-                    let _ = this.update_in(cx, |this, window, cx| this.open_root(p, window, cx));
+                    let _ = this.update_in(cx, |this, window, cx| this.request_open_root(p, window, cx));
                 }
             }
         })
@@ -453,7 +562,7 @@ impl Studio {
 
     fn on_close_editor(&mut self, _: &CloseEditor, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(ix) = self.active {
-            self.close_doc(ix, window, cx);
+            self.request_close_doc(ix, window, cx);
         }
     }
 
@@ -483,7 +592,19 @@ impl Studio {
     }
 
     fn on_run(&mut self, _: &Run, window: &mut Window, cx: &mut Context<Self>) {
-        self.run_active(window, cx);
+        self.start_task(Task::Run, window, cx);
+    }
+
+    fn on_build(&mut self, _: &Build, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::Build, window, cx);
+    }
+
+    fn on_build_release(&mut self, _: &BuildRelease, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::BuildRelease, window, cx);
+    }
+
+    fn on_run_tests(&mut self, _: &RunTests, window: &mut Window, cx: &mut Context<Self>) {
+        self.start_task(Task::Test, window, cx);
     }
 
     fn on_stop(&mut self, _: &Stop, _: &mut Window, cx: &mut Context<Self>) {
@@ -571,6 +692,14 @@ impl Studio {
         self.ask_rename_symbol(window, cx);
     }
 
+    fn on_show_commands(&mut self, _: &ShowCommands, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette(PaletteMode::Commands, window, cx);
+    }
+
+    fn on_quick_open(&mut self, _: &QuickOpen, window: &mut Window, cx: &mut Context<Self>) {
+        self.open_palette(PaletteMode::Files, window, cx);
+    }
+
     fn on_show_problems(&mut self, _: &ShowProblems, _: &mut Window, cx: &mut Context<Self>) {
         self.show_panel(PanelTab::Problems, cx);
     }
@@ -598,9 +727,17 @@ impl Studio {
                 Button::new("act-explorer")
                     .ghost()
                     .icon(IconName::Folder)
-                    .selected(self.settings.sidebar)
+                    .selected(self.settings.sidebar && self.side_view == SideView::Explorer)
                     .tooltip("Explorateur (Ctrl+B)")
-                    .on_click(|_, window, cx| window.dispatch_action(Box::new(ToggleSidebar), cx)),
+                    .on_click(cx.listener(|this, _, window, cx| this.show_side_view(SideView::Explorer, window, cx))),
+            )
+            .child(
+                Button::new("act-search")
+                    .ghost()
+                    .icon(IconName::Search)
+                    .selected(self.settings.sidebar && self.side_view == SideView::Search)
+                    .tooltip("Rechercher dans les fichiers (Ctrl+Maj+F)")
+                    .on_click(cx.listener(|this, _, window, cx| this.show_side_view(SideView::Search, window, cx))),
             )
             .child(
                 Button::new("act-run")
@@ -758,7 +895,7 @@ impl Studio {
                 Tab::new()
                     .label(if d.dirty { format!("● {}", d.name) } else { d.name.to_string() })
                     .suffix(Button::new(("close", i)).ghost().xsmall().icon(IconName::Close).on_click(move |_, window, cx| {
-                        let _ = studio.update(cx, |this, cx| this.close_doc(i, window, cx));
+                        let _ = studio.update(cx, |this, cx| this.request_close_doc(i, window, cx));
                     }))
             }))
             .on_click(cx.listener(|this, ix: &usize, window, cx| this.activate(*ix, window, cx)));
@@ -861,6 +998,7 @@ impl Focusable for Studio {
 
 impl Render for Studio {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.render_palette(cx);
         let minimal = self.settings.minimal;
         let sidebar = self.settings.sidebar && !minimal;
         let panel = self.settings.panel && !minimal;
@@ -869,7 +1007,7 @@ impl Render for Studio {
             .child(resizable_panel().child(self.render_editors(cx)))
             .child(resizable_panel().size(px(220.)).size_range(px(80.)..px(900.)).visible(panel).child(self.render_output(cx)));
         let main = h_resizable("main")
-            .child(resizable_panel().size(px(260.)).size_range(px(160.)..px(600.)).visible(sidebar).child(self.render_explorer(cx)))
+            .child(resizable_panel().size(px(260.)).size_range(px(160.)..px(600.)).visible(sidebar).child(if self.side_view == SideView::Search { self.render_find(cx).into_any_element() } else { self.render_explorer(cx).into_any_element() }))
             .child(resizable_panel().child(center));
         v_flex()
             .id("studio")
@@ -879,6 +1017,11 @@ impl Render for Studio {
             .bg(cx.theme().background)
             .text_color(cx.theme().foreground)
             .on_action(cx.listener(Self::on_open_folder))
+            .on_action(cx.listener(Self::on_new_project))
+            .on_action(cx.listener(Self::on_find_in_files))
+            .on_action(cx.listener(Self::on_build))
+            .on_action(cx.listener(Self::on_build_release))
+            .on_action(cx.listener(Self::on_run_tests))
             .on_action(cx.listener(Self::on_save))
             .on_action(cx.listener(Self::on_save_all))
             .on_action(cx.listener(Self::on_close_editor))
@@ -905,6 +1048,9 @@ impl Render for Studio {
             .on_action(cx.listener(Self::on_format_document))
             .on_action(cx.listener(Self::on_rename_symbol))
             .on_action(cx.listener(Self::on_show_problems))
+            .on_action(cx.listener(Self::on_show_commands))
+            .on_action(cx.listener(Self::on_quick_open))
+            .on_action(cx.listener(Self::on_quit))
             .when(!minimal, |this| {
                 this.child(TitleBar::new().child(self.menu_bar.clone()).child(div().flex_1()).child(div().text_xs().text_color(cx.theme().muted_foreground).pr_4().child(title)))
             })
@@ -916,6 +1062,7 @@ impl Render for Studio {
                     .child(div().flex_1().h_full().child(main)),
             )
             .when(!minimal, |this| this.child(self.render_status(cx)))
+            .children(palette)
     }
 }
 
@@ -1362,16 +1509,316 @@ mod tests {
     }
 
     #[gpui_kit::test]
-    fn closing_a_modified_file_saves_it(cx: &mut TestAppContext) {
+    fn palette_runs_commands_and_opens_files(cx: &mut TestAppContext) {
+        let dir = project("palette");
+        let (window, studio) = open(cx, dir);
+        let dark = studio.read_with(cx, |s, _| s.settings.theme.clone());
+        // Ctrl+Shift+P, a few letters, Enter: the command runs and the palette closes.
+        keys(cx, window, |window, cx| window.press("ctrl-shift-p", cx));
+        studio.read_with(cx, |s, _| assert_eq!(s.palette.as_ref().map(|p| p.mode), Some(PaletteMode::Commands)));
+        keys(cx, window, |window, cx| window.input("thème", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| {
+            assert!(s.palette.is_none(), "closed after the choice");
+            assert_ne!(s.settings.theme, dark, "the theme command ran");
+        });
+        keys(cx, window, |window, cx| {
+            window.press("ctrl-shift-p", cx);
+            window.input("thème", cx);
+            window.press("enter", cx);
+        });
+        // Ctrl+P: the file found by a part of its name.
+        keys(cx, window, |window, cx| window.press("ctrl-p", cx));
+        keys(cx, window, |window, cx| window.input("calc", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| {
+            assert!(s.palette.is_none());
+            assert_eq!(s.docs.last().map(|d| d.rel.as_str()), Some("src/calcul.nx"));
+        });
+        // Escape closes it without doing anything.
+        keys(cx, window, |window, cx| window.press("ctrl-p", cx));
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        studio.read_with(cx, |s, _| assert!(s.palette.is_none(), "Escape closes the palette"));
+    }
+
+    fn has_dialog(cx: &mut TestAppContext, window: AnyWindowHandle) -> bool {
+        cx.update_window(window, |_, window, cx| window.has_active_dialog(cx)).unwrap()
+    }
+
+    fn type_at_end(cx: &mut TestAppContext, window: AnyWindowHandle, text: &str) {
+        let text = text.to_string();
+        keys(cx, window, move |window, cx| {
+            window.press("ctrl-end", cx);
+            window.input(&text, cx);
+        });
+    }
+
+    #[gpui_kit::test]
+    fn closing_a_modified_editor_asks(cx: &mut TestAppContext) {
         let dir = project("close");
+        let original = std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap();
         let (window, studio) = open(cx, dir.clone());
         update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
-        keys(cx, window, |window, cx| {
-            window.press("ctrl-end", cx);
-            window.input("// fin\n", cx);
-            window.press("ctrl-w", cx);
-        });
+        type_at_end(cx, window, "// fin\n");
+        // Ctrl+W: a question, nothing closed or written yet.
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        assert!(has_dialog(cx, window), "Enregistrer / Ne pas enregistrer / Annuler");
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1));
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), original);
+        // Escape: cancelled.
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1, "still open"));
+        // « Ne pas enregistrer »: closed, the file unchanged.
+        update(cx, window, &studio, |s, window, cx| s.finish_close_doc("src/calcul.nx", safety::Choice::Discard, window, cx));
         studio.read_with(cx, |s, _| assert!(s.docs.is_empty()));
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), original);
+        // Again, and Enter: « Enregistrer ».
+        update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
+        type_at_end(cx, window, "// fin\n");
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        studio.read_with(cx, |s, _| assert!(s.docs.is_empty(), "saved and closed"));
         assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// fin\n"));
+        // Unchanged: closed without a question.
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        keys(cx, window, |window, cx| window.press("ctrl-w", cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert!(s.docs.is_empty()));
+    }
+
+    #[gpui_kit::test]
+    fn closing_the_window_asks_for_unsaved_files(cx: &mut TestAppContext) {
+        let dir = project("closewin");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("main.nx", window, cx);
+            s.open_file("src/calcul.nx", window, cx);
+        });
+        type_at_end(cx, window, "// b\n");
+        let closes = update(cx, window, &studio, |s, window, cx| s.window_should_close(window, cx));
+        assert!(!closes, "the window stays while the question is asked");
+        assert!(has_dialog(cx, window));
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        // « Tout enregistrer »: saved, then the window closes.
+        cx.update_window(window, |_, window, cx| studio.update(cx, |s, cx| s.finish_leave(safety::Choice::Save, safety::Leave::Window, window, cx))).unwrap();
+        cx.run_until_parked();
+        assert!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().ends_with("// b\n"), "saved before closing");
+        studio.read_with(cx, |s, _| assert!(s.allow_close));
+        assert!(cx.update_window(window, |_, _, _| ()).is_err(), "the window is closed");
+    }
+
+    #[gpui_kit::test]
+    fn a_new_project_is_created_and_opened(cx: &mut TestAppContext) {
+        let dir = project("newproject");
+        let parent = dir.with_file_name(format!("{}-new", dir.file_name().unwrap().to_string_lossy()));
+        let _ = std::fs::remove_dir_all(&parent);
+        std::fs::create_dir_all(&parent).unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        let form = update(cx, window, &studio, |_, window, cx| cx.new(|cx| project::ProjectForm::new(parent.clone(), window, cx)));
+        let weak = studio.downgrade();
+        let create = |cx: &mut TestAppContext| cx.update_window(window, |_, window, cx| project::create_project(&form, &weak, window, cx)).unwrap();
+        // Before the tools are known, nothing is created.
+        create(cx);
+        assert!(!parent.join("mon-projet").exists());
+        // Only nxc: the Python template cannot be created.
+        let mut tools = nexul_studio_templates::ToolchainRegistry::default();
+        tools.insert(nexul_studio_templates::Tool::Nxc, studio.read_with(cx, |s, _| s.nxc.clone()).expect("nxc"));
+        form.update(cx, |f, cx| {
+            f.set_tools(&tools, cx);
+            f.select("python", cx);
+        });
+        create(cx);
+        assert!(!parent.join("mon-projet").exists());
+        // A NEXUL program: created, opened, its main file shown.
+        form.update(cx, |f, cx| f.select("nexul-console", cx));
+        create(cx);
+        cx.run_until_parked();
+        let made = parent.join("mon-projet");
+        assert!(made.join("src/main.nx").is_file());
+        studio.read_with(cx, |s, _| {
+            assert!(s.root.as_ref().is_some_and(|r| r.ends_with("mon-projet")));
+            assert_eq!(s.active.and_then(|i| s.docs.get(i)).map(|d| d.rel.as_str()), Some("src/main.nx"));
+        });
+        // The folder is not empty any more: a second project there is refused.
+        create(cx);
+        assert!(std::fs::read_dir(&made).unwrap().count() > 0);
+        let _ = std::fs::remove_dir_all(&parent);
+    }
+
+    #[gpui_kit::test]
+    fn find_and_replace_in_files(cx: &mut TestAppContext) {
+        let dir = project("find");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// fn\n");
+        // Ctrl+Maj+F, the text, Enter.
+        keys(cx, window, |window, cx| window.press("ctrl-shift-f", cx));
+        keys(cx, window, |window, cx| window.input("fn", cx));
+        keys(cx, window, |window, cx| window.press("enter", cx));
+        cx.run_until_parked();
+        studio.read_with(cx, |s, _| {
+            assert_eq!(s.side_view, SideView::Search);
+            let found = s.find.as_ref().and_then(|f| f.found.as_ref()).expect("searched");
+            let places: Vec<(&str, usize, usize)> = found.hits.iter().map(|h| (h.rel.as_str(), h.line, h.start)).collect();
+            // The open editor is searched with its unsaved text.
+            assert_eq!(places, vec![("src/calcul.nx", 0, 4), ("main.nx", 0, 0), ("main.nx", 3, 3)]);
+        });
+        // Tout remplacer: the open editor changes (not its file), the other file is saved.
+        update(cx, window, &studio, |s, window, cx| {
+            let replace = s.find.as_ref().unwrap().replace.clone();
+            replace.update(cx, |i, cx| i.set_value("fonction", window, cx));
+            s.replace_all_found(window, cx);
+        });
+        cx.run_until_parked();
+        assert_eq!(std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap(), "pub fonction f() {}\n");
+        assert!(!std::fs::read_to_string(dir.join("main.nx")).unwrap().contains("fonction"));
+        studio.read_with(cx, |s, cx| {
+            assert!(s.docs[0].editor.read(cx).value().starts_with("fonction main()"));
+            assert!(s.find.as_ref().and_then(|f| f.found.as_ref()).is_some_and(|f| f.hits.is_empty()), "searched again");
+        });
+        // A result opens its file at the match.
+        update(cx, window, &studio, |s, window, cx| s.open_hit("src/calcul.nx", 0, 4, window, cx));
+        studio.read_with(cx, |s, _| assert_eq!(s.active.and_then(|i| s.docs.get(i)).map(|d| d.rel.as_str()), Some("src/calcul.nx")));
+    }
+
+    /// Waits for the end of the run started from Studio; its output.
+    fn wait_task(cx: &mut TestAppContext, window: AnyWindowHandle, studio: &Entity<Studio>) -> String {
+        for _ in 0..600 {
+            std::thread::sleep(Duration::from_millis(100));
+            if update(cx, window, studio, |s, window, cx| {
+                s.update_output(window, cx);
+                s.run.is_none()
+            }) {
+                break;
+            }
+        }
+        studio.read_with(cx, |s, cx| s.output.read(cx).value().to_string())
+    }
+
+    #[gpui_kit::test]
+    fn build_run_and_test_from_studio(cx: &mut TestAppContext) {
+        if compiler::find_nxc().is_none() {
+            return eprintln!("nxc introuvable : test sauté");
+        }
+        // A file alone: nxc, on the active file.
+        let dir = project("tasks");
+        std::fs::write(dir.join("src/calcul.nx"), "pub fn double(x: i32) -> i32 {\n    return x * 2\n}\n\n@test\nfn double_works() {\n    assert(double(2) == 4)\n}\n").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("src/calcul.nx", window, cx);
+            s.start_task(Task::Test, window, cx);
+        });
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxc test src/calcul.nx") && out.contains("1 passed") && out.contains("terminé (code 0)"), "{out}");
+        // A project (nexul.toml): nxpm, whatever the active file; unsaved files are saved first.
+        let proj = project("tasks-nxpm");
+        std::fs::write(proj.join("nexul.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\n\n[dependencies]\n").unwrap();
+        std::fs::write(proj.join("src/main.nx"), "fn main() {\n    println(\"bonjour\")\n}\n").unwrap();
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_root(proj.clone(), window, cx);
+            s.open_file("src/main.nx", window, cx);
+        });
+        type_at_end(cx, window, "// fin\n");
+        update(cx, window, &studio, |s, window, cx| s.start_task(Task::Run, window, cx));
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxpm run") && out.contains("bonjour") && out.contains("terminé (code 0)"), "{out}");
+        assert!(std::fs::read_to_string(proj.join("src/main.nx")).unwrap().ends_with("// fin\n"), "saved before");
+        // Building an optimized program.
+        update(cx, window, &studio, |s, window, cx| s.start_task(Task::BuildRelease, window, cx));
+        let out = wait_task(cx, window, &studio);
+        assert!(out.contains("nxpm build --release") && out.contains("terminé (code 0)"), "{out}");
+    }
+
+    #[gpui_kit::test]
+    fn files_of_edition_1_are_recognized(cx: &mut TestAppContext) {
+        let dir = project("edition1");
+        std::fs::write(dir.join("nexul.toml"), "[package]\nname = \"demo\"\nversion = \"0.1.0\"\nedition = \"1\"\n\n[dependencies]\n").unwrap();
+        std::fs::write(dir.join("src/calcul.nx"), "// edition: 0.2\npub fn f() {}\n").unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| {
+            s.open_file("main.nx", window, cx);
+            s.open_file("src/calcul.nx", window, cx);
+        });
+        studio.read_with(cx, |s, _| {
+            assert_eq!(s.docs[0].lang, "nexul1", "the project is in edition 1");
+            assert_eq!(s.docs[1].lang, "nexul", "the first line of the file overrides the project");
+        });
+    }
+
+    #[gpui_kit::test]
+    fn opening_another_folder_asks_for_unsaved_files(cx: &mut TestAppContext) {
+        let dir = project("otherroot");
+        let other = project("otherroot2");
+        let original = std::fs::read_to_string(dir.join("main.nx")).unwrap();
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// c\n");
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(other.clone(), window, cx));
+        assert!(has_dialog(cx, window), "Enregistrer / Ne pas enregistrer / Annuler");
+        studio.read_with(cx, |s, _| assert_eq!(s.docs.len(), 1, "still in the first folder"));
+        // Annuler: nothing changes.
+        keys(cx, window, |window, cx| window.press("escape", cx));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(dir.file_name().unwrap()))));
+        // Ne pas enregistrer: the other folder, the file unchanged.
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(other.clone(), window, cx));
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        update(cx, window, &studio, |s, window, cx| s.finish_leave(safety::Choice::Discard, safety::Leave::Root(other.clone()), window, cx));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(other.file_name().unwrap()))));
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), original);
+        // No change: opened at once.
+        update(cx, window, &studio, |s, window, cx| s.request_open_root(dir.clone(), window, cx));
+        assert!(!has_dialog(cx, window));
+        studio.read_with(cx, |s, _| assert!(s.root.as_ref().is_some_and(|r| r.ends_with(dir.file_name().unwrap()))));
+    }
+
+    #[gpui_kit::test]
+    fn a_file_changed_on_disk_is_not_overwritten(cx: &mut TestAppContext) {
+        let dir = project("conflict");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("main.nx", window, cx));
+        type_at_end(cx, window, "// mien\n");
+        // Another program changes the file.
+        std::fs::write(dir.join("main.nx"), "// autre programme\n").unwrap();
+        keys(cx, window, |window, cx| window.press("ctrl-s", cx));
+        assert!(has_dialog(cx, window), "Écraser / Recharger / Annuler");
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), "// autre programme\n", "not overwritten");
+        cx.update_window(window, |_, window, cx| window.close_dialog(cx)).unwrap();
+        // « Recharger »: the version of the disk.
+        update(cx, window, &studio, |s, window, cx| s.finish_conflict("main.nx", safety::Choice::Discard, window, cx));
+        studio.read_with(cx, |s, cx| {
+            assert_eq!(s.docs[0].editor.read(cx).value().as_ref(), "// autre programme\n");
+            assert!(!s.docs[0].dirty);
+        });
+        // Changed again on disk, then « Écraser ».
+        type_at_end(cx, window, "// mien\n");
+        std::fs::write(dir.join("main.nx"), "// encore\n").unwrap();
+        update(cx, window, &studio, |s, window, cx| s.finish_conflict("main.nx", safety::Choice::Save, window, cx));
+        assert_eq!(std::fs::read_to_string(dir.join("main.nx")).unwrap(), "// autre programme\n// mien\n");
+    }
+
+    #[gpui_kit::test]
+    fn unsaved_changes_come_back_after_a_crash(cx: &mut TestAppContext) {
+        let dir = project("recovery");
+        let (window, studio) = open(cx, dir.clone());
+        update(cx, window, &studio, |s, window, cx| s.open_file("src/calcul.nx", window, cx));
+        type_at_end(cx, window, "// pas encore enregistré\n");
+        update(cx, window, &studio, |s, _, cx| s.write_backups(cx));
+        // Studio stops without closing (crash): a new one opens the same folder.
+        let (window2, studio2) = open(cx, dir.clone());
+        studio2.read_with(cx, |s, cx| {
+            let doc = s.docs.iter().find(|d| d.rel == "src/calcul.nx").expect("reopened");
+            assert!(doc.editor.read(cx).value().ends_with("// pas encore enregistré\n"), "text recovered");
+            assert!(doc.dirty, "still to save");
+        });
+        assert!(!std::fs::read_to_string(dir.join("src/calcul.nx")).unwrap().contains("enregistré"), "the file itself unchanged");
+        // Saved: the recovery copy goes away; a third Studio reads the file as is.
+        update(cx, window2, &studio2, |s, window, cx| {
+            let ix = s.docs.iter().position(|d| d.rel == "src/calcul.nx").unwrap();
+            s.save_doc(ix, window, cx);
+        });
+        let (_window3, studio3) = open(cx, dir);
+        studio3.read_with(cx, |s, _| assert!(s.docs.iter().all(|d| !d.dirty)));
+        let _ = window;
     }
 }

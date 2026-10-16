@@ -18,7 +18,9 @@ fn valid_code_is_tokenized_without_error_or_loss() {
     let mut total = 0;
     for path in &files {
         let text = read(path);
-        let toks = tokens("nexul", &text);
+        // A file of edition 1 (ADR 0010) is highlighted as such.
+        let lang = if text.lines().take(3).any(|l| l.trim() == "// edition: 1") { "nexul1" } else { "nexul" };
+        let toks = tokens(lang, &text);
         check_invariants(&text, &toks).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
         let invalid = invalid_tokens(&text, &toks);
         assert!(invalid.is_empty(), "{}: invalid tokens {invalid:?}", path.display());

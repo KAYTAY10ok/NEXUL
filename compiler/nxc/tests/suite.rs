@@ -55,9 +55,20 @@ fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &st
     }
 }
 
+/// The options for a test file: `// edition: 1` on one of its first lines selects the
+/// syntax of edition 1 (ADR 0010).
+fn opts_for(nx: &Path, mode: Mode) -> CompileOptions {
+    let mut opts = CompileOptions::new(mode);
+    let text = std::fs::read_to_string(nx).unwrap_or_default();
+    if text.lines().take(3).any(|l| l.trim() == "// edition: 1") {
+        opts.edition = nxc_syntax::Edition::V1;
+    }
+    opts
+}
+
 fn run_one(nx: &Path) -> Vec<String> {
     let mut failures = Vec::new();
-    let c = compile_file(nx, &CompileOptions::new(Mode::Program));
+    let c = compile_file(nx, &opts_for(nx, Mode::Program));
     if c.errors > 0 {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
@@ -216,7 +227,7 @@ fn run_programs_cross() {
             if !runs_on(nx, &target) {
                 return vec![];
             }
-            let mut opts = CompileOptions::new(Mode::Program);
+            let mut opts = opts_for(nx, Mode::Program);
             opts.target = target.clone();
             let c = compile_file(nx, &opts);
             if c.errors > 0 {
@@ -274,12 +285,109 @@ fn run_programs() {
     }
 }
 
+/// `nxc migrate` keeps the meaning of programs: every program of `tests/run` written in 0.2
+/// (one file, no user module imported), migrated to edition 1, compiles and prints the same
+/// output with the same exit code.
+#[test]
+fn migrated_programs_behave_the_same() {
+    let paths: Vec<PathBuf> = files("tests/run")
+        .into_iter()
+        .filter(|p| {
+            let t = std::fs::read_to_string(p).unwrap_or_default();
+            !t.lines().take(3).any(|l| l.trim() == "// edition: 1") && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
+        })
+        .collect();
+    let failures = parallel(&paths, |nx| {
+        let name = nx.file_name().unwrap().to_string_lossy().to_string();
+        let src = std::fs::read_to_string(nx).unwrap();
+        let m = match nxc_driver::migrate::migrate(&name, &src) {
+            Ok(m) => m,
+            Err(e) => return vec![format!("{}: not migrated\n{}", nx.display(), e)],
+        };
+        if !m.manual.is_empty() {
+            return vec![format!("{}: left to do by hand: {:?}", nx.display(), m.manual)];
+        }
+        let mut opts = CompileOptions::new(Mode::Program);
+        opts.edition = nxc_syntax::Edition::V1;
+        let c = nxc_driver::compile_source(&name, m.text.clone().into_bytes(), nx.parent().map(Path::to_path_buf), &opts);
+        if c.errors > 0 {
+            return vec![format!("{}: the migrated program does not compile\n{}\n--- migrated ---\n{}", nx.display(), c.diagnostics, m.text)];
+        }
+        let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
+        let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+        if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
+            return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
+        }
+        let mut cmd = Command::new(&exe);
+        cmd.env("NEXUL_TEST_ENV", "present").env_remove("NEXUL_DOES_NOT_EXIST").env("NEXUL_LEAK_CHECK", "1").arg("first-argument").current_dir(std::env::temp_dir());
+        let stdin_path = nx.with_extension("in");
+        if stdin_path.exists() {
+            cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
+        }
+        let out = cmd.output().expect("run migrated program");
+        let _ = std::fs::remove_file(&exe);
+        let _ = std::fs::remove_file(exe.with_extension("pdb"));
+        let mut f = Vec::new();
+        let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
+        let expected = std::fs::read_to_string(nx.with_extension("out")).map(|s| normalize(&s)).unwrap_or_default();
+        if stdout != expected {
+            f.push(format!("{}: migrated program prints differently\n--- expected ---\n{}\n--- actual ---\n{}", nx.display(), expected, stdout));
+        }
+        let code = out.status.code().unwrap_or(-1);
+        let expected_code: i32 = std::fs::read_to_string(nx.with_extension("exit")).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
+        if code != expected_code {
+            f.push(format!("{}: migrated program exits with {} (expected {})", nx.display(), code, expected_code));
+        }
+        f
+    });
+    eprintln!("{} programs migrated and run", paths.len());
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+/// The examples and the standard library migrate with nothing left to do by hand, and the
+/// migrated examples compile in edition 1 without warnings.
+#[test]
+fn migrated_examples_and_library() {
+    let mut failures = Vec::new();
+    let mut lib = Vec::new();
+    fn walk(dir: &Path, out: &mut Vec<PathBuf>) {
+        for e in std::fs::read_dir(dir).unwrap().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                walk(&p, out);
+            } else if p.extension().map_or(false, |x| x == "nx") {
+                out.push(p);
+            }
+        }
+    }
+    walk(&root().join("lib"), &mut lib);
+    for p in lib.iter().chain(files("examples").iter()) {
+        let name = p.file_name().unwrap().to_string_lossy().to_string();
+        match nxc_driver::migrate::migrate(&name, &std::fs::read_to_string(p).unwrap()) {
+            Err(e) => failures.push(format!("{}: not migrated\n{}", p.display(), e)),
+            Ok(m) if !m.manual.is_empty() => failures.push(format!("{}: left to do by hand: {:?}", p.display(), m.manual)),
+            Ok(m) if p.starts_with(root().join("examples")) => {
+                let mut opts = CompileOptions::new(Mode::Check);
+                opts.edition = nxc_syntax::Edition::V1;
+                let c = nxc_driver::compile_source(&name, m.text.into_bytes(), p.parent().map(Path::to_path_buf), &opts);
+                if c.errors > 0 || c.warnings > 0 {
+                    failures.push(format!("{}: the migrated example does not compile cleanly\n{}", p.display(), c.diagnostics));
+                }
+            }
+            Ok(_) => {}
+        }
+    }
+    assert!(failures.is_empty(), "{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+}
+
 #[test]
 fn ui_diagnostics() {
     let paths = files("tests/ui");
     let failures = parallel(&paths, |nx| {
         let mut f = Vec::new();
-        let c = compile_file(nx, &CompileOptions::new(Mode::Check));
+        let c = compile_file(nx, &opts_for(nx, Mode::Check));
         let actual = normalize(&c.diagnostics);
         if actual.is_empty() {
             f.push(format!("{}: expected diagnostics, got none", nx.display()));
@@ -296,7 +404,7 @@ fn ui_diagnostics() {
 fn examples_compile_cleanly() {
     let paths = files("examples");
     let failures = parallel(&paths, |nx| {
-        let c = compile_file(nx, &CompileOptions::new(Mode::Program));
+        let c = compile_file(nx, &opts_for(nx, Mode::Program));
         if c.errors > 0 || c.warnings > 0 {
             vec![format!("{}:\n{}", nx.display(), c.diagnostics)]
         } else {
