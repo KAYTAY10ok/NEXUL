@@ -277,7 +277,8 @@ fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<
 
 #[test]
 fn run_programs() {
-    let paths = files("tests/run");
+    let target = Target::host();
+    let paths: Vec<PathBuf> = files("tests/run").into_iter().filter(|p| runs_on(p, &target)).collect();
     assert!(!paths.is_empty(), "no tests found");
     let failures = parallel(&paths, run_one);
     if !failures.is_empty() {
