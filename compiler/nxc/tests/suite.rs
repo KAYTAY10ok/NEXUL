@@ -73,7 +73,8 @@ fn run_one(nx: &Path) -> Vec<String> {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-    let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}", std::process::id()));
+    let exe = dir.join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
     if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
         return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
@@ -318,7 +319,8 @@ fn migrated_programs_behave_the_same() {
             return vec![format!("{}: the migrated program does not compile\n{}\n--- migrated ---\n{}", nx.display(), c.diagnostics, m.text)];
         }
         let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-        let exe = std::env::temp_dir().join("nexul-suite").join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
+        let dir = std::env::temp_dir().join(format!("nexul-suite-migrate-{}", std::process::id()));
+        let exe = dir.join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
         if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
             return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
         }
