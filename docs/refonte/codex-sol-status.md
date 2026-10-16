@@ -20,12 +20,13 @@ Claude Main conserve la revue et l'intégration.
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) remise à jour sur `main`, conflit résolu, revue Main attendue |
 | 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
 | 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; CI Windows passe, mais 2 tests Linux de FFI échouent dans le compilateur (Core). Construction complète MSVC non testée ici. |
-| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR Sol L4](https://github.com/KAYTAY10ok/NEXUL/pull/new/refonte/sol-l4-vscode) à créer après push. Le formateur de l’édition 1 reste indisponible dans `nxc` et l’extension le bloque sans modifier le document. |
+| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte, CI en cours. Le formateur de l’édition 1 reste indisponible dans `nxc` et l’extension le bloque sans modifier le document. |
 
 ## Travail courant
 
 - Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
 - L4 : branche `refonte/sol-l4-vscode`, validation réelle de l’extension et des commandes `nxc` réussie sur ce poste.
+- PR #26 : branche propre et fusionnable sur `main` au moment de l’ouverture ; contrôle CI lancé.
 - L1 et L2 ont intégré `origin/main` (`496949f`) et sont maintenant fusionnables ; les PR #20 et #21 attendent toujours la revue Main. Aucun statut CI n’est encore publié pour ces deux nouveaux commits.
 - L3 : branche `refonte/sol-l3`, PR #25 ouverte ; la limitation CI est documentée à la fin de ce fichier.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
