@@ -1,7 +1,6 @@
 # État de Codex Sol — composants, outils et distribution
 
-Mis à jour le 16 octobre 2026 après validation L4/L5 et contrôle des PRs ouvertes. Mandat : `prompt-codex-sol.md` et
-charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
+Mis à jour le 16 octobre 2026 après validation de la matrice P9, mesure release et contrôle des PRs. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
 
 ## Périmètre
 
@@ -18,25 +17,21 @@ Claude Main conserve la revue et l'intégration.
 | 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉ** par Main le 16/10 (revue : 5 suites + 90 exécutions sans blocage ; suites dans `revues-main.md`) |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉ** par Main le 16/10 (vrai `lldb-dap` 23 revérifié ; suites dans `revues-main.md`) |
-| 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
+| 3 | P9 — CLI et LSP | Socle INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24). [PR #34](https://github.com/KAYTAY10ok/NEXUL/pull/34) ajoute les tests d’éditions LSP mixtes et les mesures ADR 0009 ; CI réussie, revue Main attendue. |
 | 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) **INTÉGRÉ** par Main le 16/10 avec le CI de `main` (PR #28 : échecs FFI Linux corrigés par `e78a357`), l'analyseur JSON de la migration rendu linéaire et la migration sautée en mode élevé (revue). |
-| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte et fusionnable. Son CI Linux échoue en compilant l’installateur Windows (`std::os::windows`, `kernel32`), problème couvert par la séparation de workflow de la PR #25, en attente de revue Main. Le formatage édition 1 reste bloqué sans modifier le document. |
-| 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
+| 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) INTÉGRÉE ; [PR #28](https://github.com/KAYTAY10ok/NEXUL/pull/28) active le formatage à la sauvegarde pour les éditions 0.2 et 1. [PR #30](https://github.com/KAYTAY10ok/NEXUL/pull/30) prépare le VSIX 0.3.0 ; tests hôte Windows et WSL2 documentés, CI réussie, revue Main attendue. |
+| 6 | L5 — modèles de projet | INTÉGRÉ dans [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) après 5 tests unitaires et 2 fonctionnels réussis. |
 
 ## Travail courant
 
-- Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
-- L4 : branche `refonte/sol-l4-vscode`, validation réelle de l’extension, du serveur LSP et des commandes `nxc` réussie sur ce poste.
-- Les PR #20, #21, #26 et #27 sont ouvertes et fusionnables ; leurs runs Linux respectifs (#11, #12, #16 et #15) échouent au build global sur l’installateur Windows (`std::os::windows`, `kernel32`). Les tests restent ignorés après cet échec.
-- La PR #25 porte la séparation des jobs Linux/Windows. Son run #10 passe les tests Windows et le build Linux, mais 2 tests Linux FFI échouent sur `abs`, `strlen` et `sqrt`, dans `compiler/**` / Core. Revue Main attendue avant intégration de cette correction de workflow.
-- L1 et L2 ont intégré `origin/main` (`496949f`) et sont fusionnables ; revue Main attendue. L3, L4 et L5 ont leurs PR ouvertes et attendent aussi revue/intégration.
-- Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
-- Branche L1 : `refonte/sol-l1-terminal` ; L2 : `refonte/sol-l2-dap`. Worktree indépendant sous
-  `files-mentioned-by-the-user-prompt/work/NEXUL-sol`.
-- Main a remplacé le brouillon `docs/spec/lsp.md` par
-  `docs/adr/0009-contrat-nxc-lsp.md`, seul contrat accepté. Le prompt et les tâches
-  actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
-- Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
+- Base actuelle : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026.
+- Les PR #20, #21, #22 et #24 à #28 concernant L1, L2, la sécurité, P9, L3, L4, L5 et le formatage ont été intégrées par Main ; les anciennes preuves détaillées ci-dessous restent historiques.
+- PRs ouvertes : #29 benchmarks (aucun run Actions associé au head trouvé ; résultats locaux dans la PR), #30 VSIX 0.3.0, #31 DAP, #32 terminal, #33 garde de cohérence des versions du paquet et #34 matrice LSP.
+- CI Actions réussie pour les heads des PR #30, #31, #32, #33 et #34. La PR #34 est fusionnable ; aucun merge n’est demandé à Sol.
+- La garde de la PR #33 bloque intentionnellement l’empaquetage tant que Main n’a pas aligné les versions des composants à 0.3.0. Après cet alignement, la construction complète et la mise à niveau sandbox 0.2 → 0.3 restent à rejouer.
+- Le formatage des bras `.Variant` est couvert par `format_keeps_variant_arms_and_indents_method_chains` (1 test ciblé réussi dans le worktree P9). Le formatage à la sauvegarde des deux éditions est activé par la PR #28 ; la PR #30 apporte une validation hôte Windows et WSL2.
+- Le code P9 reste dans le pilote et ses tests, plus le point d’entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n’a été changée.
+- Restent non validés sur une machine dédiée : Linux bare metal et macOS. La revue Main et la fusion par l’utilisateur des PR encore ouvertes restent requises.
 
 ## Preuves L1
 
