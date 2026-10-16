@@ -11,7 +11,7 @@ async function run() {
   assert.ok(fs.existsSync(compiler), 'NEXUL_NXC must point to an existing executable.');
 
   const extension = vscode.extensions.getExtension('KAYTAY10ok.nexul-language');
-  assert.ok(extension, 'The development extension must be available to the Extension Host.');
+  assert.ok(extension, 'The packaged NEXUL extension must be installed in the Extension Host.');
   await extension.activate();
 
   const folder = vscode.workspace.workspaceFolders && vscode.workspace.workspaceFolders[0];
@@ -28,11 +28,9 @@ async function run() {
   }, 'nexul/tests CodeLens');
   assert.deepEqual(vscode.languages.getDiagnostics(document.uri), [],
     'valid Edition 1 source must not receive false LSP errors');
-  const editorSettings = vscode.workspace.getConfiguration('editor', document.uri);
-  assert.equal(editorSettings.get('defaultFormatter'), extension.id,
-    'the NEXUL extension must be the default Edition 1 formatter');
-  assert.equal(editorSettings.get('formatOnSave'), true,
-    'Edition 1 formatting must be enabled on save by default');
+  const nexulSettings = vscode.workspace.getConfiguration('nexul', document.uri);
+  assert.equal(nexulSettings.get('formatOnSave'), true,
+    'NEXUL format-on-save must be enabled by default');
 
   await vscode.commands.executeCommand('nexul.checkCurrentFile');
 
@@ -64,6 +62,14 @@ async function run() {
   const unformatted = legacyDocument.getText();
   await vscode.commands.executeCommand('nexul.formatDocument');
   assert.notEqual(legacyDocument.getText(), unformatted, 'nxc formatting must work for Edition 0.2');
+  const manuallyFormattedLegacy = legacyDocument.getText();
+  const restoreUnformatted = new vscode.WorkspaceEdit();
+  restoreUnformatted.replace(legacyDocument.uri,
+    new vscode.Range(legacyDocument.positionAt(0), legacyDocument.positionAt(manuallyFormattedLegacy.length)), unformatted);
+  await vscode.workspace.applyEdit(restoreUnformatted);
+  await legacyDocument.save();
+  assert.equal(legacyDocument.getText(), manuallyFormattedLegacy,
+    'saving Edition 0.2 source must format it automatically');
   await vscode.commands.executeCommand('nexul.checkCurrentFile');
 
   const validLegacy = legacyDocument.getText();
