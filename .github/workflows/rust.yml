@@ -10,13 +10,20 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build:
-
+  linux:
+    name: Build and test portable crates
     runs-on: ubuntu-latest
-
     steps:
-    - uses: actions/checkout@v4
-    - name: Build
-      run: cargo build --verbose
-    - name: Run tests
-      run: cargo test --verbose
+      - uses: actions/checkout@v4
+      - name: Build
+        run: cargo build --verbose --workspace --exclude nexul-installer
+      - name: Run tests
+        run: cargo test --verbose --workspace --exclude nexul-installer
+
+  installer-windows:
+    name: Test Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run installer tests in a sandbox
+        run: cargo test --verbose --manifest-path installer/Cargo.toml --features test-sandbox --test silent --bins
