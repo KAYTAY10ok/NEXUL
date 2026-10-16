@@ -1,0 +1,8 @@
+build/
+__pycache__/
+src/csharp/bin/
+src/csharp/obj/
+src/csharp-dynamic/bin/
+src/csharp-dynamic/obj/
+results/latest.json
+results/latest.md

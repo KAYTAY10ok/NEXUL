@@ -1,0 +1,104 @@
+import std.system
+import std.time
+
+fn vector_matrix(n: usize) -> u64 {
+    var input: Vec[u64] = Vec.with_capacity(n)
+    var output: Vec[u64] = Vec.with_capacity(n)
+    for i in 0..n {
+        input.push((i % 1000 + 1) as u64)
+        output.push(0)
+    }
+    var i: usize = 0
+    while i + 2 < n {
+        let a = input[i]
+        let b = input[i + 1]
+        let c = input[i + 2]
+        output[i] = 2 * a + 3 * b + 5 * c
+        output[i + 1] = 7 * a + 11 * b + 13 * c
+        output[i + 2] = 17 * a + 19 * b + 23 * c
+        i += 3
+    }
+    while i < n {
+        output[i] = input[i]
+        i += 1
+    }
+    var checksum: u64 = 0
+    for value in output {
+        checksum += value
+    }
+    return checksum
+}
+
+fn repeated_allocations(n: usize) -> u64 {
+    var checksum: u64 = 0
+    for i in 0..n {
+        var block: Vec[u64] = Vec.with_capacity(4)
+        block.push(i as u64)
+        block.push(i as u64 + 3)
+        block.push((i as u64) ^ 0x5a5a)
+        block.push((i as u64) * 3 + 7)
+        checksum += block[0] + block[1] + block[2] + block[3]
+    }
+    return checksum
+}
+
+fn build_string(n: usize) -> u64 {
+    var text = String.with_capacity(n)
+    for i in 0..n {
+        let byte = (97 + i % 26) as u64
+        text.push(byte as u32 as char)
+    }
+    if text.len() != n {
+        system.exit(3)
+    }
+    var checksum: u64 = 0
+    for i in 0..n {
+        checksum += unsafe { text.as_ptr().offset(i).read() as u64 }
+    }
+    return checksum
+}
+
+fn calculate(mode: String, n: usize) -> u64 {
+    if mode == "vectors" {
+        return vector_matrix(n)
+    } else if mode == "allocations" {
+        return repeated_allocations(n)
+    } else if mode == "strings" {
+        return build_string(n)
+    }
+    println("unknown workload: {mode}")
+    system.exit(2)
+    return 0
+}
+
+fn main() {
+    let args = system.args()
+    if args.len() != 3 {
+        println("usage: dynamic <vectors|allocations|strings> <iterations>")
+        system.exit(2)
+    }
+    let n = match args[2].trim().parse_int() {
+        Some(value) => value
+        None => {
+            println("iterations must be a positive integer")
+            system.exit(2)
+        }
+    }
+    if n <= 0 {
+        println("iterations must be a positive integer")
+        system.exit(2)
+    }
+    let mode = args[1].clone()
+    let warm_n = if n < 10_000 { n } else { 10_000 }
+    var warmup_checksum: u64 = 0
+    for _ in 0..10 {
+        warmup_checksum += calculate(mode.clone(), warm_n as usize)
+    }
+    let start = time.monotonic_ns()
+    let checksum = calculate(mode, n as usize)
+    let elapsed_ns = time.monotonic_ns() - start
+    println("elapsed_ns={elapsed_ns}")
+    println("checksum={checksum}")
+    println("length={n}")
+    println("warmup_checksum={warmup_checksum}")
+}

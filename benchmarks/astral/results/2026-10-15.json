@@ -1,0 +1,417 @@
+{
+  "date_local": "2026-10-15T15:22:35+02:00",
+  "machine": "Intel(R) Core(TM) i7-10700 CPU @ 2.90GHz",
+  "os": "Windows-11-10.0.26200-SP0",
+  "toolchains": {
+    "Clang": "clang version 23.1.3 (https://github.com/llvm/llvm-project 0d261d1ca552c95a8f007e061c787ac7132fbcbc)",
+    "Rust": "rustc 1.99.0 (b940084d7 2026-09-28)",
+    "C#": ".NET SDK 10.0.401 (Release JIT, TieredPGO)",
+    "NEXUL": "nxc 0.2.0 (NEXUL 0.2)",
+    "Python": "3.14.7"
+  },
+  "compile_seconds": {
+    "C": 0.3372211000000789,
+    "Rust": 0.2741157000000385,
+    "C#": 1.3522862999998324,
+    "NEXUL": 0.09346229999982825
+  },
+  "sizes": [
+    1000000,
+    10000000,
+    100000000
+  ],
+  "repetitions": 5,
+  "measurements": {
+    "1000000": {
+      "C": {
+        "median_ms": 9.931,
+        "stdev_ms": 0.1008445982688214,
+        "samples_ms": [
+          9.8545,
+          9.9947,
+          9.931,
+          10.1161,
+          9.904
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 500000.5000000001,
+          "sum_x2": 333333.8333335003,
+          "harmonic": 14.3927267229,
+          "basel": 1.6449330668,
+          "ln2": 0.6931466806,
+          "pi_leibniz": 3.1415916536,
+          "pi_integral": 3.1415916536,
+          "quarter_circle": 3.1415906524,
+          "sqrt_integral": 0.6666671665,
+          "inverse_sqrt_integral": 0.8284269783,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736745616,
+          "velocity": -1.7309364909,
+          "population": 0.4965851821,
+          "energy": 1.9247599178,
+          "error_squared": 3.333e-07
+        }
+      },
+      "Rust": {
+        "median_ms": 12.4486,
+        "stdev_ms": 0.846185956513106,
+        "samples_ms": [
+          12.5652,
+          11.2207,
+          12.9837,
+          12.4486,
+          11.1111
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 500000.5000000001,
+          "sum_x2": 333333.8333335003,
+          "harmonic": 14.3927267229,
+          "basel": 1.6449330668,
+          "ln2": 0.6931466806,
+          "pi_leibniz": 3.1415916536,
+          "pi_integral": 3.1415916536,
+          "quarter_circle": 3.1415906524,
+          "sqrt_integral": 0.6666671665,
+          "inverse_sqrt_integral": 0.8284269783,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736745616,
+          "velocity": -1.7309364909,
+          "population": 0.4965851821,
+          "energy": 1.9247599178,
+          "error_squared": 3.333e-07
+        }
+      },
+      "C#": {
+        "median_ms": 11.3211,
+        "stdev_ms": 0.229117736109626,
+        "samples_ms": [
+          11.3211,
+          11.1434,
+          11.1496,
+          11.4525,
+          11.6903
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 500000.5000000001,
+          "sum_x2": 333333.8333335003,
+          "harmonic": 14.3927267229,
+          "basel": 1.6449330668,
+          "ln2": 0.6931466806,
+          "pi_leibniz": 3.1415916536,
+          "pi_integral": 3.1415916536,
+          "quarter_circle": 3.1415906524,
+          "sqrt_integral": 0.6666671665,
+          "inverse_sqrt_integral": 0.8284269783,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736745616,
+          "velocity": -1.7309364909,
+          "population": 0.4965851821,
+          "energy": 1.9247599178,
+          "error_squared": 3.333e-07
+        }
+      },
+      "NEXUL": {
+        "median_ms": 9.7031,
+        "stdev_ms": 0.5215929159795022,
+        "samples_ms": [
+          9.7031,
+          10.2521,
+          9.4658,
+          9.7059,
+          8.8101
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 500000.5000000001,
+          "sum_x2": 333333.8333335003,
+          "harmonic": 14.3927267229,
+          "basel": 1.6449330668,
+          "ln2": 0.6931466806,
+          "pi_leibniz": 3.1415916536,
+          "pi_integral": 3.1415916536,
+          "quarter_circle": 3.1415906524,
+          "sqrt_integral": 0.6666671665,
+          "inverse_sqrt_integral": 0.8284269783,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736745616,
+          "velocity": -1.7309364909,
+          "population": 0.4965851821,
+          "energy": 1.9247599178,
+          "error_squared": 3.333e-07
+        }
+      }
+    },
+    "10000000": {
+      "C": {
+        "median_ms": 102.3897,
+        "stdev_ms": 1.9097912176465757,
+        "samples_ms": [
+          102.6249,
+          101.6974,
+          99.7406,
+          105.0499,
+          102.3897
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 5000000.500000002,
+          "sum_x2": 3333333.833333595,
+          "harmonic": 16.6953113659,
+          "basel": 1.6449339668,
+          "ln2": 0.6931471306,
+          "pi_leibniz": 3.1415925536,
+          "pi_integral": 3.1415925536,
+          "quarter_circle": 3.1415924536,
+          "sqrt_integral": 0.6666667167,
+          "inverse_sqrt_integral": 0.8284271101,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736737446,
+          "velocity": -1.7309364914,
+          "population": 0.4965852916,
+          "energy": 1.9247607471,
+          "error_squared": 3.33e-08
+        }
+      },
+      "Rust": {
+        "median_ms": 114.5164,
+        "stdev_ms": 1.6246835959656913,
+        "samples_ms": [
+          117.2322,
+          115.6485,
+          114.5164,
+          112.9305,
+          114.17
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 5000000.500000002,
+          "sum_x2": 3333333.833333595,
+          "harmonic": 16.6953113659,
+          "basel": 1.6449339668,
+          "ln2": 0.6931471306,
+          "pi_leibniz": 3.1415925536,
+          "pi_integral": 3.1415925536,
+          "quarter_circle": 3.1415924536,
+          "sqrt_integral": 0.6666667167,
+          "inverse_sqrt_integral": 0.8284271101,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736737446,
+          "velocity": -1.7309364914,
+          "population": 0.4965852916,
+          "energy": 1.9247607471,
+          "error_squared": 3.33e-08
+        }
+      },
+      "C#": {
+        "median_ms": 113.9666,
+        "stdev_ms": 1.6756777786913561,
+        "samples_ms": [
+          113.5014,
+          116.5976,
+          116.2108,
+          113.9666,
+          112.8559
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 5000000.500000002,
+          "sum_x2": 3333333.833333595,
+          "harmonic": 16.6953113659,
+          "basel": 1.6449339668,
+          "ln2": 0.6931471306,
+          "pi_leibniz": 3.1415925536,
+          "pi_integral": 3.1415925536,
+          "quarter_circle": 3.1415924536,
+          "sqrt_integral": 0.6666667167,
+          "inverse_sqrt_integral": 0.8284271101,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736737446,
+          "velocity": -1.7309364914,
+          "population": 0.4965852916,
+          "energy": 1.9247607471,
+          "error_squared": 3.33e-08
+        }
+      },
+      "NEXUL": {
+        "median_ms": 90.5933,
+        "stdev_ms": 5.03559781624784,
+        "samples_ms": [
+          101.0421,
+          90.5933,
+          95.3963,
+          89.7318,
+          89.1646
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 5000000.500000002,
+          "sum_x2": 3333333.833333595,
+          "harmonic": 16.6953113659,
+          "basel": 1.6449339668,
+          "ln2": 0.6931471306,
+          "pi_leibniz": 3.1415925536,
+          "pi_integral": 3.1415925536,
+          "quarter_circle": 3.1415924536,
+          "sqrt_integral": 0.6666667167,
+          "inverse_sqrt_integral": 0.8284271101,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736737446,
+          "velocity": -1.7309364914,
+          "population": 0.4965852916,
+          "energy": 1.9247607471,
+          "error_squared": 3.33e-08
+        }
+      }
+    },
+    "100000000": {
+      "C": {
+        "median_ms": 1008.1402,
+        "stdev_ms": 4.369433755419579,
+        "samples_ms": [
+          1008.1402,
+          1008.543,
+          1014.4141,
+          1007.1789,
+          1002.1456
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 50000000.499999985,
+          "sum_x2": 33333333.833322257,
+          "harmonic": 18.9978964139,
+          "basel": 1.6449340578,
+          "ln2": 0.6931471756,
+          "pi_leibniz": 3.1415926436,
+          "pi_integral": 3.1415926436,
+          "quarter_circle": 3.1415926336,
+          "sqrt_integral": 0.6666666717,
+          "inverse_sqrt_integral": 0.8284271233,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736736629,
+          "velocity": -1.7309364915,
+          "population": 0.4965853026,
+          "energy": 1.9247608301,
+          "error_squared": 3.3e-09
+        }
+      },
+      "Rust": {
+        "median_ms": 1165.5635,
+        "stdev_ms": 11.06454820609497,
+        "samples_ms": [
+          1165.5635,
+          1157.0571,
+          1156.8969,
+          1184.071,
+          1166.324
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 50000000.499999985,
+          "sum_x2": 33333333.833322257,
+          "harmonic": 18.9978964139,
+          "basel": 1.6449340578,
+          "ln2": 0.6931471756,
+          "pi_leibniz": 3.1415926436,
+          "pi_integral": 3.1415926436,
+          "quarter_circle": 3.1415926336,
+          "sqrt_integral": 0.6666666717,
+          "inverse_sqrt_integral": 0.8284271233,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736736629,
+          "velocity": -1.7309364915,
+          "population": 0.4965853026,
+          "energy": 1.9247608301,
+          "error_squared": 3.3e-09
+        }
+      },
+      "C#": {
+        "median_ms": 1143.5276,
+        "stdev_ms": 6.149177878383335,
+        "samples_ms": [
+          1137.2515,
+          1145.8101,
+          1150.8247,
+          1143.5276,
+          1135.9771
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 50000000.499999985,
+          "sum_x2": 33333333.833322257,
+          "harmonic": 18.9978964139,
+          "basel": 1.6449340578,
+          "ln2": 0.6931471756,
+          "pi_leibniz": 3.1415926436,
+          "pi_integral": 3.1415926436,
+          "quarter_circle": 3.1415926336,
+          "sqrt_integral": 0.6666666717,
+          "inverse_sqrt_integral": 0.8284271233,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736736629,
+          "velocity": -1.7309364915,
+          "population": 0.4965853026,
+          "energy": 1.9247608301,
+          "error_squared": 3.3e-09
+        }
+      },
+      "NEXUL": {
+        "median_ms": 931.6754,
+        "stdev_ms": 32.69888417672692,
+        "samples_ms": [
+          922.5668,
+          1002.1203,
+          931.6754,
+          927.8615,
+          953.4788
+        ],
+        "outputs_match_c": true,
+        "numeric_reference": {
+          "sum_x": 50000000.499999985,
+          "sum_x2": 33333333.833322257,
+          "harmonic": 18.9978964139,
+          "basel": 1.6449340578,
+          "ln2": 0.6931471756,
+          "pi_leibniz": 3.1415926436,
+          "pi_integral": 3.1415926436,
+          "quarter_circle": 3.1415926336,
+          "sqrt_integral": 0.6666666717,
+          "inverse_sqrt_integral": 0.8284271233,
+          "e_approx": 2.7182818285,
+          "sin_approx": 0.8414709848,
+          "cos_approx": 0.5403023059,
+          "position": -0.3736736629,
+          "velocity": -1.7309364915,
+          "population": 0.4965853026,
+          "energy": 1.9247608301,
+          "error_squared": 3.3e-09
+        }
+      }
+    }
+  },
+  "algorithm": "same sequential f64 scientific loop; ten 100k-or-smaller warmups; one timed pass per process"
+}
