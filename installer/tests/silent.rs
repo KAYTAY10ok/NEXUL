@@ -125,6 +125,14 @@ fn install_update_uninstall() {
     let dir = sb.path(r"LocalAppData\Programs\NEXUL");
     let bin = dir.join("bin");
     let dir_s = dir.display().to_string();
+    let settings_dir = sb.path(r"AppData\NEXUL Studio");
+    std::fs::create_dir_all(&settings_dir).unwrap();
+    std::fs::write(
+        settings_dir.join("state.json"),
+        r#"{"settings":{"theme":"light","lastRoot":"C:\\Projets\\Été","sidebarOpen":false,"panelOpen":true,"autoSave":false},"roots":{"C:\\Projets\\Été":{"session":{"open":["src\\main.nx"],"active":"src\\main.nx"}}}}"#,
+    )
+    .unwrap();
+    let native_settings = settings_dir.join("native.json");
     let uninstall_key = sb.key(r"HKCU\Software\Microsoft\Windows\CurrentVersion\Uninstall\NEXUL");
     let env_key = sb.key(r"HKCU\Environment");
     let path_value = || reg_value(&env_key, Some("Path")).map(|(_, v)| v).unwrap_or_default();
@@ -145,6 +153,14 @@ fn install_update_uninstall() {
 
     assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "version 1");
     assert!(dir.join(r"examples\ancien.nx").is_file());
+    let migrated = std::fs::read_to_string(&native_settings).unwrap();
+    for value in ["\"theme\":\"light\"", "\"sidebar\":false", "\"panel\":true", "\"autosave\":\"off\"", "\"last_root\":\"C:\\\\Projets\\\\Été\""] {
+        assert!(migrated.contains(value), "native settings missing {value}: {migrated}");
+    }
+    assert!(migrated.contains("\"active\":\"src\\\\main.nx\""), "{migrated}");
+    // A later install must not replace preferences already written by the native Studio.
+    let native_preferences = r#"{"last_root":"D:\\Projects","theme":"system","sidebar":true,"panel":false,"minimal":false,"autosave":"delay","sessions":{}}"#;
+    std::fs::write(&native_settings, native_preferences).unwrap();
     let record = std::fs::read_to_string(dir.join("install.txt")).unwrap();
     assert!(record.starts_with("version\t"));
     for line in [
@@ -225,6 +241,7 @@ fn install_update_uninstall() {
     let _ = decoy.wait();
     // The installation is replaced: the file of version 1 only is gone.
     assert_eq!(std::fs::read_to_string(dir.join("README.md")).unwrap(), "version 2");
+    assert_eq!(std::fs::read_to_string(&native_settings).unwrap(), native_preferences);
     assert!(!dir.join(r"examples\ancien.nx").exists());
     assert!(dir.join(r"examples\bonjour.nx").is_file());
     // The old copy is backed up and detached: no PATH entry, no shortcut.
@@ -254,6 +271,7 @@ fn install_update_uninstall() {
     assert!(!key_exists(&sb.key(r"HKCU\Software\Classes\NEXUL.Source")));
     assert_eq!(path_value(), "");
     assert_eq!(reg_value(&env_key, Some("NEXUL_HOME")), None);
+    assert_eq!(std::fs::read_to_string(&native_settings).unwrap(), native_preferences);
     assert!(!sb.path(r"Desktop\NEXUL Studio.lnk").exists());
     assert!(!sb.path(r"Programs\NEXUL").exists());
 

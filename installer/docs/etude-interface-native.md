@@ -219,28 +219,20 @@ Essais manuels restant à faire devant l'écran :
 
 ## 6. Lancer Studio sans Edge : empaqueter l'application native
 
-L'installateur empaquette aujourd'hui `target/release/NEXUL-Studio.exe`, c'est-à-dire
-l'**ancienne** interface web de Studio, qui s'affiche elle-même dans Edge. Les
-changements prévus dans `tools/build_installer.py` :
+L'installateur prend maintenant `studio/app/target/release/NEXUL-Studio-Native.exe`,
+construit avec MSVC, et le place sous `bin\NEXUL Studio.exe`. Le raccourci, l'association
+`.nx` et l'action « Lancer NEXUL Studio » utilisent ainsi la version native. L'ancienne
+interface web est conservée sous `bin\NEXUL Studio (web).exe` pendant la transition.
 
-- prendre `studio/app/target/release/NEXUL-Studio-Native.exe` (construit avec la chaîne
-  MSVC) et l'installer sous `bin\NEXUL Studio.exe` : raccourcis, association `.nx` et
-  bouton « Lancer » de la page finale l'utilisent sans changement ;
-- pendant la transition, livrer l'ancienne interface sous un autre nom
-  (`bin\NEXUL Studio (web).exe`), comme le permet AGENTS.md ;
-- **C runtime** : `studio/app` n'a pas de configuration `+crt-static`. Or un exécutable
-  Rust construit avec MSVC dépend par défaut de `vcruntime140.dll`, absent d'un Windows
-  neuf. **À vérifier** sur le PC équipé de MSVC
-  (`dumpbin /dependents NEXUL-Studio-Native.exe`). Deux solutions :
-  - construire avec `-C target-feature=+crt-static` (demande à Claude Studio, qui possède
-    `studio/app`) ;
-  - livrer les DLL du runtime à côté de l'exécutable, ce que Microsoft autorise.
+La configuration existante de `studio/app/.cargo/config.toml` active `+crt-static` pour
+MSVC; la construction lie le runtime C dans l'exécutable. Le script `tools/build_installer.py`
+construit le workspace du compilateur puis Studio natif depuis `studio/app` avec
+`stable-x86_64-pc-windows-msvc`. Ce poste dispose de la chaîne MSVC et du Windows SDK.
 
-  La première est plus simple.
-- **Prérequis de construction** : l'outillage MSVC (Visual Studio Build Tools, charge
-  « Développement Desktop en C++ » et Windows SDK) **n'est pas installé** sur le PC de
-  Claude Outils. Deux possibilités : l'installer (plusieurs Go, accord de l'utilisateur),
-  ou construire l'installateur sur l'autre PC.
+Lors de la première installation native, l'installateur convertit les préférences
+compatibles de `%APPDATA%\NEXUL Studio\state.json` vers `native.json`. Les réglages natifs
+déjà présents ne sont jamais remplacés; la désinstallation conserve les deux fichiers de
+réglages et les projets de l'utilisateur.
 
 ## 7. Décisions demandées
 
@@ -248,8 +240,8 @@ changements prévus dans `tools/build_installer.py` :
 2. **Ordre** : commencer par l'étape 1 (retrait de PowerShell), utile tout de suite et
    testable ici ?
 3. **Durée de vie de l'interface web** : une version derrière `--web-ui`, puis retrait ?
-4. **Empaquetage de Studio natif** : construire ici (installer les outils C++ de Visual
-   Studio et LLVM sur ce PC) ou sur l'autre PC ?
+4. **Empaquetage de Studio natif** : résolu pour ce poste Windows équipé de MSVC; le
+   script construit le binaire natif séparément du workspace racine.
 
 ## Sources
 
