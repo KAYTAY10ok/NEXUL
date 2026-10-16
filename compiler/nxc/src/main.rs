@@ -172,12 +172,12 @@ fn real_main() {
         "version" | "--version" | "-V" => {
             if args.json_version.is_some() {
                 println!(
-                    "{{\"nxc\":{},\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true}}",
+                    "{{\"nxc\":{},\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}}",
                     nxc_driver::json_str(env!("CARGO_PKG_VERSION"))
                 );
             } else {
                 println!(
-                    "nxc {} (NEXUL {})",
+                    "nxc {} (NEXUL {}, editions 0.2 and 1)",
                     env!("CARGO_PKG_VERSION"),
                     &env!("CARGO_PKG_VERSION")[..3]
                 );

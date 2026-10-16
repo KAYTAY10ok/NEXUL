@@ -138,7 +138,7 @@ fn json_v1_and_version_are_versioned_while_json_v0_stays_unchanged() {
     let version = run_nxc(&["version", "--json"], None);
     assert_eq!(
         String::from_utf8_lossy(&version.stdout).trim(),
-        "{\"nxc\":\"0.2.0\",\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true}"
+        "{\"nxc\":\"0.2.0\",\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}"
     );
 }
 
