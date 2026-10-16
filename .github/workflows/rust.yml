@@ -13,8 +13,12 @@ jobs:
   linux:
     name: Build and test portable crates
     runs-on: ubuntu-latest
+    env:
+      NEXUL_LLVM: /usr/lib/llvm-19
     steps:
       - uses: actions/checkout@v4
+      - name: Install the LLVM version required by generated debug records
+        run: sudo apt-get update && sudo apt-get install --yes llvm-19-dev lld-19
       - name: Build
         run: cargo build --verbose --workspace --exclude nexul-installer
       - name: Run tests

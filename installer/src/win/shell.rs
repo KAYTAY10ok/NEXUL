@@ -316,13 +316,15 @@ mod tests {
         };
         create_shortcut(&lnk, &s).unwrap();
         let (t, a) = read_shortcut(&lnk).unwrap();
-        assert_eq!(PathBuf::from(t), target);
+        assert_eq!(PathBuf::from(t).canonicalize().unwrap(), target.canonicalize().unwrap());
         assert_eq!(a, r#""C:\projets\a b""#);
         // Replacing an existing shortcut.
         let other = target_dir.join("nxc.exe");
         std::fs::write(&other, b"MZ").unwrap();
         create_shortcut(&lnk, &Shortcut { target: &other, arguments: "", ..s }).unwrap();
-        assert_eq!(read_shortcut(&lnk).map(|(t, a)| (PathBuf::from(t), a)), Some((other, String::new())));
+        let (actual, arguments) = read_shortcut(&lnk).unwrap();
+        assert_eq!(PathBuf::from(actual).canonicalize().unwrap(), other.canonicalize().unwrap());
+        assert_eq!(arguments, "");
         assert_eq!(read_shortcut(&d.join("absent.lnk")), None);
         assert!(create_shortcut(&d.join("absent").join("x.lnk"), &s).is_err());
         let _ = std::fs::remove_dir_all(&d);

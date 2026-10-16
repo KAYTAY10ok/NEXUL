@@ -19,7 +19,7 @@ Claude Main conserve la revue et l'intégration.
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20), revue Main attendue |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21), revue Main attendue |
 | 3 | P9 — CLI et LSP | VALIDÉ_E2E sur `origin/main` `85b68b9` : `cargo +stable-x86_64-pc-windows-msvc test -p nxc` passe avec 11 tests unitaires, 6 fondations, 5 LSP et 10 de conformité; le test LSP de latence passe; le test Web reste ignoré par défaut. |
-| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; CI séparée par OS en cours. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable : installation/désinstallation, Studio natif, migration, association `.nx`, raccourci et conservation des préférences vérifiés. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ouverte ; corrections aux deux échecs CI poussées pour revalidation. |
 
 ## Travail courant
 
@@ -110,6 +110,9 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - `.github/workflows/rust.yml` sépare maintenant les plateformes : Ubuntu construit et
   teste le workspace en excluant `nexul-installer`; Windows lance les tests bac à sable
   de l'installateur avec `test-sandbox`.
-- `git diff --check` : réussi. La PR #25 est ouverte; ses jobs Actions sont en cours;
-  aucune réussite CI n'est déclarée ici. La construction de `studio/app` et du paquet
+- `git diff --check` : réussi. Le premier passage de la PR #25 a révélé deux échecs :
+  l'LLVM fourni par Ubuntu rejette le debug record `#dbg_declare`, et Windows compare
+  un chemin court 8.3 au chemin long équivalent. Le workflow installe et sélectionne LLVM 19;
+  le test Windows compare les chemins canonisés. Les contrôles du commit de correction
+  doivent encore confirmer ces changements. La construction de `studio/app` et du paquet
   complet reste à vérifier par `tools/build_installer.py` sur Windows avec MSVC.
