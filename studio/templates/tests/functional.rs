@@ -1,8 +1,8 @@
-use nexul_studio_templates::{all_templates, find_template, Tool, ToolchainProvider, ToolchainRegistry};
+use nexul_studio_templates::{all_templates, Tool, ToolchainProvider, ToolchainRegistry};
 use std::ffi::OsString;
 use std::fs;
 use std::io::{Read, Write};
-use std::net::{TcpStream, ToSocketAddrs};
+use std::net::{TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
@@ -93,7 +93,7 @@ fn wait_for_http(
     path: &str,
     expected_content_type: &str,
     expected_body: &[u8],
-) -> bool {
+) -> Result<(), String> {
     let address = ("127.0.0.1", port)
         .to_socket_addrs()
         .unwrap()
@@ -101,16 +101,28 @@ fn wait_for_http(
         .unwrap();
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(8) {
-        if child.try_wait().ok().flatten().is_some() {
-            return false;
+        if let Some(status) = child.try_wait().ok().flatten() {
+            let mut stdout = String::new();
+            let mut stderr = String::new();
+            if let Some(mut pipe) = child.stdout.take() {
+                let _ = pipe.read_to_string(&mut stdout);
+            }
+            if let Some(mut pipe) = child.stderr.take() {
+                let _ = pipe.read_to_string(&mut stderr);
+            }
+            return Err(format!(
+                "server exited with {status}\nstdout: {stdout}\nstderr: {stderr}"
+            ));
         }
         if let Ok(mut stream) = TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
             write!(stream, "GET {path} HTTP/1.0\r\nHost: localhost\r\n\r\n").unwrap();
             let mut response = Vec::new();
             let _ = stream.read_to_end(&mut response);
-            let Some(separator) = response.windows(4).position(|bytes| bytes == b"\r\n\r\n")
-            else {
-                return false;
+            let Some(separator) = response.windows(4).position(|bytes| bytes == b"\r\n\r\n") else {
+                return Err(format!(
+                    "invalid HTTP response: {}",
+                    String::from_utf8_lossy(&response)
+                ));
             };
             let headers = String::from_utf8_lossy(&response[..separator]);
             let mime_matches = headers.lines().any(|line| {
@@ -120,16 +132,32 @@ fn wait_for_http(
                 })
             });
             let body = &response[separator + 4..];
-            return headers.starts_with("HTTP/1.")
+            let valid = headers.starts_with("HTTP/1.")
                 && headers.contains(" 200 ")
                 && mime_matches
                 && body
                     .windows(expected_body.len())
                     .any(|bytes| bytes == expected_body);
+            return if valid {
+                Ok(())
+            } else {
+                Err(format!(
+                    "unexpected HTTP response\nheaders: {headers}\nbody: {}",
+                    String::from_utf8_lossy(body)
+                ))
+            };
         }
         thread::sleep(Duration::from_millis(50));
     }
-    false
+    Err(format!("server did not respond on {address:?}"))
+}
+
+fn unused_loopback_port() -> u16 {
+    TcpListener::bind(("127.0.0.1", 0))
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port()
 }
 
 fn run_web_server_asset(
@@ -148,21 +176,16 @@ fn run_web_server_asset(
         .env("NEXUL_SITE_PORT", port.to_string())
         .spawn()
         .unwrap();
-    let served = wait_for_http(
-        &mut child,
-        port,
-        path,
-        expected_content_type,
-        expected_body,
-    );
+    let result = wait_for_http(&mut child, port, path, expected_content_type, expected_body);
     let _ = child.kill();
     let _ = child.wait();
-    assert!(
-        served,
-        "web template did not serve {path} from {} using {}",
-        root.display(),
-        command.program.display()
-    );
+    if let Err(error) = result {
+        panic!(
+            "web template did not serve {path} from {} using {}: {error}",
+            root.display(),
+            command.program.display()
+        );
+    }
 }
 
 fn run_nexul_web_module_with_node(node: &Path, root: &Path) {
@@ -240,7 +263,6 @@ fn installed_template_toolchains_build_and_run_their_projects() {
             run_checked(build);
         }
         if template.id.as_str() == "web-site" {
-            let port = 39_000 + (std::process::id() % 20_000) as u16;
             fs::write(
                 root.join("main.mjs"),
                 "import { loadNexul } from './nexul.mjs';\n",
@@ -248,12 +270,11 @@ fn installed_template_toolchains_build_and_run_their_projects() {
             .unwrap();
             fs::create_dir_all(root.join("build")).unwrap();
             fs::write(root.join("build/test.wasm"), b"\0asm\x01\0\0\0").unwrap();
-            for (index, server) in actions.run.iter().enumerate() {
-                let server_port = port + (index as u16 * 3);
+            for server in &actions.run {
                 run_web_server_asset(
                     server,
                     &root,
-                    server_port,
+                    unused_loopback_port(),
                     "/",
                     "text/html",
                     b"Mon site NEXUL",
@@ -261,7 +282,7 @@ fn installed_template_toolchains_build_and_run_their_projects() {
                 run_web_server_asset(
                     server,
                     &root,
-                    server_port + 1,
+                    unused_loopback_port(),
                     "/main.mjs",
                     "text/javascript",
                     b"loadNexul",
@@ -269,7 +290,7 @@ fn installed_template_toolchains_build_and_run_their_projects() {
                 run_web_server_asset(
                     server,
                     &root,
-                    server_port + 2,
+                    unused_loopback_port(),
                     "/build/test.wasm",
                     "application/wasm",
                     b"\0asm",
@@ -292,7 +313,6 @@ fn installed_template_toolchains_build_and_run_their_projects() {
                 eprintln!("skip Node.js ABI validation for nexul-webassembly: Node.js not found");
             }
 
-            let port = 39_000 + (std::process::id() % 20_000) as u16;
             let server = actions
                 .run
                 .iter()
@@ -305,17 +325,20 @@ fn installed_template_toolchains_build_and_run_their_projects() {
             run_web_server_asset(
                 server,
                 &root,
-                port,
+                unused_loopback_port(),
                 "/main.mjs",
                 "text/javascript",
                 b"loadNexul",
             );
             let wasm = fs::read(root.join("build/calcul.wasm")).unwrap();
-            assert!(wasm.starts_with(b"\0asm"), "compiler did not emit a WebAssembly module");
+            assert!(
+                wasm.starts_with(b"\0asm"),
+                "compiler did not emit a WebAssembly module"
+            );
             run_web_server_asset(
                 server,
                 &root,
-                port,
+                unused_loopback_port(),
                 "/build/calcul.wasm",
                 "application/wasm",
                 b"\0asm",
