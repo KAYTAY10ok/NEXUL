@@ -11,6 +11,7 @@ NEXUL_LLVM or C:\\Program Files\\LLVM; the Python runtime of the debugger from t
 Python 3 installation (or NEXUL_PYTHON).
 """
 
+import json
 import os
 import shutil
 import subprocess
@@ -67,8 +68,40 @@ def copy_tree(src, dst, exts=None):
             copy(s, os.path.join(dst, os.path.relpath(s, src)))
 
 
+def package_versions(manifest=None):
+    command = ["cargo", "metadata", "--format-version", "1", "--no-deps"]
+    if manifest:
+        command.extend(["--manifest-path", manifest])
+    metadata = json.loads(subprocess.check_output(command, cwd=ROOT, text=True))
+    return {package["name"]: package["version"] for package in metadata["packages"]}
+
+
+def check_release_versions():
+    workspace = package_versions()
+    native = package_versions(os.path.join("studio", "app", "Cargo.toml"))
+    distributed = {
+        "nxc/nxpm": workspace.get("nxc"),
+        "NEXUL Studio (web)": workspace.get("nexul-studio"),
+        "installateur": workspace.get("nexul-installer"),
+        "NEXUL Studio natif": native.get("nexul-studio-app"),
+    }
+    missing = [name for name, version in distributed.items() if version is None]
+    if missing:
+        sys.exit("Paquets Cargo introuvables pour vérifier les versions : " + ", ".join(missing))
+    versions = set(distributed.values())
+    if len(versions) != 1:
+        details = ", ".join(f"{name}={version}" for name, version in distributed.items())
+        sys.exit(
+            "Versions de distribution incohérentes : " + details +
+            ". Alignez les versions avant de construire l'installateur."
+        )
+    print("versions de distribution :", next(iter(versions)))
+
+
 def main():
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.expanduser("~"), "Desktop", "NEXUL Setup.exe")
+    print("== vérification des versions")
+    check_release_versions()
     print("== compilation")
     subprocess.check_call(["cargo", "build", "--release", "--workspace"], cwd=ROOT)
     print("== Studio natif (MSVC)")
