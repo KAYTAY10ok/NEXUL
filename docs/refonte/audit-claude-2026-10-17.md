@@ -181,6 +181,23 @@ ils s'appliquent dès maintenant à toute contribution.
 `places.rs` reste sous la responsabilité de Claude pour les règles ; Codex peut en
 modifier les messages (T7) en le signalant.
 
+## 5 bis. Revue des branches ouvertes de Codex Sol (17/10, lecture seule)
+
+Aucune ne touche l'analyse, la NIR, le générateur ni le runtime : pas de conflit avec
+cette branche.
+
+- `refonte/sol-a1-benchmarks` : le rapport est honnête sur ses limites (une machine, un
+  corpus, commit figé). Un point à vérifier avant toute communication : NEXUL y est
+  **plus rapide que C** sur « Boucles + maths » (1,12×) avec toutes ses vérifications.
+  Inspecter l'IR optimisée de ce noyau (`--emit llvm-ir`) pour confirmer que les
+  vérifications de débordement sont présentes (contrat K3.4) et comparer les fonctions
+  mathématiques utilisées (implémentation NEXUL contre la libm de C) : l'écart peut
+  venir de là et non du code produit. Les cas « chaîne ASCII » (0,2×) et « vecteurs »
+  (0,5×) sont les vraies pistes d'optimisation (vues de chaînes, copies d'agrégats).
+- `refonte/sol-p9-edition-matrix`, `sol-vscode-release`, `sol-v030-package-validation`,
+  `sol-l1-terminal-followup`, `sol-l2-dap-followup` : outils et distribution, hors du
+  périmètre sémantique ; rien à signaler sur la sûreté du langage.
+
 ## 6. Rapport de progression
 
 **A. Travaux réalisés** (branche locale `refonte/core-surete-semantique`, 3 commits de code
