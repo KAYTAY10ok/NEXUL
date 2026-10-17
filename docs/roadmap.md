@@ -52,8 +52,8 @@ par `cargo test --release`.
 | Applications et serveurs | 🟡 | applications en ligne de commande complètes ; réseau et concurrence prévus |
 | Web et réseau | 🟡 | WebAssembly (WASI), aperçu web dans Studio ; bibliothèques réseau prévues |
 | Jeux et graphisme 3D | ⏳ | nécessite structures `@repr("C")` et rappels C |
-| Sécurité et cryptographie | 🟡 | sûreté mémoire et arithmétique vérifiées, protection Trojan Source, aléa cryptographique du système (`std.random`) ; crypto prévue (sur implémentations auditées) |
-| Microcontrôleurs et calcul spécialisé | ✅ | micrologiciels sans système, registres mémoire-mappés (`read_volatile`, `write_volatile`), gestionnaires d'interruption ; SIMD prévu |
+| Sécurité et cryptographie | 🟡 | sûreté mémoire et arithmétique vérifiées dans le périmètre et sous les conditions de l'[ADR 0011](adr/0011-perimetre-des-garanties.md), protection Trojan Source, aléa cryptographique du système (`std.random`) ; crypto prévue (sur implémentations auditées) |
+| Microcontrôleurs et calcul spécialisé | 🟡 | micrologiciels sans système, registres mémoire-mappés (`read_volatile`, `write_volatile`), gestionnaires d'interruption ; **limites** : dépassement de pile non détecté, runtime non réentrant dans les interruptions (ADR 0011, C3 et C4) ; SIMD prévu |
 
 ## Versions
 
@@ -82,20 +82,41 @@ avec détection de fuites.
   compilateur, débogueur, tests, paquets, extensions), installateur Windows qui gère les
   anciennes versions.
 
-### 0.3 « Système »
+### Trajectoire vers la 1.0.0 (proposition du 17/10/2026)
 
-- Compilation séparée des modules et cache de compilation incrémentale.
-- Structures `@repr("C")`, rappels C, génération d'en-têtes C ; interopérabilité Python.
-- Threads, canaux, atomiques et modèle mémoire de la concurrence (la loi d'exclusivité
-  s'étend naturellement aux données partagées).
-- Messages du compilateur en français (catalogue traduit).
+Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
+et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
+estimations et la validation opérationnelle ; l'utilisateur la valide. Elle remplace les
+anciennes sections « 0.3 Système » et « 0.4 Réseau et outils », qui ne correspondaient
+plus au plan maître (la 0.3.0 est la version de la refonte).
 
-### 0.4 « Réseau et outils »
+**Principe d'ordre.** Chaque version fait ce dont la suivante dépend, et rien de plus :
+d'abord les fondations qui coûtent peu maintenant et beaucoup plus tard (garanties, `Copy`,
+erreurs, types), puis la concurrence (qui change le modèle mémoire), puis le système et
+l'interopérabilité (dont ont besoin les serveurs et l'auto-hébergement), puis le temps
+réel (qui dépend de la concurrence et des effets), puis l'auto-hébergement (qui exige un
+langage figé). Une version ne sort que si **tous** ses critères sont prouvés ; une
+capacité non prête est reportée et le dit, plutôt que livrée partiellement.
 
-- `std.net` (TCP, UDP, HTTP), `std.crypto` adossé à des implémentations auditées.
-- Linter `nxlint`, générateur de documentation `nxdoc`, profileur.
-- Serveur de langage (LSP) pour les autres éditeurs, à partir de `nxc ide`.
-- Registre central de paquets avec signatures.
+| Version | Objectif | Contenu | Critères de sortie (preuves) | Dépend de |
+|---|---|---|---|---|
+| **0.3.0** « Refonte » | Première version de la refonte | édition 1 (ADR 0010, tranches 1–4), `nxc lsp`, Studio natif, extension VS Code, installateur 0.3.0 ; corrections de sûreté S1, S2 (PR #35) | plan maître §0.3.0 ; CI verte (Windows, Linux) ; scénario A en partie | — |
+| **0.4.0** « Fondations sûres » | Fermer les écarts entre garanties annoncées et réelles ; figer ce qui serait incompatible plus tard | conditions C3–C4 de l'ADR 0011 levées sur les cibles hébergées et WebAssembly (tâches T1–T5), suite `tests/run` aussi en `-O2` (T6) ; ADR 0012 (`Copy`), ADR 0014 (types distincts et contraints), ADR 0015 (erreurs, `IoError`, conversion pour `?`) ; édition 1 complète hors formes réservées ; `lib/` migrée ; macOS validé **ou** exclu explicitement | chaque condition levée a son test ; `tests/ui` couvre chaque nouvelle règle ; matrice des plateformes publiée (cible, système, testé où, par quoi) | 0.3.0 ; décisions sur ADR 0011–0015 |
+| **0.5.0** « Concurrence » | Concurrence sans course de données dans le code sûr | ADR 0013 : tâches liées à une portée, `Transfer`/`Share`, tâches détachées par transfert, canaux bornés, verrous, atomiques ; threads du système sur Windows et Linux | corpus négatif (courses refusées) et positif ; stress (10⁶ messages, 64 tâches) déterministe ; ThreadSanitizer sur Linux ou « non testé » écrit ; scénario C | 0.4.0 (`Copy`, `Share` reposent sur les mêmes mécanismes) |
+| **0.6.0** « Système et interopérabilité » | Écrire des serveurs et des outils système ; préparer l'auto-hébergement | compilation séparée des modules et cache incrémental ; `@repr("C")`, rappels C, en-têtes C ; `std.fs` (dossiers, chemins, métadonnées), `std.process` ; `std.net` (TCP, UDP) ; vues de chaînes | serveur TCP concurrent d'exemple testé ; temps de compilation incrémentale mesuré ; programme C qui appelle NEXUL et inversement, testé sur deux systèmes | 0.5.0 (serveurs), SH1 |
+| **0.7.0** « Temps réel » | Profil temps réel v1 sur **une** cible choisie (décision 3) | `with noalloc, nonblocking`, tâches périodiques `every … within …`, analyse de pile, runtime réentrant (C4 levée sur cette cible) | budgets de latence mesurés et publiés avec leur méthode ; aucune allocation vérifiée par le compilateur ; scénario D. **Aucune** garantie de temps réel strict hors de la cible validée | 0.5.0, étude P8-G0 |
+| **0.8.0** « Auto-hébergement » | Compilateur écrit en NEXUL | SH2–SH6 ([selfhost-sh0.md](adr/selfhost-sh0.md)) | critères A1–A5 (point fixe stage1 = stage2, construction sans Rust) ; scénario E | 0.6.0 ; grammaire de l'édition 1 gelée |
+| **0.9.x** « Candidate » | Stabiliser | gel de l'API de `lib/std` (attributs de stabilité), politique de compatibilité (éditions, versions de `std`, paquets) écrite ; campagne de fuzzing (`nxc` ne plante jamais) ; références de performance (P13) ; documentation complète, guide de migration ; seulement des corrections | aucune régression sur deux candidates successives ; scénarios A–H passés ; chaque garantie du README renvoie à sa preuve | toutes |
+| **1.0.0** | Version méritée | — | critères de la mission maîtresse §9, vérifiés un par un et consignés | 0.9.x |
+
+**Reporté après la 1.0 (explicitement)** : interopérabilité Python, applications mobiles
+et interfaces graphiques natives, tâches légères `async` (sauf mesures qui les
+justifient avant), déroulement des paniques et isolation par tâche (ADR 0011 §4),
+références stockées ou projections, registre central de paquets, LTO/PGO, SIMD portable.
+
+**Parallélisme possible** : P8-G0 (étude de la cible temps réel) et SH1 peuvent avancer
+pendant 0.5.0 ; les outils (formateur, LSP, Studio, VS Code) avancent à chaque version
+sans bloquer le langage.
 
 ## Limites connues de la version 0.2
 
@@ -103,6 +124,6 @@ avec détection de fuites.
   (graphes) s'écrivent avec des indices ou du code `unsafe` encapsulé.
 - Les fonctions anonymes ne peuvent pas être conservées (non échappantes) ; une fonction
   conservée dans une valeur est une fonction nommée.
-- Pas de concurrence.
+- Pas de concurrence (hors interruptions sur les cibles sans système, voir ADR 0011, condition C4).
 - Le programme est compilé en une seule unité (pas de compilation séparée).
 - Les identificateurs sont ASCII ; les messages du compilateur sont en anglais.

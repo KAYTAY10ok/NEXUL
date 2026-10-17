@@ -52,8 +52,8 @@ Ce que le générateur doit faire et ne doit pas faire :
   erreur de l'analyse deviendrait une mauvaise compilation, et une `static var` modifiée
   en `unsafe` pendant un emprunt contredit `noalias`.
 - K3.7 Ne jamais ajouter, retirer ou déplacer une destruction ; un `DropIfInit` résiduel
-  est une **erreur interne** (le repli actuel « destruction inconditionnelle » de
-  `func.rs` doit devenir `panic!("internal: …")`, tâche Codex).
+  est une **erreur interne** (`func.rs` s'arrête avec `internal: DropIfInit…` au lieu de
+  détruire sans condition).
 - K3.8 **Déterminisme** : même programme, même cible, mêmes options → IR identique à
   l'octet (aucun parcours de table de hachage non trié).
 - K3.9 Disposition mémoire : seules celles des primitifs, de `Ptr[T]` et des tableaux
@@ -95,9 +95,9 @@ Ce que le générateur doit faire et ne doit pas faire :
   cité dans le texte quand c'est utile.
 - K7.2 Les tests UI peuvent fixer l'édition (`// edition: 1`) et la cible
   (`// target: wasm32-wasi`) sur l'une de leurs trois premières lignes.
-- K7.3 Écart connu : `tests/run` n'est exécuté qu'**en debug** (`-O0`). Les garanties
-  doivent tenir à tous les niveaux d'optimisation : exécuter aussi la suite en `-O2`
-  (tâche Codex, voir l'audit du 17/10).
+- K7.3 Les garanties tiennent à tous les niveaux d'optimisation : `tests/run` est
+  exécuté sans optimisation (`run_programs`) **et** en `-O2` (`run_programs_optimized`),
+  avec les mêmes sorties attendues (`@cfg` reste `debug`).
 
 ## Responsabilités
 

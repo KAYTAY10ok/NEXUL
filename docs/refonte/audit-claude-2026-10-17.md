@@ -46,14 +46,14 @@ types publics, erreurs de la bibliothèque standard. Trois ADR proposées les en
 | S5 | haute | lu | La garantie de sûreté était annoncée sans périmètre ni conditions | ADR 0011, spec §5.8 réécrite |
 | A1 | haute | lu | Copiabilité structurelle, champs privés compris : rupture d'API invisible ; `Copy` utilisé par l'ADR 0010 mais inexistant | ADR 0012 (décision utilisateur) |
 | A2 | haute | lu | Concurrence sans fondations alors que l'ADR 0010 réserve `spawn`, canaux, `===`, `Shared[T]` | ADR 0013 (décision utilisateur) |
-| A3 | moyenne | lu | Erreurs de la bibliothèque standard en `String` (`io.read_file` → `Result[String, String]`) et `?` sans conversion d'erreur : les changer après la 1.0 sera incompatible | §2.3 |
-| A4 | moyenne | lu | Types distincts et contraints (`distinct`, `where it in …`) réservés sans sémantique des opérations | §2.4 |
+| A3 | moyenne | lu | Erreurs de la bibliothèque standard en `String` (`io.read_file` → `Result[String, String]`) et `?` sans conversion d'erreur : les changer après la 1.0 sera incompatible | §2.3, ADR 0015 (proposée) |
+| A4 | moyenne | lu | Types distincts et contraints (`distinct`, `where it in …`) réservés sans sémantique des opérations | §2.4, ADR 0014 (proposée) |
 | A5 | moyenne | lu | Monomorphisation et tables `dyn` dans le générateur LLVM : un second backend devrait les refaire | §2.5 |
 | S6 | moyenne | lu | `@export` accepte `bool` et `char` venant de C sans vérification : un `char` invalide casse l'invariant UTF-8 de `String` | ADR 0011 T4 (Codex) |
-| T1 | moyenne | lu | `tests/run` exécuté seulement en debug (`BuildOptions::new(…, false)`) : rien ne vérifie les garanties en `-O2` | contrat K7.3 (Codex) |
-| D1 | basse | démontré | E0402 annonce « moved here, in a previous iteration of the loop » sans boucle (`f(s, s)`, arguments en deux phases) | §2.6 (Codex) |
-| D2 | basse | démontré | Conflit d'exclusivité par capture : « this value is passed twice… », sans nommer la variable capturée | §2.6 (Codex) |
-| D3 | basse | lu | Le générateur détruit inconditionnellement un `DropIfInit` résiduel au lieu de signaler une erreur interne | contrat K3.7 (Codex) |
+| T1 | moyenne | lu, **corrigé** (lot 2) | `tests/run` exécuté seulement en debug (`BuildOptions::new(…, false)`) : rien ne vérifiait les garanties en `-O2` | test `run_programs_optimized` |
+| D1 | basse | démontré, **corrigé** (lot 2) | E0402 annonçait « moved here, in a previous iteration of the loop » sans boucle (`f(s, s)`, arguments en deux phases) | `tests/ui/move_same_statement.nx` |
+| D2 | basse | démontré, **corrigé** (lot 2) | Conflit d'exclusivité par capture : « this value is passed twice… », sans nommer la variable capturée | `tests/ui/exclusivity_closures.stderr` |
+| D3 | basse | lu, **corrigé** (lot 2) | Le générateur détruisait inconditionnellement un `DropIfInit` résiduel au lieu de signaler une erreur interne | contrat K3.7 |
 | D4 | basse | lu, **corrigé** | Spécification en retard : E0404 inexistant (§5.2), « 0.1 » dans les garanties, `static var` et captures absentes du ch. 05 | spec 03, 05 mises à jour |
 
 ### 2.1 S1 — Utilisation après libération par une garde (critique, corrigé)
@@ -174,9 +174,9 @@ ils s'appliquent dès maintenant à toute contribution.
 | T3 `wasm-ld --stack-first` | `compiler/nxc/src/link.rs` | `wasm32-wasi` : piège, statiques intactes ; suite web inchangée |
 | T4 vérification de `bool`/`char` à l'entrée des `@export` | `compiler/nxc_codegen_llvm` | bibliothèque appelée depuis C avec `char` 0xD800 → panique |
 | T5 sections critiques sans système | `lib/std/heap.nx`, `rt.nx`, `sys/bare.nx` | essai QEMU interruption + allocation |
-| T6 `tests/run` aussi en `-O2` | `compiler/nxc/tests/suite.rs` | suite verte en debug **et** release |
-| T7 diagnostics D1, D2 | `compiler/nxc_nir/src/ownership.rs`, `nxc_sema/src/places.rs` (messages seulement) | `tests/ui` mis à jour |
-| T8 `DropIfInit` résiduel = erreur interne | `compiler/nxc_codegen_llvm/src/func.rs` | suite verte |
+| ~~T6 `tests/run` aussi en `-O2`~~ | fait par Claude (lot 2, §7) | — |
+| ~~T7 diagnostics D1, D2~~ | fait par Claude (lot 2, §7) | — |
+| ~~T8 `DropIfInit` résiduel = erreur interne~~ | fait par Claude (lot 2, §7) | — |
 
 `places.rs` reste sous la responsabilité de Claude pour les règles ; Codex peut en
 modifier les messages (T7) en le signalant.
@@ -239,3 +239,31 @@ acceptés).
 **E. Prochaines étapes** : validation des ADR 0011 à 0013 par l'utilisateur ; tâches T1 à
 T8 par Codex ; ADR de P5 sur les types distincts et contraints et les erreurs (A3, A4) ;
 SH1 seulement après le gel de la grammaire de l'édition 1.
+
+## 7. Lot 2 (17/10, branche `refonte/core-feuille-de-route`)
+
+**A. Travaux réalisés**
+- [Feuille de route vers la 1.0.0](../roadmap.md) : versions 0.3.0 à 1.0.0, objectifs,
+  contenus, critères de sortie, dépendances, reports explicites. Remplace les anciennes
+  sections « 0.3 Système » et « 0.4 », contraires au plan maître ; le tableau de
+  conformité ne présente plus les microcontrôleurs comme ✅ sans leurs limites.
+- ADR 0014 (types distincts et contraints, orientation des contrats) et ADR 0015
+  (erreurs de `std`, conversion par `?`), proposées.
+- D1 : la classification « itération précédente » d'E0402 suit maintenant les chemins
+  du graphe (arêtes de retour) au lieu de l'ordre du texte ; un déplacement plus loin
+  dans la même instruction est expliqué par l'ordre d'évaluation (spec §4.1).
+- D2 : les conflits d'exclusivité nomment la variable capturée et la fonction anonyme.
+- D3 / K3.7 : un `DropIfInit` résiduel arrête le générateur (erreur interne).
+- T6 / K7.3 : nouveau test `run_programs_optimized` (toute la suite `tests/run` en `-O2`,
+  mêmes sorties attendues).
+
+**B. Validation** : voir la PR du lot. Sans LLVM sur ce PC, `run_programs_optimized`
+n'est pas exécuté localement ; il l'est par le job Linux de la CI, qui a LLVM.
+
+**C. Intégration** : fichiers de Claude seulement (`places.rs`, `ownership.rs`,
+`suite.rs`, `func.rs` pour K3.7, docs). Les tâches T7 et T8 de la §5 sont faites ; la
+§5 garde T1–T5 pour Codex.
+
+**D. Limites** : si `run_programs_optimized` échoue en CI, c'est une information
+précieuse (une optimisation change un comportement) : à analyser avant toute
+désactivation.
