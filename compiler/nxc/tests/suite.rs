@@ -56,12 +56,16 @@ fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &st
 }
 
 /// The options for a test file: `// edition: 1` on one of its first lines selects the
-/// syntax of edition 1 (ADR 0010).
+/// syntax of edition 1 (ADR 0010), `// target: wasm32-wasi` the target of the analysis
+/// (diagnostics that depend on the target, such as the width of `usize`).
 fn opts_for(nx: &Path, mode: Mode) -> CompileOptions {
     let mut opts = CompileOptions::new(mode);
     let text = std::fs::read_to_string(nx).unwrap_or_default();
     if text.lines().take(3).any(|l| l.trim() == "// edition: 1") {
         opts.edition = nxc_syntax::Edition::V1;
+    }
+    if let Some(name) = text.lines().take(3).find_map(|l| l.trim().strip_prefix("// target:")) {
+        opts.target = Target::from_name(name).unwrap_or_else(|e| panic!("{}: {}", nx.display(), e));
     }
     opts
 }

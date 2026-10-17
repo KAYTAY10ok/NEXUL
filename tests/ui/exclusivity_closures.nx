@@ -1,0 +1,84 @@
+// An anonymous function uses the variables around it in place (spec §4.12): its
+// captures are accesses of the call that receives it, and of the borrows in force
+// around that call (law of exclusivity, spec §5.4).
+fn apply(inout a: Vec[i32], f: fn() -> i32) {
+    a.push(f())
+}
+
+fn walk(a: Vec[String], f: fn()) {
+    for s in a {
+        f()
+        println(s)
+    }
+}
+
+fn run(f: fn()) {
+    f()
+}
+
+fn both(f: fn(), g: fn()) {
+    f()
+    g()
+}
+
+fn captured_by_an_inout_call() {
+    var v: Vec[i32] = Vec.new()
+    apply(&v, fn() => v.len() as i32)
+    v.retain(fn(x) => x < v.len() as i32)
+}
+
+fn modified_while_borrowed() {
+    var v: Vec[String] = Vec.new()
+    walk(v, fn() {
+        v.push("c")
+    })
+}
+
+fn modified_by_two_functions() {
+    var v: Vec[String] = Vec.new()
+    both(fn() { v.push("a") }, fn() { v.push("b") })
+}
+
+fn modified_during_a_loop() {
+    var v: Vec[String] = Vec.new()
+    for s in v {
+        run(fn() {
+            v.push("x")
+        })
+        println(s)
+    }
+    for s in &v {
+        run(fn() { v.clear() })
+        s.push('!')
+    }
+}
+
+fn modified_during_a_match() {
+    var o: Option[String] = Some("a")
+    match o {
+        Some(s) => {
+            run(fn() { o = None })
+            println(s)
+        }
+        None => {}
+    }
+}
+
+fn allowed() {
+    var total = 0
+    var v: Vec[i32] = Vec.new()
+    v.push(1)
+    run(fn() { total += v.len() as i32 })
+    both(fn() { total += 1 }, fn() { println(v.len()) })
+    let n = v.fold(0, fn(acc, x) => acc + x + total)
+    println("{total} {n}")
+}
+
+fn main() {
+    captured_by_an_inout_call()
+    modified_while_borrowed()
+    modified_by_two_functions()
+    modified_during_a_loop()
+    modified_during_a_match()
+    allowed()
+}

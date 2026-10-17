@@ -31,11 +31,12 @@ Comparaison :
 | Annotations de durée de vie | oui | non | non | **non** |
 | Destruction déterministe | oui | oui (ARC) | manuelle/RAII | **oui** |
 | Coût caché (compteurs, copies sur écriture) | non | oui | non | **non** |
-| Références stockées | oui | (classes) | oui | **non en 0.1** |
+| Références stockées | oui | (classes) | oui | **non** (seconde classe) |
 
 La limite assumée : les structures à références partagées (graphes, listes doublement
 chaînées) s'écrivent avec des indices dans un `Vec`, une arène, ou du code `unsafe`
-encapsulé. *(Hors 0.1 : projections et sous-scripts nommés, `Rc[T]` en bibliothèque.)*
+encapsulé. *(À venir : projections et sous-scripts nommés ; un type à propriété partagée
+(`Shared[T]`, ADR 0010) ne sera introduit qu'avec les règles de l'ADR 0013.)*
 
 ## 5.2 Copie et déplacement
 
@@ -69,9 +70,11 @@ Après un déplacement, la variable est **non initialisée** : la lire est une e
 (E0402), mais on peut lui réaffecter une valeur (si elle est `var`). Un déplacement
 conditionnel (dans une seule branche d'un `if`) rend la variable « peut-être
 déplacée » : la lire est une erreur, et sa destruction en fin de portée est gérée par un
-**drapeau de destruction** à l'exécution. Déplacer dans une boucle une variable
-déclarée hors de la boucle est une erreur (E0404) car la seconde itération utiliserait
-une valeur déjà déplacée.
+**drapeau de destruction** à l'exécution. Une variable déclarée hors d'une boucle peut
+être déplacée dans la boucle seulement si elle reçoit une nouvelle valeur avant toute
+lecture suivante, y compris au début de l'itération suivante et après la boucle ;
+sinon c'est l'erreur E0402 (« déplacée à une itération précédente »). L'analyse suit
+les chemins d'exécution sur la NIR (§10.2), pas la seule structure du texte.
 
 ## 5.3 Conventions de passage des paramètres
 
@@ -95,8 +98,8 @@ Pour le receveur des méthodes : `self` (emprunt en lecture), `inout self` (empr
 écriture, receveur implicite), `owned self` (consomme le receveur).
 
 **Réalisation** : le compilateur choisit librement le mécanisme (valeur ou adresse) ;
-la sémantique ne dépend pas de ce choix. En 0.1, les emprunts de types copiables de
-petite taille passent par valeur et les autres par adresse.
+la sémantique ne dépend pas de ce choix. Aujourd'hui, les emprunts de types copiables
+de petite taille passent par valeur et les autres par adresse.
 
 ## 5.4 Loi d'exclusivité
 
@@ -126,8 +129,18 @@ for x in v {
 }
 ```
 
-Comme une référence ne peut pas être stockée, ces trois règles suffisent : il n'existe
-aucun autre moyen d'obtenir deux chemins vers la même mémoire dans du code sûr.
+4. **Fonctions anonymes.** Une fonction anonyme utilise sur place les variables qu'elle
+   capture (§4.12) : chaque capture compte comme un accès (lecture, ou écriture si la
+   fonction la modifie) **pendant tout l'appel** qui reçoit la fonction. Les règles 1 à 3
+   s'y appliquent : capturer une variable passée `inout` au même appel, la modifier
+   pendant qu'un autre argument l'emprunte ou pendant qu'une boucle ou un filtrage la
+   gèle, ou la modifier dans deux fonctions anonymes du même appel est l'erreur E0420
+   (test de référence `tests/ui/exclusivity_closures.nx`).
+
+Comme une référence ne peut pas être stockée et qu'une fonction anonyme ne peut pas
+survivre à l'appel qui la reçoit (E0248), ces quatre règles suffisent : il n'existe
+aucun autre moyen d'obtenir deux chemins vers la même mémoire dans du code sûr. Les
+variables statiques modifiables (§5.9) sont l'exception, d'où leur accès en `unsafe`.
 
 ## 5.5 Destruction (RAII)
 
@@ -165,13 +178,30 @@ impl Fichier {
   prennent possession des parties qu'elles désignent ; les parties ressources non liées
   sont détruites **au début du bras**, avant l'exécution de son corps. Une garde `if`
   voit les liaisons comme des emprunts, et les transferts n'ont lieu qu'une fois la
-  garde validée.
+  garde validée : déplacer une liaison dans la garde (`Some(s) if prendre(s)`,
+  `move s`, receveur `owned self`) est l'erreur E0403, car si la garde échouait, les
+  bras suivants filtreraient une valeur déjà détruite.
 - Pour consommer une variable dans un `match`, on écrit `match move v { ... }`.
 - Scrutin **`&place`** (`match &x`, `if let P = &x`, `for e in &v`) : la place doit être
   modifiable ; les liaisons sont des emprunts en **écriture**. Pendant un bras qui lie des
   variables (et pendant les gardes), la place est gelée de façon **exclusive** : elle ne
   peut être ni lue ni modifiée autrement que par les liaisons. Un bras sans liaison
   (`None => x = Some(1)`) peut modifier la place librement.
+
+```nexul
+fn prendre(owned s: String) -> bool {
+    return s.len() > 1
+}
+
+fn main() {
+    let o: Option[String] = Some("ab" + "c")
+    match move o {
+        Some(s) if prendre(s) => println("long")   // erreur E0403 : la garde emprunte `s`
+        Some(s) => println(s)
+        None => {}
+    }
+}
+```
 
 ## 5.7 Code non sûr
 
@@ -193,13 +223,52 @@ Une API sûre construite sur du code `unsafe` (comme `Vec[T]`) **doit** garantir
 toute utilisation depuis du code sûr respecte les règles de ce chapitre. C'est le contrat
 documenté de chaque bloc `unsafe` de la bibliothèque standard.
 
-## 5.8 Garanties
+## 5.8 Garanties et leur périmètre
 
-Pour un programme sans `unsafe` (bibliothèque standard exceptée), NEXUL 0.1 garantit :
-pas d'accès hors bornes (vérification à l'exécution), pas d'utilisation après libération,
-pas de double libération, pas de référence pendante, pas de lecture de mémoire non
-initialisée, pas de débordement arithmétique silencieux, pas de conversion numérique
-silencieusement destructrice. Les seules erreurs possibles à l'exécution sont des
-**paniques** déterministes, avec message et position dans le source.
-Les fuites mémoire restent possibles uniquement via des fonctions explicites comme
-`std.mem.forget` (sûres car elles ne violent aucune des garanties précédentes).
+Le périmètre exact, les conditions et l'état des preuves sont fixés par
+l'[ADR 0011](../adr/0011-perimetre-des-garanties.md). En résumé :
+
+**Garantie.** Pour un programme dont le code ne contient pas d'`unsafe` (bibliothèque
+standard et paquets exceptés), compilé par `nxc` pour une cible prise en charge, et
+sous les conditions ci-dessous, il ne se produit ni accès hors bornes (vérification à
+l'exécution), ni utilisation après libération, ni double libération, ni référence
+pendante, ni lecture de mémoire non initialisée, ni débordement arithmétique silencieux,
+ni conversion numérique silencieusement destructrice. Une violation de ces règles que
+le compilateur ne peut pas refuser devient une **panique** déterministe (message,
+position dans le source, code de sortie 101).
+
+**Conditions** (hors d'elles, la garantie ne s'applique pas) :
+
+1. Chaque bloc `unsafe` de la bibliothèque standard et des paquets respecte son
+   contrat (§5.7) : la garantie est relative à ce code, que le compilateur ne vérifie pas.
+2. Les fonctions externes (`extern "C"`) respectent leur signature, et le code C qui
+   appelle une fonction `@export` lui passe des valeurs valides de leur type (§8.4).
+3. La pile suffit au programme. Un dépassement de pile n'est **pas** une panique :
+   - sur Windows, Linux et macOS, il arrête le processus par le système (page de
+     garde), sans message de NEXUL ni vidage de la sortie standard tamponnée ;
+     une trame plus grande que la zone de garde n'est pas encore sondée ;
+   - sur WebAssembly, la pile d'appels du moteur est protégée (piège de l'hôte), mais
+     pas la pile placée en mémoire linéaire (agrégats, variables dont l'adresse est
+     prise) : `wasm-ld` la place aujourd'hui après les données statiques, qu'un
+     dépassement peut écraser ;
+   - sur les cibles sans système (`*-none`), il **n'est pas détecté** : la pile peut
+     écraser le tas. La garantie y suppose une pile dimensionnée par l'analyse.
+4. Sur les cibles sans système, aucun gestionnaire d'interruption (`@export` d'un
+   vecteur) n'appelle l'allocateur, les sorties ou toute fonction de la bibliothèque
+   standard qui utilise une variable statique, si le code principal peut être
+   interrompu pendant ces opérations (le runtime n'est pas encore réentrant).
+
+**Ce qui n'est pas garanti** : l'absence de fuite (`std.mem.forget`, valeurs statiques,
+paniques qui n'exécutent pas les destructeurs), l'absence de panique, la terminaison,
+les propriétés temporelles (temps réel) et l'absence de course de données dès qu'il y
+aura de la concurrence (rien n'en offre encore en dehors des interruptions ; voir
+l'ADR 0013).
+
+## 5.9 Variables statiques
+
+Une variable `static` vit pendant toute l'exécution et n'est jamais détruite : elle ne
+peut pas contenir de ressource (E0374). Lire une `static` immuable est sûr. Lire ou
+modifier une `static var` exige un contexte `unsafe` (E0501), car le compilateur ne peut
+pas vérifier la loi d'exclusivité sur une valeur accessible de partout : une fonction
+appelée pendant un emprunt pourrait la modifier, et un gestionnaire d'interruption peut
+s'exécuter à tout moment.

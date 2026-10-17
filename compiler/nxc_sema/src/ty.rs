@@ -47,8 +47,9 @@ impl IntTy {
         matches!(self, IntTy::I8 | IntTy::I16 | IntTy::I32 | IntTy::I64 | IntTy::Isize)
     }
 
-    /// Width in bits. `isize`/`usize` are 64 bits for range checks at compile time on
-    /// 64-bit targets; the C backend uses the real target width.
+    /// Width in bits, independent of the target: `isize`/`usize` count as 64 bits, their
+    /// widest width. The rules of the language use the target width: `bits_on`, or
+    /// `Program::int_bits` (spec §3.1).
     pub fn bits(self) -> u32 {
         match self {
             IntTy::I8 | IntTy::U8 => 8,
@@ -71,6 +72,33 @@ impl IntTy {
             (1i128 << (self.bits() - 1)) - 1
         } else {
             (1i128 << self.bits()) - 1
+        }
+    }
+
+    /// Width in bits on a target whose pointers have `ptr_bits` bits.
+    pub fn bits_on(self, ptr_bits: u32) -> u32 {
+        match self {
+            IntTy::Isize | IntTy::Usize => ptr_bits,
+            _ => self.bits(),
+        }
+    }
+
+    /// Smallest value on a target whose pointers have `ptr_bits` bits.
+    pub fn min_on(self, ptr_bits: u32) -> i128 {
+        if self.signed() {
+            -(1i128 << (self.bits_on(ptr_bits) - 1))
+        } else {
+            0
+        }
+    }
+
+    /// Largest value on a target whose pointers have `ptr_bits` bits.
+    pub fn max_on(self, ptr_bits: u32) -> i128 {
+        let bits = self.bits_on(ptr_bits);
+        if self.signed() {
+            (1i128 << (bits - 1)) - 1
+        } else {
+            (1i128 << bits) - 1
         }
     }
 

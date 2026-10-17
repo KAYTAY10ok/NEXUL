@@ -81,6 +81,15 @@ fn overflow(span: Span, ty: &str, diags: &DiagSink) -> Option<ConstValue> {
     None
 }
 
+/// ` on the target `name``, after the range of `isize`/`usize`, whose width depends on
+/// the target (spec §3.1).
+pub fn on_target(prog: &Program, i: IntTy) -> String {
+    match i {
+        IntTy::Isize | IntTy::Usize => format!(" on the target `{}`", prog.cfg.target.name),
+        _ => String::new(),
+    }
+}
+
 /// Checks that a value matches a type and fits in its range.
 pub fn check_fits(prog: &Program, v: &ConstValue, ty: Ty, span: Span, diags: &DiagSink) -> Option<ConstValue> {
     let tcx = &prog.tcx;
@@ -93,10 +102,10 @@ pub fn check_fits(prog: &Program, v: &ConstValue, ty: Ty, span: Span, diags: &Di
     };
     match (&*tcx.kind(ty), v) {
         (TyKind::Int(i), ConstValue::Int(n)) => {
-            if *n < i.min() || *n > i.max() {
+            if *n < prog.int_min(*i) || *n > prog.int_max(*i) {
                 diags.emit(
                     Diagnostic::error("E0301", format!("value {} does not fit in `{}`", n, i.name()))
-                        .primary(span, format!("the range of `{}` is {}..={}", i.name(), i.min(), i.max())),
+                        .primary(span, format!("the range of `{}` is {}..={}{}", i.name(), prog.int_min(*i), prog.int_max(*i), on_target(prog, *i))),
                 );
                 return None;
             }
@@ -128,9 +137,9 @@ pub fn prim_assoc_const(prog: &Program, ty: Ty, name: &str) -> Option<ConstValue
     let tcx = &prog.tcx;
     match &*tcx.kind(ty) {
         TyKind::Int(i) => match name {
-            "MIN" => Some(ConstValue::Int(i.min())),
-            "MAX" => Some(ConstValue::Int(i.max())),
-            "BITS" => Some(ConstValue::Int(i.bits() as i128)),
+            "MIN" => Some(ConstValue::Int(prog.int_min(*i))),
+            "MAX" => Some(ConstValue::Int(prog.int_max(*i))),
+            "BITS" => Some(ConstValue::Int(prog.int_bits(*i) as i128)),
             _ => None,
         },
         TyKind::Float(f) => {
@@ -244,7 +253,7 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
                 (UnOp::Not, ConstValue::Bool(b)) => Some(ConstValue::Bool(!b)),
                 (UnOp::BitNot, ConstValue::Int(n)) => match int_ty {
                     Some(i) if i.signed() => Some(ConstValue::Int(!n)),
-                    Some(i) => Some(ConstValue::Int(i.max() - n)),
+                    Some(i) => Some(ConstValue::Int(prog.int_max(i) - n)),
                     None => not_const(e, diags),
                 },
                 _ => not_const(e, diags),
@@ -299,7 +308,7 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
             let name = prog.ty_str(ty);
             let range_check = |n: i128| -> Option<i128> {
                 match int_ty {
-                    Some(i) if n < i.min() || n > i.max() => None,
+                    Some(i) if n < prog.int_min(i) || n > prog.int_max(i) => None,
                     _ => Some(n),
                 }
             };
@@ -325,7 +334,7 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
                         BitOr => Some(x | y),
                         BitXor => Some(x ^ y),
                         Shl | Shr => {
-                            let bits = int_ty.map(|i| i.bits()).unwrap_or(64) as i128;
+                            let bits = int_ty.map(|i| prog.int_bits(i)).unwrap_or(64) as i128;
                             if y < 0 || y >= bits {
                                 diags.emit(Diagnostic::error("E0370", "shift amount out of range in constant expression").primary(e.span, format!("must be between 0 and {}", bits - 1)));
                                 return None;
@@ -335,10 +344,10 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
                                 // Wrap to the type's width like the runtime operation.
                                 match int_ty {
                                     Some(i) => {
-                                        let mask = (1i128 << i.bits()) - 1;
+                                        let mask = (1i128 << prog.int_bits(i)) - 1;
                                         let u = m & mask;
-                                        if i.signed() && u > i.max() {
-                                            Some(u - (1i128 << i.bits()))
+                                        if i.signed() && u > prog.int_max(i) {
+                                            Some(u - (1i128 << prog.int_bits(i)))
                                         } else {
                                             Some(u)
                                         }
@@ -361,9 +370,9 @@ pub fn eval_expr(prog: &Program, module: ModId, e: &Expr, ty: Ty, visiting: &mut
                     match res {
                         Some(n) if wrapping => match int_ty {
                             Some(i) => {
-                                let m = 1i128 << i.bits();
+                                let m = 1i128 << prog.int_bits(i);
                                 let mut u = n.rem_euclid(m);
-                                if i.signed() && u > i.max() {
+                                if i.signed() && u > prog.int_max(i) {
                                     u -= m;
                                 }
                                 Some(ConstValue::Int(u))

@@ -11,12 +11,18 @@ lit sans consulter son implémentation, et la compilation séparée reste possib
 |---|---|---|
 | `i8` `i16` `i32` `i64` | complément à deux, 8/16/32/64 bits | −2ⁿ⁻¹ … 2ⁿ⁻¹−1 |
 | `u8` `u16` `u32` `u64` | binaire non signé | 0 … 2ⁿ−1 |
-| `isize` `usize` | taille d'un pointeur de la cible | idem selon la largeur |
+| `isize` `usize` | taille d'un pointeur de la cible (32 ou 64 bits) | idem selon la largeur |
 | `f32` `f64` | IEEE 754 binary32 / binary64 | y compris ±inf et NaN |
 | `bool` | 1 octet, 0 ou 1 | `true`, `false` |
 | `char` | 32 bits | valeur scalaire Unicode (U+0000–U+10FFFF hors U+D800–U+DFFF) |
 | `()` | 0 octet utile | l'unique valeur `()` (« unité ») |
 | `Never` | aucune | type des expressions qui ne terminent pas (`return`, `panic(...)`) |
+
+La largeur de `isize` et `usize` est celle de la **cible de compilation** (`nxc targets`) :
+littéraux, constantes, `MIN`, `MAX`, `BITS` et calculs à la compilation sont vérifiés
+pour cette cible. Un programme peut donc être valide pour une cible 64 bits et refusé
+pour une cible 32 bits (`let n: usize = 5_000_000_000` : E0301 sur `wasm32-wasi`) ; une
+valeur qui doit dépasser 32 bits partout s'écrit en `u64` ou `i64`.
 
 Il n'existe **pas de valeur nulle** : l'absence de valeur s'exprime par `Option[T]`.
 

@@ -66,7 +66,9 @@ Homebrew) et le `PATH`.
   ne vivent que le temps d'un appel, d'une boucle ou d'un `match`, et la loi d'exclusivité
   interdit toute modification concurrente. Pas d'utilisation après libération, pas de
   double libération, pas de référence pendante — vérifié à la compilation
-  ([spec, chapitre 05](docs/spec/05-memoire.md)).
+  ([spec, chapitre 05](docs/spec/05-memoire.md)), pour le code sans `unsafe` et sous les
+  conditions de l'[ADR 0011](docs/adr/0011-perimetre-des-garanties.md) (pile suffisante,
+  frontière C respectée).
 - **Destruction déterministe (RAII)** dans un ordre spécifié, avec drapeaux de destruction
   générés automatiquement pour les déplacements conditionnels.
 - **Abstractions sans coût caché** : traits et contraintes génériques (`[T: Ord]`),
