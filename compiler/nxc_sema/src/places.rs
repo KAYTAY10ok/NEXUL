@@ -65,6 +65,10 @@ struct Cx<'a> {
     body: &'a Body,
     diags: &'a DiagSink,
     frozen: Vec<Frozen>,
+    /// The bindings of the arms whose guard is being checked. In a guard they are
+    /// borrowed views, even when the scrutinee is a value: the parts are moved into them
+    /// only once the guard is true (spec §5.6).
+    guard_bindings: Vec<thir::LocalId>,
 }
 
 pub fn check_program(prog: &Program, diags: &DiagSink) {
@@ -72,7 +76,7 @@ pub fn check_program(prog: &Program, diags: &DiagSink) {
     ids.sort();
     for id in ids {
         let body = &prog.bodies[&id];
-        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new() };
+        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new() };
         cx.block(&body.block);
     }
 }
@@ -147,6 +151,26 @@ impl<'a> Cx<'a> {
         self.diags.emit(d);
     }
 
+    /// A binding moved in the guard of its own arm (E0403). The guard only borrows the
+    /// matched parts: if it moved one and then failed, the next arms would see a value
+    /// already destroyed (use after free, double destruction).
+    fn moved_in_guard(&self, l: thir::LocalId, e: &Expr) -> bool {
+        let decl = &self.body.locals[l as usize];
+        if !self.guard_bindings.contains(&l) || decl.is_ref() || self.p.is_copy(decl.ty) {
+            return false;
+        }
+        let mut d = Diagnostic::error("E0403", format!("cannot move `{}` in the guard of its arm", decl.name))
+            .primary(e.span, format!("`{}` is a resource and the guard only borrows it", self.p.ty_str(decl.ty)))
+            .secondary(decl.span, "bound here")
+            .note("the matched value is moved into the bindings only once the guard is true (spec §5.6)")
+            .help("move it in the body of the arm instead");
+        if self.p.is_string(decl.ty) {
+            d = d.help("or use `.clone()` to make a copy");
+        }
+        self.diags.emit(d);
+        true
+    }
+
     /// An expression in an owned position: a resource stored in a place must be a
     /// whole owned variable to be moved (E0403).
     fn consume(&self, e: &Expr) {
@@ -197,6 +221,9 @@ impl<'a> Cx<'a> {
         match &e.kind {
             T::Local(l) => {
                 let decl = &self.body.locals[*l as usize];
+                if self.moved_in_guard(*l, e) {
+                    return;
+                }
                 if decl.is_ref() {
                     let mut d = Diagnostic::error("E0403", format!("cannot move out of `{}`, which is borrowed", decl.name))
                         .primary(e.span, format!("`{}` is a resource and only a borrowed view is available here", tname));
@@ -466,6 +493,11 @@ impl<'a> Cx<'a> {
                 self.expr(x);
             }
             T::Move(x) => {
+                if let T::Local(l) = &x.kind {
+                    if self.moved_in_guard(*l, x) {
+                        return;
+                    }
+                }
                 self.write(x, e.span, "move", false);
             }
             T::Binary(_, a, b) | T::Index(a, b) => {
@@ -530,7 +562,10 @@ impl<'a> Cx<'a> {
                             }
                             None => false,
                         };
+                        let mark = self.guard_bindings.len();
+                        a.pat.bindings(&mut self.guard_bindings);
                         self.expr(g);
+                        self.guard_bindings.truncate(mark);
                         if pushed {
                             self.frozen.pop();
                         }

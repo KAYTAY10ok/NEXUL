@@ -1,0 +1,12 @@
+error[E0403]: cannot move `s` in the guard of its arm
+  --> edition1_guard_move.nx:13:26
+   |
+13 |         .Some(s) if take(s) then println("long")
+   |                          ^ `String` is a resource and the guard only borrows it
+   |               - bound here
+   |
+   = note: the matched value is moved into the bindings only once the guard is true (spec §5.6)
+   = help: move it in the body of the arm instead
+   = help: or use `.clone()` to make a copy
+
+error: could not compile due to 1 error
