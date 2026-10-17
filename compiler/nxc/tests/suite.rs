@@ -70,16 +70,34 @@ fn opts_for(nx: &Path, mode: Mode) -> CompileOptions {
     opts
 }
 
+/// Compares with an expectation file without ever rewriting it.
+fn compare_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &str) {
+    let expected = std::fs::read_to_string(path).map(|s| normalize(&s)).unwrap_or_default();
+    if expected != actual {
+        failures.push(format!("{}: {} differs\n--- expected ---\n{}\n--- actual ---\n{}", path.display(), what, expected, actual));
+    }
+}
+
 fn run_one(nx: &Path) -> Vec<String> {
+    run_one_at(nx, false)
+}
+
+/// Runs a program of `tests/run`, built without optimization or, with `optimized`, at
+/// `-O2` (contract K7.3: the guarantees hold at every optimization level). `@cfg` stays
+/// `debug` in both cases, so the expected outputs are the same; only the unoptimized run
+/// rewrites them under `NEXUL_BLESS`.
+fn run_one_at(nx: &Path, optimized: bool) -> Vec<String> {
+    let bless = bless() && !optimized;
+    let mode = if optimized { " [-O2]" } else { "" };
     let mut failures = Vec::new();
     let c = compile_file(nx, &opts_for(nx, Mode::Program));
     if c.errors > 0 {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}{}", std::process::id(), if optimized { "-O2" } else { "" }));
     let exe = dir.join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
-    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
+    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), optimized)) {
         return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
     let stdin_path = nx.with_extension("in");
@@ -94,27 +112,35 @@ fn run_one(nx: &Path) -> Vec<String> {
     let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
     let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
     let code = out.status.code().unwrap_or(-1);
-    check_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout");
+    if optimized {
+        compare_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout [-O2]");
+    } else {
+        check_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout");
+    }
     let exit_path = nx.with_extension("exit");
     let expected_code: i32 = std::fs::read_to_string(&exit_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-    if bless() {
+    if bless {
         if code != 0 {
             std::fs::write(&exit_path, format!("{}\n", code)).unwrap();
         } else {
             let _ = std::fs::remove_file(&exit_path);
         }
     } else if code != expected_code {
-        failures.push(format!("{}: exit code {} (expected {})\nstderr:\n{}", nx.display(), code, expected_code, stderr));
+        failures.push(format!("{}{}: exit code {} (expected {})\nstderr:\n{}", nx.display(), mode, code, expected_code, stderr));
     }
     let err_path = nx.with_extension("stderr");
-    if bless() {
+    if bless {
         if !stderr.is_empty() {
             std::fs::write(&err_path, &stderr).unwrap();
         } else {
             let _ = std::fs::remove_file(&err_path);
         }
     } else if err_path.exists() || !stderr.is_empty() {
-        check_expect(&err_path, &stderr, &mut failures, "stderr");
+        if optimized {
+            compare_expect(&err_path, &stderr, &mut failures, "stderr [-O2]");
+        } else {
+            check_expect(&err_path, &stderr, &mut failures, "stderr");
+        }
     }
     if !c.diagnostics.is_empty() {
         failures.push(format!("{}: unexpected warnings\n{}", nx.display(), c.diagnostics));
@@ -286,6 +312,22 @@ fn run_programs() {
     let paths: Vec<PathBuf> = files("tests/run").into_iter().filter(|p| runs_on(p, &target)).collect();
     assert!(!paths.is_empty(), "no tests found");
     let failures = parallel(&paths, run_one);
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+/// The same programs built at `-O2`: an optimization must not change what a program does
+/// nor remove a safety check (contract K7.3). Skipped while blessing the expectations.
+#[test]
+fn run_programs_optimized() {
+    if bless() {
+        return;
+    }
+    let target = Target::host();
+    let paths: Vec<PathBuf> = files("tests/run").into_iter().filter(|p| runs_on(p, &target)).collect();
+    assert!(!paths.is_empty(), "no tests found");
+    let failures = parallel(&paths, |nx| run_one_at(nx, true));
     if !failures.is_empty() {
         panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
     }

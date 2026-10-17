@@ -258,31 +258,96 @@ pub fn check(p: &Program, body: &Body, diags: &DiagSink) {
     let fx = compute_effects(body);
     let entry = solve(body, &fx);
     let mut reported = vec![false; body.locals.len()];
+    let back = back_edges(body);
     for (bi, st0) in entry.iter().enumerate() {
         let Some(st0) = st0 else { continue };
         let mut st = st0.clone();
-        let mut all: Vec<&Vec<Effect>> = fx.stmts[bi].iter().collect();
-        all.push(&fx.terms[bi]);
-        for effs in all {
-            for e in effs {
-                if let Effect::Use(l, span) = e {
-                    let li = *l as usize;
-                    let decl = &body.locals[li];
-                    if st.maybe_uninit.contains(li) && !reported[li] && matches!(decl.kind, LocalKind::User | LocalKind::Arg { .. }) && decl.name.is_some() {
-                        reported[li] = true;
-                        report(p, body, &fx, &st, *l, *span, diags);
-                    }
+        for (k, e) in block_effects(&fx, bi).enumerate() {
+            if let Effect::Use(l, span) = e {
+                let li = *l as usize;
+                let decl = &body.locals[li];
+                if st.maybe_uninit.contains(li) && !reported[li] && matches!(decl.kind, LocalKind::User | LocalKind::Arg { .. }) && decl.name.is_some() {
+                    reported[li] = true;
+                    report(p, body, &fx, &back, &st, *l, *span, (bi, k), diags);
                 }
-                st.apply(e, &fx.sites);
             }
+            st.apply(e, &fx.sites);
         }
     }
 }
 
-fn report(p: &Program, body: &Body, fx: &Effects, st: &State, l: Local, span: Span, diags: &DiagSink) {
+/// The effects of a block, statements then terminator, in execution order.
+fn block_effects(fx: &Effects, b: usize) -> impl Iterator<Item = &Effect> {
+    fx.stmts[b].iter().flatten().chain(fx.terms[b].iter())
+}
+
+/// The back edges of the control-flow graph (an edge to a block on the current
+/// depth-first path from the entry): the edges that start a new iteration of a loop.
+fn back_edges(body: &Body) -> Vec<(BlockId, BlockId)> {
+    let n = body.blocks.len();
+    // 0: not visited, 1: on the current path, 2: done.
+    let mut state = vec![0u8; n];
+    let mut out = Vec::new();
+    if n == 0 {
+        return out;
+    }
+    let mut stack: Vec<(BlockId, Vec<BlockId>)> = vec![(0, body.successors(0))];
+    state[0] = 1;
+    while let Some((b, succ)) = stack.last_mut() {
+        let b = *b;
+        match succ.pop() {
+            Some(s) => match state[s as usize] {
+                0 => {
+                    state[s as usize] = 1;
+                    let next = body.successors(s);
+                    stack.push((s, next));
+                }
+                1 => out.push((b, s)),
+                _ => {}
+            },
+            None => {
+                state[b as usize] = 2;
+                stack.pop();
+            }
+        }
+    }
+    out
+}
+
+/// Where move site `site` happens: its block and its index among the block's effects.
+fn move_position(fx: &Effects, site: usize) -> Option<(usize, usize)> {
+    (0..fx.terms.len()).find_map(|b| block_effects(fx, b).position(|e| matches!(e, Effect::Uninit(_, Some(m)) if *m == site)).map(|k| (b, k)))
+}
+
+/// Can execution go from position `from` to position `to` without starting a new
+/// iteration of a loop (without taking a back edge)?
+fn reaches_in_same_iteration(body: &Body, back: &[(BlockId, BlockId)], from: (usize, usize), to: (usize, usize)) -> bool {
+    if from.0 == to.0 && from.1 < to.1 {
+        return true;
+    }
+    let mut seen = vec![false; body.blocks.len()];
+    let mut work: Vec<BlockId> = body.successors(from.0 as BlockId).into_iter().filter(|&s| !back.contains(&(from.0 as BlockId, s))).collect();
+    while let Some(b) = work.pop() {
+        if b as usize == to.0 {
+            return true;
+        }
+        if !std::mem::replace(&mut seen[b as usize], true) {
+            work.extend(body.successors(b).into_iter().filter(|&s| !back.contains(&(b, s))));
+        }
+    }
+    false
+}
+
+/// `at`: the block and effect index of the use. A move that reaches the use only by
+/// taking a back edge happened in a previous iteration of a loop; a move that reaches it
+/// in the same iteration but is written after it comes from the evaluation order of the
+/// statement (borrowed arguments and assignment targets are taken after every value is
+/// computed, spec §4.1).
+#[allow(clippy::too_many_arguments)]
+fn report(p: &Program, body: &Body, fx: &Effects, back: &[(BlockId, BlockId)], st: &State, l: Local, span: Span, at: (usize, usize), diags: &DiagSink) {
     let decl = &body.locals[l as usize];
     let name = decl.name.clone().unwrap_or_default();
-    let moves: Vec<&MoveSite> = st.moves.iter().filter(|&i| i < fx.sites.len()).map(|i| &fx.sites[i]).filter(|s| s.local == l).collect();
+    let moves: Vec<(usize, &MoveSite)> = st.moves.iter().filter(|&i| i < fx.sites.len()).map(|i| (i, &fx.sites[i])).filter(|(_, s)| s.local == l).collect();
     if moves.is_empty() {
         diags.emit(
             Diagnostic::error("E0401", format!("`{}` is used before being initialized", name))
@@ -293,22 +358,30 @@ fn report(p: &Program, body: &Body, fx: &Effects, st: &State, l: Local, span: Sp
         return;
     }
     let ty = p.ty_str(decl.ty);
-    let same_place = moves.iter().any(|m| m.span == span);
+    let same_place = moves.iter().any(|(_, m)| m.span == span);
     let primary = if same_place { "value moved here, in a previous iteration of the loop" } else { "value used here after move" };
     let mut d = Diagnostic::error("E0402", format!("use of moved value `{}`", name)).primary(span, primary);
     let mut in_loop = same_place;
-    for m in &moves {
+    let mut same_statement = false;
+    for (i, m) in &moves {
         if m.span == span {
             continue;
         }
-        if m.span.lo >= span.lo && m.span.file == span.file {
+        let same_iteration = move_position(fx, *i).map_or(true, |from| reaches_in_same_iteration(body, back, from, at));
+        if !same_iteration {
             in_loop = true;
             d = d.secondary(m.span, "value moved here, in a previous iteration of the loop");
+        } else if m.span.lo >= span.lo && m.span.file == span.file {
+            same_statement = true;
+            d = d.secondary(m.span, "value moved here first");
         } else {
             d = d.secondary(m.span, "value moved here");
         }
     }
     d = d.note(format!("`{}` has type `{}`, which owns resources and is moved rather than copied", name, ty));
+    if same_statement {
+        d = d.note("a value passed by reference, or assigned to, is taken after every other value of the statement is computed (evaluation order, spec §4.1)");
+    }
     if in_loop {
         d = d.help("assign a new value before the next iteration, or move a copy");
     } else if p.is_string(decl.ty) {

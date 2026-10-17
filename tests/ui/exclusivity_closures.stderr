@@ -1,43 +1,43 @@
-error[E0420]: `v` is passed twice to the same call, once as `inout`
+error[E0420]: `v` is used twice by the same call, once to modify it
   --> exclusivity_closures.nx:26:15
    |
 26 |     apply(&v, fn() => v.len() as i32)
-   |               ^^^^^^^^^^^^^^^^^^^^^^ accessed here
+   |               ^^^^^^^^^^^^^^^^^^^^^^ read by this anonymous function, which captures `v`
    |     --------------------------------- during this call
    |            - modified here (`inout`)
    |
    = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
    = help: copy one of the values into a variable first
 
-error[E0420]: `v` is passed twice to the same call, once as `inout`
+error[E0420]: `v` is used twice by the same call, once to modify it
   --> exclusivity_closures.nx:27:14
    |
 27 |     v.retain(fn(x) => x < v.len() as i32)
-   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^ accessed here
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^ read by this anonymous function, which captures `v`
    |     - modified here (`inout`)
    |     ------------------------------------- during this call
    |
    = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
    = help: copy one of the values into a variable first
 
-error[E0420]: this value is passed twice to the same call, once as `inout`
+error[E0420]: `v` is used twice by the same call, once to modify it
   --> exclusivity_closures.nx:32:10
    |
 32 |     walk(v, fn() {
    |          ^ accessed here
    |     -------------- during this call
-   |             ------ modified here (`inout`)
+   |             ------ modified by this anonymous function, which captures `v`
    |
    = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
    = help: copy one of the values into a variable first
 
-error[E0420]: this value is passed twice to the same call, once as `inout`
+error[E0420]: `v` is used twice by the same call, once to modify it
   --> exclusivity_closures.nx:39:32
    |
 39 |     both(fn() { v.push("a") }, fn() { v.push("b") })
-   |                                ^^^^^^^^^^^^^^^^^^^^ accessed here
+   |                                ^^^^^^^^^^^^^^^^^^^^ modified by this anonymous function, which captures `v`
    |     ------------------------------------------------ during this call
-   |          -------------------- modified here (`inout`)
+   |          -------------------- modified by this anonymous function, which captures `v`
    |
    = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
    = help: copy one of the values into a variable first

@@ -425,34 +425,46 @@ impl<'a> Cx<'a> {
         }
         // Law of exclusivity between the arguments of one call. An anonymous function
         // accesses the variables it captures during the call.
-        let mut places: Vec<(usize, PlacePath, Convention)> = Vec::new();
+        // The last field tells whether the access is a capture of an anonymous function.
+        let mut places: Vec<(usize, PlacePath, Convention, bool)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             if a.conv != Convention::Owned {
                 if let Some(p) = place_path(&a.expr) {
-                    places.push((i, p, a.conv));
+                    places.push((i, p, a.conv, false));
                 }
             }
             if let T::Closure { captures, .. } = &a.expr.kind {
                 for &(l, mutated) in captures {
-                    places.push((i, PlacePath { root: l, projs: vec![] }, if mutated { Convention::Inout } else { Convention::Borrow }));
+                    places.push((i, PlacePath { root: l, projs: vec![] }, if mutated { Convention::Inout } else { Convention::Borrow }, true));
                 }
             }
         }
-        for (i, pi, ci) in &places {
+        for (i, pi, ci, cap_i) in &places {
             if *ci != Convention::Inout {
                 continue;
             }
-            for (j, pj, cj) in &places {
+            for (j, pj, cj, cap_j) in &places {
                 if i == j || !overlaps(pi, pj) {
                     continue;
                 }
                 if *cj == Convention::Inout && j < i {
                     continue; // reported once for the pair
                 }
+                let root = self.local_name(pi.root);
+                let (title, accessed, modified) = if *cap_i || *cap_j {
+                    let by_fn = |what: &str| format!("{} by this anonymous function, which captures `{}`", what, root);
+                    (
+                        format!("`{}` is used twice by the same call, once to modify it", root),
+                        if *cap_j { by_fn(if *cj == Convention::Inout { "modified" } else { "read" }) } else { "accessed here".to_string() },
+                        if *cap_i { by_fn("modified") } else { "modified here (`inout`)".to_string() },
+                    )
+                } else {
+                    (format!("{} is passed twice to the same call, once as `inout`", self.describe(&args[*i].expr)), "accessed here".to_string(), "modified here (`inout`)".to_string())
+                };
                 self.diags.emit(
-                    Diagnostic::error("E0420", format!("{} is passed twice to the same call, once as `inout`", self.describe(&args[*i].expr)))
-                        .primary(args[*j].expr.span, "accessed here")
-                        .secondary(args[*i].expr.span, "modified here (`inout`)")
+                    Diagnostic::error("E0420", title)
+                        .primary(args[*j].expr.span, accessed)
+                        .secondary(args[*i].expr.span, modified)
                         .secondary(span, "during this call")
                         .note("a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)")
                         .help(if matches!(pi.projs.last(), Some(Proj::Index)) { "to exchange two elements, use `v.swap(i, j)`" } else { "copy one of the values into a variable first" }),

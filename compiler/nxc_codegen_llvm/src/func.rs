@@ -507,12 +507,9 @@ impl<'a> Gen<'a> {
                 }
             }
             StmtKind::DropIfInit(l) => {
-                // Not reached after drop elaboration; drop unconditionally as a fallback.
-                let t = cx.tys[*l as usize];
-                if let Some(d) = self.drop_fn(t) {
-                    let a = cx.addr[*l as usize].clone();
-                    self.ins(cx, format!("call void {}(ptr {})", d, a));
-                }
+                // Drop elaboration replaces every `DropIfInit` (contract K3.2). Dropping
+                // unconditionally here could destroy a moved value twice: stop instead.
+                panic!("internal: `DropIfInit(_{})` reached code generation; drop elaboration did not run", l);
             }
             StmtKind::MarkMoved(_) | StmtKind::Nop => {}
             StmtKind::BoundsCheck { index, len, dest } => {
