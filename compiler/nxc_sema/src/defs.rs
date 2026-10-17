@@ -413,6 +413,22 @@ pub struct Program {
 }
 
 impl Program {
+    /// Width in bits of an integer type on the target (`isize`/`usize`: the width of a
+    /// pointer, spec §3.1).
+    pub fn int_bits(&self, i: crate::ty::IntTy) -> u32 {
+        i.bits_on(self.cfg.target.ptr_bits)
+    }
+
+    /// Smallest value of an integer type on the target.
+    pub fn int_min(&self, i: crate::ty::IntTy) -> i128 {
+        i.min_on(self.cfg.target.ptr_bits)
+    }
+
+    /// Largest value of an integer type on the target.
+    pub fn int_max(&self, i: crate::ty::IntTy) -> i128 {
+        i.max_on(self.cfg.target.ptr_bits)
+    }
+
     pub fn new() -> Program {
         Program {
             tcx: TyCtx::new(),

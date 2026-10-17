@@ -199,10 +199,15 @@ impl<'a> FnCtxt<'a> {
 
     fn check_int_range(&self, n: i128, ty: Ty, span: Span) -> bool {
         if let Some(i) = self.tcx().as_int(ty) {
-            if n < i.min() || n > i.max() {
+            let (min, max) = (self.p.int_min(i), self.p.int_max(i));
+            if n < min || n > max {
+                let on_target = crate::consts::on_target(self.p, i);
                 let mut d = Diagnostic::error("E0301", format!("literal out of range for `{}`", i.name()))
-                    .primary(span, format!("the range of `{}` is {}..={}", i.name(), i.min(), i.max()));
-                if n >= 0 && i.signed() && i.bits() < 64 {
+                    .primary(span, format!("the range of `{}` is {}..={}{}", i.name(), min, max, on_target));
+                if !on_target.is_empty() && n >= i.min() && n <= i.max() {
+                    let wide = if i.signed() { "i64" } else { "u64" };
+                    d = d.help(format!("use `{}`: the width of `{}` is that of a pointer of the target", wide, i.name()));
+                } else if n >= 0 && i.signed() && i.bits() < 64 {
                     d = d.help("use a wider type, such as `i64`");
                 } else if n >= 0 && i.signed() && n <= u64::MAX as i128 {
                     d = d.help("use `u64` for values above `i64.MAX`");
