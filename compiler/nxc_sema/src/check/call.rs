@@ -1012,7 +1012,11 @@ impl<'a> FnCtxt<'a> {
                     arity_err(self, if min == 0 { "zero or one argument" } else { "one argument" });
                 }
                 for a in args.iter().take(1) {
-                    let arg = self.check_arg(a, Convention::Borrow, tcx.error, None);
+                    // A fresh variable, not the error type: unified with the error type, an
+                    // integer literal or an inferred variable (`println(7)`) silently took
+                    // the type `{error}`, which crashed the code generator.
+                    let pty = self.new_var(a.expr.span);
+                    let arg = self.check_arg(a, Convention::Borrow, pty, None);
                     let arg = self.recheck_value(arg);
                     self.deferred.push(Deferred::Format { ty: arg.expr.ty, spec: None, span: arg.expr.span });
                     out.push(arg);
