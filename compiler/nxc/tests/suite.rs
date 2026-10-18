@@ -300,7 +300,12 @@ fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<
     let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let chunks: Vec<Vec<PathBuf>> = (0..n).map(|i| paths.iter().skip(i).step_by(n).cloned().collect()).collect();
     let results: Vec<Vec<String>> = std::thread::scope(|s| {
-        let handles: Vec<_> = chunks.iter().map(|chunk| s.spawn(|| chunk.iter().flat_map(|p| f(p)).collect::<Vec<String>>())).collect();
+        // The analyses are recursive: compile on a stack as large as that of `nxc`
+        // (contract K6.3; `tests/ui/nesting_limit.nx` reaches 1000 levels).
+        let handles: Vec<_> = chunks
+            .iter()
+            .map(|chunk| std::thread::Builder::new().stack_size(256 << 20).spawn_scoped(s, || chunk.iter().flat_map(|p| f(p)).collect::<Vec<String>>()).unwrap())
+            .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
     results.into_iter().flatten().collect()
@@ -541,6 +546,27 @@ fn every_code_is_explained() {
 }
 
 /// `docs/spec/diagnostics.md` is generated from the compiler's table of codes.
+/// Every diagnostic code is produced by at least one test of `tests/ui` (contract K7.1),
+/// except the internal error E0900, which no valid standard library can produce.
+#[test]
+fn every_code_has_a_ui_test() {
+    let mut seen = std::collections::HashSet::new();
+    for p in std::fs::read_dir(root().join("tests/ui")).unwrap().flatten().map(|e| e.path()) {
+        if p.extension().map_or(false, |x| x == "stderr") {
+            let text = std::fs::read_to_string(&p).unwrap_or_default();
+            for (i, _) in text.match_indices('[') {
+                if let Some(code) = text.get(i + 1..i + 6) {
+                    if (code.starts_with('E') || code.starts_with('W')) && code[1..].chars().all(|c| c.is_ascii_digit()) && text.get(i + 6..i + 7) == Some("]") {
+                        seen.insert(code.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| *c != "E0900" && !seen.contains(*c)).collect();
+    assert!(missing.is_empty(), "codes without a test in tests/ui: {:?}", missing);
+}
+
 #[test]
 fn diagnostics_catalogue_is_up_to_date() {
     let path = root().join("docs").join("spec").join("diagnostics.md");

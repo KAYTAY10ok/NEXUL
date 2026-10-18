@@ -1,0 +1,40 @@
+// Coherence of the implementations of traits (spec §3.9).
+trait Name {
+    fn name(self) -> String
+}
+
+trait Ranked: Name {
+    fn rank(self) -> i32
+}
+
+struct Item {
+    id: i32
+}
+
+impl Name for Item {
+    fn name(self) -> String {
+        return "item"
+    }
+}
+
+// A type implements a trait at most once (E0243).
+impl Name for Item {
+    fn name(self) -> String {
+        return "again"
+    }
+}
+
+struct Plain {
+    id: i32
+}
+
+// The supertrait `Name` is not implemented by `Plain` (E0244).
+impl Ranked for Plain {
+    fn rank(self) -> i32 {
+        return self.id
+    }
+}
+
+fn main() {
+    println(Item(id: 1).name())
+}

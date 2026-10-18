@@ -1,0 +1,4 @@
+// An invalid UTF-8 sequence (spec ยง1.1, E0001).
+fn main() {
+    let s = "ÿþ"
+}

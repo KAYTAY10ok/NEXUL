@@ -1,0 +1,9 @@
+error[E0001]: source file is not valid UTF-8
+ --> lex_invalid_utf8.nx:3:14
+  |
+3 |     let s = "��"
+  |              ^ invalid byte sequence
+  |
+  = help: save the file with the UTF-8 encoding
+
+error: could not compile due to 1 error

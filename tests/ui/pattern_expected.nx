@@ -1,0 +1,8 @@
+// A pattern is expected before `=>` (E0109).
+fn main() {
+    let x = 3
+    match x {
+        => println("none")
+        _ => println("other")
+    }
+}

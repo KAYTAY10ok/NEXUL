@@ -1,0 +1,24 @@
+// `[x; n]` copies `x` (spec §3.2, §3.7) and `@export` functions (spec §8.4).
+@export
+fn exported_generic[T](owned x: T) -> i32 {
+    return 0
+}
+
+struct Counter {
+    n: i32
+}
+
+impl Counter {
+    @export
+    fn exported_method(self) -> i32 {
+        return self.n
+    }
+}
+
+fn main() {
+    let s = "a" + "b"
+    let copies = [s; 3]
+    let ok = [0; 4]
+    let too_long: [u8; 5_000_000_000] = [0; 5_000_000_000]
+    println(ok[0])
+}

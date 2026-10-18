@@ -1,0 +1,9 @@
+error[E0113]: this construction is too deeply nested or too long
+ --> nesting_limit.nx:3:1012
+  |
+3 | ...((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))...
+  |                                            ^ more than 1000 levels of nesting
+  |
+  = help: split it with intermediate variables or functions
+
+error: could not compile due to 1 error

@@ -1,0 +1,9 @@
+// Lexical errors (spec §1.1, §1.2, §1.5).
+fn main() {
+    let a = 1
+    let b = 2    let c = 3
+    println("{a:q}")
+    let big = 1e999
+    println("{a")
+}
+/* not closed

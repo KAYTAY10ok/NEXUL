@@ -1,0 +1,9 @@
+error[E0220]: module declaration `wrong.name` does not match the file path
+ --> support/badmodule.nx:2:1
+  |
+2 | module wrong.name
+  | ^^^^^^^^^^^^^^^^^ this file is module `support.badmodule`
+  |
+  = help: write `module support.badmodule` or remove the declaration
+
+error: could not compile due to 1 error

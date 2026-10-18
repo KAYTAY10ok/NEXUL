@@ -1,0 +1,20 @@
+// Visibility across modules and coherence of `impl` (spec §6.3, §3.9).
+import support.privacy
+import support.othermod
+import support.privacy.{open}
+import support.privacy.{open}
+
+// The trait is declared in `support.privacy`, the type in `support.othermod`: the
+// `impl` must be in one of them (E0247).
+impl privacy.Describe for othermod.Shape {
+    fn describe(self) -> String {
+        return "shape"
+    }
+}
+
+fn main() {
+    let a = open("Ada")
+    // A private field (E0226) and a private function (E0227) of another module.
+    println(a.balance)
+    println(privacy.secret())
+}

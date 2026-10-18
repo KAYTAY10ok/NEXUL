@@ -100,7 +100,9 @@ Ce que le générateur doit faire et ne doit pas faire :
 ## K7 — Tests
 
 - K7.1 Chaque règle normative de la spécification a un test (`tests/ui` ou `tests/run`)
-  cité dans le texte quand c'est utile.
+  cité dans le texte quand c'est utile. Chaque code de diagnostic est produit par au
+  moins un test de `tests/ui` (vérifié par `every_code_has_a_ui_test`, sauf l'erreur
+  interne E0900).
 - K7.2 Les tests UI peuvent fixer l'édition (`// edition: 1`) et la cible
   (`// target: wasm32-wasi`) sur l'une de leurs trois premières lignes.
 - K7.3 Les garanties tiennent à tous les niveaux d'optimisation : `tests/run` est

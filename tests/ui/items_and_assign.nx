@@ -1,0 +1,12 @@
+// A function without body (E0103) and an assignment to something that is not a place
+// (E0407).
+fn no_body() -> i32
+
+fn give() -> i32 {
+    return 1
+}
+
+fn main() {
+    give() = 2
+    println(no_body())
+}

@@ -1,0 +1,17 @@
+error[E0103]: function `no_body` has no body
+ --> items_and_assign.nx:3:4
+  |
+3 | fn no_body() -> i32
+  |    ^^^^^^^ missing `{ ... }`
+  |
+  = help: to declare a C function, write `extern "C" fn ...`
+
+error[E0407]: cannot assign to this expression
+  --> items_and_assign.nx:10:5
+   |
+10 |     give() = 2
+   |     ^^^^^^ not a variable, field or element
+   |
+   = note: only places (variables, fields, elements) can be assigned
+
+error: could not compile due to 2 errors

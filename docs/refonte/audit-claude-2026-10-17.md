@@ -356,3 +356,24 @@ attend la décision.
 programmes de `tests/run` » ; `tests/run` en contient 37 sur `main` (90 comptait tous les
 fichiers, `.out` et `.exit` compris). Corrigé dans ce rapport et dans la PR.
 
+## 11. Lot 7 (18/10, branche `refonte/core-couverture`) — couverture des diagnostics
+
+24 des 126 codes de diagnostic n'étaient produits par **aucun** test de `tests/ui`, dont
+des règles centrales : cohérence des implémentations (E0243, E0244, E0245, E0247),
+traits utilisables par `dyn` (E0246), visibilité entre modules (E0226, E0227, E0223),
+`@export` (E0504), tableaux `[x; n]` (E0313, E0373), et la plupart des erreurs lexicales.
+Ajout de 10 tests (`traits_coherence`, `traits_names_and_dyn`, `privacy_modules`,
+`arrays_and_export`, `lex_more_errors`, `lex_invalid_utf8`, `items_and_assign`,
+`module_declaration`, `pattern_expected`, `nesting_limit`) et du test
+`every_code_has_a_ui_test`, qui l'impose désormais (seule exception : l'erreur interne
+E0900). Les fils de la suite compilent sur une pile de 256 Mio, comme `nxc` (K6.3).
+
+Défauts vus en écrivant ces tests (lus et reproduits, non corrigés, pour Codex) :
+
+- **D4, erreurs en double** : `privacy.secret()` sur une fonction privée donne E0227
+  **et** E0222 pour la même faute (spec §7.4 : pas d'erreur en cascade) ; voir
+  `tests/ui/privacy_modules.stderr`.
+- **D5, `module` du fichier racine non vérifié** : une déclaration `module autre.nom` dans
+  le fichier passé à `nxc` est acceptée sans E0220, contrairement à la spec §6.1 (un
+  module importé est bien vérifié : `tests/ui/module_declaration.nx`).
+

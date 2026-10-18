@@ -1,0 +1,39 @@
+error[E0223]: the name `open` is already defined or imported
+ --> privacy_modules.nx:5:25
+  |
+5 | import support.privacy.{open}
+  |                         ^^^^ conflicting name
+
+error[E0247]: `impl Describe for Shape` must be in the module of the trait or of the type
+ --> privacy_modules.nx:9:1
+  |
+9 | impl privacy.Describe for othermod.Shape {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ implementation in an unrelated module
+  |
+  = note: this rule guarantees that a type implements a trait at most once in a program
+
+error[E0226]: field `balance` of `Account` is private
+  --> privacy_modules.nx:18:15
+   |
+18 |     println(a.balance)
+   |               ^^^^^^^ private field
+  --> support/privacy.nx:4:5
+   |
+ 4 |     balance: i64
+   |     ------- declared here without `pub`
+
+error[E0227]: function `secret` is private
+  --> privacy_modules.nx:19:13
+   |
+19 |     println(privacy.secret())
+   |             ^^^^^^^^^^^^^^^^ private function
+
+error[E0222]: `secret` is private to module `support.privacy`
+  --> privacy_modules.nx:19:21
+   |
+19 |     println(privacy.secret())
+   |                     ^^^^^^ private item
+   |
+   = help: mark it `pub` in `support.privacy` to use it here
+
+error: could not compile due to 5 errors

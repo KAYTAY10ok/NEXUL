@@ -1,0 +1,41 @@
+// Ambiguous method names and the traits usable through `dyn` (spec §3.9).
+trait Name {
+    fn name(self) -> String
+}
+
+trait Label {
+    fn name(self) -> String
+}
+
+trait Builder {
+    fn build() -> Self
+}
+
+struct Item {
+    id: i32
+}
+
+impl Name for Item {
+    fn name(self) -> String {
+        return "item"
+    }
+}
+
+impl Label for Item {
+    fn name(self) -> String {
+        return "label"
+    }
+}
+
+impl Builder for Item {
+    fn build() -> Item {
+        return Item(id: 0)
+    }
+}
+
+fn main() {
+    // Two traits implemented by `Item` declare `name` (E0245).
+    println(Item(id: 1).name())
+    // `build` has no `self`: `Builder` cannot be used through `dyn` (E0246).
+    let b: dyn Builder = Item(id: 2)
+}
