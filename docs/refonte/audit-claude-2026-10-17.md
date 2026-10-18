@@ -297,3 +297,32 @@ dépôt). Nouveau `compiler/nxc/tests/robustness.rs` :
 la recherche des bras inaccessibles (W0002), qui compare chaque bras aux précédents.
 Critère : 50 000 bras en moins d'une seconde.
 
+## 9. Lot 5 (18/10, branche `refonte/core-perf-match`) — temps d'analyse des grandes fonctions
+
+En cherchant pourquoi un `match` de 8000 bras prenait 4 s (§8), un cas plus grave est
+apparu : **20 000 `if` à la suite, chacun avec un `println`, dans une seule fonction :
+plus de 10 minutes** pour `nxc check` (2000 : 7 s). Du code engendré (analyseurs,
+tables, tests) a cette forme. Trois causes, corrigées :
+
+1. `ownership.rs` : chaque initialisation parcourait **tous** les sites de déplacement de
+   la fonction pour oublier ceux de la variable → index des sites par variable.
+2. `ownership.rs` : la liste de travail du flot de données était traitée en pile : sur un
+   grand graphe sans boucle, les blocs étaient revisités sans cesse → ordre postfixe
+   inverse (chaque bloc une seule fois sans boucle ; même point fixe, mêmes diagnostics).
+3. `exhaust.rs` : chaque bras était comparé à tous les précédents par l'algorithme
+   général → chemin rapide pour les motifs plats (littéraux, booléens, variantes sans
+   sous-motif ou avec `_`), en temps constant par bras ; algorithme général inchangé
+   pour le reste.
+
+| Fonction (release) | Avant | Après |
+|---|---|---|
+| 2000 `if` + `println` | 7,0 s | 0,18 s |
+| 20 000 `if` + `println` | > 10 min | 3,7 s |
+| `match` de 8000 bras entiers | 4,0 s | 0,6 s |
+| `match` de 8000 variantes | 4,0 s | 0,4 s |
+
+Reste (non corrigé, cas extrêmes) : 50 000 bras prennent encore 9 à 43 s ; le coût
+restant vient des ensembles de bits copiés à chaque bloc (O(blocs × variables)). Test de
+non-régression : `large_generated_functions_are_analyzed_quickly` (borne large de 60 s,
+1,2 s mesurées en debug).
+

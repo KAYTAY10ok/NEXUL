@@ -8,8 +8,9 @@ use crate::defs::{AdtKind, ConstValue, Program};
 use crate::thir::{self, Block, Expr, ExprKind as T, Pat, PatKind, StmtKind as S};
 use crate::ty::{Ty, TyKind};
 use nxc_syntax::{DiagSink, Diagnostic};
+use std::collections::HashSet;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum Ctor {
     Single,
     Variant(u32),
@@ -18,7 +19,7 @@ enum Ctor {
     Range(i128, i128, bool),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum LitKey {
     Int(i128),
     Char(char),
@@ -65,6 +66,39 @@ fn lower(p: &Pat) -> DPat {
         PatKind::Variant { variant, fields, .. } => DPat::Ctor(Ctor::Variant(*variant), fields.iter().map(lower).collect()),
         PatKind::Or(ps) => DPat::Or(ps.iter().map(lower).collect()),
     }
+}
+
+/// The constructors of a pattern that is a wildcard (empty list) or one or more
+/// alternatives of constructors without sub-patterns other than wildcards (`3`, `true`,
+/// `Rouge`, `Some(_)`). `None` for any other pattern (ranges, nested patterns).
+fn flat_ctors(p: &DPat) -> Option<Vec<Ctor>> {
+    match p {
+        DPat::Wild => Some(vec![]),
+        DPat::Ctor(Ctor::Range(..), _) => None,
+        DPat::Ctor(c, args) if args.iter().all(|a| matches!(a, DPat::Wild)) => Some(vec![c.clone()]),
+        DPat::Or(alts) => {
+            let mut out = Vec::new();
+            for a in alts {
+                match flat_ctors(a)? {
+                    v if v.is_empty() => return None,
+                    v => out.extend(v),
+                }
+            }
+            Some(out)
+        }
+        _ => None,
+    }
+}
+
+/// The rows of a `match` while they are all flat (`flat_ctors`): the usefulness of a
+/// flat pattern then reduces to set membership, so that a `match` of thousands of
+/// literal or variant arms is checked in linear time instead of quadratic time.
+#[derive(Default)]
+struct FlatRows {
+    wild: bool,
+    ctors: HashSet<Ctor>,
+    /// A row that is not flat was added: use the general algorithm.
+    general: bool,
 }
 
 struct Cx<'a> {
@@ -278,6 +312,21 @@ pub fn check_program(prog: &Program, diags: &DiagSink) {
 }
 
 impl<'a> Cx<'a> {
+    /// A value not matched by flat rows (same witness as `useful` would give).
+    fn flat_witness(&self, flat: &FlatRows, ty: Ty) -> Option<Vec<WPat>> {
+        if flat.wild {
+            return None;
+        }
+        Some(vec![match self.ctors(ty) {
+            Some(all) => {
+                let c = all.into_iter().find(|c| !flat.ctors.contains(c))?;
+                let arity = self.arity(ty, &c);
+                WPat::Ctor(c, vec![WPat::Wild; arity])
+            }
+            None => WPat::Wild,
+        }])
+    }
+
     fn irrefutable(&self, p: &Pat, what: &str, diags: &DiagSink) {
         let row = vec![lower(p)];
         if let Some(w) = self.useful(&[row], &[DPat::Wild], &[p.ty]) {
@@ -334,15 +383,26 @@ impl<'a> Cx<'a> {
                 self.expr(scrutinee, diags);
                 let ty = scrutinee.ty;
                 let mut rows: Vec<Vec<DPat>> = Vec::new();
+                let mut flat = FlatRows::default();
                 for arm in arms {
                     let lp = lower(&arm.pat);
-                    if !self.p.tcx.has_error(ty) && self.useful(&rows, &[lp.clone()], &[ty]).is_none() {
+                    let unreachable = !self.p.tcx.has_error(ty)
+                        && match (&flat, flat_ctors(&lp)) {
+                            (FlatRows { general: false, .. }, Some(cs)) if !cs.is_empty() => flat.wild || cs.iter().all(|c| flat.ctors.contains(c)),
+                            _ => self.useful(&rows, &[lp.clone()], &[ty]).is_none(),
+                        };
+                    if unreachable {
                         diags.emit(
                             Diagnostic::warning("W0002", "unreachable pattern")
                                 .primary(arm.pat.span, "earlier arms already match every value of this pattern"),
                         );
                     }
                     if arm.guard.is_none() {
+                        match flat_ctors(&lp) {
+                            Some(cs) if cs.is_empty() => flat.wild = true,
+                            Some(cs) => flat.ctors.extend(cs),
+                            None => flat.general = true,
+                        }
                         rows.push(vec![lp]);
                     }
                     if let Some(g) = &arm.guard {
@@ -351,7 +411,8 @@ impl<'a> Cx<'a> {
                     self.expr(&arm.body, diags);
                 }
                 if !self.p.tcx.has_error(ty) {
-                    if let Some(w) = self.useful(&rows, &[DPat::Wild], &[ty]) {
+                    let missing = if flat.general { self.useful(&rows, &[DPat::Wild], &[ty]) } else { self.flat_witness(&flat, ty) };
+                    if let Some(w) = missing {
                         let missing = self.show(&w[0], ty);
                         let mut d = Diagnostic::error("E0340", format!("non-exhaustive match: `{}` is not covered", missing))
                             .primary(scrutinee.span, format!("the value may be `{}`", missing));

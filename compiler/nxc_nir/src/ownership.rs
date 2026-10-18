@@ -149,16 +149,14 @@ struct State {
 }
 
 impl State {
-    fn apply(&mut self, e: &Effect, sites: &[MoveSite]) {
+    fn apply(&mut self, e: &Effect, fx: &Effects) {
         match e {
             Effect::Use(..) => {}
             Effect::Init(l) => {
                 self.maybe_init.insert(*l as usize);
                 self.maybe_uninit.remove(*l as usize);
-                for (i, s) in sites.iter().enumerate() {
-                    if s.local == *l {
-                        self.moves.remove(i);
-                    }
+                for &i in fx.sites_of.get(*l as usize).map(|v| v.as_slice()).unwrap_or(&[]) {
+                    self.moves.remove(i);
                 }
             }
             Effect::Uninit(l, site) => {
@@ -184,6 +182,9 @@ struct Effects {
     stmts: Vec<Vec<Vec<Effect>>>,
     terms: Vec<Vec<Effect>>,
     sites: Vec<MoveSite>,
+    /// The move sites of each local: an initialization forgets them without scanning
+    /// every site of the function.
+    sites_of: Vec<Vec<usize>>,
 }
 
 fn compute_effects(body: &Body) -> Effects {
@@ -202,7 +203,13 @@ fn compute_effects(body: &Body) -> Effects {
         term_effects(b, &mut sites, &mut t);
         terms.push(t);
     }
-    Effects { stmts, terms, sites }
+    let mut sites_of = vec![Vec::new(); body.locals.len()];
+    for (i, site) in sites.iter().enumerate() {
+        if let Some(v) = sites_of.get_mut(site.local as usize) {
+            v.push(i);
+        }
+    }
+    Effects { stmts, terms, sites, sites_of }
 }
 
 fn entry_state(body: &Body, n_sites: usize) -> State {
@@ -222,19 +229,24 @@ fn solve(body: &Body, fx: &Effects) -> Vec<Option<State>> {
     let nb = body.blocks.len();
     let mut entry: Vec<Option<State>> = vec![None; nb];
     entry[0] = Some(entry_state(body, fx.sites.len()));
-    let mut work: Vec<BlockId> = vec![0];
+    // Blocks are processed in reverse postorder (smallest rank first): on a graph without
+    // loops each block is then visited once, after all its predecessors. A stack order
+    // revisited blocks again and again (a function of 2000 `if` took seconds).
+    let rank = reverse_postorder_rank(body);
+    let mut work: std::collections::BTreeSet<(usize, BlockId)> = std::collections::BTreeSet::new();
+    work.insert((rank[0], 0));
     let mut queued = vec![false; nb];
     queued[0] = true;
-    while let Some(b) = work.pop() {
+    while let Some((_, b)) = work.pop_first() {
         queued[b as usize] = false;
         let mut st = entry[b as usize].clone().unwrap();
         for effs in &fx.stmts[b as usize] {
             for e in effs {
-                st.apply(e, &fx.sites);
+                st.apply(e, &fx);
             }
         }
         for e in &fx.terms[b as usize] {
-            st.apply(e, &fx.sites);
+            st.apply(e, &fx);
         }
         for s in body.successors(b) {
             let changed = match &mut entry[s as usize] {
@@ -246,11 +258,42 @@ fn solve(body: &Body, fx: &Effects) -> Vec<Option<State>> {
             };
             if changed && !queued[s as usize] {
                 queued[s as usize] = true;
-                work.push(s);
+                work.insert((rank[s as usize], s));
             }
         }
     }
     entry
+}
+
+/// The rank of each block in reverse postorder from the entry (unreachable blocks last).
+fn reverse_postorder_rank(body: &Body) -> Vec<usize> {
+    let n = body.blocks.len();
+    let mut post: Vec<BlockId> = Vec::with_capacity(n);
+    let mut seen = vec![false; n];
+    if n > 0 {
+        let mut stack: Vec<(BlockId, Vec<BlockId>)> = vec![(0, body.successors(0))];
+        seen[0] = true;
+        while let Some((b, succ)) = stack.last_mut() {
+            let b = *b;
+            match succ.pop() {
+                Some(s) if !seen[s as usize] => {
+                    seen[s as usize] = true;
+                    let next = body.successors(s);
+                    stack.push((s, next));
+                }
+                Some(_) => {}
+                None => {
+                    post.push(b);
+                    stack.pop();
+                }
+            }
+        }
+    }
+    let mut rank = vec![usize::MAX; n];
+    for (i, &b) in post.iter().rev().enumerate() {
+        rank[b as usize] = i;
+    }
+    rank
 }
 
 /// Reports reads of uninitialized or moved variables.
@@ -271,7 +314,7 @@ pub fn check(p: &Program, body: &Body, diags: &DiagSink) {
                     report(p, body, &fx, &back, &st, *l, *span, (bi, k), diags);
                 }
             }
-            st.apply(e, &fx.sites);
+            st.apply(e, &fx);
         }
     }
 }
@@ -423,7 +466,7 @@ pub fn elaborate_drops(p: &Program, body: &mut Body) {
                     ds[si] = Some(d);
                 }
                 for e in &fx.stmts[bi][si] {
-                    st.apply(e, &fx.sites);
+                    st.apply(e, &fx);
                 }
             }
         } else {

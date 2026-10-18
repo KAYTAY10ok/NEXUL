@@ -184,6 +184,36 @@ fn pathological_sources_are_refused_cleanly() {
     }
 }
 
+/// Large generated functions are analyzed in close to linear time. Before the fixes of
+/// the ownership analysis (sites indexed by local, reverse postorder) and of the
+/// reachability of `match` arms, 2000 `if` with a `println` took 7 s in release and
+/// 20 000 took more than 10 minutes; a `match` of 8000 arms took 4 s. The bound is wide
+/// (the CI builds the tests without optimization): it catches a return to quadratic time,
+/// not small variations.
+#[test]
+fn large_generated_functions_are_analyzed_quickly() {
+    let ifs = format!("fn main() {{\n    let x = 3\n{}}}\n", (0..3000).map(|i| format!("    if x == {} {{\n        println({})\n    }}\n", i, i)).collect::<String>());
+    let arms = format!(
+        "fn main() {{\n    let x = 3\n    match x {{\n{}        _ => {{}}\n    }}\n}}\n",
+        (0..5000).map(|i| format!("        {} => println({})\n", i, i)).collect::<String>()
+    );
+    let variants = format!(
+        "enum E {{\n{}}}\nfn f(e: E) -> i32 {{\n    return match e {{\n{}    }}\n}}\nfn main() {{\n    println(f(E.V0))\n}}\n",
+        (0..5000).map(|i| format!("    V{}\n", i)).collect::<String>(),
+        (0..5000).map(|i| format!("        V{} => {}\n", i, i)).collect::<String>()
+    );
+    for (name, src) in [("3000 if", ifs), ("5000 match arms", arms), ("5000 variants", variants)] {
+        let start = std::time::Instant::now();
+        let result = isolated(move || {
+            let c = compile_source("big.nx", src.into_bytes(), None, &CompileOptions::new(Mode::Check));
+            assert_eq!(c.errors, 0, "{}", c.diagnostics.chars().take(2000).collect::<String>());
+        });
+        assert_eq!(result, Ok(()), "{}", name);
+        let elapsed = start.elapsed();
+        assert!(elapsed.as_secs() < 60, "{}: {:?}", name, elapsed);
+    }
+}
+
 #[test]
 fn the_harness_reports_a_panic() {
     std::panic::set_hook(Box::new(|_| {}));
