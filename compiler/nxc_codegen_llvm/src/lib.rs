@@ -983,10 +983,19 @@ impl<'a> Gen<'a> {
             }
             Os::Linux | Os::MacOs => {
                 let (set_stack, _) = self.lang_fn("sys_set_stack");
+                // Memory faults (SIGSEGV, SIGBUS) reach the runtime through a C entry, on
+                // an alternate stack: a stack overflow ends like a panic (ADR 0011, T2).
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
                 let _ = write!(
                     self.fn_defs,
-                    "define void @nx_linux_start(ptr %sp) nounwind {{\nstart:\n  call void {}(ptr %sp)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
-                    set_stack, entry_fn, main_ptr
+                    "define void @nx_linux_fault(i32 %sig, ptr %info, ptr %ctx) nounwind {{\nstart:\n  call void {}(i32 %sig, ptr %info)\n  unreachable\n}}\n\n",
+                    fault
+                );
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_linux_start(ptr %sp) nounwind {{\nstart:\n  call void {}(ptr %sp)\n  call void {}(ptr @nx_linux_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    set_stack, set_handler, entry_fn, main_ptr
                 );
                 let asm = match target.arch {
                     Arch::X86_64 => ".text\n.globl _start\n.type _start,@function\n_start:\n  xorl %ebp, %ebp\n  movq %rsp, %rdi\n  andq $-16, %rsp\n  callq nx_linux_start\n  hlt\n",

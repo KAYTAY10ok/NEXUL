@@ -244,9 +244,12 @@ position dans le source, code de sortie 101).
 2. Les fonctions externes (`extern "C"`) respectent leur signature, et le code C qui
    appelle une fonction `@export` lui passe des valeurs valides de leur type (§8.4).
 3. La pile suffit au programme. Un dépassement de pile n'est **pas** une panique :
-   - sur Windows, Linux et macOS, il arrête le processus par le système (page de
+   - sur Linux x86-64 et AArch64, il se termine comme une panique : sortie standard
+     vidée, `panic: stack overflow` sur la sortie d'erreur, code 101 (gestionnaire de
+     signal sur une pile de secours ; test `tests/run/stack_overflow.nx`) ;
+   - sur Windows, macOS et Linux RISC-V, il arrête le processus par le système (page de
      garde), sans message de NEXUL ni vidage de la sortie standard tamponnée ;
-     une trame plus grande que la zone de garde n'est pas encore sondée ;
+   - une trame plus grande que la zone de garde n'est pas encore sondée ;
    - sur WebAssembly, la pile d'appels du moteur est protégée (piège de l'hôte), mais
      pas la pile placée en mémoire linéaire (agrégats, variables dont l'adresse est
      prise) : `wasm-ld` la place aujourd'hui après les données statiques, qu'un

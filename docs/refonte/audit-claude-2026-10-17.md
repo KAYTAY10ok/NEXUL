@@ -377,3 +377,26 @@ Défauts vus en écrivant ces tests (lus et reproduits, non corrigés, pour Code
   le fichier passé à `nxc` est acceptée sans E0220, contrairement à la spec §6.1 (un
   module importé est bien vérifié : `tests/ui/module_declaration.nx`).
 
+## 12. Lot 8 (18/10, branche `refonte/core-pile-linux`) — dépassement de pile sur Linux
+
+Tâche T2 de l'ADR 0011, pour Linux x86-64 et AArch64. Sur ces cibles, une récursion
+trop profonde arrêtait le processus par `SIGSEGV`, sans message et en perdant la sortie
+standard tamponnée.
+
+- **Runtime** (`lib/std/sys/linux.nx`) : au démarrage, les bornes de la pile principale
+  sont relevées (pointeur de pile initial, `RLIMIT_STACK` par `prlimit64`), puis un
+  gestionnaire de `SIGSEGV` et `SIGBUS` est installé sur une pile de secours de 64 Kio
+  (`sigaltstack`, `rt_sigaction`). Une faute dans la pile ou juste sous elle (zone de
+  garde) se termine comme une panique : sortie standard vidée,
+  `panic: stack overflow (the recursion is probably too deep)`, code 101. Toute autre
+  faute (possible seulement par `unsafe` ou une fonction étrangère) reprend l'action par
+  défaut du système (`SA_RESETHAND`, puis le signal est relevé).
+- **Générateur** : point d'entrée C `nx_linux_fault`, installé par `nx_linux_start`
+  avant `main`. Test structurel `compiler/nxc/tests/codegen_ir.rs`, qui tourne sans LLVM.
+- **Test d'exécution** : `tests/run/stack_overflow.nx` (Linux seulement, exécuté par la
+  CI en debug et en `-O2`).
+- **Limites** : RISC-V (structure `sigaction` différente), macOS et Windows inchangés ;
+  la pile des futurs threads devra installer sa propre pile de secours (ADR 0013) ; si
+  la limite de pile est infinie (`ulimit -s unlimited`), la faute n'est pas reconnue et
+  le comportement reste celui du système.
+

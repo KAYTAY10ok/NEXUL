@@ -63,7 +63,8 @@ silencieusement destructrice. Toute violation détectée à l'exécution est une
 |---|---|---|
 | Panique (bornes, débordement, `unwrap`, `assert`…) | message, position, sortie standard vidée, code 101, **aucun destructeur exécuté** | inchangé |
 | Mémoire épuisée | panique | inchangé |
-| Dépassement de pile, Windows/Linux/macOS | arrêt par le système (page de garde), sans message de NEXUL ; sortie standard tamponnée perdue ; trames plus grandes que la zone de garde non sondées | message `stack overflow`, code 101 ; sondes de pile (`probe-stack`) |
+| Dépassement de pile, Linux x86-64 et AArch64 | **depuis le 18/10** : `panic: stack overflow`, code 101, sortie standard vidée (T2) ; trames plus grandes que la zone de garde non sondées | sondes de pile (`probe-stack`, T1) |
+| Dépassement de pile, Windows, macOS, Linux RISC-V | arrêt par le système (page de garde), sans message de NEXUL ; sortie standard tamponnée perdue | message `stack overflow`, code 101 ; sondes de pile |
 | Dépassement de pile, WebAssembly | pile du moteur : piège ; pile en mémoire linéaire : **écrase les données statiques** | `wasm-ld --stack-first` : piège |
 | Dépassement de pile, sans système | **non détecté** : écrase le tas | limite de pile matérielle quand elle existe (MPU, `MSPLIM`), sinon analyse statique de pile exigée par le profil temps réel |
 | Panique dans un gestionnaire d'interruption | arrêt (semi-hébergement) | inchangé |
