@@ -1,7 +1,7 @@
 //! Robustness of the front end (spec §7.4, contract K6.3): `nxc` never crashes, whatever
 //! the source. Every program of the corpus (`tests/ui`, `tests/run`, `examples`) is
 //! mutated deterministically (truncation, deletion, duplication, line swap, inserted
-//! token, replaced word) and compiled in both editions, by `nxc check` and up to the
+//! token, replaced word or string literal) and compiled in both editions, by `nxc check` and up to the
 //! LLVM IR text; a panic of the compiler is a failure.
 //!
 //! `NEXUL_FUZZ_ROUNDS` (default 6) sets the number of mutants per file and
@@ -95,7 +95,19 @@ fn mutate(src: &str, rng: &mut Rng) -> (String, String) {
     let n = src.len();
     let a = floor_char(src, rng.below(n + 1));
     let b = floor_char(src, a + rng.below(64.min(n - a) + 1));
-    match rng.below(8) {
+    match rng.below(9) {
+        // Replace a string literal by a value of another type: `println("…")` becomes
+        // `println(7)`, a form the corpus did not contain (it crashed the generator).
+        8 => {
+            let quotes: Vec<usize> = src.match_indices('"').map(|(i, _)| i).collect();
+            if quotes.len() < 2 {
+                return (src.to_string(), "unchanged".to_string());
+            }
+            let k = rng.below(quotes.len() - 1);
+            let (qa, qb) = (quotes[k], quotes[k + 1]);
+            let by = ["7", "-3", "2.5", "'c'", "true", "x"][rng.below(6)];
+            (format!("{}{}{}", &src[..qa], by, &src[qb + 1..]), format!("string at byte {} replaced by {}", qa, by))
+        }
         // Replace a word by another word of the program, or by a type or keyword: the
         // syntax often stays valid, which reaches the type checker and the NIR.
         6 | 7 => {

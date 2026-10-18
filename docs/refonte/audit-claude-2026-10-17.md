@@ -100,7 +100,7 @@ fn main() {
 - Correction (`6de277d`) : largeur de la cible (`Program::int_bits/int_min/int_max`)
   partout dans l'analyse ; message qui nomme la cible et propose `u64`/`i64`. Test
   `tests/ui/size_types_32_bit_target.nx` (nouvelle directive `// target:`). La
-  bibliothèque standard, les exemples et les 90 programmes de `tests/run` passent `nxc
+  bibliothèque standard, les exemples et les 37 programmes de `tests/run` passent `nxc
   check` sur les 14 cibles.
 
 ### 2.3 A3 — Erreurs de la bibliothèque standard
@@ -219,7 +219,7 @@ et de tests + documentation) :
 - `cargo test --release -p nxc --no-fail-fast` (après les changements) : voir le message
   de commit final et la PR ; échecs attendus uniquement pour « LLVM was not found ».
 - `nxc check --target <cible>` sur `examples/bonjour.nx` pour les 14 cibles, sur tous les
-  exemples et les 90 programmes de `tests/run` pour `wasm32-wasi` et `thumbv7em-none` :
+  exemples et les 37 programmes de `tests/run` pour `wasm32-wasi` et `thumbv7em-none` :
   aucun diagnostic.
 - **Non exécutés** : `tests/run`, `editions.rs`, `migrated_programs_behave_the_same`,
   `web.rs` (LLVM absent sur ce PC) ; à exécuter sur un PC avec LLVM avant fusion.
@@ -325,4 +325,34 @@ Reste (non corrigé, cas extrêmes) : 50 000 bras prennent encore 9 à 43 s ; le
 restant vient des ensembles de bits copiés à chaque bloc (O(blocs × variables)). Test de
 non-régression : `large_generated_functions_are_analyzed_quickly` (borne large de 60 s,
 1,2 s mesurées en debug).
+
+## 10. Lot 6 (18/10, branche `refonte/core-copy-et-never`) — deux plantages du générateur, `Copy`
+
+En écrivant les tests de `T: Copy`, deux **plantages du générateur de code**, présents sur
+`main`, sont apparus (démontrés, `nxc build` s'arrête sur une panique avant même LLVM) :
+
+- **`println(7)`** : `print`/`println` vérifiaient leur argument contre le type erreur ;
+  un littéral ou une variable inférée (`let x = 7`) prenait silencieusement le type
+  `{error}` (`nxc check` muet), puis le générateur paniquait, sur toutes les cibles. La
+  forme `println(v)` de la spec (§4.10) n'était testée qu'avec des `String`. Corrigé
+  (variable de type neuve), test `tests/run/print_values.nx`.
+- **argument ou opérande divergent** : `f(1, panic("…"))`, `v.push(return)`,
+  `1 + return` faisaient paniquer le générateur (la « valeur » d'une expression `Never`
+  dans un bloc inaccessible). Trouvé par le test de robustesse grâce à une nouvelle
+  mutation. Corrigé : les blocs inaccessibles ne sont plus générés (contrat K3.10), test
+  `tests/run/panic_in_argument.nx`.
+
+Leçon : la campagne de mutations du lot 3 ne produisait jamais `println(7)`, parce que le
+corpus n'en contient pas. Nouvelle mutation : une chaîne littérale remplacée par un
+nombre, un caractère, un booléen ou un nom. Tous les programmes de `tests/run` passent
+maintenant la génération de l'IR (sans LLVM) sans panique.
+
+**Langage** : `Copy` devient une interface du prélude, satisfaite par la structure du
+type, et une contrainte générique (`T: Copy`, `T is Copy`, l'exemple de l'ADR 0010
+compile). Points 1 et 5 de l'ADR 0012 ; la déclaration obligatoire pour les types publics
+attend la décision.
+
+**Correction** : les rapports et la description de la PR #35 parlaient de « 90
+programmes de `tests/run` » ; `tests/run` en contient 37 sur `main` (90 comptait tous les
+fichiers, `.out` et `.exit` compris). Corrigé dans ce rapport et dans la PR.
 
