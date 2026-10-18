@@ -267,3 +267,33 @@ n'est pas exécuté localement ; il l'est par le job Linux de la CI, qui a LLVM.
 **D. Limites** : si `run_programs_optimized` échoue en CI, c'est une information
 précieuse (une optimisation change un comportement) : à analyser avant toute
 désactivation.
+
+## 8. Lot 3 (18/10, branche `refonte/core-robustesse`) — « le compilateur ne plante jamais »
+
+La spec (§7.4) l'exige, mais **aucun test ne le vérifiait** (aucun fuzzing dans le
+dépôt). Nouveau `compiler/nxc/tests/robustness.rs` :
+
+- **mutations du corpus** (`tests/ui`, `tests/run`, `examples`, 231 fichiers) :
+  troncature, suppression, duplication, échange de lignes, jeton inséré, mot remplacé ;
+  dans les deux éditions, analysées par `nxc check` **et** jusqu'à l'IR LLVM
+  (monomorphisation, génération : `Mode::Program`, sans la bibliothèque LLVM). Par défaut
+  6 mutants par fichier (≈ 2 s) ; `NEXUL_FUZZ_ROUNDS`, `NEXUL_FUZZ_SEED` pour des
+  campagnes. **Résultat** : 0 panique sur 11 campagnes de 231 fichiers × 200 mutants
+  (≈ 500 000 compilations), dont 5 jusqu'à l'IR LLVM et 2 sur le code final de ce lot ;
+- **sources pathologiques** (démontré avant correction) : 100 000 parenthèses
+  imbriquées, une somme de 200 000 termes, 200 000 `{` non fermées **faisaient déborder
+  la pile de `nxc`** (arrêt brutal, code 127, sur une pile de 256 Mio) → nouvelle
+  limite **E0113** (1000 niveaux d'imbrication, 10 000 opérateurs à la suite) dans le
+  parser commun aux deux éditions ;
+- **sortie démesurée** (démontré) : 20 000 paramètres inutilisés sur une ligne de
+  300 Ko produisaient **7,4 Go** de messages (chaque avertissement citait la ligne
+  entière) ; écrits dans un tube, `nxc` paniquait. Les extraits montrent maintenant une
+  fenêtre de 160 colonnes autour de l'étiquette : 7,2 Mo. Une sortie fermée
+  (`nxc check … | head`) arrête `nxc` sans rapport de plantage.
+
+**Constat pour Codex (performance, non corrigé)** : l'analyse d'un `match` est
+**quadratique** en nombre de bras : 1000 bras 0,2 s, 4000 bras 1,1 s, 8000 bras 4,0 s,
+50 000 bras plus de 2 min (énumération ou entiers, mesuré avec `nxc check`). Probablement
+la recherche des bras inaccessibles (W0002), qui compare chaque bras aux précédents.
+Critère : 50 000 bras en moins d'une seconde.
+

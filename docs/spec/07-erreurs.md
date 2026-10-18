@@ -91,7 +91,13 @@ Règles de qualité :
 - le compilateur ne s'arrête pas à la première erreur : il en rapporte autant que
   possible, dans l'ordre du source ;
 - le compilateur ne doit **jamais** planter, quel que soit le source donné ; tout plantage
-  est un bogue du compilateur.
+  est un bogue du compilateur. Vérifié par `compiler/nxc/tests/robustness.rs` (mutations
+  du corpus analysées jusqu'à l'IR LLVM, sources pathologiques) ; pour cela, l'imbrication
+  des expressions, blocs, types et motifs est limitée à 1000 niveaux et une expression à
+  10 000 opérateurs binaires à la suite (E0113) ;
+- un extrait de source montre au plus 160 colonnes d'une ligne, autour de l'étiquette :
+  la taille des messages reste proportionnelle à leur nombre, même pour une ligne
+  engendrée de plusieurs centaines de kilo-octets.
 
 Les messages du compilateur sont en anglais. *(Hors 0.2 : catalogue de messages
 traduits, à commencer par le français.)*

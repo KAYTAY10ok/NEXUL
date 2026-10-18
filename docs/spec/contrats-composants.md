@@ -87,7 +87,12 @@ Ce que le générateur doit faire et ne doit pas faire :
   `diagnostics_catalogue_is_up_to_date`).
 - K6.2 Les sorties JSON sont versionnées (ADR 0009) : un champ ne disparaît pas dans une
   même version de schéma.
-- K6.3 `nxc` ne plante sur aucune entrée ; tout plantage est un défaut.
+- K6.3 `nxc` ne plante sur aucune entrée ; tout plantage est un défaut. Les analyses sont
+  récursives : `nxc` (et `nxc lsp`) les exécutent sur une pile de 256 Mio, et les limites
+  d'E0113 (1000 niveaux d'imbrication, 10 000 opérateurs à la suite) tiennent dans cette
+  pile avec une large marge (50 000 niveaux mesurés sans dépassement). Un outil qui
+  appelle `nxc_driver::compile_source` dans son propre processus fournit une pile aussi
+  grande. Preuve : `compiler/nxc/tests/robustness.rs`.
 
 ## K7 — Tests
 
