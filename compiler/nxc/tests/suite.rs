@@ -546,8 +546,25 @@ fn every_code_is_explained() {
 }
 
 /// `docs/spec/diagnostics.md` is generated from the compiler's table of codes.
+/// E0001 needs a source that is not valid UTF-8; the files of `tests/ui` stay valid UTF-8
+/// because other tools read them as text (`studio/syntax` compares its lexer with the
+/// compiler's on every one).
+#[test]
+fn invalid_utf8_is_reported() {
+    let mut bytes = b"fn main() {
+    let s = \"".to_vec();
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    bytes.extend_from_slice(b"\"
+}
+");
+    let c = nxc_driver::compile_source("bytes.nx", bytes, None, &CompileOptions::new(Mode::Check));
+    assert!(c.diagnostics.contains("error[E0001]: source file is not valid UTF-8"), "{}", c.diagnostics);
+    assert!(c.diagnostics.contains("bytes.nx:2:14"), "{}", c.diagnostics);
+}
+
 /// Every diagnostic code is produced by at least one test of `tests/ui` (contract K7.1),
-/// except the internal error E0900, which no valid standard library can produce.
+/// except the internal error E0900, which no valid standard library can produce, and
+/// E0001, tested by `invalid_utf8_is_reported`.
 #[test]
 fn every_code_has_a_ui_test() {
     let mut seen = std::collections::HashSet::new();
@@ -563,7 +580,7 @@ fn every_code_has_a_ui_test() {
             }
         }
     }
-    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| *c != "E0900" && !seen.contains(*c)).collect();
+    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001"].contains(c) && !seen.contains(*c)).collect();
     assert!(missing.is_empty(), "codes without a test in tests/ui: {:?}", missing);
 }
 

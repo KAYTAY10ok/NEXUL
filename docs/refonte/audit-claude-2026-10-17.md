@@ -363,8 +363,8 @@ des règles centrales : cohérence des implémentations (E0243, E0244, E0245, E0
 traits utilisables par `dyn` (E0246), visibilité entre modules (E0226, E0227, E0223),
 `@export` (E0504), tableaux `[x; n]` (E0313, E0373), et la plupart des erreurs lexicales.
 Ajout de 10 tests (`traits_coherence`, `traits_names_and_dyn`, `privacy_modules`,
-`arrays_and_export`, `lex_more_errors`, `lex_invalid_utf8`, `items_and_assign`,
-`module_declaration`, `pattern_expected`, `nesting_limit`) et du test
+`arrays_and_export`, `lex_more_errors`, `items_and_assign`,
+`module_declaration`, `pattern_expected`, `nesting_limit` ; E0001 est testé en mémoire par `invalid_utf8_is_reported`, car `tests/ui` doit rester en UTF-8 valide pour `studio/syntax`) et du test
 `every_code_has_a_ui_test`, qui l'impose désormais (seule exception : l'erreur interne
 E0900). Les fils de la suite compilent sur une pile de 256 Mio, comme `nxc` (K6.3).
 
