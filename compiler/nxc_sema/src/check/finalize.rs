@@ -652,6 +652,10 @@ impl<'a> FnCtxt<'a> {
                 let mut d = Diagnostic::error("E0249", format!("`{}` does not implement `{}`", ts, tname)).primary(span, format!("`{}` is required {}", tname, what));
                 d = if matches!(&*tcx.kind(t), TyKind::Param(_)) {
                     d.help(format!("add the bound `{}: {}` to the type parameter", ts, tname))
+                } else if self.p.lang_trait("copy") == Some(trait_id) {
+                    // `Copy` comes from the structure of the type, never from an `impl`.
+                    d.note(format!("the values of `{}` own resources: they are moved, not copied (spec §3.7)", ts))
+                        .help("pass a copy made with `.clone()` to a parameter without the bound `Copy`, or use a copyable type")
                 } else {
                     d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
                 };
@@ -669,7 +673,7 @@ impl<'a> FnCtxt<'a> {
             }
             Deferred::Copyable { ty, span, what } => {
                 let t = self.resolve(ty);
-                if !tcx.has_error(t) && !self.p.is_copy(t) {
+                if !tcx.has_error(t) && !self.p.is_copy_with(t, &self.bounds) {
                     self.err(
                         Diagnostic::error("E0313", format!("{} must be copyable", what))
                             .primary(span, format!("`{}` owns resources and cannot be duplicated", self.ty_str(t)))

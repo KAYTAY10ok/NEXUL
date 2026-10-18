@@ -69,6 +69,8 @@ struct Cx<'a> {
     /// borrowed views, even when the scrutinee is a value: the parts are moved into them
     /// only once the guard is true (spec §5.6).
     guard_bindings: Vec<thir::LocalId>,
+    /// The trait bounds of the function: a parameter `T: Copy` is copyable.
+    bounds: &'a [crate::defs::Bound],
 }
 
 pub fn check_program(prog: &Program, diags: &DiagSink) {
@@ -76,7 +78,7 @@ pub fn check_program(prog: &Program, diags: &DiagSink) {
     ids.sort();
     for id in ids {
         let body = &prog.bodies[&id];
-        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new() };
+        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new(), bounds: &prog.func(id).bounds };
         cx.block(&body.block);
     }
 }
@@ -156,7 +158,7 @@ impl<'a> Cx<'a> {
     /// already destroyed (use after free, double destruction).
     fn moved_in_guard(&self, l: thir::LocalId, e: &Expr) -> bool {
         let decl = &self.body.locals[l as usize];
-        if !self.guard_bindings.contains(&l) || decl.is_ref() || self.p.is_copy(decl.ty) {
+        if !self.guard_bindings.contains(&l) || decl.is_ref() || self.p.is_copy_with(decl.ty, self.bounds) {
             return false;
         }
         let mut d = Diagnostic::error("E0403", format!("cannot move `{}` in the guard of its arm", decl.name))
@@ -198,7 +200,7 @@ impl<'a> Cx<'a> {
             }
             _ => {}
         }
-        if self.p.is_copy(e.ty) {
+        if self.p.is_copy_with(e.ty, self.bounds) {
             return;
         }
         if !e.is_place() {
@@ -347,7 +349,7 @@ impl<'a> Cx<'a> {
         let moves_resource = |q: &Pat| {
             let mut bs = Vec::new();
             q.bindings(&mut bs);
-            bs.iter().any(|&l| !self.p.is_copy(self.body.locals[l as usize].ty))
+            bs.iter().any(|&l| !self.p.is_copy_with(self.body.locals[l as usize].ty, self.bounds))
         };
         match &p.kind {
             PatKind::Struct { adt, fields, .. } | PatKind::Variant { adt, fields, .. } => {
@@ -373,7 +375,7 @@ impl<'a> Cx<'a> {
         p.bindings(&mut v);
         v.iter().any(|&l| {
             let d = &self.body.locals[l as usize];
-            d.kind == LocalKind::Ref && !self.p.is_copy(d.ty)
+            d.kind == LocalKind::Ref && !self.p.is_copy_with(d.ty, self.bounds)
         })
     }
 

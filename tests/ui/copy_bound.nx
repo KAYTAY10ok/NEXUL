@@ -1,0 +1,27 @@
+// `T: Copy` lets a generic function copy its values (spec §3.7); `Copy` is satisfied by
+// the structure of a type, never by an `impl`.
+fn twice[T: Copy](x: T) -> (T, T) {
+    return (x, x)
+}
+
+fn first[T](v: Vec[T]) -> T {
+    return v[0]
+}
+
+fn first_copy[T: Copy](v: Vec[T]) -> T {
+    return v[0]
+}
+
+struct Name {
+    text: String
+}
+
+fn main() {
+    let a = twice("a" + "b")
+    let b = twice(Name(text: "c"))
+    let c = twice(3)
+    let v: Vec[String] = Vec.new()
+    let d = first(v)
+    let w: Vec[i32] = Vec.new()
+    let e = first_copy(w)
+}

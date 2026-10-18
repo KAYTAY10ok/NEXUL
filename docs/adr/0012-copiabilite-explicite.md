@@ -68,6 +68,16 @@ corriger après la 1.0 :
   `defs.rs` (`is_copy` prend en compte la déclaration), `migrate.rs`, `ide.rs`
   (survol : afficher « copiable »).
 
+## État de l'implémentation (18/10/2026)
+
+- **Fait** (compatible, sans attendre la décision) : points 1 et 5. `Copy` est une
+  interface du prélude (`lib/std/core.nx`) satisfaite par la structure du type ; `T:
+  Copy` et `T is Copy` (édition 1) permettent de copier les valeurs de `T` ; un argument
+  de type non copiable est refusé (E0249, avec un message propre à `Copy`). Tests :
+  `tests/ui/copy_bound.nx`, `tests/run/copy_bound.nx`, `tests/run/edition1_copy_bound.nx`.
+- **En attente de la décision** : points 2 à 4 et 6 (déclaration obligatoire pour les
+  types publics en édition 1, `nxc migrate`, code E0250).
+
 ## Composants concernés
 
 `compiler/nxc_sema/src/defs.rs` (`is_copy`), `derive.rs`, `collect.rs`,

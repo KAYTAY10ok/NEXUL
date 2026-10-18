@@ -55,6 +55,8 @@ pub struct Builder<'a> {
     map: Vec<Option<Mapped>>,
     scopes: Vec<Vec<Local>>,
     loops: Vec<LoopInfo>,
+    /// The trait bounds of the function: a parameter `T: Copy` is copyable.
+    bounds: Vec<nxc_sema::defs::Bound>,
 }
 
 pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
@@ -70,6 +72,7 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
         map: vec![None; thir.locals.len()],
         scopes: vec![Vec::new()],
         loops: Vec::new(),
+        bounds: fd.bounds.clone(),
     };
     b.locals.push(LocalDecl { ty: thir.ret_ty, name: None, kind: LocalKind::Return, span: thir.span });
     let entry = b.new_block();
@@ -82,7 +85,7 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
         let l = b.locals.len() as Local;
         b.locals.push(LocalDecl { ty, name: Some(decl.name.clone()), kind: LocalKind::Arg { by_ref }, span: decl.span });
         b.map[tl as usize] = Some(Mapped { local: l, by_ref });
-        if !by_ref && !p.is_copy(decl.ty) {
+        if !by_ref && !b.is_copy(decl.ty) {
             b.scopes[0].push(l);
         }
     }
@@ -148,7 +151,7 @@ impl<'a> Builder<'a> {
     /// A temporary destroyed at the end of the enclosing statement.
     fn scheduled_temp(&mut self, ty: Ty, span: Span) -> Local {
         let l = self.temp(ty, span);
-        if !self.p.is_copy(ty) {
+        if !self.is_copy(ty) {
             self.scopes.last_mut().unwrap().push(l);
         }
         l
@@ -159,7 +162,7 @@ impl<'a> Builder<'a> {
         let l = self.locals.len() as Local;
         self.locals.push(LocalDecl { ty: d.ty, name: Some(d.name.clone()), kind: LocalKind::User, span: d.span });
         self.map[tl as usize] = Some(Mapped { local: l, by_ref: false });
-        if !self.p.is_copy(d.ty) {
+        if !self.is_copy(d.ty) {
             self.scopes.last_mut().unwrap().push(l);
         }
         l
@@ -223,7 +226,7 @@ impl<'a> Builder<'a> {
     }
 
     fn is_copy(&self, t: Ty) -> bool {
-        self.p.is_copy(t)
+        self.p.is_copy_with(t, &self.bounds)
     }
 
     // -----------------------------------------------------------------------

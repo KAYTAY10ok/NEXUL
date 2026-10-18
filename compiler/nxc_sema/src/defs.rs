@@ -550,18 +550,31 @@ impl Program {
     /// Spec §3.7: a type is copyable when it owns no resource. Generic parameters are
     /// treated as resources.
     pub fn is_copy(&self, t: Ty) -> bool {
-        let mut visiting = Vec::new();
-        self.is_copy_rec(t, &mut visiting)
+        self.is_copy_with(t, &[])
     }
 
-    fn is_copy_rec(&self, t: Ty, visiting: &mut Vec<Ty>) -> bool {
+    /// `is_copy` inside a generic function whose parameters have `bounds`: a parameter
+    /// with the bound `Copy` (`T: Copy`, `T is Copy`) is copyable (spec §3.7).
+    pub fn is_copy_with(&self, t: Ty, bounds: &[Bound]) -> bool {
+        let mut visiting = Vec::new();
+        self.is_copy_rec(t, bounds, &mut visiting)
+    }
+
+    /// Is a generic parameter declared `Copy` by `bounds`?
+    fn param_is_copy(&self, param: u32, bounds: &[Bound]) -> bool {
+        let Some(copy) = self.lang_trait("copy") else { return false };
+        bounds.iter().any(|b| b.param == param && self.trait_closure(b.trait_id).contains(&copy))
+    }
+
+    fn is_copy_rec(&self, t: Ty, bounds: &[Bound], visiting: &mut Vec<Ty>) -> bool {
         match &*self.tcx.kind(t) {
             TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit | TyKind::Never => true,
             TyKind::Ptr(_) | TyKind::Fn(..) => true,
             TyKind::IntVar(_) | TyKind::FloatVar(_) | TyKind::Error => true,
-            TyKind::Param(_) | TyKind::Infer(_) | TyKind::Closure(..) | TyKind::Dyn(_) => false,
-            TyKind::Tuple(elems) => elems.iter().all(|&e| self.is_copy_rec(e, visiting)),
-            TyKind::Array(e, _) => self.is_copy_rec(*e, visiting),
+            TyKind::Param(i) => self.param_is_copy(*i, bounds),
+            TyKind::Infer(_) | TyKind::Closure(..) | TyKind::Dyn(_) => false,
+            TyKind::Tuple(elems) => elems.iter().all(|&e| self.is_copy_rec(e, bounds, visiting)),
+            TyKind::Array(e, _) => self.is_copy_rec(*e, bounds, visiting),
             TyKind::Adt(id, args) => {
                 if visiting.contains(&t) {
                     // Recursive types always contain `indirect` storage.
@@ -574,11 +587,11 @@ impl Program {
                 visiting.push(t);
                 let r = match &adt.kind {
                     AdtKind::Struct { fields } => {
-                        fields.iter().all(|f| !f.indirect && self.is_copy_rec(self.tcx.subst(f.ty, args), visiting))
+                        fields.iter().all(|f| !f.indirect && self.is_copy_rec(self.tcx.subst(f.ty, args), bounds, visiting))
                     }
                     AdtKind::Enum { variants } => variants
                         .iter()
-                        .all(|v| !v.indirect && v.fields.iter().all(|&f| self.is_copy_rec(self.tcx.subst(f, args), visiting))),
+                        .all(|v| !v.indirect && v.fields.iter().all(|&f| self.is_copy_rec(self.tcx.subst(f, args), bounds, visiting))),
                 };
                 visiting.pop();
                 r
@@ -633,6 +646,10 @@ impl Program {
     /// Does the concrete type `ty` implement `trait_id`? (generic parameters must have
     /// been substituted; `dyn` types implement their trait and its supertraits)
     pub fn implements_concrete(&self, ty: Ty, trait_id: TraitId) -> bool {
+        // `Copy` is satisfied by the structure of the type (spec §3.7), not by an `impl`.
+        if self.lang_trait("copy") == Some(trait_id) {
+            return self.is_copy(ty);
+        }
         if let TyKind::Dyn(d) = &*self.tcx.kind(ty) {
             return self.trait_closure(*d).contains(&trait_id);
         }

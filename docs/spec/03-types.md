@@ -121,7 +121,10 @@ fn echanger[A, B](owned p: Paire[A, B]) -> Paire[B, A] {
   `[T: Ord + Clone]` ou `where T: Ord`, donnent accès aux méthodes et opérateurs des
   traits nommés ; à chaque appel, les arguments de type doivent les implémenter (E0249).
 - Dans un corps générique, `T` est traité comme un type *ressource* (non copiable),
-  ce qui garantit que le corps est valide pour **toute** instanciation.
+  ce qui garantit que le corps est valide pour **toute** instanciation, sauf s'il porte
+  la contrainte **`Copy`** (`[T: Copy]`, `T is Copy` en édition 1) : ses valeurs sont
+  alors copiées (`var best = v[0]`, `return (x, x)`), et chaque argument de type doit être
+  copiable (E0249). Test : `tests/run/copy_bound.nx`.
 
 ## 3.4 Alias de types
 
@@ -174,7 +177,12 @@ Chaque type appartient à exactement une catégorie, déterminée **structurelle
   structure ou énumération dont tous les composants sont copiables, qui n'a pas de
   méthode `drop` et ne contient pas de stockage `indirect`.
 - **Ressource** : tous les autres (`String`, `Vec[T]`, types avec `drop`, types avec
-  `indirect`, et les paramètres de type dans un corps générique).
+  `indirect`, et les paramètres de type dans un corps générique, sauf contrainte `Copy`).
+
+L'interface **`Copy`** du prélude nomme la catégorie copiable. Elle n'a pas de méthode
+et ne s'implémente pas par un `impl` : un type la satisfait par sa structure (ci-dessus).
+Elle sert de contrainte générique. *(Proposé par l'ADR 0012, en attente de décision :
+qu'un type public doive déclarer `Copy` pour être copiable à partir de l'édition 1.)*
 
 Une valeur copiable est dupliquée bit à bit quand on la réutilise ; une ressource est
 **déplacée**. Les règles complètes sont au chapitre 05.

@@ -170,6 +170,14 @@ pub trait Clone {
     fn clone(self) -> Self
 }
 
+/// Values duplicated bit for bit instead of moved (spec §3.7). A type is `Copy` by its
+/// structure (primitive types, `Ptr`, function types, and compositions of them without
+/// `drop` or `indirect`); the interface has no method and needs no `impl`. As a bound,
+/// `T: Copy` (`T is Copy` in edition 1) lets a generic function copy its values.
+@lang("copy")
+pub trait Copy {
+}
+
 /// Text for users: `{x}` in a string, `print(x)`.
 @lang("display")
 pub trait Display {

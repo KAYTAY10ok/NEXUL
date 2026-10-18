@@ -1,0 +1,42 @@
+// `T: Copy`: a generic function copies the values of its type parameter (spec §3.7).
+fn largest[T: Ord + Copy](v: Vec[T]) -> T {
+    var best = v[0]
+    for x in v {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn twice[T: Copy](x: T) -> (T, T) {
+    return (x, x)
+}
+
+fn fill[T: Copy](x: T, n: usize) -> Vec[T] {
+    var out: Vec[T] = Vec.new()
+    for _ in 0..n {
+        out.push(x)
+    }
+    return out
+}
+
+struct Point {
+    x: i32
+    y: i32
+}
+
+fn main() {
+    var v: Vec[i32] = Vec.new()
+    v.push(3)
+    v.push(9)
+    v.push(4)
+    println(largest(v))
+    let p = twice(Point(x: 1, y: 2))
+    println(p.0.x + p.1.y)
+    let chars = fill('z', 3)
+    println(chars.len())
+    println(largest(chars))
+    let f = twice(2.5)
+    println(f.0 + f.1)
+}
