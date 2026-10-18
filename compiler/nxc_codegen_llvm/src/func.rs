@@ -279,9 +279,22 @@ impl<'a> Gen<'a> {
                 let _ = writeln!(entry_code, "    call void @llvm.dbg.declare(metadata ptr {}, metadata !{}, metadata !DIExpression()), !dbg !{}", cx.addr[i], var, loc);
             }
         }
-        // Blocks.
+        // Blocks. A block that cannot be reached from the entry follows an expression of
+        // type `Never` (`f(x, panic("…"))`, `1 + return`): it may use the "value" of that
+        // expression, which has no type the machine knows, and never runs (contract K3.10).
+        let mut reachable = vec![false; body.blocks.len()];
+        let mut work = vec![0 as BlockId];
+        while let Some(b) = work.pop() {
+            if (b as usize) < reachable.len() && !std::mem::replace(&mut reachable[b as usize], true) {
+                work.extend(body.successors(b));
+            }
+        }
         for (bi, b) in body.blocks.iter().enumerate() {
             let _ = writeln!(cx.out, "bb{}:", bi);
+            if !reachable[bi] {
+                let _ = writeln!(cx.out, "  unreachable");
+                continue;
+            }
             for s in &b.stmts {
                 self.set_loc(&mut cx, s.span);
                 self.emit_stmt(&mut cx, s);

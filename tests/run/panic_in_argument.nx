@@ -1,0 +1,24 @@
+// An expression of type `Never` (`panic`, `return`) is accepted where a value is expected
+// (spec §3.6): an argument or an operand that diverges stops the evaluation there.
+fn pick(a: i32, b: bool) -> i32 {
+    if b {
+        return a
+    }
+    return 0
+}
+
+fn first_or_return(v: Vec[i32]) -> i32 {
+    let x = 1 + (if v.is_empty() { return -1 } else { v[0] })
+    return x
+}
+
+fn main() {
+    let empty: Vec[i32] = Vec.new()
+    println(first_or_return(empty))
+    var v: Vec[i32] = Vec.new()
+    v.push(41)
+    println(first_or_return(v))
+    println("before")
+    let x = pick(1, panic("stopped in an argument"))
+    println(x)
+}

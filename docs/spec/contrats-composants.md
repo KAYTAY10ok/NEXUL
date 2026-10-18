@@ -58,6 +58,9 @@ Ce que le générateur doit faire et ne doit pas faire :
   l'octet (aucun parcours de table de hachage non trié).
 - K3.9 Disposition mémoire : seules celles des primitifs, de `Ptr[T]` et des tableaux
   sont garanties (spec §3.8) ; les autres peuvent changer à chaque version.
+- K3.10 Un bloc qu'on ne peut pas atteindre depuis l'entrée suit une expression de type
+  `Never` (`f(x, panic("…"))`, `1 + return`) et peut en utiliser la « valeur », qui n'a
+  pas de type machine : le générateur n'émet pour lui qu'`unreachable`.
 
 ## K4 — Génération de code ↔ runtime (`lib/std`)
 
