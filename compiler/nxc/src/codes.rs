@@ -37,6 +37,12 @@ const CODES: &[(&str, &str)] = &[
     ("E0109", "A pattern was expected."),
     ("E0111", "A form of edition 1 is planned but not implemented yet.\n\nADR 0010 reserves contracts (`requires`, `ensures`), effects (`with`), periodic tasks (`every … within …`), tasks (`spawn`), the fallback value (`value else other`), identity comparison (`===`), membership (`in`), distinct and constrained types (`distinct`, `where`) and `expects panic`. Their meaning comes with the next steps of the refonte; until then the compiler refuses them instead of accepting them without checking them."),
     ("E0112", "A form of NEXUL 0.2 does not exist in edition 1.\n\nEdition 1 (ADR 0010) writes the type before the name and uses words for the structure:\n\n    let x: i32 = 5          ->  let i32 x = 5\n    fn f(a: i32) -> i32     ->  fn i32 f(i32 a)\n    struct / enum / impl    ->  type Name { … } / type Name = .A | .B\n    trait T, impl T for X   ->  interface T, type X is T / extend X is T\n    match e { A => … }      ->  when e { .A then … }\n    if let P = e            ->  if e is P\n    f(&x), inout x: T       ->  f(x!), T x!\n    dyn T                   ->  any T\n\nA program written in NEXUL 0.2 is compiled with `--edition 0.2` (the default)."),
+    ("E0113", "A construction is too deeply nested or too long.
+
+The compiler accepts at most 1000 levels of nesting of expressions, blocks, types and patterns,
+and 10000 binary operators in a row in one expression. Such sources are usually generated;
+split them with intermediate variables or functions. The limits protect the compiler, whose
+analyses are recursive, from running out of stack (it must never crash, spec §7.4)."),
     ("E0110", "An expression is computed, then its value is lost.\n\nA statement such as `- b`, `not ok` or `(x + 1)` has no effect. It is almost always a line cut in two: a new line ends the statement, so\n\n    let total = a\n        - b\n\nis `let total = a` followed by the statement `-b`. To continue an expression on the next line, end the first line with the operator:\n\n    let total = a -\n        b\n\nTo compute a value and drop it on purpose, write `let _ = expression`."),
     ("E0201", "A name is declared twice in the same scope.\n\nNames must be unique within a module, a block, a parameter list or a pattern.\nShadowing is allowed in a nested block."),
     ("E0202", "A name cannot be found.\n\nCheck the spelling, and import the module that declares it: `import std.io`."),

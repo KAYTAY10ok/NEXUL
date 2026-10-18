@@ -40,6 +40,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0109` | A pattern was expected. |
 | `E0111` | A form of edition 1 is planned but not implemented yet. |
 | `E0112` | A form of NEXUL 0.2 does not exist in edition 1. |
+| `E0113` | A construction is too deeply nested or too long. |
 | `E0110` | An expression is computed, then its value is lost. |
 
 ## Noms, modules et attributs (chapitres 04 et 06)

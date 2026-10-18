@@ -182,6 +182,34 @@ fn display_width(s: &str) -> usize {
     s.chars().map(|c| if c == '\t' { 4 } else { 1 }).sum()
 }
 
+/// Columns of a source line shown in a snippet; a longer line is shown as a window around
+/// its first label, so that the size of the output stays proportional to the number of
+/// diagnostics (a 300 KB generated line quoted by 20 000 warnings would weigh gigabytes).
+const MAX_SHOWN_COLUMNS: usize = 160;
+/// Columns kept before the first label of a long line.
+const COLUMNS_BEFORE_LABEL: usize = 40;
+
+/// The part of a displayed line (after `expand_tabs`) to show: the text, with `...`
+/// where it is cut, the first column shown, and the shift of the columns of the labels
+/// (the width of the leading `...`).
+fn window(line: &str, first_label_col: usize) -> (String, usize, usize) {
+    let chars: Vec<char> = line.chars().collect();
+    if chars.len() <= MAX_SHOWN_COLUMNS {
+        return (line.to_string(), 0, 0);
+    }
+    let start = first_label_col.saturating_sub(COLUMNS_BEFORE_LABEL).min(chars.len() - MAX_SHOWN_COLUMNS);
+    let end = start + MAX_SHOWN_COLUMNS;
+    let mut shown = String::new();
+    if start > 0 {
+        shown.push_str("...");
+    }
+    shown.extend(&chars[start..end]);
+    if end < chars.len() {
+        shown.push_str("...");
+    }
+    (shown, start, if start > 0 { 3 } else { 0 })
+}
+
 /// Renders one diagnostic to text.
 pub fn render(d: &Diagnostic, sm: &SourceMap, color: bool) -> String {
     let st = Style { color };
@@ -235,29 +263,29 @@ pub fn render(d: &Diagnostic, sm: &SourceMap, color: bool) -> String {
                     let _ = writeln!(out, "{}", st.blue("..."));
                 } else if li == p + 2 {
                     // A single skipped line is cheaper to show than an ellipsis.
-                    let text = expand_tabs(file.line_text(p + 1));
+                    let (text, _, _) = window(expand_tabs(file.line_text(p + 1)).trim_end(), 0);
                     let _ = writeln!(out, "{} {} {}", st.blue(&format!("{:>w$}", p + 2, w = gutter)), st.blue("|"), text);
                 }
             }
             let text = file.line_text(li);
-            let _ = writeln!(
-                out,
-                "{} {} {}",
-                st.blue(&format!("{:>w$}", li + 1, w = gutter)),
-                st.blue("|"),
-                expand_tabs(text).trim_end()
-            );
             // Labels starting on this line: primary first, then by column.
             let mut on_line: Vec<&Label> = labels.iter().copied().filter(|l| file.line_index(l.span.lo) == li).collect();
             on_line.sort_by_key(|l| (!l.primary, l.span.lo));
             let line_start = file.line_start(li) as usize;
+            let label_col = |l: &Label| display_width(file.text.get(line_start..(l.span.lo as usize).max(line_start)).unwrap_or(""));
+            let first_col = on_line.iter().map(|l| label_col(l)).min().unwrap_or(0);
+            let (shown, first_shown, shift) = window(expand_tabs(text).trim_end(), first_col);
+            let _ = writeln!(out, "{} {} {}", st.blue(&format!("{:>w$}", li + 1, w = gutter)), st.blue("|"), shown);
+            let last_shown = first_shown + MAX_SHOWN_COLUMNS;
             for l in on_line {
                 let lo = (l.span.lo as usize).max(line_start);
-                let prefix = file.text.get(line_start..lo).unwrap_or("");
-                let col = display_width(prefix);
                 let line_end = line_start + text.len();
                 let hi = (l.span.hi as usize).min(line_end).max(lo);
-                let width = display_width(file.text.get(lo..hi).unwrap_or("")).max(1);
+                // Columns in the window shown (a label outside it is drawn at its edge).
+                let col_full = label_col(l);
+                let end_full = col_full + display_width(file.text.get(lo..hi).unwrap_or(""));
+                let col = col_full.clamp(first_shown, last_shown) - first_shown + shift;
+                let width = (end_full.min(last_shown).saturating_sub(col_full.max(first_shown))).max(1);
                 let ch = if l.primary { "^" } else { "-" };
                 let marks = ch.repeat(width);
                 let body = if l.message.is_empty() { marks } else { format!("{} {}", marks, l.message) };
@@ -321,5 +349,23 @@ mod tests {
         let text = render(&d, &sm, false);
         let expected = "error[E0402]: use of moved value `s`\n --> main.nx:3:13\n  |\n2 |     let t = s\n  |             - value moved here\n3 |     println(s)\n  |             ^ value used here after move\n  |\n  = help: use `s.clone()`\n";
         assert_eq!(text, expected);
+    }
+
+    #[test]
+    fn a_long_line_is_shown_as_a_window_around_the_label() {
+        let mut sm = SourceMap::new();
+        let line = format!("let v = [{}target, {}0]\n", "1, ".repeat(2000), "2, ".repeat(2000));
+        let f = sm.add("main.nx", &line);
+        let at = line.find("target").unwrap() as u32;
+        let d = Diagnostic::error("E0202", "cannot find `target` in this scope").primary(Span::new(f, at, at + 6), "not found");
+        let text = render(&d, &sm, false);
+        let lines: Vec<&str> = text.lines().collect();
+        // The source line is cut on both sides...
+        assert!(lines[3].starts_with("1 | ...") && lines[3].ends_with("..."), "{}", lines[3]);
+        assert!(lines[3].len() < 200, "{}", lines[3]);
+        // ...and the marks stay under the name.
+        let name_col = lines[3].find("target").unwrap();
+        assert_eq!(lines[4].find('^'), Some(name_col), "\n{}\n{}", lines[3], lines[4]);
+        assert!(lines[4].contains("^^^^^^ not found"));
     }
 }

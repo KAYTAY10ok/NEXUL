@@ -36,7 +36,19 @@ struct Parser<'a> {
     test_names: Vec<String>,
     /// The test being read expects a panic (`test "…" expects panic`).
     test_panics: bool,
+    /// Nesting of expressions, blocks, types and patterns being read (E0113).
+    depth: u32,
+    /// E0113 was reported: the rest of the nesting is not reported again.
+    too_deep: bool,
 }
+
+/// Deepest nesting of expressions, blocks, types and patterns (E0113). The analyses that
+/// follow the parser are recursive: without a limit, a generated source of 100 000 nested
+/// parentheses overflowed the stack of `nxc` (spec §7.4: the compiler never crashes).
+pub const MAX_NESTING: u32 = 1000;
+/// Most binary operators in a row in one expression (`a + b + …`): each one adds a level
+/// to the tree that the analyses walk recursively.
+pub const MAX_OPERATOR_CHAIN: u32 = 10_000;
 
 type PResult<T> = Result<T, ()>;
 
@@ -87,7 +99,7 @@ fn assign_op(k: &TokenKind) -> Option<AssignOp> {
 
 impl<'a> Parser<'a> {
     fn new(toks: Vec<Token>, diags: &'a DiagSink) -> Parser<'a> {
-        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new(), test_panics: false }
+        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new(), test_panics: false, depth: 0, too_deep: false }
     }
 
     // -----------------------------------------------------------------------
@@ -141,6 +153,29 @@ impl<'a> Parser<'a> {
     fn skip_newlines(&mut self) {
         while self.peek().is_terminator() {
             self.bump();
+        }
+    }
+
+    /// Enters one level of nesting; past `MAX_NESTING`, reports E0113 once and fails.
+    /// Each successful call is paired with `self.depth -= 1`.
+    fn enter(&mut self) -> PResult<()> {
+        if self.depth >= MAX_NESTING {
+            self.too_deep(format!("more than {} levels of nesting", MAX_NESTING));
+            return Err(());
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    fn too_deep(&mut self, what: String) {
+        if !self.too_deep {
+            self.too_deep = true;
+            let span = self.span();
+            self.diags.emit(
+                Diagnostic::error("E0113", "this construction is too deeply nested or too long")
+                    .primary(span, what)
+                    .help("split it with intermediate variables or functions"),
+            );
         }
     }
 
@@ -827,6 +862,13 @@ impl<'a> Parser<'a> {
     // Types
 
     fn type_expr(&mut self) -> PResult<TypeExpr> {
+        self.enter()?;
+        let t = self.type_expr_inner();
+        self.depth -= 1;
+        t
+    }
+
+    fn type_expr_inner(&mut self) -> PResult<TypeExpr> {
         if self.ed1 {
             if let Some(t) = self.type_expr1()? {
                 return Ok(t);
@@ -955,6 +997,13 @@ impl<'a> Parser<'a> {
     // Blocks and statements
 
     fn block(&mut self) -> PResult<Block> {
+        self.enter()?;
+        let b = self.block_inner();
+        self.depth -= 1;
+        b
+    }
+
+    fn block_inner(&mut self) -> PResult<Block> {
         let open = self.expect(TokenKind::LBrace, "`{`")?;
         self.skip_newlines();
         let mut stmts = Vec::new();
@@ -1110,6 +1159,13 @@ impl<'a> Parser<'a> {
     // Expressions
 
     fn expr(&mut self) -> PResult<Expr> {
+        self.enter()?;
+        let e = self.expr_inner();
+        self.depth -= 1;
+        e
+    }
+
+    fn expr_inner(&mut self) -> PResult<Expr> {
         let mut e = self.binary(1)?;
         while self.ed1 && self.is(&TokenKind::PipeGt) {
             e = self.pipe1(e)?;
@@ -1120,7 +1176,13 @@ impl<'a> Parser<'a> {
 
     fn binary(&mut self, min_prec: u8) -> PResult<Expr> {
         let mut lhs = self.cast_expr()?;
+        let mut operators = 0u32;
         loop {
+            operators += 1;
+            if operators > MAX_OPERATOR_CHAIN {
+                self.too_deep(format!("more than {} operators in a row", MAX_OPERATOR_CHAIN));
+                return Err(());
+            }
             if self.ed1 && min_prec <= 3 {
                 if self.is_word("is") {
                     lhs = self.is_expr(lhs)?;
@@ -1180,6 +1242,17 @@ impl<'a> Parser<'a> {
     }
 
     fn unary(&mut self) -> PResult<Expr> {
+        // Only an operator (`-`, `not`, `~`, `move`) adds a level.
+        if !matches!(self.peek(), TokenKind::Minus | TokenKind::Not | TokenKind::Tilde | TokenKind::Move) {
+            return self.unary_inner();
+        }
+        self.enter()?;
+        let e = self.unary_inner();
+        self.depth -= 1;
+        e
+    }
+
+    fn unary_inner(&mut self) -> PResult<Expr> {
         let start = self.span();
         let op = match self.peek() {
             TokenKind::Minus => Some(UnOp::Neg),
@@ -1684,6 +1757,13 @@ impl<'a> Parser<'a> {
     }
 
     fn pattern(&mut self) -> PResult<Pattern> {
+        self.enter()?;
+        let p = self.pattern_inner();
+        self.depth -= 1;
+        p
+    }
+
+    fn pattern_inner(&mut self) -> PResult<Pattern> {
         let first = self.pattern_simple()?;
         if !self.is(&TokenKind::Pipe) {
             return Ok(first);
@@ -1936,5 +2016,24 @@ fn main() {
         assert_eq!(parse("fn f() -> Vec<i32> { }").1, vec!["E0106"]);
         // One error per broken statement, and parsing continues afterwards.
         assert_eq!(parse("fn f() {\n let = 1\n let y = )\n}\nfn g() { let x = 1 2 }").1, vec!["E0109", "E0102", "E0101"]);
+    }
+
+    #[test]
+    fn nesting_and_operator_chains_are_limited() {
+        // The parser is recursive: like `nxc`, run it on a large stack.
+        std::thread::Builder::new().stack_size(256 << 20).spawn(nesting_and_operator_chains).unwrap().join().unwrap();
+    }
+
+    fn nesting_and_operator_chains() {
+        let nested = |n: usize| format!("fn f() {{\n let x = {}1{}\n}}\n", "(".repeat(n), ")".repeat(n));
+        // At the limit: accepted (the `let` and the parentheses count as levels).
+        assert!(parse(&nested(MAX_NESTING as usize - 10)).1.is_empty());
+        // Beyond it, and far beyond it (100 000 levels overflowed the stack): one E0113.
+        assert_eq!(parse(&nested(MAX_NESTING as usize + 1)).1, vec!["E0113"]);
+        assert_eq!(parse(&nested(100_000)).1, vec!["E0113"]);
+        assert_eq!(parse(&format!("fn f() {}\n", "{".repeat(100_000))).1.first(), Some(&"E0113"));
+        let chain = |n: usize| format!("fn f() {{\n let x = 1{}\n}}\n", " + 1".repeat(n));
+        assert!(parse(&chain(MAX_OPERATOR_CHAIN as usize - 1)).1.is_empty());
+        assert_eq!(parse(&chain(MAX_OPERATOR_CHAIN as usize + 1)).1, vec!["E0113"]);
     }
 }
