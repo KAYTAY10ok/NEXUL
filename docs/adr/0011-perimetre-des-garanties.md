@@ -1,6 +1,6 @@
 # 0011 — Périmètre des garanties de sûreté et modèle d'échec
 
-Auteur : Claude (architecture, sémantique, sûreté). **Statut : proposée** (17/10/2026).
+Auteur : Claude (architecture, sémantique, sûreté). **Statut : acceptée par l'utilisateur le 24/10/2026** (proposée le 17/10/2026).
 Les parties 1 à 3 décrivent l'état réel et corrigent la spécification : elles peuvent
 être acceptées sans attendre. Les parties 4 et 5 engagent la version 1.0 et demandent la
 validation de l'utilisateur.

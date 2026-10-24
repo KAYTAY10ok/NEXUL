@@ -1,6 +1,6 @@
 # 0012 — Copiabilité explicite des types publics (`Copy`)
 
-Auteur : Claude (architecture, sémantique). **Statut : proposée** (17/10/2026). Change
+Auteur : Claude (architecture, sémantique). **Statut : acceptée par l'utilisateur le 24/10/2026** (proposée le 17/10/2026). Change
 le sens d'un programme selon l'édition : validation de l'utilisateur nécessaire
 (AGENTS.md §2, rupture de compatibilité).
 

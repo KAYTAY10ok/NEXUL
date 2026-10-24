@@ -1,6 +1,6 @@
 # 0014 — Types distincts, types contraints et orientation des contrats
 
-Auteur : Claude (architecture, sémantique). **Statut : proposée** (17/10/2026). Lot P5
+Auteur : Claude (architecture, sémantique). **Statut : acceptée par l'utilisateur le 24/10/2026** (proposée le 17/10/2026). Lot P5
 (tâche O5) ; donne la sémantique des formes `distinct` et `where` que l'ADR 0010
 (acceptée) a réservées et que `nxc` refuse aujourd'hui (E0111). Éclaire la décision 4 du
 plan maître (contrats partout ou profil strict).

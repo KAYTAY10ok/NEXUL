@@ -1,6 +1,6 @@
 # 0015 — Erreurs de la bibliothèque standard et conversion par `?`
 
-Auteur : Claude (architecture, sémantique). **Statut : proposée** (17/10/2026). Change
+Auteur : Claude (architecture, sémantique). **Statut : acceptée par l'utilisateur le 24/10/2026** (proposée le 17/10/2026). Change
 des signatures publiques de `lib/std` : validation de l'utilisateur nécessaire. Constat
 A3 de l'[audit du 17/10](../refonte/audit-claude-2026-10-17.md).
 

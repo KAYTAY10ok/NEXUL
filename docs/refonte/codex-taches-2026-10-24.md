@@ -5,6 +5,29 @@ et des lots 1 à 9 (PR #35 à #43). Chaque tâche relève du périmètre d'impl�
 Codex (mission maîtresse §2.3) ; Claude relit les PR qui touchent la sûreté (contrats
 [K1–K7](../spec/contrats-composants.md)).
 
+## Qui fait quoi (mis à jour le 24/10/2026)
+
+L'utilisateur a accepté les ADR 0011 à 0015 le 24/10 et demandé que Claude prenne aussi
+une partie des tâches pour aller plus vite. **Pour ne pas travailler à deux sur le même
+fichier**, chaque tâche a un seul responsable ; changez cette table (par une PR) avant de
+prendre une tâche de l'autre.
+
+| Tâche | Responsable | Branche |
+|---|---|---|
+| C1, C2, C3, C5 (sûreté du runtime et du générateur) | **Codex** | `refonte/sol-…` |
+| **C4** (vérification à l'entrée des `@export`) | **Claude** (avec les types contraints de l'ADR 0014) | `refonte/core-…` |
+| C6, C7, C8 (CI, installateur) | **Codex** | `refonte/sol-…` |
+| C9 (temps d'analyse), C10 (références), C11 (monomorphisation), C12 (macOS) | **Codex** | `refonte/sol-…` |
+| ADR 0015 (erreurs, `IoError`), ADR 0012 (`Copy` déclaré), ADR 0014 (types distincts et contraints), puis ADR 0013 (concurrence) | **Claude** | `refonte/core-…` |
+
+Fichiers que Claude modifie pour ces ADR (à éviter côté Codex jusqu'à leur fusion) :
+`lib/std/io.nx`, `lib/std/core.nx`, `lib/std/sys/*.nx` (fonctions d'entrée-sortie),
+`compiler/nxc_sema/**`, `compiler/nxc_nir/src/build.rs`, `compiler/nxc_syntax/src/parser/ed1.rs`,
+`compiler/nxc/src/migrate.rs`, `docs/spec/**`, `docs/adr/**`, `tests/ui/**`, `tests/run/**`.
+Fichiers de Codex à ne pas toucher côté Claude : `.github/**`, `installer/**`, `studio/**`,
+`editors/**`, `benchmarks/**`, `compiler/nxc/src/link.rs`, `compiler/nxc/src/lsp.rs`.
+`compiler/nxc_codegen_llvm/**` est partagé : prévenir dans la PR quand on y touche.
+
 ## Avant de commencer
 
 1. **Base de travail.** Les PR #35 → #43 sont empilées. L'utilisateur les fusionne dans

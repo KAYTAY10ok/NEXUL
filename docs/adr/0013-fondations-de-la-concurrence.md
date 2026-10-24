@@ -1,6 +1,6 @@
 # 0013 — Fondations de la concurrence
 
-Auteur : Claude (architecture, sémantique, sûreté). **Statut : proposée** (17/10/2026).
+Auteur : Claude (architecture, sémantique, sûreté). **Statut : acceptée par l'utilisateur le 24/10/2026** (proposée le 17/10/2026).
 Lot P5 (conception) avant P7 (implémentation). Rien n'est implémenté. Les **invariants**
 de la partie 1 protègent dès maintenant les choix futurs ; le **modèle** des parties 2 à 6
 demande la validation de l'utilisateur.
