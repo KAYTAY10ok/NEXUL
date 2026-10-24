@@ -24,7 +24,7 @@ fn ir_for(target: &str, src: &str) -> String {
 /// entry point before `main` (ADR 0011, task T2: a stack overflow ends like a panic).
 #[test]
 fn linux_programs_install_the_fault_handler() {
-    for target in ["x86_64-linux", "aarch64-linux"] {
+    for target in ["x86_64-linux", "aarch64-linux", "riscv64-linux"] {
         let ir = ir_for(target, "fn main() {\n    println(\"ok\")\n}\n");
         assert!(ir.contains("define void @nx_linux_fault(i32 %sig, ptr %info, ptr %ctx)"), "{}: no fault entry", target);
         let start = &ir[ir.find("define void @nx_linux_start").expect("entry point")..];
@@ -32,5 +32,19 @@ fn linux_programs_install_the_fault_handler() {
         let install = start.find("(ptr @nx_linux_fault)").expect("handler installed by the entry point");
         let main_call = start.rfind("call void").unwrap();
         assert!(install < main_call, "{}: the handler must be installed before the program starts:\n{}", target, start);
+    }
+}
+
+#[test]
+fn windows_programs_reserve_a_stack_and_install_the_fault_handler() {
+    for target in ["x86_64-windows", "aarch64-windows"] {
+        let ir = ir_for(target, "fn main() { println(\"ok\") }\n");
+        assert!(ir.contains("define i32 @nx_windows_fault(ptr %exception)"));
+        assert!(ir.contains("SetThreadStackGuarantee"));
+        assert!(ir.contains("AddVectoredExceptionHandler"));
+        assert!(ir.contains("WriteFile"));
+        let start = &ir[ir.find("define void @mainCRTStartup").unwrap()..];
+        let start = &start[..start.find("\n}").unwrap()];
+        assert!(start.find("(ptr @nx_windows_fault)").unwrap() < start.rfind("call void").unwrap());
     }
 }

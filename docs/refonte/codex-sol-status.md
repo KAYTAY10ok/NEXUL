@@ -157,3 +157,24 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C2 — dépassement de pile Windows/RISC-V (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT sous QEMU RISC-V, Windows à valider ; revue Claude requise.
+Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
+
+- Windows : SetThreadStackGuarantee(64 Kio), gestionnaire vectorisé avant l'entrée
+  utilisateur, filtrage de 0xC00000FD, sortie directe WriteFile et ExitProcess(101).
+  Les autres exceptions continuent leur recherche.
+- RISC-V : sigaction sans sa_restorer, masque au troisième mot, pile alternative activée.
+- IR 2/2, robustesse 4/4, suite 12/13 à la première exécution (O0/O2 réussis).
+  Migration initialement en échec `Text file busy` (OS 26), puis relance finale isolée
+  réussie 1/1 (1,46 s). Aucun test désactivé ; échec initial conservé dans la PR.
+- Compilations de stack_overflow.nx vers x86_64-windows et riscv64-linux : réussies.
+- QEMU user 8.2.2 installé localement : stack_overflow.nx riscv64-linux exécuté
+  à O0 et O2, sortie exacte `before\n`, message exact attendu sur stderr, code 101.
+- Windows : exécution non testée, pas de Windows/Wine. C6 doit exécuter la suite
+  où stack_overflow est désormais activé. PR en brouillon pour cette validation.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; LTO=false et codegen-units=1 pour contourner
+  les défauts de la chaîne locale. `git diff --check` réussi. macOS dépend de C12.

@@ -26,6 +26,10 @@ extern "C" fn SetConsoleOutputCP(code_page: u32) -> i32
 @link("kernel32")
 extern "C" fn ExitProcess(code: u32) -> Never
 @link("kernel32")
+extern "C" fn AddVectoredExceptionHandler(first: u32, handler: Ptr[u8]) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn SetThreadStackGuarantee(bytes: Ptr[u32]) -> i32
+@link("kernel32")
 extern "C" fn GetProcessHeap() -> Ptr[u8]
 @link("kernel32")
 extern "C" fn HeapAlloc(heap: Ptr[u8], flags: u32, size: usize) -> Ptr[u8]
@@ -77,6 +81,52 @@ const CP_UTF8: u32 = 65001
 static var HEAP: Ptr[u8] = Ptr.null()
 static var STDOUT_CONSOLE: bool = false
 static var STDERR_CONSOLE: bool = false
+
+/// The generated entry installs this before entering any NEXUL user code. The
+/// reserved stack is only used to print and terminate; execution never resumes.
+@lang("sys_set_fault_handler")
+fn set_fault_handler(handler: Ptr[u8]) {
+    unsafe {
+        var bytes: u32 = 65536
+        if SetThreadStackGuarantee(mem.addr_of(&bytes)) == 0 {
+            exit(101)
+        }
+        if AddVectoredExceptionHandler(1, handler).is_null() {
+            exit(101)
+        }
+    }
+}
+
+/// Minimal output path for an exhausted stack: no UTF-16 conversion, allocation
+/// or shared console carry state. Both buffers remain valid until ExitProcess.
+pub unsafe fn write_fault(fd: i32, data: Ptr[u8], len: usize) {
+    let h = GetStdHandle(if fd == 1 { STD_OUTPUT } else { STD_ERROR })
+    var offset: usize = 0
+    while offset < len {
+        var written: u32 = 0
+        let n = if len - offset > 0xFFFF_FFFF { 0xFFFF_FFFF } else { (len - offset) as u32 }
+        if WriteFile(h, data.offset(offset), n, mem.addr_of(&written), Ptr.null()) == 0 or written == 0 {
+            return
+        }
+        offset += written as usize
+    }
+}
+
+@lang("sys_fault")
+fn fault(exception: Ptr[u8]) -> i32 {
+    unsafe {
+        // Windows supplies EXCEPTION_POINTERS: its first field points to an
+        // EXCEPTION_RECORD, whose first field is the 32-bit exception code.
+        let record = exception.cast[Ptr[u8]]().read()
+        if record.cast[u32]().read() != 0xC000_00FD {
+            return 0 // EXCEPTION_CONTINUE_SEARCH: do not swallow other faults.
+        }
+        rt.flush_stack_overflow()
+        let msg = "panic: stack overflow (the recursion is probably too deep)\n"
+        write_fault(2, msg.as_ptr(), msg.len())
+        ExitProcess(101)
+    }
+}
 
 unsafe fn is_console(h: Ptr[u8]) -> bool {
     var mode: u32 = 0
