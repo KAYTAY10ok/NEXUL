@@ -184,3 +184,15 @@ Premier run Actions C6 : Linux réussi ; installation LLVM Windows réussie, mai
 foundations échoue sur le chemin court TEMP comparé au chemin canonique du diagnostic.
 L'assertion conserve la vérification du chemin complet et attend sa forme canonique.
 Aucun test supprimé ni ignoré ; --no-fail-fast permet de collecter toute la suite Windows.
+
+
+## LSP — diagnostics et alias de chemins (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT. La CI C6 Windows a révélé deux échecs :
+les diagnostics du compilateur utilisent les chemins canoniques, alors que didOpen
+peut fournir un alias 8.3. Même problème pour nexul.toml non ouvert.
+Le serveur conserve maintenant l'URI client et associe les diagnostics par identité
+de fichier ; aucune vérification sémantique ni assertion retirée.
+Validation : 6 tests LSP Linux réussis sur la branche d'intégration Core #60,
+dont une régression par lien symbolique couvrant les imports et le manifeste.
+Windows : relance Actions nécessaire avant validation. Base de la PR : C7 (#48).
