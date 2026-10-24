@@ -8,6 +8,7 @@
 
 import std.sys
 import std.mem
+import std.rt
 
 const HEADER: usize = 16
 const CLASSES: usize = 12
@@ -47,6 +48,7 @@ unsafe fn write_header(block: Ptr[u8], first: usize, marker: usize) {
 
 /// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
 pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+    let _critical = unsafe { rt.critical_section() }
     if size > usize.MAX - MAX_CLASS_SIZE {
         return Ptr.null()
     }
@@ -95,6 +97,7 @@ unsafe fn usable_size(p: Ptr[u8]) -> usize {
 }
 
 pub unsafe fn free(p: Ptr[u8]) {
+    let _critical = unsafe { rt.critical_section() }
     if p.is_null() {
         return
     }
@@ -114,6 +117,7 @@ pub unsafe fn free(p: Ptr[u8]) {
 }
 
 pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    let _critical = unsafe { rt.critical_section() }
     if p.is_null() {
         return alloc(size)
     }

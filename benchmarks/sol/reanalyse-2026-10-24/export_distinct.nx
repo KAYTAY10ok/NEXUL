@@ -1,0 +1,7 @@
+// edition: 1
+type Letter = distinct char is Copy
+type Flag = distinct bool is Copy
+@export("letter_code")
+pub fn u32 letter_code(Letter c) = (c as char) as u32
+@export("flag_value")
+pub fn bool flag_value(Flag f) = f as bool

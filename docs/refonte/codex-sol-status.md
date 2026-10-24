@@ -157,3 +157,170 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## Mandat C1–C12 — 24 octobre 2026
+
+Base de travail : `a824c76`, sommet de la pile #35–#43 non fusionnée.
+Mandat explicite : `codex-taches-2026-10-24.md`. Codex intervient sur les sous-périmètres
+délégués ; Claude conserve la revue de sûreté et l'utilisateur les fusions.
+
+### C1 — sondes de pile
+
+Statut : TESTÉ_UNITAIREMENT sur Linux x86-64, revue Claude requise avant intégration.
+Une PR `[sol]`, branche `refonte/sol-c1-stack-probes`, basée sur la branche de #43.
+
+- Attribut LLVM sur toutes les définitions générées Linux/macOS x86-64/AArch64,
+  y compris glue, shims et auxiliaires ; Windows conserve sa stratégie `__chkstk`.
+- `cargo test --release -p nxc --test codegen_ir` : 2 réussis.
+- `cargo test --release -p nxc --test suite --test robustness --test foundations --test lsp` :
+  28 réussis (13 + 4 + 6 + 5), 0 échec. Tests d'exécution à O0/O2 inclus.
+- `nxc run tests/run/stack_probe.nx --no-debug` : sortie `before`, panique attendue, code 101.
+- Compilation croisée AArch64 Linux réussie ; exécution du binaire O0 sous QEMU user 8.2.2 réussie : before, panique exacte et code 101. O2 AArch64 non testé.
+- Mesures P13 : `benchmarks/sol/c1-probes-2026-10-24.{md,json}`, 9 répétitions, 1 M/10 M.
+- Chaîne locale Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; tests Rust avec
+  `CARGO_PROFILE_RELEASE_LTO=false` (échec de lien du libtest de la chaîne en LTO thin).
+- macOS et Windows : tests IR seulement, exécution non testée.
+
+
+## C2 — dépassement de pile Windows/RISC-V (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT sous QEMU RISC-V, Windows à valider ; revue Claude requise.
+Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
+
+- Windows : SetThreadStackGuarantee(64 Kio), gestionnaire vectorisé avant l'entrée
+  utilisateur, filtrage de 0xC00000FD, sortie directe WriteFile et ExitProcess(101).
+  Les autres exceptions continuent leur recherche.
+- RISC-V : sigaction sans sa_restorer, masque au troisième mot, pile alternative activée.
+- IR 2/2, robustesse 4/4, suite 12/13 à la première exécution (O0/O2 réussis).
+  Migration initialement en échec `Text file busy` (OS 26), puis relance finale isolée
+  réussie 1/1 (1,46 s). Aucun test désactivé ; échec initial conservé dans la PR.
+- Compilations de stack_overflow.nx vers x86_64-windows et riscv64-linux : réussies.
+- QEMU user 8.2.2 installé localement : stack_overflow.nx riscv64-linux exécuté
+  à O0 et O2, sortie exacte `before\n`, message exact attendu sur stderr, code 101.
+- Windows : exécution non testée, pas de Windows/Wine. C6 doit exécuter la suite
+  où stack_overflow est désormais activé. PR en brouillon pour cette validation.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; LTO=false et codegen-units=1 pour contourner
+  les défauts de la chaîne locale. `git diff --check` réussi. macOS dépend de C12.
+
+
+## C3 — pile WebAssembly avant les données (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT ; revue Claude requise.
+Branche `refonte/sol-c3-wasm-stack-first`, base #43 (`a824c76`).
+
+- `link_wasm` passe explicitement `--stack-first` pour WASI et le navigateur.
+- `cargo test --release -p nxc --test web -- --ignored --nocapture` : 1/1 réussi ;
+  contrat navigateur existant et nouveau piège de pile testés à O0/O2 sur WASI/web.
+  Le test vérifie l'adresse des statiques et leurs 16 octets après le piège.
+- `NEXUL_TEST_TARGETS=wasm32-wasi cargo test --release -p nxc --test suite run_programs_cross` :
+  1/1 réussi (suite d'exécution cross complète).
+- LLD 23.1.1 utilise déjà stack-first par défaut ; le drapeau rend cette garantie
+  indépendante du défaut du linker. Un contrôle négatif `--no-stack-first` est refusé
+  par le nouveau test (statiques avant la pile).
+- ABI navigateur et documentation du contrat inchangées. Aucun test nouvellement ignoré.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; `CARGO_PROFILE_RELEASE_LTO=false`,
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` pour contourner les défauts de la chaîne locale.
+
+
+## C5 — runtime embarqué et interruptions (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT sur Cortex-M QEMU, revue Claude requise.
+Branche `refonte/sol-c5-runtime-critical`, base #43.
+
+- Gardes à destruction de portée autour des listes libres, compteurs d'allocation
+  et sorties ; restauration du masque précédent sur chaque retour et appel imbriqué.
+- Cortex-M : PRIMASK ; RISC-V : MIE de mstatus ; AArch64 : DAIF IRQ/FIQ.
+  Assemblage sideeffect et clobber mémoire ; aucune réactivation inconditionnelle.
+- allocation_balance fournit un instantané protégé du compteur pour les cibles sans
+  variables d'environnement ; la fixture vérifie zéro allocation vivante après l'arrêt du timer.
+- `cargo test --release -p nxc --test codegen_ir --test suite -- --test-threads=1` :
+  15/15 après la dernière modification, dont O0/O2 et migration.
+- Dix compilations/liens embarqués O0/O2 réussis sur thumbv7em, thumbv7m,
+  riscv32, riscv64 et aarch64-none. Fixture matérielle Cortex-M uniquement.
+- QEMU 8.2.2 installé localement après un premier essai bloqué par son absence.
+  `python tools/check-runtime-interrupts.py --nxc target/release/nxc --qemu <qemu-system-arm>` :
+  O0 et O2 réussis sur mps2-an386 ; interruptions livrées, 100000 tours du main,
+  checksums main/ISR corrects, zéro allocation vivante, 100 lignes main et lignes IRQ intactes.
+- Limite explicite : cœur unique et interruptions masquables. NMI/fautes et multicœur
+  non couverts ; revue/décision Claude nécessaire sur ces contextes. PR en brouillon
+  pour cette limite de sûreté, sans prétendre à une garantie générale de réentrance.
+- `git diff --check` réussi. Rust 1.99.1, LTO=false, codegen-units=1, LLVM 20.1, LLD 23.1.1.
+
+
+## C8 — clés de registre isolées et erreur 1018 (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation Windows en attente.
+Branche `refonte/sol-c8-registry-tests`, base #43.
+Chaque clé de test combine PID, nanosecondes et compteur atomique.
+RegCreateKeyExW réessaie uniquement ERROR_KEY_DELETED (1018), au maximum 20 fois,
+avec 10 ms entre tentatives : couvre aussi la suppression concurrente du parent
+NEXUL-Tests par un autre test. Les autres erreurs sont rendues immédiatement.
+
+- `cargo check --release -p nexul-installer --target x86_64-pc-windows-msvc
+  --features test-sandbox --tests` : réussi, depuis Linux avec std Windows 1.99.1.
+- `git diff --check` : réussi.
+- Exécution réelle du registre et 20 passages consécutifs : non testés, Windows absent.
+  Critère d'acceptation non satisfait ; PR en brouillon.
+
+
+## C10 — audit scientifique et chemin ASCII (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT pour l'optimisation ASCII, tâche globale partiellement ouverte.
+Branche `refonte/sol-c10-perf-audit`, base #43.
+
+- String.push sépare l'entrée ASCII du traitement multioctet privé ; Vec reste inchangé.
+- P13 à 10 M, 25 répétitions alternées après les compilations : temps chaîne -12,67 %.
+  Premier relevé 9 répétitions : -12,35 % à 10 M, gain non établi à 1 M.
+  Médianes, dispersions et tous les échantillons : `benchmarks/sol/c10-*2026-10-24*`.
+- Noyau scientifique : principalement f64, 3 llvm.sqrt.f64. Contrôles du reste par
+  constante 2 présents O0, repliés par LLVM à O2 ; contrôles de l'addition i64 inconnue
+  toujours présents et panique MAX+1 vérifiée avec position via wasm.
+- Suite/robustesse : 17/17 ; navigateur : 1/1 ; frontières Unicode, littéral, croissance
+  et compteur de fuite O0/O2 : réussis via check-string-push.py.
+- Revue Claude requise pour lib/std/string.nx. Aucun changement de règle, alias,
+  fast-math ou fichier tests/run de Claude.
+- Non terminé : gain vectoriel non démontré, rapport 1,12× C sur Windows non reproduit,
+  100 M et autres cibles non mesurés. PR en brouillon ; rapport causal prudent, pas de
+  conclusion globale NEXUL/C ni sur la libm de la machine d'origine.
+
+
+## C6 — CI Windows appliquée après accord (24/10/2026)
+
+Statut : IMPLÉMENTÉ, accord explicite de l'utilisateur reçu après le premier bilan.
+LLVM 20.1.8 Windows installé et précontrôlé ; suite compilateur release complète.
+Les deux jobs lancent aussi le test navigateur avec --ignored (C4 sinon absent de la CI).
+C7 est conservé comme dépendance de cette PR, sans retirer ses déclencheurs.
+Validation locale du YAML et de son patch réussie ; exécution Actions à suivre dans #52.
+Les tests Windows natifs ne sont pas déclarés réussis avant le résultat des jobs.
+
+
+## C7 — CI des PR empilées (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation Actions après intégration.
+Branche `refonte/sol-c7-stacked-ci`, base #43.
+Le filtre de base des pull_request est retiré ; workflow_dispatch est ajouté.
+Déclenchement push main et jobs Linux/Windows conservés.
+Validation locale : analyse YAML et assertions sur les événements et jobs réussies ;
+`git diff --check` réussi. Exécution GitHub Actions : non testée avant intégration
+(la branche de base ne contient pas encore le nouveau déclenchement).
+C6 reste distinct : aucun changement des chaînes LLVM ou des commandes de tests ici.
+
+
+## Réanalyse après accord C6 — 24/10/2026
+
+Base Core actualisée : #60, 7d72bba (C4, ADR 0012/0014/0015).
+75 tests workspace portable + 1 navigateur réussis sur cette base ; fuzz 40 tours, seed 2410.
+Deux défauts nouveaux reproduits à O0/O2 : export de distinct char/bool sans validation
+de la base ; contrainte f32 acceptée en littéral puis refusée par son propre check.
+Preuves et reproductions : `benchmarks/sol/reanalyse-2026-10-24`.
+
+C6 appliqué après accord utilisateur. Premier run : installation LLVM Windows et job
+Linux réussis ; test foundations en échec sur comparaison de chemin court/canonique.
+Assertion corrigée sans retirer la vérification du chemin complet ; --no-fail-fast activé.
+La branche de validation réunit Core #60 + C1/C2/C3/C5/C6/C7/C8/C10 sans modifier main.
+Résolutions de conflits : ajout des tests IR de chaque branche, conservation de tous les
+paragraphes d'état ; pas de modification sémantique du code de Claude.
+C9 et C11 ont maintenant une revue préalable approuvée (commentaires #53/#54).
+C9 doit réduire le domaine aux locaux suivis et garder un oracle de domaine complet.
+C11 doit utiliser nxc_nir::mono et inclure les conversions vers dyn Error ajoutées par #56.

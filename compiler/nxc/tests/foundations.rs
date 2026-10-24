@@ -132,7 +132,16 @@ fn json_v1_and_version_are_versioned_while_json_v0_stays_unchanged() {
         "{stdout}"
     );
     assert!(stdout.contains("\"path\":"), "{stdout}");
-    assert!(stdout.contains(&nxc_driver::json_str(&source.to_string_lossy())), "{stdout}");
+    // Diagnostics publish a canonical display path. Windows TEMP can use an
+    // 8.3 alias (RUNNER~1), while canonicalize expands it and adds a verbatim prefix.
+    let canonical = std::fs::canonicalize(&source).unwrap();
+    let canonical = canonical.to_string_lossy();
+    let display = if let Some(unc) = canonical.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", unc)
+    } else {
+        canonical.strip_prefix(r"\\?\").unwrap_or(&canonical).to_string()
+    };
+    assert!(stdout.contains(&format!("\"path\":{}", nxc_driver::json_str(&display))), "{stdout}");
     assert!(stdout.contains("\"range\":{"), "{stdout}");
 
     let version = run_nxc(&["version", "--json"], None);

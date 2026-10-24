@@ -992,7 +992,10 @@ impl<'a> Gen<'a> {
         let target = self.opts.target.clone();
         match target.os {
             Os::Windows => {
-                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
+                let _ = write!(self.fn_defs, "define i32 @nx_windows_fault(ptr %exception) nounwind {{\nstart:\n  %r = call i32 {}(ptr %exception)\n  ret i32 %r\n}}\n\n", fault);
+                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr @nx_windows_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n", set_handler, entry_fn, main_ptr);
             }
             Os::Linux | Os::MacOs => {
                 let (set_stack, _) = self.lang_fn("sys_set_stack");
@@ -1331,7 +1334,26 @@ start:
         out.push('\n');
         out.push_str(&self.decls);
         out.push('\n');
-        out.push_str(&self.fn_defs);
+        // Apply this to every definition, including drop glue, ABI shims and compiler
+        // helpers: those can acquire large frames after inlining too. Declarations
+        // and module assembly are deliberately excluded. Windows uses __chkstk.
+        if matches!(self.opts.target.os, Os::Linux | Os::MacOs)
+            && matches!(self.opts.target.arch, Arch::X86_64 | Arch::Aarch64)
+        {
+            for line in self.fn_defs.lines() {
+                if line.starts_with("define ") {
+                    // Function attributes precede debug metadata. All definitions
+                    // have their complete signature on one line, ending in ` {`.
+                    let at = line.find(" !dbg ").unwrap_or_else(|| line.rfind(" {").expect("function header"));
+                    let _ = writeln!(out, "{} #0{}", &line[..at], &line[at..]);
+                } else {
+                    let _ = writeln!(out, "{}", line);
+                }
+            }
+            out.push_str("\nattributes #0 = { \"probe-stack\"=\"inline-asm\" }\n");
+        } else {
+            out.push_str(&self.fn_defs);
+        }
         if let Some(di) = self.di.take() {
             out.push_str(&di.module_tail(&[]));
             out.push_str(&di.defs);
