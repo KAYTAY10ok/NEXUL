@@ -34,3 +34,19 @@ fn linux_programs_install_the_fault_handler() {
         assert!(install < main_call, "{}: the handler must be installed before the program starts:\n{}", target, start);
     }
 }
+
+#[test]
+fn stack_probes_cover_all_generated_functions_on_supported_targets() {
+    let src = "fn deep(n: u64) -> u64 {\n    let buf: [u64; 524288] = [n; 524288]\n    let r = deep(n +% 1)\n    return r ^ buf[(r % 524288) as usize]\n}\nfn main() { println(deep(0)) }\n";
+    for target in ["x86_64-linux", "aarch64-linux", "x86_64-macos", "aarch64-macos", "x86_64-windows", "wasm32-wasi", "thumbv7em-none", "riscv64-linux"] {
+        let ir = ir_for(target, src);
+        let probes = matches!(target, "x86_64-linux" | "aarch64-linux" | "x86_64-macos" | "aarch64-macos");
+        assert_eq!(ir.contains("attributes #0 = { \"probe-stack\"=\"inline-asm\" }"), probes, "{}", target);
+        let headers: Vec<_> = ir.lines().filter(|line| line.starts_with("define ")).collect();
+        assert!(!headers.is_empty());
+        for header in headers {
+            assert_eq!(header.contains(" #0"), probes, "{}: {}", target, header);
+        }
+        assert_eq!(ir, ir_for(target, src), "{}: non-deterministic IR", target);
+    }
+}

@@ -1318,7 +1318,26 @@ start:
         out.push('\n');
         out.push_str(&self.decls);
         out.push('\n');
-        out.push_str(&self.fn_defs);
+        // Apply this to every definition, including drop glue, ABI shims and compiler
+        // helpers: those can acquire large frames after inlining too. Declarations
+        // and module assembly are deliberately excluded. Windows uses __chkstk.
+        if matches!(self.opts.target.os, Os::Linux | Os::MacOs)
+            && matches!(self.opts.target.arch, Arch::X86_64 | Arch::Aarch64)
+        {
+            for line in self.fn_defs.lines() {
+                if line.starts_with("define ") {
+                    // Function attributes precede debug metadata. All definitions
+                    // have their complete signature on one line, ending in ` {`.
+                    let at = line.find(" !dbg ").unwrap_or_else(|| line.rfind(" {").expect("function header"));
+                    let _ = writeln!(out, "{} #0{}", &line[..at], &line[at..]);
+                } else {
+                    let _ = writeln!(out, "{}", line);
+                }
+            }
+            out.push_str("\nattributes #0 = { \"probe-stack\"=\"inline-asm\" }\n");
+        } else {
+            out.push_str(&self.fn_defs);
+        }
         if let Some(di) = self.di.take() {
             out.push_str(&di.module_tail(&[]));
             out.push_str(&di.defs);

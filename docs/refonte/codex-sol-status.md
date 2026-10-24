@@ -157,3 +157,27 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## Mandat C1–C12 — 24 octobre 2026
+
+Base de travail : `a824c76`, sommet de la pile #35–#43 non fusionnée.
+Mandat explicite : `codex-taches-2026-10-24.md`. Codex intervient sur les sous-périmètres
+délégués ; Claude conserve la revue de sûreté et l'utilisateur les fusions.
+
+### C1 — sondes de pile
+
+Statut : TESTÉ_UNITAIREMENT sur Linux x86-64, revue Claude requise avant intégration.
+Une PR `[sol]`, branche `refonte/sol-c1-stack-probes`, basée sur la branche de #43.
+
+- Attribut LLVM sur toutes les définitions générées Linux/macOS x86-64/AArch64,
+  y compris glue, shims et auxiliaires ; Windows conserve sa stratégie `__chkstk`.
+- `cargo test --release -p nxc --test codegen_ir` : 2 réussis.
+- `cargo test --release -p nxc --test suite --test robustness --test foundations --test lsp` :
+  28 réussis (13 + 4 + 6 + 5), 0 échec. Tests d'exécution à O0/O2 inclus.
+- `nxc run tests/run/stack_probe.nx --no-debug` : sortie `before`, panique attendue, code 101.
+- Compilation croisée du test AArch64 Linux réussie ; exécution AArch64 non testée (QEMU absent).
+- Mesures P13 : `benchmarks/sol/c1-probes-2026-10-24.{md,json}`, 9 répétitions, 1 M/10 M.
+- Chaîne locale Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; tests Rust avec
+  `CARGO_PROFILE_RELEASE_LTO=false` (échec de lien du libtest de la chaîne en LTO thin).
+- macOS et Windows : tests IR seulement, exécution non testée.
