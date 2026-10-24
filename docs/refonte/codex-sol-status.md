@@ -159,6 +159,16 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   `tools/build_installer.py` sur Windows avec MSVC.
 
 
+## C6 — CI Windows appliquée après accord (24/10/2026)
+
+Statut : IMPLÉMENTÉ, accord explicite de l'utilisateur reçu après le premier bilan.
+LLVM 20.1.8 Windows installé et précontrôlé ; suite compilateur release complète.
+Les deux jobs lancent aussi le test navigateur avec --ignored (C4 sinon absent de la CI).
+C7 est conservé comme dépendance de cette PR, sans retirer ses déclencheurs.
+Validation locale du YAML et de son patch réussie ; exécution Actions à suivre dans #52.
+Les tests Windows natifs ne sont pas déclarés réussis avant le résultat des jobs.
+
+
 ## C7 — CI des PR empilées (24/10/2026)
 
 Statut : IMPLÉMENTÉ, validation Actions après intégration.
@@ -169,6 +179,11 @@ Validation locale : analyse YAML et assertions sur les événements et jobs réu
 `git diff --check` réussi. Exécution GitHub Actions : non testée avant intégration
 (la branche de base ne contient pas encore le nouveau déclenchement).
 C6 reste distinct : aucun changement des chaînes LLVM ou des commandes de tests ici.
+
+Premier run Actions C6 : Linux réussi ; installation LLVM Windows réussie, mais
+foundations échoue sur le chemin court TEMP comparé au chemin canonique du diagnostic.
+L'assertion conserve la vérification du chemin complet et attend sa forme canonique.
+Aucun test supprimé ni ignoré ; --no-fail-fast permet de collecter toute la suite Windows.
 
 
 ## LSP — diagnostics et alias de chemins (24/10/2026)
