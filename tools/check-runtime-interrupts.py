@@ -22,4 +22,4 @@ with tempfile.TemporaryDirectory(prefix='nexul-irq-') as work:
         assert result.returncode == 0, result
         assert lines.count('main') == 100 and lines.count('irq') >= 1 and lines.count('ok') == 1, lines
         assert all(line in ['main', 'irq', 'ok'] for line in lines), lines
-        print(optimize, 'interrupt delivery, allocation checksums and intact output passed')
+        print(optimize, 'interrupt delivery, allocation checksums, zero live allocations and intact output passed')

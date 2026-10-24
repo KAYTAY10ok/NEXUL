@@ -1,5 +1,6 @@
 // Cortex-M4 mps2-an386: run with tools/check-runtime-interrupts.py.
 import std.mem
+import std.rt
 
 static var COUNT: u32 = 0
 
@@ -39,5 +40,6 @@ fn main() {
         mem.write_volatile(Ptr[u32].from_addr(0xE000E010), 0)
         if mem.read_volatile(mem.addr_of(&COUNT)) == 0 { panic("no interrupt delivered") }
     }
+    if rt.allocation_balance() != 0 { panic("interrupt allocation leaked") }
     println("ok")
 }

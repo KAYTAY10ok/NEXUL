@@ -34,6 +34,13 @@ pub unsafe fn critical_section() {}
 /// verify that every value is destroyed exactly once).
 static var LIVE_ALLOCATIONS: i64 = 0
 
+/// Internal runtime diagnostics, also usable on targets without environment
+/// variables (where NEXUL_LEAK_CHECK cannot be set). Take a consistent snapshot.
+pub fn allocation_balance() -> i64 {
+    let _critical = unsafe { critical_section() }
+    return unsafe { LIVE_ALLOCATIONS }
+}
+
 @cold
 fn out_of_memory() -> Never {
     unsafe {
