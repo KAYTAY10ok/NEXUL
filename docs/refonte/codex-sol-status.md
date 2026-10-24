@@ -157,3 +157,15 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C7 — CI des PR empilées (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation Actions après intégration.
+Branche `refonte/sol-c7-stacked-ci`, base #43.
+Le filtre de base des pull_request est retiré ; workflow_dispatch est ajouté.
+Déclenchement push main et jobs Linux/Windows conservés.
+Validation locale : analyse YAML et assertions sur les événements et jobs réussies ;
+`git diff --check` réussi. Exécution GitHub Actions : non testée avant intégration
+(la branche de base ne contient pas encore le nouveau déclenchement).
+C6 reste distinct : aucun changement des chaînes LLVM ou des commandes de tests ici.
