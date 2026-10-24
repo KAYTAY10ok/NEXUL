@@ -161,26 +161,20 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 
 ## C2 — dépassement de pile Windows/RISC-V (24/10/2026)
 
-Statut : IMPLÉMENTÉ, revue Claude et validation native requises.
+Statut : TESTÉ_UNITAIREMENT sous QEMU RISC-V, Windows à valider ; revue Claude requise.
 Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
 
 - Windows : SetThreadStackGuarantee(64 Kio), gestionnaire vectorisé avant l'entrée
   utilisateur, filtrage de 0xC00000FD, sortie directe WriteFile et ExitProcess(101).
   Les autres exceptions continuent leur recherche.
 - RISC-V : sigaction sans sa_restorer, masque au troisième mot, pile alternative activée.
-- `cargo test --release -p nxc --test codegen_ir --test suite --test robustness` :
-  IR 2/2, robustesse 4/4, suite 12/13 (O0/O2 réussis). Le test de migration
-  échoue à lancer un binaire avec `Text file busy` (OS 26), également lors de sa relance isolée.
-  Cet échec n'est ni ignoré ni déclaré réussi.
-- Compilations réelles `stack_overflow.nx` vers x86_64-windows et riscv64-linux : réussies.
-- Windows/RISC-V : exécution non testée (pas de Windows/Wine ni de QEMU).
-  C6 doit exécuter la suite Windows, où stack_overflow est désormais activé.
-- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; `CARGO_PROFILE_RELEASE_LTO=false`,
-  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` (la chaîne locale a aussi produit des objets vides
-  avec plusieurs unités ; la compilation à une unité réussit). `git diff --check` : réussi.
-- macOS : dépend de C12, inchangé.
-
-Sources ABI vérifiées : documentation Microsoft SetThreadStackGuarantee ;
-Linux `include/uapi/asm-generic/signal.h` (champ restorer conditionnel).
-
-Relance finale après les autres compilations : `cargo test --release -p nxc --test suite migrated_programs_behave_the_same -- --test-threads=1` : 1/1 réussi (1,46 s). Les échecs OS 26 précédents restent consignés ; non reproductibles lors de cette dernière relance. La PR reste en brouillon pour la validation Windows/RISC-V manquante.
+- IR 2/2, robustesse 4/4, suite 12/13 à la première exécution (O0/O2 réussis).
+  Migration initialement en échec `Text file busy` (OS 26), puis relance finale isolée
+  réussie 1/1 (1,46 s). Aucun test désactivé ; échec initial conservé dans la PR.
+- Compilations de stack_overflow.nx vers x86_64-windows et riscv64-linux : réussies.
+- QEMU user 8.2.2 installé localement : stack_overflow.nx riscv64-linux exécuté
+  à O0 et O2, sortie exacte `before\n`, message exact attendu sur stderr, code 101.
+- Windows : exécution non testée, pas de Windows/Wine. C6 doit exécuter la suite
+  où stack_overflow est désormais activé. PR en brouillon pour cette validation.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; LTO=false et codegen-units=1 pour contourner
+  les défauts de la chaîne locale. `git diff --check` réussi. macOS dépend de C12.
