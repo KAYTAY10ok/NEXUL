@@ -182,3 +182,5 @@ Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
 
 Sources ABI vérifiées : documentation Microsoft SetThreadStackGuarantee ;
 Linux `include/uapi/asm-generic/signal.h` (champ restorer conditionnel).
+
+Relance finale après les autres compilations : `cargo test --release -p nxc --test suite migrated_programs_behave_the_same -- --test-threads=1` : 1/1 réussi (1,46 s). Les échecs OS 26 précédents restent consignés ; non reproductibles lors de cette dernière relance. La PR reste en brouillon pour la validation Windows/RISC-V manquante.
