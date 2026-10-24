@@ -324,3 +324,14 @@ paragraphes d'état ; pas de modification sémantique du code de Claude.
 C9 et C11 ont maintenant une revue préalable approuvée (commentaires #53/#54).
 C9 doit réduire le domaine aux locaux suivis et garder un oracle de domaine complet.
 C11 doit utiliser nxc_nir::mono et inclure les conversions vers dyn Error ajoutées par #56.
+
+
+## Réanalyse — correctif LSP et preuves publiées
+
+Rapport : sol-reanalyse-2026-10-24.md. Deux P1 Core reproduits O0/O2.
+Correction LSP #62 : six tests Linux passent, alias physique conservé pour les
+diagnostics et le manifeste. Les deux anciens tests Windows restent actifs.
+C6 #52 dépend désormais de #62 ; relance Actions en cours.
+C7 déjà vérifié : run 40124607293, Linux et Windows réussis.
+Les 20 répétitions C8 sont ajoutées à la branche de validation #61 ; leur
+réussite ne sera déclarée qu'après consultation du journal Windows.
