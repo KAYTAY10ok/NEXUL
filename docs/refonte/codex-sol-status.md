@@ -166,3 +166,13 @@ Branche `refonte/sol-c6-ci-proposal`. YAML et patch exacts dans `docs/refonte/pr
 Installation LLVM 20.1.8 avec C API, précontrôle des outils et tests complets release
 Windows ; tests Linux workspace en release. Analyse YAML et diff check réussis.
 Aucune exécution Windows/Actions déclarée. Le workflow actif reste inchangé.
+
+
+## C9 — proposition et référence d'analyse (24/10/2026)
+
+Statut : CONÇU, revue Claude obligatoire avant ownership.rs.
+Proposition : `proposals/sol-c9-ownership.md`. Bitsets persistants par pages,
+validation par oracle dense, diagnostics et destructions inchangés.
+20 000 if : médiane locale 5,307 s (3 essais, machine partagée). 50 000 bras :
+SIGKILL à 27,126 s, cause non établie. Aucun objectif de temps atteint ou revendiqué.
+Données brutes conservées. Aucun code sémantique modifié ; `git diff --check` réussi.
