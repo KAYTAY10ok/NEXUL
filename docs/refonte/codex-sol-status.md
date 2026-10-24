@@ -157,3 +157,19 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C8 — clés de registre isolées et erreur 1018 (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation Windows en attente.
+Branche `refonte/sol-c8-registry-tests`, base #43.
+Chaque clé de test combine PID, nanosecondes et compteur atomique.
+RegCreateKeyExW réessaie uniquement ERROR_KEY_DELETED (1018), au maximum 20 fois,
+avec 10 ms entre tentatives : couvre aussi la suppression concurrente du parent
+NEXUL-Tests par un autre test. Les autres erreurs sont rendues immédiatement.
+
+- `cargo check --release -p nexul-installer --target x86_64-pc-windows-msvc
+  --features test-sandbox --tests` : réussi, depuis Linux avec std Windows 1.99.1.
+- `git diff --check` : réussi.
+- Exécution réelle du registre et 20 passages consécutifs : non testés, Windows absent.
+  Critère d'acceptation non satisfait ; PR en brouillon.
