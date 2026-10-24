@@ -1,0 +1,43 @@
+// Cortex-M4 mps2-an386: run with tools/check-runtime-interrupts.py.
+import std.mem
+
+static var COUNT: u32 = 0
+
+fn allocate(n: u64) -> u64 {
+    var v: Vec[u64] = Vec.with_capacity(64)
+    for i in 0..(64 as u64) {
+        v.push(n + i)
+    }
+    var sum: u64 = 0
+    for x in v { sum += x }
+    return sum
+}
+
+@export("SysTick_Handler")
+pub fn systick() {
+    let result = allocate(7)
+    if result != 2464 { panic("interrupt allocation corrupted") }
+    unsafe {
+        let n = mem.read_volatile(mem.addr_of(&COUNT))
+        mem.write_volatile(mem.addr_of(&COUNT), n + 1)
+        if n < 4 { println("irq") }
+    }
+}
+
+fn main() {
+    unsafe {
+        // Architectural SysTick reload/current/control registers, Cortex-M only.
+        mem.write_volatile(Ptr[u32].from_addr(0xE000E014), 9999)
+        mem.write_volatile(Ptr[u32].from_addr(0xE000E018), 0)
+        mem.write_volatile(Ptr[u32].from_addr(0xE000E010), 7)
+    }
+    for i in 0..(100000 as u64) {
+        if allocate(i) != 64 * i + 2016 { panic("main allocation corrupted") }
+        if i % 1000 == 0 { println("main") }
+    }
+    unsafe {
+        mem.write_volatile(Ptr[u32].from_addr(0xE000E010), 0)
+        if mem.read_volatile(mem.addr_of(&COUNT)) == 0 { panic("no interrupt delivered") }
+    }
+    println("ok")
+}

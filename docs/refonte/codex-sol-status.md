@@ -157,3 +157,28 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C5 — runtime embarqué et interruptions (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation QEMU et revue Claude BLOQUÉES.
+Branche `refonte/sol-c5-runtime-critical`, base #43.
+
+- Gardes à destruction de portée autour des listes libres, compteurs d'allocation
+  et tampon de sortie ; restauration du masque précédent sur chaque retour, y compris
+  imbrication alloc/realloc/flush. Pas de réactivation inconditionnelle.
+- Cortex-M : PRIMASK ; RISC-V : MIE dans mstatus ; AArch64 : DAIF (IRQ/FIQ).
+  Assemblage sideeffect et clobber mémoire pour interdire le déplacement des accès.
+- Limite explicite : cœur unique, interruptions masquables. NMI/fautes et multicœur
+  ne sont pas couverts ; la restriction d'appels sûrs depuis ces contextes nécessite
+  une décision/revue de Claude. Aucune garantie générale de réentrance revendiquée.
+- `cargo test --release -p nxc --test codegen_ir --test suite -- --test-threads=1` :
+  15 réussis (2 IR + 13 suite), dont programmes O0/O2 et migration.
+- Fixture SysTick compilée à O0/O2 vers thumbv7em, thumbv7m, riscv32, riscv64 et
+  aarch64-none (10 compilations/liens réussis). Seule l'exécution Cortex-M est prévue
+  par la fixture ; les autres liens vérifient les intrinsèques, pas le matériel.
+- `python tools/check-runtime-interrupts.py --nxc target/release/nxc` : BLOQUÉ,
+  `qemu-system-arm` absent. Le script échoue explicitement quand l'outil manque ;
+  aucune exécution QEMU, absence de corruption ou de fuite déclarée.
+- `git diff --check` et syntaxe Python réussis. Profil Rust release avec LTO=false,
+  codegen-units=1, LLVM 20.1, LLD 23.1.1. PR en brouillon.
