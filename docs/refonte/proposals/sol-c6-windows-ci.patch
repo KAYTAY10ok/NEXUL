@@ -1,22 +1,33 @@
 --- a/.github/workflows/rust.yml
 +++ b/.github/workflows/rust.yml
-@@ -17,12 +17,30 @@
+@@ -17,12 +17,43 @@
      - name: Build
        run: cargo build --workspace --exclude nexul-installer --verbose
      - name: Run tests
 -      run: cargo test --workspace --exclude nexul-installer --verbose
 +      run: cargo test --release --workspace --exclude nexul-installer --verbose
++    - name: Run browser ABI tests (including export validation)
++      run: cargo test --release -p nxc --test web -- --ignored
  
    windows:
      runs-on: windows-latest
      steps:
      - uses: actions/checkout@v4
 +    - name: Install LLVM 20.1.8 (including the C API library)
-+      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
-+      with:
-+        version: "20.1.8"
-+        directory: ${{ runner.temp }}/llvm
-+        force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz
++      shell: pwsh
++      run: |
++        $ProgressPreference = 'SilentlyContinue'
++        $archive = Join-Path $env:RUNNER_TEMP 'llvm-20.1.8.tar.xz'
++        $llvm = Join-Path $env:RUNNER_TEMP 'llvm'
++        Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile $archive
++        $expected = 'f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f'
++        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'LLVM archive checksum mismatch' }
++        New-Item -ItemType Directory -Force $llvm | Out-Null
++        & "$env:WINDIR/System32/tar.exe" -xf $archive -C $llvm --strip-components 1
++        if ($LASTEXITCODE -ne 0) { throw 'LLVM archive extraction failed' }
++        Remove-Item $archive
++        "LLVM_PATH=$llvm" >> $env:GITHUB_ENV
++        "$llvm/bin" >> $env:GITHUB_PATH
 +    - name: Verify LLVM and configure nxc
 +      shell: pwsh
 +      run: |
@@ -29,6 +40,8 @@
 +        if ($LASTEXITCODE -ne 0) { throw "lld-link failed" }
 +    - name: Run the complete compiler tests (O0 and O2 programs)
 +      run: cargo test --release -p nxc --verbose
++    - name: Run browser ABI tests (including export validation)
++      run: cargo test --release -p nxc --test web -- --ignored
      - name: Build
        run: cargo build --workspace --verbose
      - name: Run installer tests in a sandbox

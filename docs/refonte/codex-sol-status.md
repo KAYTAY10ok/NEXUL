@@ -159,10 +159,23 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   `tools/build_installer.py` sur Windows avec MSVC.
 
 
-## C6 — proposition Windows prête (24/10/2026)
+## C6 — CI Windows appliquée après accord (24/10/2026)
 
-Statut : CONÇU, accord utilisateur requis par le mandat avant modification de `.github/**`.
-Branche `refonte/sol-c6-ci-proposal`. YAML et patch exacts dans `docs/refonte/proposals/sol-c6-*`.
-Installation LLVM 20.1.8 avec C API, précontrôle des outils et tests complets release
-Windows ; tests Linux workspace en release. Analyse YAML et diff check réussis.
-Aucune exécution Windows/Actions déclarée. Le workflow actif reste inchangé.
+Statut : IMPLÉMENTÉ, accord explicite de l'utilisateur reçu après le premier bilan.
+LLVM 20.1.8 Windows installé et précontrôlé ; suite compilateur release complète.
+Les deux jobs lancent aussi le test navigateur avec --ignored (C4 sinon absent de la CI).
+C7 est conservé comme dépendance de cette PR, sans retirer ses déclencheurs.
+Validation locale du YAML et de son patch réussie ; exécution Actions à suivre dans #52.
+Les tests Windows natifs ne sont pas déclarés réussis avant le résultat des jobs.
+
+
+## C7 — CI des PR empilées (24/10/2026)
+
+Statut : IMPLÉMENTÉ, validation Actions après intégration.
+Branche `refonte/sol-c7-stacked-ci`, base #43.
+Le filtre de base des pull_request est retiré ; workflow_dispatch est ajouté.
+Déclenchement push main et jobs Linux/Windows conservés.
+Validation locale : analyse YAML et assertions sur les événements et jobs réussies ;
+`git diff --check` réussi. Exécution GitHub Actions : non testée avant intégration
+(la branche de base ne contient pas encore le nouveau déclenchement).
+C6 reste distinct : aucun changement des chaînes LLVM ou des commandes de tests ici.
