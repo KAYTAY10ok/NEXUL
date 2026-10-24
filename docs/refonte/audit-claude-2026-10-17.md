@@ -410,3 +410,16 @@ standard tamponnée.
   ne correspond pas donne E0220 comme pour les autres modules
   (`tests/ui/root_module_declaration.nx`). Une déclaration conforme reste acceptée.
 
+
+## 14. Lot 10 (24/10, branche `refonte/core-try-deplacement`) — `?` sur une place empruntée
+
+- **Défaut démontré (sûreté mémoire)** : `?` lisait son opérande sans le prendre. `r?` sur
+  un paramètre emprunté, `s.f?` ou `v[i]?` déplaçaient donc une ressource hors d'une place
+  que la fonction ne possédait pas : la valeur était détruite deux fois (par la fonction,
+  puis par son propriétaire). Les quatre fonctions de `tests/ui/try_moves.nx` étaient
+  acceptées sans erreur.
+- **Correction** : `x?` est une position de déplacement (`compiler/nxc_sema/src/places.rs`),
+  comme `let v = x`. Une place empruntée, un champ ou un élément donnent E0403 (avec
+  l'aide `.take()` pour un `Option`) ; un paramètre `owned`, une variable locale, un appel
+  ou une charge utile `Copy` restent acceptés. Un second `r?` après le premier donne E0402.
+- **Test** : `tests/ui/try_moves.nx` (cas refusés et cas acceptés).

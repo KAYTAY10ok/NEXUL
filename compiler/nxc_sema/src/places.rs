@@ -502,7 +502,14 @@ impl<'a> Cx<'a> {
         }
         match &e.kind {
             T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
-            T::Unary(_, x) | T::Field(x, _) | T::Cast(x) | T::Try(x, _) => self.expr(x),
+            T::Unary(_, x) | T::Field(x, _) | T::Cast(x) => self.expr(x),
+            // `x?` takes the value of `x` (its payload or its error leaves it): `x` is in an
+            // owned position. Only checked as a read, `r?` on a borrowed parameter, `s.f?` or
+            // `v[i]?` moved a resource out of a place they did not own (double destruction).
+            T::Try(x, _) => {
+                self.expr(x);
+                self.consume(x);
+            }
             T::ArrayRepeat(x, _) => {
                 self.expr(x);
             }

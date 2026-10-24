@@ -1,0 +1,34 @@
+error[E0403]: cannot move out of `r`, which is borrowed
+ --> try_moves.nx:7:13
+  |
+7 |     let v = r?
+  |             ^ `Result[String, String]` is a resource and only a borrowed view is available here
+  |
+  = help: take ownership with `owned r: ...`, or copy the value
+
+error[E0403]: cannot move field `r` of `s` out of its place
+  --> try_moves.nx:12:13
+   |
+12 |     let v = s.r?
+   |             ^^^ `Result[String, String]` is a resource: moving it would leave a hole
+   |
+   = note: only a whole variable can be moved; a field or an element stays where it is
+
+error[E0403]: cannot move field `r` of `s` out of its place
+  --> try_moves.nx:17:13
+   |
+17 |     let v = s.r?
+   |             ^^^ `Result[String, String]` is a resource: moving it would leave a hole
+   |
+   = note: only a whole variable can be moved; a field or an element stays where it is
+
+error[E0403]: cannot move an element of `v` out of its place
+  --> try_moves.nx:22:13
+   |
+22 |     let x = v[0]?
+   |             ^^^^ `Option[String]` is a resource: moving it would leave a hole
+   |
+   = note: only a whole variable can be moved; a field or an element stays where it is
+   = help: use `.take()` to move the value out and leave `None`
+
+error: could not compile due to 4 errors

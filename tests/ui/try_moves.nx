@@ -1,0 +1,41 @@
+// `?` takes the value of its operand: like any move, the operand must be a
+// variable the function owns. Before, `r?` on a borrowed parameter, `s.f?` or
+// `v[i]?` moved a resource out of a place the function did not own.
+struct S { r: Result[String, String] }
+
+fn borrowed_param(r: Result[String, String]) -> Result[String, String] {
+    let v = r?
+    return Ok(v)
+}
+
+fn borrowed_field(s: S) -> Result[String, String] {
+    let v = s.r?
+    return Ok(v)
+}
+
+fn inout_field(inout s: S) -> Result[String, String] {
+    let v = s.r?
+    return Ok(v)
+}
+
+fn element(v: Vec[Option[String]]) -> Option[String] {
+    let x = v[0]?
+    return Some(x)
+}
+
+fn owned_param(owned r: Result[String, String]) -> Result[String, String] {
+    let v = r?
+    return Ok(v)
+}
+
+fn copy_payload(o: Option[i32]) -> Option[i32] {
+    let v = o?
+    return Some(v + 1)
+}
+
+fn call_result() -> Result[String, String] {
+    let v = owned_param(Ok("a"))?
+    return Ok(v)
+}
+
+fn main() {}
