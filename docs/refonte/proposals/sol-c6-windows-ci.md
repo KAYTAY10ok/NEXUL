@@ -1,0 +1,27 @@
+# C6 — proposition de CI Windows
+
+Statut : CONÇU, accord utilisateur attendu avant application à `.github/**`.
+
+Le mandat C6 dit : « C'est un fichier transversal : demandez l'accord de l'utilisateur. »
+Le workflow actif n'est pas modifié dans cette PR. La proposition exacte est dans
+`sol-c6-rust.yml` et le diff applicable dans `sol-c6-windows-ci.patch`.
+
+- Windows installe LLVM 20.1.8, archive complète officielle (bibliothèque C incluse,
+  environ 940 Mo), avec install-llvm-action v2.0.9 figée par SHA.
+- Le précontrôle exige LLVM-C.dll, lld-link.exe et wasm-ld.exe ; il échoue si un outil
+  manque. NEXUL_LLVM désigne explicitement cette chaîne.
+- Windows lance `cargo test --release -p nxc` : diagnostics, robustesse, migration,
+  exécution normale et optimisée ; les tests existants de l'installateur et de Studio restent.
+- Linux conserve son workspace sans l'installateur Windows et passe ses tests en release.
+- C7 reste indépendant : conserver ses déclencheurs lors de l'application du patch.
+
+Validation locale : YAML analysé, commandes des deux jobs vérifiées, `git diff --check`
+réussi. Validation Windows et exécution Actions : non testées. Aucun test désactivé.
+
+La version et le nom de l'archive sont vérifiés dans l'API officielle de la release
+llvmorg-20.1.8 ; SHA-256 publié :
+`f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f`.
+
+Après accord : appliquer le patch, faire lancer les deux jobs par C7, intégrer C2 puis
+exécuter stack_overflow sous Windows. C8 doit aussi passer 20 fois sur Windows avant
+sa sortie de brouillon ; ce résultat n'est pas acquis par la seule installation d'LLVM.

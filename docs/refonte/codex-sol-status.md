@@ -157,3 +157,12 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C6 — proposition Windows prête (24/10/2026)
+
+Statut : CONÇU, accord utilisateur requis par le mandat avant modification de `.github/**`.
+Branche `refonte/sol-c6-ci-proposal`. YAML et patch exacts dans `docs/refonte/proposals/sol-c6-*`.
+Installation LLVM 20.1.8 avec C API, précontrôle des outils et tests complets release
+Windows ; tests Linux workspace en release. Analyse YAML et diff check réussis.
+Aucune exécution Windows/Actions déclarée. Le workflow actif reste inchangé.

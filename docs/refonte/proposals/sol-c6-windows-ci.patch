@@ -1,0 +1,34 @@
+--- a/.github/workflows/rust.yml
++++ b/.github/workflows/rust.yml
+@@ -17,12 +17,30 @@
+     - name: Build
+       run: cargo build --workspace --exclude nexul-installer --verbose
+     - name: Run tests
+-      run: cargo test --workspace --exclude nexul-installer --verbose
++      run: cargo test --release --workspace --exclude nexul-installer --verbose
+ 
+   windows:
+     runs-on: windows-latest
+     steps:
+     - uses: actions/checkout@v4
++    - name: Install LLVM 20.1.8 (including the C API library)
++      uses: KyleMayes/install-llvm-action@ebc0426251bc40c7cd31162802432c68818ab8f0 # v2.0.9
++      with:
++        version: "20.1.8"
++        directory: ${{ runner.temp }}/llvm
++        force-url: https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz
++    - name: Verify LLVM and configure nxc
++      shell: pwsh
++      run: |
++        $llvm = $env:LLVM_PATH
++        foreach ($file in @("LLVM-C.dll", "lld-link.exe", "wasm-ld.exe")) {
++          if (!(Test-Path (Join-Path $llvm "bin/$file"))) { throw "LLVM tool missing: $file" }
++        }
++        "NEXUL_LLVM=$llvm" >> $env:GITHUB_ENV
++        & (Join-Path $llvm "bin/lld-link.exe") --version
++        if ($LASTEXITCODE -ne 0) { throw "lld-link failed" }
++    - name: Run the complete compiler tests (O0 and O2 programs)
++      run: cargo test --release -p nxc --verbose
+     - name: Build
+       run: cargo build --workspace --verbose
+     - name: Run installer tests in a sandbox
