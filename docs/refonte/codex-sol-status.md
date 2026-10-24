@@ -179,3 +179,8 @@ Validation locale : analyse YAML et assertions sur les événements et jobs réu
 `git diff --check` réussi. Exécution GitHub Actions : non testée avant intégration
 (la branche de base ne contient pas encore le nouveau déclenchement).
 C6 reste distinct : aucun changement des chaînes LLVM ou des commandes de tests ici.
+
+Premier run Actions C6 : Linux réussi ; installation LLVM Windows réussie, mais
+foundations échoue sur le chemin court TEMP comparé au chemin canonique du diagnostic.
+L'assertion conserve la vérification du chemin complet et attend sa forme canonique.
+Aucun test supprimé ni ignoré ; --no-fail-fast permet de collecter toute la suite Windows.
