@@ -1,0 +1,5 @@
+// The root file may declare its module, but only with the name of its file (spec §6.1).
+module autre.nom
+
+fn main() {
+}

@@ -370,12 +370,12 @@ E0900). Les fils de la suite compilent sur une pile de 256 Mio, comme `nxc` (K6.
 
 Défauts vus en écrivant ces tests (lus et reproduits, non corrigés, pour Codex) :
 
-- **D4, erreurs en double** : `privacy.secret()` sur une fonction privée donne E0227
-  **et** E0222 pour la même faute (spec §7.4 : pas d'erreur en cascade) ; voir
-  `tests/ui/privacy_modules.stderr`.
-- **D5, `module` du fichier racine non vérifié** : une déclaration `module autre.nom` dans
-  le fichier passé à `nxc` est acceptée sans E0220, contrairement à la spec §6.1 (un
-  module importé est bien vérifié : `tests/ui/module_declaration.nx`).
+- **D4, erreurs en double** (**corrigé au lot 9**) : `privacy.secret()` sur une fonction
+  privée donnait E0227 **et** E0222 pour la même faute (spec §7.4 : pas d'erreur en
+  cascade).
+- **D5, `module` du fichier racine non vérifié** (**corrigé au lot 9**) : une déclaration
+  `module autre.nom` dans le fichier passé à `nxc` était acceptée sans E0220, contrairement
+  à la spec §6.1.
 
 ## 12. Lot 8 (18/10, branche `refonte/core-pile-linux`) — dépassement de pile sur Linux
 
@@ -399,4 +399,14 @@ standard tamponnée.
   la pile des futurs threads devra installer sa propre pile de secours (ADR 0013) ; si
   la limite de pile est infinie (`ulimit -s unlimited`), la faute n'est pas reconnue et
   le comportement reste celui du système.
+
+## 13. Lot 9 (24/10, branche `refonte/core-diagnostics-d4-d5`) — D4 et D5
+
+- **D4** : une fonction libre privée d'un autre module n'est plus signalée qu'une fois,
+  là où son nom est cherché (E0222, chemin `module.f` ou `import`). E0227 reste pour les
+  méthodes et fonctions associées privées, que la recherche dans un module ne voit pas
+  (`tests/ui/privacy_modules.nx` couvre maintenant une méthode privée).
+- **D5** : le module racine porte le nom de son fichier ; une déclaration `module` qui
+  ne correspond pas donne E0220 comme pour les autres modules
+  (`tests/ui/root_module_declaration.nx`). Une déclaration conforme reste acceptée.
 

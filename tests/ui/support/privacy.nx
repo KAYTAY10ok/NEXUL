@@ -15,3 +15,9 @@ fn secret() -> i32 {
 pub fn open(owned owner: String) -> Account {
     return Account(owner: owner, balance: 0)
 }
+
+impl Account {
+    fn audit(self) -> i64 {
+        return self.balance
+    }
+}

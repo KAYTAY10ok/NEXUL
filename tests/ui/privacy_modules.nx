@@ -14,7 +14,9 @@ impl privacy.Describe for othermod.Shape {
 
 fn main() {
     let a = open("Ada")
-    // A private field (E0226) and a private function (E0227) of another module.
+    // A private field (E0226), a private method (E0227) and a private function (E0222,
+    // reported once) of another module.
     println(a.balance)
+    println(a.audit())
     println(privacy.secret())
 }

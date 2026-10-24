@@ -219,10 +219,19 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "main".into());
-    let root_path = match &root_ast.decl {
-        Some((p, _)) => p.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join("."),
-        None => stem,
-    };
+    // The root module is named by its file (spec §6.1); a `module` declaration documents
+    // that name and cannot change it (E0220, as for the other modules).
+    if let Some((decl, dspan)) = &root_ast.decl {
+        let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+        if declared != stem {
+            diags.emit(
+                Diagnostic::error("E0220", format!("module declaration `{}` does not match the file path", declared))
+                    .primary(*dspan, format!("this file is module `{}`", stem))
+                    .help(format!("write `module {}` or remove the declaration", stem)),
+            );
+        }
+    }
+    let root_path = stem;
     let root = ModId(0);
     prog.modules.push(ModuleInfo {
         path: root_path.clone(),

@@ -678,9 +678,10 @@ impl<'a> FnCtxt<'a> {
             let what = if fd.is_extern() { format!("calling the external function `{}`", fd.name) } else { format!("calling the unsafe function `{}`", fd.name) };
             self.require_unsafe(span, &what);
         }
-        if !fd.is_pub && fd.module != self.module && fd.owner.is_none() {
-            self.err(Diagnostic::error("E0227", format!("function `{}` is private", fd.name)).primary(span, "private function"));
-        }
+        // A private free function of another module is reported where its name is looked
+        // up (E0222: `module.f` or an `import`); reporting E0227 here as well gave two
+        // errors for one mistake (spec §7.4). Methods and associated functions, which the
+        // lookup in a module does not see, are checked where they are resolved (E0227).
         let mut out = Vec::new();
         let params: Vec<(Convention, Ty, String)> = fd.params.iter().map(|p| (p.conv, tcx.subst(p.ty, &targs), p.name.clone())).collect();
         let mut param_iter = params.iter();

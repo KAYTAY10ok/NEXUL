@@ -1,0 +1,9 @@
+error[E0220]: module declaration `autre.nom` does not match the file path
+ --> root_module_declaration.nx:2:1
+  |
+2 | module autre.nom
+  | ^^^^^^^^^^^^^^^^ this file is module `root_module_declaration`
+  |
+  = help: write `module root_module_declaration` or remove the declaration
+
+error: could not compile due to 1 error

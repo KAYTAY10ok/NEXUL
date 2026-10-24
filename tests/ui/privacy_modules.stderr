@@ -13,25 +13,29 @@ error[E0247]: `impl Describe for Shape` must be in the module of the trait or of
   = note: this rule guarantees that a type implements a trait at most once in a program
 
 error[E0226]: field `balance` of `Account` is private
-  --> privacy_modules.nx:18:15
+  --> privacy_modules.nx:19:15
    |
-18 |     println(a.balance)
+19 |     println(a.balance)
    |               ^^^^^^^ private field
   --> support/privacy.nx:4:5
    |
  4 |     balance: i64
    |     ------- declared here without `pub`
 
-error[E0227]: function `secret` is private
-  --> privacy_modules.nx:19:13
+error[E0227]: method `audit` of `Account` is private
+  --> privacy_modules.nx:20:15
    |
-19 |     println(privacy.secret())
-   |             ^^^^^^^^^^^^^^^^ private function
+20 |     println(a.audit())
+   |               ^^^^^ private method
+  --> support/privacy.nx:20:8
+   |
+20 |     fn audit(self) -> i64 {
+   |        ----- declared here without `pub`
 
 error[E0222]: `secret` is private to module `support.privacy`
-  --> privacy_modules.nx:19:21
+  --> privacy_modules.nx:21:21
    |
-19 |     println(privacy.secret())
+21 |     println(privacy.secret())
    |                     ^^^^^^ private item
    |
    = help: mark it `pub` in `support.privacy` to use it here
