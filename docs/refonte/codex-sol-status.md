@@ -157,3 +157,28 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C5 — runtime embarqué et interruptions (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT sur Cortex-M QEMU, revue Claude requise.
+Branche `refonte/sol-c5-runtime-critical`, base #43.
+
+- Gardes à destruction de portée autour des listes libres, compteurs d'allocation
+  et sorties ; restauration du masque précédent sur chaque retour et appel imbriqué.
+- Cortex-M : PRIMASK ; RISC-V : MIE de mstatus ; AArch64 : DAIF IRQ/FIQ.
+  Assemblage sideeffect et clobber mémoire ; aucune réactivation inconditionnelle.
+- allocation_balance fournit un instantané protégé du compteur pour les cibles sans
+  variables d'environnement ; la fixture vérifie zéro allocation vivante après l'arrêt du timer.
+- `cargo test --release -p nxc --test codegen_ir --test suite -- --test-threads=1` :
+  15/15 après la dernière modification, dont O0/O2 et migration.
+- Dix compilations/liens embarqués O0/O2 réussis sur thumbv7em, thumbv7m,
+  riscv32, riscv64 et aarch64-none. Fixture matérielle Cortex-M uniquement.
+- QEMU 8.2.2 installé localement après un premier essai bloqué par son absence.
+  `python tools/check-runtime-interrupts.py --nxc target/release/nxc --qemu <qemu-system-arm>` :
+  O0 et O2 réussis sur mps2-an386 ; interruptions livrées, 100000 tours du main,
+  checksums main/ISR corrects, zéro allocation vivante, 100 lignes main et lignes IRQ intactes.
+- Limite explicite : cœur unique et interruptions masquables. NMI/fautes et multicœur
+  non couverts ; revue/décision Claude nécessaire sur ces contextes. PR en brouillon
+  pour cette limite de sûreté, sans prétendre à une garantie générale de réentrance.
+- `git diff --check` réussi. Rust 1.99.1, LTO=false, codegen-units=1, LLVM 20.1, LLD 23.1.1.
