@@ -176,7 +176,7 @@ Une PR `[sol]`, branche `refonte/sol-c1-stack-probes`, basée sur la branche de 
 - `cargo test --release -p nxc --test suite --test robustness --test foundations --test lsp` :
   28 réussis (13 + 4 + 6 + 5), 0 échec. Tests d'exécution à O0/O2 inclus.
 - `nxc run tests/run/stack_probe.nx --no-debug` : sortie `before`, panique attendue, code 101.
-- Compilation croisée du test AArch64 Linux réussie ; exécution AArch64 non testée (QEMU absent).
+- Compilation croisée AArch64 Linux réussie ; exécution du binaire O0 sous QEMU user 8.2.2 réussie : before, panique exacte et code 101. O2 AArch64 non testé.
 - Mesures P13 : `benchmarks/sol/c1-probes-2026-10-24.{md,json}`, 9 répétitions, 1 M/10 M.
 - Chaîne locale Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; tests Rust avec
   `CARGO_PROFILE_RELEASE_LTO=false` (échec de lien du libtest de la chaîne en LTO thin).
