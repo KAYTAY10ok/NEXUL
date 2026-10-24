@@ -185,3 +185,11 @@ Proposition : `proposals/sol-c11-monomorphic-nir.md`. Types concrets et tables d
 symboliques hors LLVM ; nommage paresseux préservé pour l'identité à l'octet.
 Aucun code extrait. Matrice d'équivalence future explicitée, non exécutée/non revendiquée.
 `git diff --check` réussi.
+
+
+## C12 — macOS (24/10/2026)
+
+Statut : BLOQUÉ : pas de Mac. Analyse dans `proposals/sol-c12-macos.md`.
+La sélection SYS_LINUX et l'entrée ELF partagée sont confirmées ; aucun résultat
+macOS revendiqué. Couche Darwin ou exclusion explicite à arbitrer/revoir par Claude,
+notamment les chemins réservés par #45. C2 macOS reste bloqué.
