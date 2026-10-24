@@ -6,7 +6,6 @@ fn i32 f(i32 a) requires a > 0 {
 
 fn main() {
     let b = 1 === 1
-    let Metres m = 1.0
 }
 
-type Metres = distinct f64
+// `distinct` and `where` are implemented (ADR 0014): tests/ui/edition1_distinct_types.nx.

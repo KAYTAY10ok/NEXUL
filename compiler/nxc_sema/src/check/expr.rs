@@ -154,7 +154,14 @@ impl<'a> FnCtxt<'a> {
                     self.coerce(&mut x, to);
                     return x;
                 }
+                // A distinct or constrained type converts from and to its base (ADR 0014).
+                if let Some((id, base, _)) = self.newtype_of(to) {
+                    return self.cast_to_newtype(inner, id, base, span);
+                }
                 let x = self.check_expr(inner, Expect::None);
+                if self.newtype_of(x.ty).is_some() {
+                    return self.to_base(x, to, span);
+                }
                 if matches!(&*tcx.kind(self.shallow(x.ty)), TyKind::Ptr(_)) || matches!(&*tcx.kind(to), TyKind::Ptr(_)) {
                     self.require_unsafe(span, "a pointer conversion");
                 }
@@ -282,6 +289,9 @@ impl<'a> FnCtxt<'a> {
 
     pub(crate) fn check_lit(&mut self, lit: &Lit, expect: Expect, span: Span, negated: bool) -> thir::Expr {
         let tcx = self.tcx();
+        if let Some(x) = expect.ty().and_then(|t| self.newtype_literal(lit, t, span, negated)) {
+            return x;
+        }
         match lit {
             Lit::Int(v) => {
                 let v = if negated { -(*v as i128) } else { *v as i128 };
@@ -331,6 +341,7 @@ impl<'a> FnCtxt<'a> {
                     Some(t) => self.check_expr(inner, Expect::Has(t)),
                     None => self.check_expr(inner, Expect::None),
                 };
+                let x = self.widen_constrained(x);
                 self.deferred.push(Deferred::Unary { op, ty: x.ty, span });
                 let ty = x.ty;
                 self.mk(T::Unary(op, Box::new(x)), ty, span)
@@ -344,6 +355,7 @@ impl<'a> FnCtxt<'a> {
                     Some(t) => self.check_expr(inner, Expect::Has(t)),
                     None => self.check_expr(inner, Expect::None),
                 };
+                let x = self.widen_constrained(x);
                 self.deferred.push(Deferred::Unary { op, ty: x.ty, span });
                 let ty = x.ty;
                 self.mk(T::Unary(op, Box::new(x)), ty, span)
@@ -375,20 +387,24 @@ impl<'a> FnCtxt<'a> {
         let hint = if op.is_comparison() { None } else { expect.ty() };
         // Between two literals, the float one decides (`2 * 3.0` is a float product).
         let right_first = (is_literal(l) && !is_literal(r)) || (is_literal(l) && is_float_literal(r) && !is_float_literal(l));
+        // A constrained type that is not distinct computes on its base (ADR 0014 §2.5): it
+        // is widened before it gives its type to the other operand (`p < 200` is valid).
         let (a, b) = if right_first {
             let b = match hint {
                 Some(t) => self.check_expr(r, Expect::Has(t)),
                 None => self.check_expr(r, Expect::None),
             };
+            let b = self.widen_constrained(b);
             let a = self.check_expr(l, Expect::Has(b.ty));
-            (a, b)
+            (self.widen_constrained(a), b)
         } else {
             let a = match hint {
                 Some(t) => self.check_expr(l, Expect::Has(t)),
                 None => self.check_expr(l, Expect::None),
             };
+            let a = self.widen_constrained(a);
             let b = self.check_expr(r, Expect::Has(a.ty));
-            (a, b)
+            (a, self.widen_constrained(b))
         };
         let never_a = tcx.is_never(self.shallow(a.ty));
         let never_b = tcx.is_never(self.shallow(b.ty));

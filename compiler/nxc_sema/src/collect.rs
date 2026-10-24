@@ -53,6 +53,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 ItemKind::Enum(e) => Some(e.name.clone()),
                 ItemKind::Const(c) => Some(c.name.clone()),
                 ItemKind::TypeAlias(t) => Some(t.name.clone()),
+                ItemKind::Newtype(n) => Some(n.name.clone()),
                 ItemKind::ExternFn(e) => Some(e.name.clone()),
                 ItemKind::Static(st) => Some(st.name.clone()),
                 ItemKind::Trait(t) => Some(t.name.clone()),
@@ -112,6 +113,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 }
                 ItemKind::Struct(s) => {
                     let id = AdtId(prog.adts.len() as u32);
+                    let newtype = prog.modules[m].newtypes.get(&s.name.name).map(|d| NewtypeDef { distinct: d.distinct, cond: d.cond.clone() });
                     prog.adts.push(AdtDef {
                         name: s.name.name.clone(),
                         module: mid,
@@ -123,6 +125,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         drop_fn: None,
                         index_fn: None,
                         lang,
+                        newtype,
                     });
                     check_generic_names(&s.generics, diags);
                     pending_structs.push((id, s));
@@ -141,6 +144,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         drop_fn: None,
                         index_fn: None,
                         lang,
+                        newtype: None,
                     });
                     check_generic_names(&e.generics, diags);
                     pending_enums.push((id, e));
@@ -180,6 +184,8 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                     pending_traits.push((id, t));
                     ItemRef::Trait(id)
                 }
+                // Replaced by a structure before the analysis (`newtype::expand`).
+                ItemKind::Newtype(_) => continue,
                 ItemKind::TypeAlias(t) => {
                     let id = AliasId(prog.aliases.len() as u32);
                     prog.aliases.push(AliasDef { name: t.name.name.clone(), module: mid, span: t.name.span, is_pub: item.is_pub, ty: prog.tcx.error });
@@ -395,7 +401,9 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
         match name {
             "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
-                if !is_std {
+                // The validation of a constrained type panics where `as` is written (ADR 0014).
+                let validation = name == "track_caller" && matches!(&item.kind, ItemKind::Fn(f) if f.name.name == crate::newtype::VALIDATE_FN);
+                if !is_std && !validation {
                     diags.emit(
                         Diagnostic::error("E0231", format!("the attribute `@{}` is reserved for the standard library", name))
                             .primary(a.span, "not allowed here"),

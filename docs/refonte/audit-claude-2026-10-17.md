@@ -444,3 +444,14 @@ standard tamponnée.
 - **Migration** : `nxc migrate` ajoute `is Copy` ; E0402 propose la déclaration.
 - `random.Rng` laissé sans déclaration (décision à prendre à la migration de `std`).
 - Détails : [ADR 0012](../adr/0012-copiabilite-explicite.md).
+
+## 17. Lot 13 (24/10, branche `refonte/core-adr0014-types`) — ADR 0014 mise en œuvre
+
+- **Types distincts et contraints** (édition 1) : `distinct` et `where` ne sont plus
+  refusés (E0111). Un tel type est une structure à un champ caché ; conversions par `as`,
+  littéraux vérifiés à la compilation (E0252), `as` vérifié à l'exécution avec la position
+  exacte, `T.check(x)`, interfaces de la base réutilisées par leur nom.
+- **Aucun changement du générateur** : la disposition est celle d'une structure à un
+  champ, de même taille que la base (`mem.size_of` testé).
+- Restent : C4 (`@export`), types distincts génériques, constantes nommées dans les
+  conditions. Détails : [ADR 0014](../adr/0014-types-distincts-et-contraints.md).

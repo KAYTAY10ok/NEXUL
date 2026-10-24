@@ -126,10 +126,53 @@ fn echanger[A, B](owned p: Paire[A, B]) -> Paire[B, A] {
   alors copiées (`var best = v[0]`, `return (x, x)`), et chaque argument de type doit être
   copiable (E0249). Test : `tests/run/copy_bound.nx`.
 
-## 3.4 Alias de types
+## 3.4 Alias, types distincts et types contraints
 
 `type Metres = f64` introduit un second nom pour un type existant. Ce n'est **pas** un
-nouveau type : `Metres` et `f64` sont interchangeables. *(Hors 0.1 : types distincts.)*
+nouveau type : `Metres` et `f64` sont interchangeables.
+
+L'édition 1 ajoute deux formes (ADR 0014), sur une **base** qui est un nombre, `char` ou
+`bool` ; la valeur a la représentation et la disposition mémoire de sa base
+(`mem.size_of[Metres]() == mem.size_of[f64]()`) :
+
+```
+type Metres = distinct f64 is Copy and Add and Sub and Eq and Ord and Display
+type Pourcent = i32 where it in 0..=100
+type Age = distinct u8 is Copy and Eq and Display where it <= 150
+```
+
+**Type distinct** (`distinct`) : un nouveau type, sans conversion implicite dans aucun
+sens. `x as Metres` et `m as f64` convertissent sans rien vérifier ; un **littéral** prend
+le type distinct attendu (`let Metres d = 3.5`), une variable de la base jamais (E0302).
+Il n'a que les interfaces de sa base qu'il **nomme** après `is` (`Copy`, `Eq`, `Ord`,
+`Display`, `Hash`, `Clone`, `Default`, `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`), réalisées
+en déléguant à la base avec le type distinct à la place (`Metres + Metres` donne des
+`Metres`) ; les autres opérations s'écrivent dans `extend Metres { … }`. Pas d'analyse
+dimensionnelle : `Metres * Metres` n'existe que si on le déclare. Un type distinct public
+n'est copiable que s'il nomme `Copy` (§3.7).
+
+**Type contraint** (`where`) : ses valeurs satisfont la **condition**, qui compare `it`
+avec des constantes littérales (`it >= 0`, `it in 1..=9`, `it in 0..10`, combinées par
+`and`, `or`, `not`), sans appel ni variable (E0251). Il n'existe aucune valeur de
+`Pourcent` qui ne la satisfait pas dans du code sûr ; la condition est vérifiée aux
+**entrées** seulement :
+
+| Entrée | Vérification |
+|---|---|
+| littéral ou constante où `Pourcent` est attendu | à la compilation (E0252) |
+| `x as Pourcent` | à l'exécution : panique à la position de `as` si la condition est fausse |
+| `Pourcent.check(x)` | rend `Option[Pourcent]` (`None` si la condition est fausse) |
+
+Un type contraint qui n'est pas `distinct` **est** une valeur de sa base : il s'y convertit
+implicitement (argument, opérande, récepteur des méthodes de la base), et il a les
+interfaces de sa base (`Copy`, `Eq`, `Ord`, `Display`, `Hash`, `Clone`). L'arithmétique
+opère sur la base et rend la base (`p + 1` est un `i32`) : revenir à `Pourcent` demande
+`as Pourcent`, si bien que la seule panique possible est là où le programme écrit `as`.
+Aucune option ne retire ces vérifications. Un type à la fois `distinct` et contraint n'a
+pas de conversion implicite et ne peut pas reprendre l'arithmétique (E0251).
+
+*(Pas encore : types distincts génériques ou sur une base non scalaire ; filtrage qui
+utilise la condition pour l'exhaustivité ; vérification à l'entrée des `@export`, tâche C4.)*
 
 ## 3.5 Inférence
 

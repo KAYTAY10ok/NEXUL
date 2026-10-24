@@ -393,6 +393,8 @@ impl<'a> FnCtxt<'a> {
             let mut d = Diagnostic::error("E0303", format!("operator `{}` cannot be applied to `{}`", symbol, ts)).primary(span, "unsupported operation");
             if matches!(&*tcx.kind(t), TyKind::Param(_)) {
                 d = d.help(format!("add the bound `{}: {}` to the type parameter", ts, trait_name));
+            } else if self.newtype_of(t).is_some() {
+                d = d.help(format!("a distinct type has only the operations it names: `type {} = distinct … is {}`", ts, trait_name));
             } else if matches!(&*tcx.kind(t), TyKind::Adt(..)) {
                 d = d.help(format!("implement the trait `{}` for `{}` (or add `@derive({})` to its declaration)", trait_name, ts, trait_name));
             }
@@ -487,7 +489,9 @@ impl<'a> FnCtxt<'a> {
                     let mut d = Diagnostic::error("E0350", format!("a value of type `{}` cannot be formatted", self.ty_str(t)))
                         .primary(span, "not formattable")
                         .note("integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted");
-                    if self.tcx().as_adt(t).is_some() {
+                    if self.newtype_of(t).is_some() {
+                        d = d.help(format!("a distinct type has only the interfaces it names: `type {} = distinct … is Display`", self.ty_str(t)));
+                    } else if self.tcx().as_adt(t).is_some() {
                         d = d.help(format!("implement `Display` for `{}`: `impl Display for {} {{ fn to_string(self) -> String {{ ... }} }}`", self.ty_str(t), self.ty_str(t)));
                     } else if matches!(&*self.tcx().kind(t), TyKind::Param(_)) {
                         d = d.help(format!("add the bound `{}: Display`", self.ty_str(t)));

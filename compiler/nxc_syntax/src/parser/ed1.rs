@@ -379,16 +379,24 @@ impl<'a> Parser<'a> {
                 let variants = self.variants1()?;
                 return Ok(vec![Item { attrs, is_pub, kind: ItemKind::Enum(EnumDecl { name, generics, variants }), span: item_span(self) }]);
             }
-            if self.is_word("distinct") {
-                let span = self.span();
-                self.not_yet(span, "a distinct type (`distinct`)");
-                return Err(());
-            }
+            // `distinct` and `where` (ADR 0014): a new type over `ty`.
+            let distinct = self.eat_word("distinct");
             let ty = self.type_expr()?;
-            if self.is(&TokenKind::Where) {
-                let span = self.span();
-                self.not_yet(span, "a constrained type (`where`)");
-                return Err(());
+            let mut interfaces = Vec::new();
+            if distinct && self.eat_word("is") {
+                interfaces.push(self.type_expr()?);
+                while self.eat(&TokenKind::And) {
+                    interfaces.push(self.type_expr()?);
+                }
+            }
+            let cond = if self.eat(&TokenKind::Where) { Some(self.constraint1()?) } else { None };
+            if distinct || cond.is_some() {
+                if !generics.is_empty() {
+                    self.not_yet(name.span, "a generic distinct or constrained type");
+                    return Err(());
+                }
+                let decl = NewtypeDecl { name, base: ty, distinct, interfaces, cond };
+                return Ok(vec![Item { attrs, is_pub, kind: ItemKind::Newtype(decl), span: item_span(self) }]);
             }
             return Ok(vec![Item { attrs, is_pub, kind: ItemKind::TypeAlias(TypeAliasDecl { name, ty }), span: item_span(self) }]);
         }
@@ -475,6 +483,84 @@ impl<'a> Parser<'a> {
             }
         }
         Ok(items)
+    }
+
+    /// The condition of a constrained type (ADR 0014 §2.2): `or` of `and` of `not` of
+    /// comparisons of `it` with a constant, `it in a..b` / `it in a..=b`, or parentheses.
+    fn constraint1(&mut self) -> PResult<Constraint> {
+        let mut c = self.constraint_and1()?;
+        while self.eat(&TokenKind::Or) {
+            let r = self.constraint_and1()?;
+            let span = c.span.to(r.span);
+            c = Constraint { kind: ConstraintKind::Or(Box::new(c), Box::new(r)), span };
+        }
+        Ok(c)
+    }
+
+    fn constraint_and1(&mut self) -> PResult<Constraint> {
+        let mut c = self.constraint_not1()?;
+        while self.eat(&TokenKind::And) {
+            let r = self.constraint_not1()?;
+            let span = c.span.to(r.span);
+            c = Constraint { kind: ConstraintKind::And(Box::new(c), Box::new(r)), span };
+        }
+        Ok(c)
+    }
+
+    fn constraint_not1(&mut self) -> PResult<Constraint> {
+        let start = self.span();
+        if self.eat(&TokenKind::Not) {
+            let c = self.constraint_not1()?;
+            let span = start.to(c.span);
+            return Ok(Constraint { kind: ConstraintKind::Not(Box::new(c)), span });
+        }
+        if self.eat(&TokenKind::LParen) {
+            let c = self.constraint1()?;
+            self.expect(TokenKind::RParen, "`)`")?;
+            return Ok(Constraint { kind: c.kind, span: start.to(self.prev_span()) });
+        }
+        // `it` on one side of a comparison, a constant on the other.
+        let left_it = self.eat_word("it");
+        let left = if left_it { None } else { Some(self.unary()?) };
+        if left_it && self.eat(&TokenKind::In) {
+            let lo = self.unary()?;
+            let inclusive = if self.eat(&TokenKind::DotDotEq) {
+                true
+            } else {
+                self.expect(TokenKind::DotDot, "`..` or `..=`")?;
+                false
+            };
+            let hi = self.unary()?;
+            return Ok(Constraint { kind: ConstraintKind::In { lo, hi, inclusive }, span: start.to(self.prev_span()) });
+        }
+        let op = match self.peek() {
+            TokenKind::EqEq => BinOp::Eq,
+            TokenKind::NotEq => BinOp::Ne,
+            TokenKind::Lt => BinOp::Lt,
+            TokenKind::Le => BinOp::Le,
+            TokenKind::Gt => BinOp::Gt,
+            TokenKind::Ge => BinOp::Ge,
+            _ => {
+                self.expected("a comparison of `it` with a constant (`it >= 0`, `it in 1..=9`)");
+                return Err(());
+            }
+        };
+        self.bump();
+        let right_it = self.eat_word("it");
+        let right = if right_it { None } else { Some(self.unary()?) };
+        let span = start.to(self.prev_span());
+        match (left, right) {
+            (None, Some(value)) => Ok(Constraint { kind: ConstraintKind::Cmp { op, value, it_left: true }, span }),
+            (Some(value), None) => Ok(Constraint { kind: ConstraintKind::Cmp { op, value, it_left: false }, span }),
+            _ => {
+                self.diags.emit(
+                    Diagnostic::error("E0251", "a condition compares `it` with a constant")
+                        .primary(span, if left_it { "`it` on both sides" } else { "`it` is missing" })
+                        .help("write `it >= 0`, `it < 100` or `it in 0..=100`"),
+                );
+                Err(())
+            }
+        }
     }
 
     /// `.A | .B(T, U name) | indirect .C(Self)`, possibly over several lines starting with `|`.

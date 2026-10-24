@@ -55,6 +55,8 @@ pub enum ItemKind {
     Impl(ImplDecl),
     Const(ConstDecl),
     TypeAlias(TypeAliasDecl),
+    /// `type Name = distinct Base …` or `type Name = Base where …` (edition 1, ADR 0014).
+    Newtype(NewtypeDecl),
     ExternFn(ExternFnDecl),
     Static(StaticDecl),
     Trait(TraitDecl),
@@ -181,6 +183,39 @@ pub struct StaticDecl {
 pub struct TypeAliasDecl {
     pub name: Ident,
     pub ty: TypeExpr,
+}
+
+/// `type Name = [distinct] Base [is I and J] [where condition]` (edition 1, ADR 0014): a
+/// type with the representation of `Base`, without implicit conversion from it when
+/// `distinct`, whose values satisfy the condition. `nxc_sema` expands it into a structure
+/// with one hidden field before the analysis.
+#[derive(Clone, Debug)]
+pub struct NewtypeDecl {
+    pub name: Ident,
+    pub base: TypeExpr,
+    pub distinct: bool,
+    /// The interfaces of `Base` that a distinct type reuses (`is Add and Eq`).
+    pub interfaces: Vec<TypeExpr>,
+    pub cond: Option<Constraint>,
+}
+
+/// The condition of a constrained type: `it` compared with constants, `in` a constant
+/// range, `and`, `or`, `not` (ADR 0014 §2.2). No call, no other variable.
+#[derive(Clone, Debug)]
+pub struct Constraint {
+    pub kind: ConstraintKind,
+    pub span: Span,
+}
+
+#[derive(Clone, Debug)]
+pub enum ConstraintKind {
+    Or(Box<Constraint>, Box<Constraint>),
+    And(Box<Constraint>, Box<Constraint>),
+    Not(Box<Constraint>),
+    /// `it in lo..hi` or `it in lo..=hi`.
+    In { lo: Expr, hi: Expr, inclusive: bool },
+    /// `it < value` when `it_left`, else `value < it` (any comparison).
+    Cmp { op: BinOp, value: Expr, it_left: bool },
 }
 
 #[derive(Clone, Debug)]

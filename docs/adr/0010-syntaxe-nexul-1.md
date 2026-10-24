@@ -227,11 +227,11 @@ corps          = bloc | "=" expression FIN ;
 type_decl      = "type" nom [ generiques ] ( [ "is" bornes ] corps_type | "=" definition FIN ) ;
 corps_type     = "{" { champ | { attribut } [ visibilite ] fonction } "}" ;
 champ          = [ visibilite ] type nom ( FIN | "," ) ;
-definition     = variantes | "distinct" type [ restriction ] | type [ restriction ] ;
+definition     = variantes | "distinct" type [ "is" bornes ] [ restriction ] | type [ restriction ] ;  (* ADR 0014 *)
 variantes      = [ "|" ] variante { "|" variante } ;
 variante       = [ "indirect" ] "." nom [ "(" champ_v { "," champ_v } ")" ] ;
 champ_v        = type [ nom ] ;
-restriction    = "where" expression ;                 (* « it » désigne la valeur *)
+restriction    = "where" condition ;                  (* « it » désigne la valeur ; condition : ADR 0014 §2.2 *)
 interface      = "interface" nom [ generiques ] [ "is" bornes ] "{" { { attribut } signature } "}" ;
 signature      = "fn" [ type ] nom [ generiques ] "(" [ parametres ] ")" { clause } [ corps ] FIN ;
 extension      = "extend" type [ "is" bornes ] "{" { { attribut } [ visibilite ] fonction } "}" ;

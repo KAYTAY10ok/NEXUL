@@ -95,6 +95,9 @@ pub struct ModuleInfo {
     /// The edition the file is written in (ADR 0010): a few rules differ, such as the
     /// conversion of errors to `String` by `?` (edition 0.2 only, ADR 0015).
     pub edition: nxc_syntax::Edition,
+    /// The distinct and constrained types declared here (ADR 0014), as written; collected
+    /// into `AdtDef::newtype`.
+    pub newtypes: HashMap<String, ast::NewtypeDecl>,
     pub is_std: bool,
     /// Items declared in this module: name -> (item, declaration span, is_pub).
     pub items: HashMap<String, (ItemRef, Span, bool)>,
@@ -163,6 +166,17 @@ pub struct AdtDef {
     pub drop_fn: Option<FnId>,
     pub index_fn: Option<FnId>,
     pub lang: Option<LangItem>,
+    /// A distinct or constrained type (ADR 0014): a structure whose only field, hidden,
+    /// holds a value of its base.
+    pub newtype: Option<NewtypeDef>,
+}
+
+/// What a distinct or constrained type adds to its base (ADR 0014).
+pub struct NewtypeDef {
+    /// No implicit conversion to the base.
+    pub distinct: bool,
+    /// The condition its values satisfy.
+    pub cond: Option<ast::Constraint>,
 }
 
 impl AdtDef {

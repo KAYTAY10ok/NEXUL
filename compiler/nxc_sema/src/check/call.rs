@@ -720,7 +720,13 @@ impl<'a> FnCtxt<'a> {
 
     fn check_method_call(&mut self, base: &ast::Expr, name: &ast::Ident, targs: Option<&[ast::Expr]>, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
         let tcx = self.tcx();
-        let recv = self.check_expr(base, Expect::None);
+        let mut recv = self.check_expr(base, Expect::None);
+        // A constrained type that is not distinct has the methods of its base (ADR 0014).
+        if let Some((id, _, false)) = self.newtype_of(recv.ty) {
+            if !self.p.adt(id).methods.contains_key(&name.name) && self.trait_methods_for(recv.ty, &name.name).is_empty() {
+                recv = self.widen_constrained(recv);
+            }
+        }
         let rt = self.shallow(recv.ty);
         let explicit = targs.map(|t| self.type_args(t));
         match &*tcx.kind(rt) {
@@ -1069,6 +1075,17 @@ impl<'a> FnCtxt<'a> {
     fn check_struct_ctor(&mut self, id: AdtId, explicit: Option<Vec<Ty>>, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
         let tcx = self.tcx();
         let adt = self.p.adt(id);
+        if let Some(nt) = &adt.newtype {
+            let base = self.p.ty_str(adt.fields()[0].ty);
+            let check = if nt.cond.is_some() { format!(", or `{}.check(value)` for an `Option`", adt.name) } else { String::new() };
+            self.err(
+                Diagnostic::error("E0310", format!("a value of `{}` is made with `as`", adt.name))
+                    .primary(span, "not a structure")
+                    .help(format!("write `value as {}`, `value` of type `{}`{}", adt.name, base, check)),
+            );
+            self.check_args_for_errors(args);
+            return self.error_expr(span);
+        }
         if adt.is_enum() {
             let variants: Vec<&str> = adt.variants().iter().map(|v| v.name.as_str()).collect();
             self.err(

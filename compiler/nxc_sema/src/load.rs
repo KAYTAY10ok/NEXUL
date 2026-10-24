@@ -214,6 +214,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
     let root_file = sm.add_with_edition(src.root_name.clone(), src.root_text.clone(), src.edition);
     let mut root_ast = nxc_syntax::parse_file(sm, root_file, diags);
     apply_cfg(&mut root_ast, &src.cfg, diags);
+    let root_newtypes = crate::newtype::expand(&mut root_ast, sm, &src.root_name, diags);
     crate::derive::expand(&mut root_ast, sm, &src.root_name, diags);
     let stem = std::path::Path::new(&src.root_name)
         .file_stem()
@@ -237,6 +238,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
         path: root_path.clone(),
         file: root_file,
         edition: sm.get(root_file).edition,
+        newtypes: root_newtypes,
         is_std: false,
         items: HashMap::new(),
         imports: HashMap::new(),
@@ -286,6 +288,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
         };
         let mut ast = nxc_syntax::parse_file(sm, file, diags);
         apply_cfg(&mut ast, &src.cfg, diags);
+        let newtypes = crate::newtype::expand(&mut ast, sm, &name, diags);
         crate::derive::expand(&mut ast, sm, &name, diags);
         if let Some((decl, dspan)) = &ast.decl {
             let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
@@ -299,7 +302,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         }
         let id = ModId(prog.modules.len() as u32);
-        prog.modules.push(ModuleInfo { path: path.clone(), file, edition: sm.get(file).edition, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
+        prog.modules.push(ModuleInfo { path: path.clone(), file, edition: sm.get(file).edition, newtypes, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
         by_path.insert(path, id);
         queue.push_back(id);
         Some(id)

@@ -18,7 +18,7 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0011](0011-perimetre-des-garanties.md) | Périmètre des garanties de sûreté et modèle d'échec (acceptée le 24/10/2026) |
 | [0012](0012-copiabilite-explicite.md) | Copiabilité explicite des types publics, `Copy` (acceptée le 24/10/2026, mise en œuvre au lot 12) |
 | [0013](0013-fondations-de-la-concurrence.md) | Fondations de la concurrence : invariants, concurrence structurée, `Transfer`/`Share` (acceptée le 24/10/2026) |
-| [0014](0014-types-distincts-et-contraints.md) | Types distincts, types contraints et orientation des contrats (acceptée le 24/10/2026) |
+| [0014](0014-types-distincts-et-contraints.md) | Types distincts, types contraints et orientation des contrats (acceptée le 24/10/2026, mise en œuvre au lot 13) |
 | [0015](0015-erreurs-et-conversion.md) | Erreurs de la bibliothèque standard (`IoError`) et conversion par `?` (acceptée le 24/10/2026, mise en œuvre au lot 11) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)

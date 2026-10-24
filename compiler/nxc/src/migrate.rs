@@ -322,6 +322,8 @@ impl<'a> Migrator<'a> {
                 }
                 self.expr(&s.value);
             }
+            // Edition 1 only: nothing to migrate.
+            ItemKind::Newtype(_) => {}
             ItemKind::TypeAlias(a) => {
                 let printed = self.ty(&a.ty);
                 self.rep(a.ty.span.lo as usize, a.ty.span.hi as usize, printed);

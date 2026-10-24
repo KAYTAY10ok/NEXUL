@@ -1,0 +1,13 @@
+// edition: 1
+// `as` toward a constrained type checks the condition at run time and panics at the
+// position of `as` (ADR 0014 §2.3), in debug and in -O2.
+type Pourcent = i32 where it in 0..=100
+
+fn i32 lire() = 140
+
+fn main() {
+    let ok = 100 as Pourcent
+    println("{ok}")
+    let p = lire() as Pourcent
+    println("unreachable {p}")
+}

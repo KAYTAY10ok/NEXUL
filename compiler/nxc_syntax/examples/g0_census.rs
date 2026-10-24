@@ -150,6 +150,10 @@ impl Ctx<'_> {
                 self.add("élément: type (alias)", it.span);
                 self.ty(&t.ty);
             }
+            ItemKind::Newtype(n) => {
+                self.add(if n.distinct { "élément: type distinct" } else { "élément: type contraint" }, it.span);
+                self.ty(&n.base);
+            }
             ItemKind::ExternFn(e) => {
                 self.add(&format!("élément: extern \"{}\" fn", e.abi), it.span);
                 for (_, t) in &e.params {

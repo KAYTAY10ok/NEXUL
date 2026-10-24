@@ -125,3 +125,34 @@ changement de disposition), `docs/spec/03-types.md`, `compiler/nxc/src/migrate.r
 - La conversion implicite `Pourcent → i32` peut surprendre dans une surcharge générique :
   à valider sur le corpus O5 (12 programmes de la passation).
 - Ergonomie de `as` après chaque calcul : mesurer sur deux programmes réels avant de figer.
+
+## Mise en œuvre (24/10/2026, lot 13, branche `refonte/core-adr0014-types`)
+
+- **Parseur de l'édition 1** (`parser/ed1.rs`) : `type T = distinct B [is I and J] [where …]`
+  et `type T = B where …` remplacent E0111 ; la condition a sa propre grammaire
+  (`constraint1` : `or`, `and`, `not`, parenthèses, `it <op> constante`,
+  `it in a..b` / `a..=b`). Nouveau nœud `ItemKind::Newtype` (`ast.rs`). La règle
+  `definition` de l'EBNF de l'ADR 0010 est mise à jour.
+- **Représentation** (`nxc_sema/src/newtype.rs`) : avant l'analyse, le type devient une
+  structure à un champ caché `#base` (nom impossible à écrire) ; aucune modification du
+  générateur. Fonctions engendrées en source de l'édition 1, comme `@derive` : `check`
+  (rend `Option[T]`) et `__nexul_validate` (`@track_caller` : la panique porte la
+  position de `as`) pour un type contraint ; les interfaces nommées par délégation à la
+  base. Un type contraint non distinct reprend `Copy`, `Eq`, `Ord`, `Display`, `Hash`,
+  `Clone` de sa base.
+- **Vérificateur** (`check/newtype.rs`) : `as` dans les deux sens ; littéral du type attendu,
+  condition évaluée à la compilation (**E0252**) ; conversion implicite d'un type contraint
+  non distinct vers sa base (opérandes, arguments, récepteur des méthodes de la base) ;
+  construction `T(…)` refusée (E0310 avec l'aide `as`). Messages d'aide de E0302, E0303 et
+  E0350 adaptés. **E0251** : base non scalaire, condition hors du sous-ensemble, interface
+  non réutilisable, arithmétique sur un type contraint.
+- **Choix précisés par la mise en œuvre** : base scalaire seulement en 1.0 ; constantes
+  de la condition = littéraux (une constante nommée n'est pas encore acceptée) ; un type
+  à la fois distinct et contraint ne peut pas reprendre `Add`, `Sub`, `Mul`, `Div`,
+  `Rem`, `Neg` ni `Default` (leur résultat pourrait sortir de la condition sans `as`).
+- Tests : `tests/ui/edition1_distinct_types.nx`, `tests/ui/edition1_constrained_types.nx`,
+  `tests/run/edition1_newtypes.nx` (dont `mem.size_of` identique à la base),
+  `tests/run/edition1_constrained_panic.nx` (code 101, position exacte, debug et `-O2`).
+- **Pas encore fait** : C4 (vérification à l'entrée des `@export`) ; types distincts
+  génériques ; filtrage utilisant la condition (§2.8, après 1.0) ; constantes nommées dans
+  les conditions.

@@ -1,0 +1,48 @@
+// edition: 1
+// Distinct and constrained types (ADR 0014): same representation as the base, explicit
+// conversions, reused interfaces, conditions checked where values enter.
+import std.mem
+
+type Metres = distinct f64 is Copy and Add and Sub and Eq and Ord and Display
+type Secondes = distinct f64 is Copy and Display
+type Pourcent = i32 where it in 0..=100
+type Age = distinct u8 is Copy and Eq and Ord and Display where it <= 150
+type Minuscule = char where it >= 'a' and it <= 'z'
+
+fn f64 vitesse(Metres d, Secondes t) = (d as f64) / (t as f64)
+
+fn Pourcent moyenne(Pourcent a, Pourcent b) = ((a + b) / 2) as Pourcent
+
+fn main() {
+    let Metres a = 3.5
+    let b = 1.5 as Metres
+    let c = a + b
+    println("{c} {c - b} {c > a} {c == a} {a < b}")
+    let Secondes t = 2.0
+    println("vitesse {vitesse(c, t)}")
+
+    let Pourcent p = 40
+    let q = 90 as Pourcent
+    println("{p} {q} {moyenne(p, q)} {p + 100} {p < 200} {q.abs()} {-p}")
+    let i32 brut = q
+    println("brut {brut}")
+    var Vec[Pourcent] notes = Vec.new()
+    notes!.push(q)
+    notes!.push(p)
+    notes!.push(Pourcent.check(75).unwrap())
+    notes!.sort()
+    println("{notes}")
+    when Pourcent.check(101) {
+        .Some(v) then println("unexpected {v}")
+        .None then println("101 refused")
+    }
+
+    let Age age = 30
+    let plus_vieux = ((age as u8) + 1) as Age
+    println("{age} {plus_vieux} {plus_vieux > age} {Age.check(200) is .None}")
+
+    let Minuscule m = 'q'
+    println("{m} {Minuscule.check('Q') is .None}")
+
+    println("{mem.size_of[Metres]()} {mem.size_of[f64]()} {mem.size_of[Age]()} {mem.size_of[Pourcent]()}")
+}
