@@ -4,7 +4,7 @@
 //! optimizing). The checks required by the language (overflow, division, shifts,
 //! conversions, bounds) are explicit branches to the runtime's panic functions.
 
-use crate::{float_const, int_const, Gen, PKind, RetKind, Sig};
+use crate::{float_const, int_const, quote_name, Gen, PKind, RetKind, Sig};
 use nxc_nir::nir::*;
 use nxc_sema::defs::{AdtKind, ConstValue, FnId, FnKind};
 use nxc_sema::target::{Arch, Os};
@@ -305,7 +305,8 @@ impl<'a> Gen<'a> {
         // Signature and attributes.
         let ret = self.sig_ret(&sig);
         let fd = self.p.func(f);
-        let exported = fd.export.is_some() && targs.is_empty();
+        let checked = fd.export.is_some() && targs.is_empty() && self.export_checks(f);
+        let exported = fd.export.is_some() && targs.is_empty() && !checked;
         let linkage = if exported {
             if self.opts.target.os == Os::Windows {
                 "dllexport "
@@ -346,6 +347,101 @@ impl<'a> Gen<'a> {
         let _ = writeln!(text, "  br label %bb0");
         text.push_str(&cx.out);
         text.push_str("}\n\n");
+        self.fn_defs.push_str(&text);
+        if checked {
+            self.export_wrapper(f, &name, &sig);
+        }
+    }
+
+    /// The exported symbol of a function that receives from C values to check (ADR 0011
+    /// T4, ADR 0014 §2.7): a `bool` must be the byte 0 or 1, a `char` a Unicode scalar
+    /// value, a constrained type must satisfy its condition. Otherwise the program panics
+    /// at the parameter; else the wrapper calls the function with the checked values.
+    fn export_wrapper(&mut self, f: FnId, internal: &str, sig: &Sig) {
+        let tcx = self.tcx();
+        let fd = self.p.func(f);
+        let sym = fd.export.clone().unwrap();
+        if !self.exports.contains(&sym) {
+            self.exports.push(sym.clone());
+        }
+        let (panic_fn, _) = self.lang_fn("panic_arith");
+        let mut params = Vec::new();
+        let mut allocas = String::new();
+        let mut code = String::new();
+        let mut args = Vec::new();
+        for (i, p) in fd.params.iter().enumerate() {
+            let t = p.ty;
+            let loc = self.location(p.span);
+            let a = format!("%a{}", i);
+            let panic_if = |code: &mut String, cond: &str, kind: u32| {
+                let _ = writeln!(code, "  br i1 {cond}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 {kind}, ptr {loc})\n  unreachable\nok{i}:");
+            };
+            // The value in the type the function receives.
+            let (value, lt) = match &*tcx.kind(t) {
+                TyKind::Bool => {
+                    params.push(format!("i8 {a}"));
+                    let _ = writeln!(code, "  %bad.c{i} = icmp ugt i8 {a}, 1");
+                    panic_if(&mut code, &format!("%bad.c{i}"), 15);
+                    let _ = writeln!(code, "  %v{i} = trunc i8 {a} to i1");
+                    (format!("%v{i}"), "i1".to_string())
+                }
+                TyKind::Char => {
+                    params.push(format!("i32 {a}"));
+                    // A surrogate (0xD800..=0xDFFF) or a value above 0x10FFFF.
+                    let _ = writeln!(code, "  %s{i} = sub i32 {a}, 55296\n  %sur{i} = icmp ult i32 %s{i}, 2048\n  %big{i} = icmp ugt i32 {a}, 1114111\n  %bad.c{i} = or i1 %sur{i}, %big{i}");
+                    panic_if(&mut code, &format!("%bad.c{i}"), 13);
+                    (a.clone(), "i32".to_string())
+                }
+                TyKind::Adt(id, _) => {
+                    // A distinct or constrained type crosses the boundary as its base.
+                    let adt = self.p.adt(*id);
+                    let base = adt.fields()[0].ty;
+                    let validate = adt.methods.get(nxc_sema::newtype::VALIDATE_FN).copied();
+                    let blt = self.llty(base);
+                    params.push(format!("{blt} {a}"));
+                    let v = match validate {
+                        Some(vf) => {
+                            let vname = self.instance(vf, vec![]);
+                            let _ = writeln!(code, "  %b{i} = call {blt} {vname}({blt} {a}, ptr {loc})");
+                            format!("%b{i}")
+                        }
+                        None => a.clone(),
+                    };
+                    let slt = self.llty(t);
+                    let _ = writeln!(allocas, "  %n{i} = alloca {slt}");
+                    let _ = writeln!(code, "  store {blt} {v}, ptr %n{i}");
+                    (format!("%n{i}"), "ptr".to_string())
+                }
+                _ => {
+                    let lt = self.llty(t);
+                    params.push(format!("{lt} {a}"));
+                    (a.clone(), lt)
+                }
+            };
+            // Passed by value, or by address as the function expects.
+            match (sig.params.get(i), lt.as_str()) {
+                (Some(PKind::Ptr), "ptr") | (Some(PKind::Scalar(_)), _) => args.push(format!("{lt} {value}")),
+                (Some(PKind::Ptr), _) => {
+                    let _ = writeln!(allocas, "  %p{i} = alloca {lt}");
+                    let _ = writeln!(code, "  store {lt} {value}, ptr %p{i}");
+                    args.push(format!("ptr %p{i}"));
+                }
+                (None, _) => args.push(format!("{lt} {value}")),
+            }
+        }
+        let ret = self.sig_ret(sig);
+        let call = format!("{}({})", internal, args.join(", "));
+        if ret == "void" {
+            let _ = writeln!(code, "  call void {call}\n  ret void");
+        } else {
+            let _ = writeln!(code, "  %r = call {ret} {call}\n  ret {ret} %r");
+        }
+        let linkage = if self.opts.target.os == Os::Windows { "dllexport " } else { "" };
+        let mut attrs = String::from("nounwind");
+        if self.opts.target.os == Os::Windows {
+            attrs.push_str(" uwtable");
+        }
+        let text = format!("define {}{} @{}({}) {} {{\nstart:\n{}{}}}\n\n", linkage, ret, quote_name(&sym), params.join(", "), attrs, allocas, code);
         self.fn_defs.push_str(&text);
     }
 

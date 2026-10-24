@@ -114,7 +114,7 @@ jour ce tableau avant d'être annoncée.
 | T1 Sondes de pile : attribut LLVM `"probe-stack"="inline-asm"` sur x86-64 et AArch64 (Linux, macOS) | Codex | une fonction avec un tableau local de 4 Mio récursive se termine par un arrêt propre, pas par une écriture hors pile |
 | T2 Message de dépassement de pile : pile de signal (`sigaltstack` + `SIGSEGV`) sur Linux, gestionnaire d'exception vectorisé sur Windows ; vidage de `OUT_BUF` par appel système direct | Codex | test `tests/run` : récursion infinie → `stack overflow` sur stderr, code 101, sortie déjà écrite conservée |
 | T3 `wasm-ld --stack-first` | Codex | récursion avec agrégats sous `wasm32-wasi` : piège, données statiques intactes |
-| T4 Vérification de `bool` (0 ou 1) et `char` (valeur scalaire) à l'entrée des `@export` | Codex, revue Claude | test de bibliothèque appelée depuis C avec des valeurs invalides → panique |
+| T4 Vérification de `bool` (0 ou 1) et `char` (valeur scalaire) à l'entrée des `@export` | Claude (lot 14 ; tâche C4) — **fait** : enveloppe vérifiante, aussi pour les types contraints | test de bibliothèque appelée depuis C avec des valeurs invalides → panique (test IR structurel ; test JS `tests/web`, non exécuté par la CI) |
 | T5 Sections critiques (masquage des interruptions) dans l'allocateur et les sorties sur les cibles sans système | Codex, revue Claude | test QEMU : interruption périodique qui alloue pendant que `main` alloue en boucle, sans corruption |
 | T6 Phrase du README alignée sur la partie 1 | Claude | relecture |
 

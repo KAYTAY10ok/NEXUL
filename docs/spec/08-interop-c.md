@@ -85,4 +85,12 @@ fn main() {
   produit une bibliothèque statique (`.lib`, `.a`). Le runtime de NEXUL y est inclus.
 - Une panique dans une fonction exportée arrête le processus avec le message habituel
   (§07) : elle ne traverse jamais la frontière avec C.
+- **Valeurs reçues de C** (ADR 0011 T4) : un `bool` doit être l'octet 0 ou 1, un `char`
+  une valeur scalaire Unicode (ni 0xD800 à 0xDFFF, ni au-delà de 0x10FFFF). Une fonction
+  `@export` qui en reçoit les vérifie à l'entrée et panique à la position du paramètre
+  sinon (« value is not a valid `bool` (0 or 1) », « value is not a valid `char` »). Un
+  type distinct ou contraint de l'édition 1 (§3.4) traverse la frontière comme sa base ;
+  un type contraint est vérifié à l'entrée comme par `as`. Le symbole exporté est une
+  petite fonction qui fait ces vérifications puis appelle la fonction ; le code NEXUL
+  appelle la fonction directement, sans vérification (ses valeurs sont déjà valides).
 

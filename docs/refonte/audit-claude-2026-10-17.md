@@ -455,3 +455,18 @@ standard tamponnée.
   champ, de même taille que la base (`mem.size_of` testé).
 - Restent : C4 (`@export`), types distincts génériques, constantes nommées dans les
   conditions. Détails : [ADR 0014](../adr/0014-types-distincts-et-contraints.md).
+
+## 18. Lot 14 (24/10, branche `refonte/core-c4-exports`) — C4 : valeurs reçues de C
+
+- **Défaut** : un `bool` différent de 0/1 ou un `char` invalide (0xD800, > 0x10FFFF) passé
+  par C (ou par l'hôte JavaScript) à une fonction `@export` cassait les invariants (UTF-8
+  des `String`, filtrage exhaustif). Un `bool` reçu comme `i1` était même réinterprété en
+  silence (seul le bit de poids faible comptait).
+- **Correction** : le symbole exporté d'une telle fonction est une enveloppe qui reçoit un
+  `bool` comme octet et vérifie `bool`, `char` et types contraints (ADR 0014 §2.7), puis
+  appelle la fonction ; le code NEXUL appelle la fonction directement. Nouveau cas de
+  panique 15 (`bool`) dans `rt.panic_arith`.
+- **Tests** : `codegen_ir.rs` (structure, trois cibles, exécuté partout) ;
+  `tests/web/interop.mjs` (comportement, exécuté seulement à la main : LLVM, wasm-ld, Node).
+- `compiler/nxc_codegen_llvm` est partagé avec Codex : seules `instance()` (nom de
+  l'export) et la fin de `emit_fn` changent, loin des sections modifiées par #44, #46, #51.

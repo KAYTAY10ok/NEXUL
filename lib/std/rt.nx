@@ -243,6 +243,7 @@ fn panic_arith(kind: u32, location: Ptr[Location]) -> Never {
         12 => "cannot convert NaN to an integer"
         13 => "value is not a valid `char`"
         14 => "attempt to raise to a power with overflow"
+        15 => "value is not a valid `bool` (0 or 1)"
         _ => "arithmetic error"
     }
     panic_at(message, location)

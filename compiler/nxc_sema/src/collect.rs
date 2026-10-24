@@ -918,11 +918,13 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
             diags.emit(Diagnostic::error("E0504", format!("invalid exported symbol name `{}`", sym)).primary(decl.name.span, "letters, digits and `_` only"));
         }
         for p in &params {
-            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !is_ffi_safe(prog, p.ty, false) {
+            // A distinct or constrained type crosses as its base, checked on entry (ADR 0014).
+            let newtype = matches!(&*prog.tcx.kind(p.ty), TyKind::Adt(id, _) if prog.adts[id.idx()].newtype.is_some());
+            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !(newtype || is_ffi_safe(prog, p.ty, false)) {
                 diags.emit(
                     Diagnostic::error("E0503", format!("parameter `{}` of an exported function cannot cross the C boundary", p.name))
                         .primary(p.span, format!("type `{}`", prog.ty_str(p.ty)))
-                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, passed by value (see spec §8.2)"),
+                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)"),
                 );
             }
         }

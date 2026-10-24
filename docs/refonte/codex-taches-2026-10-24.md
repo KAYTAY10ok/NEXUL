@@ -107,6 +107,11 @@ Fichiers de Codex à ne pas toucher côté Claude : `.github/**`, `installer/**`
   dans le générateur. Plus tard, faire de même pour les types contraints (ADR 0014).
 - **Critère.** Test par l'hôte JavaScript (`tests/web`, `wasm32-web`) : appeler un export
   avec un `char` 0xD800 donne une panique ; avec une valeur valide, résultat inchangé.
+- **Fait par Claude (lot 14, branche `refonte/core-c4-exports`)** : enveloppe vérifiante
+  pour les `@export` qui reçoivent `bool`, `char` ou un type contraint
+  (`export_wrapper`, `compiler/nxc_codegen_llvm/src/func.rs`) ; test structurel
+  `compiler/nxc/tests/codegen_ir.rs` (Linux, Windows, wasm32-web) et cas ajoutés à
+  `tests/web/interop.mjs` (test `web` marqué `#[ignore]` : LLVM, wasm-ld et Node requis).
 
 ### C5. Runtime réentrant sur les cibles sans système — tâche T5
 

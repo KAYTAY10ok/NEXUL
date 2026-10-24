@@ -24,5 +24,10 @@ pub fn no_files() -> bool { return io.read_file("private.txt").is_err() }
 pub fn fail() { panic("web panic expected") }
 @export("sleep")
 pub fn sleep() { time.sleep(1) }
+// Values received from the host are checked on entry (ADR 0011 T4, task C4).
+@export("char_code")
+pub fn char_code(c: char) -> u32 { return c as u32 }
+@export("bool_flip")
+pub fn bool_flip(b: bool) -> bool { return not b }
 
 fn main() { println("NEXUL navigateur 🌍") }

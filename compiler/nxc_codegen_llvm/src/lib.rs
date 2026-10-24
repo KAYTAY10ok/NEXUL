@@ -486,7 +486,7 @@ impl<'a> Gen<'a> {
         }
         let fd = self.p.func(f);
         let name = match &fd.export {
-            Some(sym) if key.1.is_empty() => format!("@{}", quote_name(sym)),
+            Some(sym) if key.1.is_empty() && !self.export_checks(f) => format!("@{}", quote_name(sym)),
             _ => {
                 let module = &self.p.modules[fd.module.idx()].path;
                 let mut label = format!("{}.{}", module, fd.qualified_name(self.p));
@@ -501,6 +501,19 @@ impl<'a> Gen<'a> {
         self.instances.insert(key.clone(), name.clone());
         self.fn_queue.push(key);
         name
+    }
+
+    /// Does C pass to this `@export` function a parameter whose values are not all valid
+    /// in NEXUL (`bool`, `char`, a constrained type)? Its symbol is then a wrapper that
+    /// checks them before calling the function (ADR 0011 T4, ADR 0014 §2.7).
+    pub fn export_checks(&self, f: FnId) -> bool {
+        let fd = self.p.func(f);
+        fd.export.is_some()
+            && fd.params.iter().any(|p| match &*self.tcx().kind(p.ty) {
+                TyKind::Bool | TyKind::Char => true,
+                TyKind::Adt(id, _) => self.p.adt(*id).newtype.is_some(),
+                _ => false,
+            })
     }
 
     /// A runtime function of the standard library.
