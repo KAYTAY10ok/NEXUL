@@ -32,7 +32,12 @@ struct Migrator<'a> {
     edits: Vec<Edit>,
     seq: usize,
     manual: Vec<(usize, String)>,
+    /// The function being rewritten returns `Result[..., String]`.
+    string_errors: bool,
 }
+
+/// The functions of `std.io` whose errors became `io.IoError` (ADR 0015).
+const IO_FALLIBLE: &[&str] = &["read_file", "read_bytes", "write_file", "write_bytes", "append_file"];
 
 /// Words that edition 1 reserves; a 0.2 program that uses them as names must rename them.
 const NEW_WORDS: &[&str] = &[
@@ -53,7 +58,7 @@ pub fn migrate(name: &str, src: &str) -> Result<Migration, String> {
         let list = diags.take_sorted();
         return Err(list.iter().map(|d| format!("error[{}]: {}", d.code, d.message)).collect::<Vec<_>>().join("\n"));
     }
-    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new() };
+    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false };
     for item in &module.items {
         m.item(item);
     }
@@ -356,7 +361,9 @@ impl<'a> Migrator<'a> {
         };
         self.rep(start, head_end, new);
         if let Some(b) = &f.body {
+            let outer = std::mem::replace(&mut self.string_errors, f.ret.as_ref().is_some_and(is_result_of_string));
             self.block(b);
+            self.string_errors = outer;
         }
     }
 
@@ -540,7 +547,18 @@ impl<'a> Migrator<'a> {
                     }
                 }
             }
-            ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Try(x) | ExprKind::Move(x) => self.expr(x),
+            ExprKind::Try(x) => {
+                // Edition 0.2 turns an `io.IoError` into its text for `?` (a transition, ADR
+                // 0015); edition 1 does not.
+                if self.string_errors && is_io_call(x) {
+                    self.manual(
+                        e.span.lo as usize,
+                        "`?` turns the `io.IoError` of this call into its text only in edition 0.2: return `Result[..., io.IoError]` or `Result[..., any Error]`, or convert with `when` (ADR 0015)",
+                    );
+                }
+                self.expr(x)
+            }
+            ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Move(x) => self.expr(x),
             ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
                 for x in xs {
                     self.expr(x);
@@ -739,6 +757,25 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
     unsafe_words.dedup_by(|a, b| a.1 == b.1);
     (out, renamed, unsafe_words)
 }
+/// `Result[..., String]`.
+fn is_result_of_string(t: &TypeExpr) -> bool {
+    let TypeExprKind::Path { segments, args } = &t.kind else { return false };
+    let is_string = |t: &TypeExpr| matches!(&t.kind, TypeExprKind::Path { segments, args } if args.is_empty() && segments.len() == 1 && segments[0].name == "String");
+    segments.last().is_some_and(|s| s.name == "Result") && args.len() == 2 && is_string(&args[1])
+}
+
+/// A call of a fallible function of `std.io`: `io.read_file(...)`.
+fn is_io_call(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Paren(x) => is_io_call(x),
+        ExprKind::Call(f, _) => match &f.kind {
+            ExprKind::Field(m, name) => matches!(&m.kind, ExprKind::Ident(m) if m == "io") && IO_FALLIBLE.contains(&name.name.as_str()),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -785,5 +822,10 @@ mod tests {
         // A local name is renamed; a method of the library after a dot is kept.
         let r = migrate("t.nx", "fn main() {\n    let with = 1\n    x.with()\n}\n").unwrap();
         assert_eq!(r.text, "fn main() {\n    let with_ = 1\n    x.with()\n}\n");
+        // `?` from `std.io` into `String` errors: converted by edition 0.2 only (ADR 0015).
+        let src = "fn lire(p: String) -> Result[String, String] {\n    let t = io.read_file(p)?\n    let n = autre(p)?\n    return Ok(t)\n}\nfn ok(p: String) -> Result[String, io.IoError] {\n    return Ok(io.read_file(p)?)\n}\n";
+        let r = migrate("t.nx", src).unwrap();
+        assert_eq!(r.manual.len(), 1, "{:?}", r.manual);
+        assert!(r.manual[0].0 == 2 && r.manual[0].1.contains("ADR 0015"), "{:?}", r.manual);
     }
 }

@@ -651,7 +651,7 @@ impl<'a> Builder<'a> {
                 self.exit_scopes(depth, span);
                 self.terminate(Terminator::Goto(target), span);
             }
-            T::Try(x, kind) => self.lower_try(dest, x, *kind, span),
+            T::Try(x, kind, conv) => self.lower_try(dest, x, *kind, conv.as_ref(), span),
             T::Interp(parts) => self.lower_interp(dest, parts, span),
             T::Closure { f, captures } => {
                 let mut env = Vec::new();
@@ -741,7 +741,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn lower_try(&mut self, dest: Place, x: &Expr, kind: TryKind, span: Span) {
+    fn lower_try(&mut self, dest: Place, x: &Expr, kind: TryKind, conv: Option<&thir::TryConv>, span: Span) {
         let tcx = self.tcx();
         let h = self.scheduled_temp(x.ty, x.span);
         self.expr_into(Place::local(h), x);
@@ -758,16 +758,28 @@ impl<'a> Builder<'a> {
         self.cur = err_bb;
         let ret_ty = self.thir.ret_ty;
         let (ret_adt, ret_args) = tcx.as_adt(ret_ty).unwrap_or((adt, targs.clone()));
-        let ops = if kind == TryKind::Result {
-            vec![Operand::Move(Place::local(h).project(Proj::VariantField(err_v, 0)))]
-        } else {
-            vec![]
+        // The conversion (ADR 0015) runs in its own scope: the error moves into its
+        // variable, which the conversion moves (variant, `dyn Error`) or reads (text).
+        self.push_scope();
+        let err = Place::local(h).project(Proj::VariantField(err_v, 0));
+        let ops = match conv {
+            Some(c) => {
+                let l = self.user_local(c.local);
+                self.assign(Place::local(l), Rvalue::Use(Operand::Move(err)), span);
+                self.emit(StmtKind::MarkMoved(h), span);
+                vec![self.operand_owned(&c.expr)]
+            }
+            None if kind == TryKind::Result => vec![Operand::Move(err)],
+            None => vec![],
         };
         let ret_err_v = self.p.adt(ret_adt).variant_index(if kind == TryKind::Option { "None" } else { "Err" }).unwrap_or(1);
         self.assign(Place::local(RETURN), Rvalue::Aggregate(AggKind::Adt { adt: ret_adt, variant: Some(ret_err_v), type_args: ret_args }, ops), span);
-        self.emit(StmtKind::MarkMoved(h), span);
+        if conv.is_none() {
+            self.emit(StmtKind::MarkMoved(h), span);
+        }
         self.exit_scopes(0, span);
         self.terminate(Terminator::Return, span);
+        self.pop_scope(span);
         // Success path: take the payload.
         self.cur = ok_bb;
         let payload = Place::local(h).project(Proj::VariantField(ok_v, 0));

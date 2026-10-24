@@ -28,19 +28,57 @@ explicitement.
 ## 7.2 L'opérateur `?`
 
 ```nexul
-fn lire_config(chemin: String) -> Result[Config, String] {
-    let texte = io.read_file(chemin)?       // en cas d'erreur, `return Err(e)` immédiat
-    let config = analyser(texte)?
+enum ErreurConfig {
+    Io(io.IoError)
+    Syntaxe(ErreurSyntaxe)
+}
+
+fn lire_config(chemin: String) -> Result[Config, ErreurConfig] {
+    let texte = io.read_file(chemin)?       // en cas d'erreur : return Err(ErreurConfig.Io(e))
+    let config = analyser(texte)?           // ErreurSyntaxe : return Err(ErreurConfig.Syntaxe(e))
     return Ok(config)
 }
 ```
 
-- `e?` avec `e: Result[T, E]` dans une fonction qui renvoie `Result[U, E]` : vaut `t` si
-  `e` est `Ok(t)`, sinon renvoie `Err(erreur)` après avoir détruit les valeurs locales.
+- `e?` avec `e: Result[T, E]` dans une fonction qui renvoie `Result[U, F]` : vaut `t` si
+  `e` est `Ok(t)` ; sinon la fonction renvoie `Err(f)` après avoir détruit les valeurs
+  locales, où `f` est (ADR 0015) :
+  1. l'erreur elle-même si `E` et `F` sont le même type ;
+  2. sinon, si `F` est une énumération qui a **exactement une** variante dont l'unique
+     valeur est de type `E`, l'erreur dans cette variante (exemple ci-dessus) ;
+  3. sinon, si `F` est `dyn Error` (`any Error` en édition 1) et que `E` implémente
+     `Error`, l'erreur rangée dans une valeur `dyn Error` (une allocation) ;
+  4. en **édition 0.2 seulement**, si `F` est `String` et que `E` implémente `Error`, le
+     texte de l'erreur (`to_string`). C'est une transition : les programmes écrits quand
+     `std.io` rendait des erreurs `String` continuent de compiler. Elle n'existe pas en
+     édition 1, et `nxc migrate` signale les `?` concernés.
+
+  Il n'y a aucune autre conversion : sinon E0360, qui indique la variante à ajouter, les
+  variantes entre lesquelles `?` ne peut pas choisir, ou l'interface manquante.
 - `e?` avec `e: Option[T]` dans une fonction qui renvoie `Option[U]` : vaut `t` ou
   renvoie `None`.
-- En 0.1, le type d'erreur doit être **identique** (E0360). *(Hors 0.1 : conversion
-  d'erreurs via un trait `From`.)*
+- `?` prend la valeur de `e` : comme `let v = e`, `e` doit être une valeur possédée
+  (variable locale, paramètre `owned`, résultat d'un appel). Une place empruntée, un
+  champ ou un élément donnent E0403 ; pour un `Option` rangé dans une place, `.take()`
+  sort la valeur et laisse `None`.
+
+### Erreurs de la bibliothèque standard
+
+Les fonctions faillibles de `std` rendent une énumération d'erreurs par domaine, jamais
+`String` : on filtre la cause sans comparer de textes. `std.io` rend `io.IoError` :
+
+| Variante | Cause |
+|---|---|
+| `NotFound(String)` | rien n'existe à ce chemin |
+| `PermissionDenied(String)` | le système refuse l'accès à ce chemin |
+| `AlreadyExists(String)` | quelque chose existe déjà à ce chemin |
+| `InvalidData(String)` | contenu inattendu (fichier texte qui n'est pas en UTF-8) |
+| `Interrupted` | opération interrompue par un signal |
+| `Other(i32, String)` | autre erreur : code du système (-1 s'il n'en donne pas) et message |
+
+`IoError` implémente `Display` (message en anglais, comme les diagnostics), `Eq`,
+`Clone` et `Error`. L'interface `Error` (`trait Error: Display`, sans autre méthode) est
+celle des erreurs que l'on montre aux utilisateurs ; elle est dans le prélude.
 
 ## 7.3 Paniques
 

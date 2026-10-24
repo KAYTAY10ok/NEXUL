@@ -5,4 +5,7 @@ ignored: []
 test env set: true, missing: true
 written
 3 lines, second = ligne 2 é
-expected error: cannot read file: this/file/does/not/exist.txt
+expected error: file not found: this/file/does/not/exist.txt
+not found: true, same error: true
+invalid UTF-8: InvalidData
+2 bytes read

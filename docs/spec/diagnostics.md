@@ -116,7 +116,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0349` | `else` after a value (edition 1) gives a fallback for an `Option` that is empty or a `Result` that is an error. |
 | `E0350` | This value cannot be formatted. |
 | `E0351` | This format specification does not apply to the value's type. |
-| `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or the error |
+| `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or its error |
 | `E0361` | The `?` operator is used in a function that does not return `Option` or `Result`. |
 | `E0370` | Arithmetic overflow or division by zero while evaluating a constant. |
 | `E0371` | This expression cannot be evaluated at compile time. |

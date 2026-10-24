@@ -504,20 +504,27 @@ fn invalid(h: Ptr[u8]) -> bool {
     return h.is_null() or h.addr() == usize.MAX
 }
 
-/// Reads a whole file into `out` (bytes).
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// The code of the last failure of the calling thread (never 0: -1 if the system gave
+/// none).
+fn last_error() -> i32 {
+    let code = unsafe { GetLastError() } as i32
+    return if code == 0 { -1 } else { code }
+}
+
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`GetLastError`).
+pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
     unsafe {
         let wpath = to_wide(path)
         let h = CreateFileW(wpath.as_ptr(), GENERIC_READ, 3, Ptr.null(), 3, 0x80, Ptr.null())
         if invalid(h) {
-            return false
+            return last_error()
         }
-        var ok = true
+        var code: i32 = 0
         while true {
             out.reserve(65536)
             var got: u32 = 0
             if ReadFile(h, out.as_ptr().offset(out.len()), 65536, mem.addr_of(&got), Ptr.null()) == 0 {
-                ok = false
+                code = last_error()
                 break
             }
             if got == 0 {
@@ -526,23 +533,42 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + got as usize)
         }
         let _ = CloseHandle(h)
-        return ok
+        return code
     }
 }
 
-/// Creates (or replaces, or appends to) a file.
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code
+/// (`GetLastError`).
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
     unsafe {
         let wpath = to_wide(path)
         let access = if append { FILE_APPEND_DATA } else { GENERIC_WRITE }
         let disposition: u32 = if append { 4 } else { 2 }
         let h = CreateFileW(wpath.as_ptr(), access, 1, Ptr.null(), disposition, 0x80, Ptr.null())
         if invalid(h) {
-            return false
+            return last_error()
         }
-        let ok = len == 0 or write_handle(h, data, len)
-        let closed = CloseHandle(h) != 0
-        return ok and closed
+        if not (len == 0 or write_handle(h, data, len)) {
+            let code = last_error()
+            let _ = CloseHandle(h)
+            return code
+        }
+        if CloseHandle(h) == 0 {
+            return last_error()
+        }
+        return 0
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn io_error_kind(code: i32) -> u8 {
+    return match code {
+        2 | 3 => 1 // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+        5 => 2 // ERROR_ACCESS_DENIED
+        80 | 183 => 3 // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
+        _ => 0
     }
 }
 

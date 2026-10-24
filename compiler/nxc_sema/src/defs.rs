@@ -92,6 +92,9 @@ pub struct ModuleInfo {
     /// Dotted path, e.g. `std.io` or `geometrie.formes`.
     pub path: String,
     pub file: FileId,
+    /// The edition the file is written in (ADR 0010): a few rules differ, such as the
+    /// conversion of errors to `String` by `?` (edition 0.2 only, ADR 0015).
+    pub edition: nxc_syntax::Edition,
     pub is_std: bool,
     /// Items declared in this module: name -> (item, declaration span, is_pub).
     pub items: HashMap<String, (ItemRef, Span, bool)>,

@@ -240,7 +240,11 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) | T::Closure { .. } => {}
-            T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => self.fin_expr(x),
+            T::Field(x, _) | T::Move(x) | T::Try(x, _, None) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => self.fin_expr(x),
+            T::Try(x, _, Some(conv)) => {
+                self.fin_expr(x);
+                self.fin_expr(&mut conv.expr);
+            }
             T::Unary(_, x) => {
                 self.fin_expr(x);
                 self.desugar_operator(e);

@@ -340,7 +340,8 @@ fn run_programs_optimized() {
 
 /// `nxc migrate` keeps the meaning of host-compatible programs: every single-file program
 /// of `tests/run` written in 0.2 (no user module imported), migrated to edition 1, compiles
-/// and prints the same output with the same exit code.
+/// and prints the same output with the same exit code. A program that tests a rule of
+/// edition 0.2 only says so in its first lines (`// no-migrate: reason`).
 #[test]
 fn migrated_programs_behave_the_same() {
     let paths: Vec<PathBuf> = files("tests/run")
@@ -350,7 +351,8 @@ fn migrated_programs_behave_the_same() {
                 return false;
             }
             let t = std::fs::read_to_string(p).unwrap_or_default();
-            !t.lines().take(3).any(|l| l.trim() == "// edition: 1") && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
+            !t.lines().take(3).any(|l| l.trim() == "// edition: 1" || l.starts_with("// no-migrate: "))
+                && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
         })
         .collect();
     let failures = parallel(&paths, |nx| {

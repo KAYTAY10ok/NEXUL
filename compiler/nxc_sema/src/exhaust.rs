@@ -444,7 +444,7 @@ impl<'a> Cx<'a> {
                 }
             }
             T::Block(b) => self.block(b, diags),
-            T::Unary(_, x) | T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) | T::Cast(x) => self.expr(x, diags),
+            T::Unary(_, x) | T::Field(x, _) | T::Move(x) | T::Try(x, _, _) | T::ArrayRepeat(x, _) | T::Cast(x) => self.expr(x, diags),
             T::Binary(_, a, b) | T::Index(a, b) => {
                 self.expr(a, diags);
                 self.expr(b, diags);

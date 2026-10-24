@@ -19,23 +19,70 @@ pub fn read_line() -> Option[String] {
     return None
 }
 
+/// Why an input/output operation failed (ADR 0015). The variants keep the path given
+/// to the function; `Other` keeps the system's error code.
+@derive(Eq, Clone)
+pub enum IoError {
+    /// Nothing exists at this path.
+    NotFound(String)
+    /// The system refuses access to this path.
+    PermissionDenied(String)
+    /// Something already exists at this path.
+    AlreadyExists(String)
+    /// The content is not what was expected (a text file that is not UTF-8).
+    InvalidData(String)
+    /// A signal interrupted the operation.
+    Interrupted
+    /// Another error: the system's code (-1 when the system gives none) and a message.
+    Other(i32, String)
+}
+
+impl Display for IoError {
+    fn to_string(self) -> String {
+        return match self {
+            NotFound(path) => "file not found: {path}"
+            PermissionDenied(path) => "permission denied: {path}"
+            AlreadyExists(path) => "file already exists: {path}"
+            InvalidData(detail) => "invalid data: {detail}"
+            Interrupted => "operation interrupted"
+            Other(code, message) => "{message} (os error {code})"
+        }
+    }
+}
+
+impl Error for IoError {
+}
+
+/// The error for a code returned by `sys.read_file` or `sys.write_file`.
+fn io_error(code: i32, owned path: String, action: String) -> IoError {
+    return match sys.io_error_kind(code) {
+        1 => IoError.NotFound(path)
+        2 => IoError.PermissionDenied(path)
+        3 => IoError.AlreadyExists(path)
+        4 => IoError.Interrupted
+        _ => IoError.Other(code, "cannot {action} file: {path}")
+    }
+}
+
 /// Reads a whole file as bytes.
-pub fn read_bytes(path: String) -> Result[Vec[u8], String] {
+pub fn read_bytes(path: String) -> Result[Vec[u8], IoError] {
     var bytes: Vec[u8] = Vec.new()
-    if not sys.read_file(path, &bytes) {
-        return Err("cannot read file: {path}")
+    let code = sys.read_file(path, &bytes)
+    if code != 0 {
+        return Err(io_error(code, path.clone(), "read"))
     }
     return Ok(bytes)
 }
 
 /// Reads a whole UTF-8 text file.
-pub fn read_file(path: String) -> Result[String, String] {
+pub fn read_file(path: String) -> Result[String, IoError] {
     var bytes: Vec[u8] = Vec.new()
-    if not sys.read_file(path, &bytes) {
-        return Err("cannot read file: {path}")
+    let code = sys.read_file(path, &bytes)
+    if code != 0 {
+        return Err(io_error(code, path.clone(), "read"))
     }
     if not unsafe { string.utf8_valid(bytes.as_ptr(), bytes.len()) } {
-        return Err("file is not valid UTF-8: {path}")
+        return Err(IoError.InvalidData("file is not valid UTF-8: {path}"))
     }
     unsafe {
         let (data, len, cap) = bytes.into_raw_parts()
@@ -44,25 +91,28 @@ pub fn read_file(path: String) -> Result[String, String] {
 }
 
 /// Creates or replaces a file with `content`.
-pub fn write_file(path: String, content: String) -> Result[(), String] {
-    if sys.write_file(path, content.as_ptr(), content.len(), false) {
-        return Ok(())
+pub fn write_file(path: String, content: String) -> Result[(), IoError] {
+    let code = sys.write_file(path, content.as_ptr(), content.len(), false)
+    if code != 0 {
+        return Err(io_error(code, path.clone(), "write"))
     }
-    return Err("cannot write file: {path}")
+    return Ok(())
 }
 
 /// Creates or replaces a file with raw bytes.
-pub fn write_bytes(path: String, content: Vec[u8]) -> Result[(), String] {
-    if sys.write_file(path, content.as_ptr(), content.len(), false) {
-        return Ok(())
+pub fn write_bytes(path: String, content: Vec[u8]) -> Result[(), IoError] {
+    let code = sys.write_file(path, content.as_ptr(), content.len(), false)
+    if code != 0 {
+        return Err(io_error(code, path.clone(), "write"))
     }
-    return Err("cannot write file: {path}")
+    return Ok(())
 }
 
 /// Appends `content` at the end of a file (created if needed).
-pub fn append_file(path: String, content: String) -> Result[(), String] {
-    if sys.write_file(path, content.as_ptr(), content.len(), true) {
-        return Ok(())
+pub fn append_file(path: String, content: String) -> Result[(), IoError] {
+    let code = sys.write_file(path, content.as_ptr(), content.len(), true)
+    if code != 0 {
+        return Err(io_error(code, path.clone(), "write"))
     }
-    return Err("cannot write file: {path}")
+    return Ok(())
 }

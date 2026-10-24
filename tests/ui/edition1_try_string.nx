@@ -1,0 +1,11 @@
+// edition: 1
+// In edition 1, `?` no longer turns an error into its text: the conversion to `String`
+// is a transition reserved to edition 0.2 (ADR 0015).
+import std.io
+
+fn Result[String, String] read(String path) {
+    let text = io.read_file(path)?
+    return .Ok(text)
+}
+
+fn main() {}

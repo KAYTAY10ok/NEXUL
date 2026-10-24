@@ -236,6 +236,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
     prog.modules.push(ModuleInfo {
         path: root_path.clone(),
         file: root_file,
+        edition: sm.get(root_file).edition,
         is_std: false,
         items: HashMap::new(),
         imports: HashMap::new(),
@@ -298,7 +299,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         }
         let id = ModId(prog.modules.len() as u32);
-        prog.modules.push(ModuleInfo { path: path.clone(), file, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
+        prog.modules.push(ModuleInfo { path: path.clone(), file, edition: sm.get(file).edition, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
         by_path.insert(path, id);
         queue.push_back(id);
         Some(id)

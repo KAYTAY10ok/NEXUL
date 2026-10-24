@@ -113,3 +113,33 @@ programmes écrits avec la règle de la variante resteront valides.
   garde le code d'origine, rien n'est perdu.
 - La règle 3.2 dépend de l'unicité de la variante : la rendre lisible dans le message
   d'erreur.
+
+## Mise en œuvre (24/10/2026, lot 11, branche `refonte/core-adr0015-erreurs`)
+
+- `lib/std/core.nx` : `@lang("error") pub trait Error: Display {}`, dans le prélude.
+- `lib/std/io.nx` : `IoError` (`@derive(Eq, Clone)`, `Display`, `Error`) ; les cinq
+  fonctions faillibles rendent `Result[_, IoError]`. Écriture de l'édition 0.2 :
+  `NotFound(String)`, …, `Other(i32, String)`.
+- `lib/std/sys/*.nx` : `read_file` et `write_file` rendent le code du système (0 si
+  réussite) au lieu d'un booléen ; `io_error_kind` le classe. Linux et WASI : `errno` ;
+  Windows : `GetLastError` ; semi-hébergement et `wasm32-web` : -1 (`Other`).
+- `compiler/nxc_sema/src/check/expr.rs` (`try_conversion`) : règles 3.1 à 3.4 et la
+  transition de l'édition 0.2 (§4) ; E0360 propose la variante à ajouter, nomme les
+  variantes ambiguës, ou l'interface manquante. L'édition du fichier est lue dans
+  `ModuleInfo.edition`.
+- THIR : `Try(x, kind, Option<TryConv>)` ; `compiler/nxc_nir/src/build.rs` (`lower_try`)
+  range l'erreur dans une variable cachée, dans une portée propre au chemin d'erreur, puis
+  évalue la conversion (déplacement dans la variante ou le `dyn Error`, ou lecture par
+  `to_string` suivie de la destruction de l'erreur). IR vérifié à la main sur les trois
+  conversions.
+- `compiler/nxc/src/migrate.rs` : `?` sur une fonction de `std.io` dans une fonction qui
+  rend `Result[..., String]` est signalé « à finir à la main ».
+- Tests : `tests/run/io.nx` (`NotFound`, `==`, `InvalidData` pour un fichier non UTF-8),
+  `tests/run/try_convert.nx`, `tests/run/edition1_try_convert.nx`,
+  `tests/run/try_convert_text.nx` (transition 0.2, exclue de la migration par
+  `// no-migrate:`), `tests/ui/try_convert_errors.nx`, `tests/ui/edition1_try_string.nx`,
+  test unitaire de `migrate`.
+- **Pas encore fait** : test de `.PermissionDenied` sur Linux (aucune fonction de `std`
+  ne change les droits d'un fichier, et la CI peut tourner en `root`) ; refus de
+  `dyn Error` sous `with noalloc` (P8 n'existe pas encore) ; `std.fs`, `std.net`,
+  `std.process` (n'existent pas encore).

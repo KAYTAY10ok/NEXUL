@@ -1,0 +1,8 @@
+load: io: file not found: nexul_does_not_exist_ed1.txt
+load_any: file not found: nexul_does_not_exist_ed1.txt
+load: 7
+load_any: 7
+load: parse: not a number: x7
+load_any: not a number: x7
+load: parse: empty file
+load_any: empty file

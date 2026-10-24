@@ -286,7 +286,9 @@ Règles :
 
 Le prélude fournit `Eq`, `Ord` (avec `Ordering`), `Clone`, `Display`, `Hash`, `Default`
 et les traits d'opérateurs `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`, implémentés par les
-types primitifs, `String`, `Vec`, `Option`, `Result`, `Map` et `Set` (§09).
+types primitifs, `String`, `Vec`, `Option`, `Result`, `Map` et `Set` (§09), ainsi que
+`Error` (`trait Error: Display`), l'interface des erreurs que `?` peut ranger dans un
+`dyn Error` (§7.2).
 
 | Écriture | Devient |
 |---|---|

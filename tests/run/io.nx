@@ -39,7 +39,28 @@ fn main() {
     }
     match io.read_file("this/file/does/not/exist.txt") {
         Ok(_) => println("unexpected")
-        Err(e) => println("expected error: {e}")
+        Err(e) => {
+            println("expected error: {e}")
+            // ADR 0015: the cause can be tested without comparing texts.
+            let not_found = match e {
+                io.IoError.NotFound(p) => p == "this/file/does/not/exist.txt"
+                _ => false
+            }
+            println("not found: {not_found}, same error: {e == io.IoError.NotFound("this/file/does/not/exist.txt")}")
+        }
+    }
+    var bad: Vec[u8] = Vec.new()
+    bad.push(0x41)
+    bad.push(0xff)
+    let _ = io.write_bytes(path, bad)
+    match io.read_file(path) {
+        Err(io.IoError.InvalidData(_)) => println("invalid UTF-8: InvalidData")
+        Err(e) => println("unexpected error: {e}")
+        Ok(_) => println("unexpected")
+    }
+    match io.read_bytes(path) {
+        Ok(b) => println("{b.len()} bytes read")
+        Err(e) => println("unexpected error: {e}")
     }
     let _ = io.write_file(path, "")
 }

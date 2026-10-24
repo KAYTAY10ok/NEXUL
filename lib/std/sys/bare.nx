@@ -230,12 +230,14 @@ pub fn env_is_set(name: String) -> bool {
 // ---------------------------------------------------------------------------
 // Files of the host
 
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// Reads a whole file of the host into `out` (bytes). Returns 0, or -1: semihosting
+/// gives no portable error code.
+pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
     unsafe {
         // Mode 1: "rb".
         let h = open_host(path, 1)
         if h < 0 {
-            return false
+            return -1
         }
         var fb: [usize; 1] = [h as usize]
         let len = semihost(SYS_FLEN, addr(mem.addr_of(&fb).cast[u8]()))
@@ -252,22 +254,31 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             }
         }
         let _ = semihost(SYS_CLOSE, addr(mem.addr_of(&fb).cast[u8]()))
-        return ok
+        return if ok { 0 } else { -1 }
     }
 }
 
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file of the host. Returns 0, or -1.
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
     unsafe {
         // Mode 5: "wb", 9: "ab".
         let h = open_host(path, if append { 9 } else { 5 })
         if h < 0 {
-            return false
+            return -1
         }
         let ok = len == 0 or write_handle(h, data, len)
         var fb: [usize; 1] = [h as usize]
         let _ = semihost(SYS_CLOSE, addr(mem.addr_of(&fb).cast[u8]()))
-        return ok
+        return if ok { 0 } else { -1 }
     }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn io_error_kind(code: i32) -> u8 {
+    let _ = code
+    return 0
 }
 
 // ---------------------------------------------------------------------------

@@ -506,7 +506,7 @@ impl<'a> Cx<'a> {
             // `x?` takes the value of `x` (its payload or its error leaves it): `x` is in an
             // owned position. Only checked as a read, `r?` on a borrowed parameter, `s.f?` or
             // `v[i]?` moved a resource out of a place they did not own (double destruction).
-            T::Try(x, _) => {
+            T::Try(x, _, _) => {
                 self.expr(x);
                 self.consume(x);
             }

@@ -184,6 +184,13 @@ pub trait Display {
     fn to_string(self) -> String
 }
 
+/// An error that can be shown to users (ADR 0015): the errors of `std` (`io.IoError`)
+/// implement it. In a function that returns `Result[T, dyn Error]`, `?` stores any
+/// such error in the `dyn Error` value (an allocation).
+@lang("error")
+pub trait Error: Display {
+}
+
 /// A 64-bit summary of the value, equal for equal values (hash tables).
 @lang("hash")
 pub trait Hash {

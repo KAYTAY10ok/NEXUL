@@ -407,14 +407,14 @@ unsafe fn open(path: String, flags: isize) -> isize {
     }
 }
 
-/// Reads a whole file into `out` (bytes).
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
+pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
     unsafe {
         let fd = open(path, 0x80000)
         if fd < 0 {
-            return false
+            return (-fd) as i32
         }
-        var ok = true
+        var code: i32 = 0
         while true {
             out.reserve(65536)
             let r = sys3(SYS_READ, fd, addr(out.as_ptr().offset(out.len())), 65536)
@@ -422,7 +422,7 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
                 continue
             }
             if r < 0 {
-                ok = false
+                code = (-r) as i32
                 break
             }
             if r == 0 {
@@ -431,22 +431,41 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + r as usize)
         }
         let _ = sys1(SYS_CLOSE, fd)
-        return ok
+        return code
     }
 }
 
-/// Creates (or replaces, or appends to) a file.
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
     unsafe {
         // O_WRONLY | O_CREAT | O_CLOEXEC, then O_APPEND or O_TRUNC.
         let flags: isize = if append { 0x80441 } else { 0x80241 }
         let fd = open(path, flags)
         if fd < 0 {
-            return false
+            return (-fd) as i32
         }
         let ok = write_fd(fd, data, len)
-        let closed = sys1(SYS_CLOSE, fd) == 0
-        return ok and closed
+        let closed = sys1(SYS_CLOSE, fd)
+        if not ok {
+            return 5 // EIO: `write_fd` does not keep the code
+        }
+        if closed < 0 {
+            return (-closed) as i32
+        }
+        return 0
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn io_error_kind(code: i32) -> u8 {
+    return match code {
+        2 => 1 // ENOENT
+        1 | 13 => 2 // EPERM, EACCES
+        17 => 3 // EEXIST
+        4 => 4 // EINTR
+        _ => 0
     }
 }
 
@@ -522,7 +541,7 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
         None => {}
     }
     var data: Vec[u8] = Vec.new()
-    if not read_file(path, &data) or data.len() < 44 or data[0] != 'T' as u8 or data[1] != 'Z' as u8 {
+    if read_file(path, &data) != 0 or data.len() < 44 or data[0] != 'T' as u8 or data[1] != 'Z' as u8 {
         return 0
     }
     // Version 2+ files repeat the data with 64-bit times after the first block.

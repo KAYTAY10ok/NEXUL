@@ -261,29 +261,33 @@ fn resolve(path: String) -> (i32, String) {
     return (best, rel)
 }
 
+/// A file descriptor, or minus the error code (`errno`).
 unsafe fn open(path: String, oflags: i32, rights: i64, fdflags: i32) -> i32 {
     let (dir, rel) = resolve(path)
     var fd: i32 = -1
-    if path_open(dir, 1, rel.as_ptr(), rel.len() as i32, oflags, rights, rights, fdflags, mem.addr_of(&fd)) != 0 {
-        return -1
+    let errno = path_open(dir, 1, rel.as_ptr(), rel.len() as i32, oflags, rights, rights, fdflags, mem.addr_of(&fd))
+    if errno != 0 {
+        return -errno
     }
     return fd
 }
 
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
+pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
     unsafe {
         // Rights: fd_read (2) | fd_seek (4) | fd_tell (32) | fd_filestat_get (2097152)
         let fd = open(path, 0, 2097190, 0)
         if fd < 0 {
-            return false
+            return -fd
         }
-        var ok = true
+        var code: i32 = 0
         while true {
             out.reserve(65536)
             var iov: [usize; 2] = [out.as_ptr().offset(out.len()).addr(), 65536]
             var got: i32 = 0
-            if fd_read(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got)) != 0 {
-                ok = false
+            let errno = fd_read(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got))
+            if errno != 0 {
+                code = errno
                 break
             }
             if got <= 0 {
@@ -292,20 +296,37 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + got as usize)
         }
         let _ = fd_close(fd)
-        return ok
+        return code
     }
 }
 
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
+pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
     unsafe {
         // oflags: creat (1) | trunc (8); fdflags: append (1); rights: fd_write (64)
         let fd = if append { open(path, 1, 64, 1) } else { open(path, 9, 64, 0) }
         if fd < 0 {
-            return false
+            return -fd
         }
         let ok = write_fd(fd, data, len)
-        let closed = fd_close(fd) == 0
-        return ok and closed
+        let closed = fd_close(fd)
+        if not ok {
+            return 29 // EIO: `write_fd` does not keep the code
+        }
+        return closed
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn io_error_kind(code: i32) -> u8 {
+    return match code {
+        44 => 1 // ENOENT
+        2 | 63 => 2 // EACCES, EPERM
+        20 => 3 // EEXIST
+        27 => 4 // EINTR
+        _ => 0
     }
 }
 

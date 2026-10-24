@@ -14,7 +14,7 @@ error[E0360]: the error type of `?` does not match the function's error type
    |             ^^^^^^^^^^^ error type `String`
    |
    = note: the function returns errors of type `i32`
-   = note: NEXUL 0.1 does not convert error types automatically
+   = help: return `Result[..., String]`, or convert the error with `match`
 
 error[E0360]: the `?` operator applies to `Option` and `Result`, not `{integer}`
   --> try_operator.nx:15:13

@@ -423,3 +423,14 @@ standard tamponnée.
   l'aide `.take()` pour un `Option`) ; un paramètre `owned`, une variable locale, un appel
   ou une charge utile `Copy` restent acceptés. Un second `r?` après le premier donne E0402.
 - **Test** : `tests/ui/try_moves.nx` (cas refusés et cas acceptés).
+
+## 15. Lot 11 (24/10, branche `refonte/core-adr0015-erreurs`) — ADR 0015 mise en œuvre
+
+- **Erreurs de `std.io`** : `io.IoError` remplace `String` dans les cinq fonctions
+  faillibles ; la couche système rend le code d'erreur du système au lieu d'un booléen,
+  ce qui distingue « absent » de « refusé » sans comparer de textes (constat A3).
+- **`?` convertit** dans la variante qui contient exactement l'erreur, dans `dyn Error`
+  (`any Error`), ou, en édition 0.2 seulement, en texte. Rien d'autre (E0360 enrichi).
+- **Migration** : `nxc migrate` signale les `?` concernés ; le test des programmes migrés
+  exclut le seul programme qui teste exprès la règle de transition (`// no-migrate:`).
+- Détails, fichiers et limites : [ADR 0015, « Mise en œuvre »](../adr/0015-erreurs-et-conversion.md).

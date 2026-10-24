@@ -19,7 +19,9 @@ Le prélude, visible sans import, contient `Option`, `Result`, `String`, `Vec`, 
 fonctions intégrées (§4.10) et les traits standards (§3.9) : `Eq`, `Ord` et `Ordering`,
 `Clone`, `Display`, `Hash`, `Default`, `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`. Les types
 primitifs, `String`, `Vec`, `Option` et `Result` les implémentent (pour `Vec`, `Option` et
-`Result`, quand leurs éléments les implémentent).
+`Result`, quand leurs éléments les implémentent). Le prélude contient aussi `Error`,
+l'interface des erreurs que l'on montre aux utilisateurs (§7.2), implémentée par les
+erreurs de `std` (`io.IoError`).
 
 ### `Option[T]`
 | Méthode | Description |
@@ -141,7 +143,7 @@ Les deux implémentent `Clone`, `Display` et `Default`.
 | Module | Contenu |
 |---|---|
 | `std.math` | constantes `PI`, `E`, `TAU`, `SQRT_2`, `LN_2`, `LN_10` ; `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `fmod`, `scalbn` (aussi méthodes des flottants, §4.9), précises au dernier bit près (portage de fdlibm) |
-| `std.io` | `read_line() -> Option[String]`, `read_file`, `read_bytes`, `write_file`, `write_bytes`, `append_file` (résultats `Result[_, String]`), `flush()` |
+| `std.io` | `read_line() -> Option[String]`, `read_file`, `read_bytes`, `write_file`, `write_bytes`, `append_file` (résultats `Result[_, IoError]`, §7.2), `IoError`, `flush()` |
 | `std.system` | `args() -> Vec[String]`, `exit(code: i32) -> Never`, `env(nom: String) -> Option[String]` |
 | `std.time` | `monotonic_ns()`, `unix_time()`, `unix_time_ns()`, `sleep(ms)`, `sleep_ns(ns)`, `utc_offset(...)` ; dates du calendrier : `Date` (`new`, `today`, `parse`, `add_days`, `add_months`, `weekday`, `days_until`…), `DateTime` (`now`, `now_utc`, `from_unix`…), `Weekday`, `is_leap_year`, `days_in_month` |
 | `std.random` | aléa cryptographique du système : `secure_bytes`, `secure_u64`, `secure_range`, `secure_token` ; générateur reproductible `Rng` (`new(graine)`, `from_entropy`, `range`, `float`, `chance`, `shuffle`) |

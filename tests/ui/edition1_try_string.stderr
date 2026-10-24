@@ -1,0 +1,11 @@
+error[E0360]: the error type of `?` does not match the function's error type
+ --> edition1_try_string.nx:7:16
+  |
+7 |     let text = io.read_file(path)?
+  |                ^^^^^^^^^^^^^^^^^^^ error type `IoError`
+  |
+  = note: the function returns errors of type `String`
+  = note: since edition 1, `?` no longer turns errors into their text (ADR 0015)
+  = help: return `Result[..., IoError]` or `Result[..., any Error]`, or convert with `match`
+
+error: could not compile due to 1 error
