@@ -103,6 +103,7 @@ pub fn days_in_month(year: i32, month: i32) -> i32 {
 }
 
 /// A day of the week.
+@derive(Copy)
 pub enum Weekday {
     Monday
     Tuesday
@@ -156,6 +157,7 @@ impl Weekday {
 }
 
 /// A calendar date, always valid.
+@derive(Copy)
 pub struct Date {
     year: i32
     month: i32
@@ -306,6 +308,7 @@ impl Date {
 }
 
 /// A date and a time of day, in a time zone given by its offset from UTC.
+@derive(Copy)
 pub struct DateTime {
     // Not named `date`: a field sharing its name with a method of struct type is not
     // yet supported by the compiler (infinite recursion, to be fixed).

@@ -1,11 +1,11 @@
-//! `@derive(Eq, Ord, Clone, Display, Hash, Default)` on a struct or an enum: the
+//! `@derive(Copy, Eq, Ord, Clone, Display, Hash, Default)` on a struct or an enum: the
 //! implementations are generated as NEXUL source and parsed like the rest of the module
 //! (spec §3.9).
 
 use nxc_syntax::ast::{self, ItemKind, Lit};
 use nxc_syntax::{DiagSink, Diagnostic, SourceMap};
 
-const DERIVABLE: &[&str] = &["Eq", "Ord", "Clone", "Display", "Hash", "Default"];
+const DERIVABLE: &[&str] = &["Copy", "Eq", "Ord", "Clone", "Display", "Hash", "Default"];
 
 /// Adds the generated `impl` blocks to the module.
 pub fn expand(module: &mut ast::Module, sm: &mut SourceMap, file_name: &str, diags: &DiagSink) {
@@ -35,6 +35,8 @@ pub fn expand(module: &mut ast::Module, sm: &mut SourceMap, file_name: &str, dia
             }
             let target = if generics.is_empty() { name.clone() } else { format!("{}[{}]", name, generics.iter().map(|g| format!("{}: {}", g, tr)).collect::<Vec<_>>().join(", ")) };
             let body = match tr.as_str() {
+                // A declaration without functions, checked against the type (E0250).
+                "Copy" => String::new(),
                 "Eq" => eq(&shape),
                 "Ord" => ord(&shape),
                 "Clone" => clone(&name, &shape),

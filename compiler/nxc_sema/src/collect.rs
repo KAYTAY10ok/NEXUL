@@ -1172,7 +1172,22 @@ fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
 /// Every trait method without a default must be implemented, and the supertraits
 /// must be implemented for the same type.
 fn check_impls(prog: &Program, diags: &DiagSink) {
+    let copy = prog.lang_trait("copy");
     for imp in &prog.impls {
+        // A declaration of `Copy` is checked against the structure of the type (ADR 0012).
+        if Some(imp.trait_id) == copy {
+            if let TyKind::Adt(id, _) = &*prog.tcx.kind(imp.self_ty) {
+                if let Some(why) = prog.copy_obstacle(*id) {
+                    let a = prog.adt(*id);
+                    diags.emit(
+                        Diagnostic::error("E0250", format!("`{}` cannot be `Copy`", a.name))
+                            .primary(a.span, "declared `Copy`")
+                            .note(why)
+                            .help("remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)"),
+                    );
+                }
+            }
+        }
         let tdef = &prog.traits[imp.trait_id.idx()];
         let missing: Vec<&str> = tdef.methods.iter().filter(|m| m.default.is_none() && !imp.methods.contains_key(&m.name)).map(|m| m.name.as_str()).collect();
         if !missing.is_empty() {

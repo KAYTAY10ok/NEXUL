@@ -75,8 +75,33 @@ corriger après la 1.0 :
   Copy` et `T is Copy` (édition 1) permettent de copier les valeurs de `T` ; un argument
   de type non copiable est refusé (E0249, avec un message propre à `Copy`). Tests :
   `tests/ui/copy_bound.nx`, `tests/run/copy_bound.nx`, `tests/run/edition1_copy_bound.nx`.
-- **En attente de la décision** : points 2 à 4 et 6 (déclaration obligatoire pour les
-  types publics en édition 1, `nxc migrate`, code E0250).
+- **Fait le 24/10/2026 (lot 12, branche `refonte/core-adr0012-copy`)**, après
+  l'acceptation : points 2 à 4 et 6.
+  - `Program::is_copy` (`compiler/nxc_sema/src/defs.rs`) : un type public d'un module en
+    édition 1 n'est copiable que s'il déclare `Copy` (`copy_must_be_declared`,
+    `declares_copy`) ; l'édition est celle du fichier qui déclare le type
+    (`ModuleInfo.edition`). L'édition 0.2 ne change pas.
+  - Déclaration : `@derive(Copy)` (`derive.rs`), `impl Copy for T {}`, et en édition 1
+    `type T is Copy { … }` (les fonctions du corps restent celles du type) et
+    `type T is Copy = .A | .B` (nouvelle forme du parseur, `parser/ed1.rs`).
+  - **E0250** (`collect.rs`, `check_impls`) : la déclaration est vérifiée
+    (`copy_obstacle` : champ ou valeur non copiable, `drop`, `indirect` ; paramètres
+    génériques supposés copiables).
+  - **E0402** propose `type T is Copy { … }` quand la déclaration suffirait
+    (`undeclared_copy`, `compiler/nxc_nir/src/ownership.rs`).
+  - **`nxc migrate`** ajoute `is Copy` aux types publics que l'édition 0.2 copie
+    (analyse du fichier ; un type d'un autre module, sauf `Option`, `Result` et
+    `Ordering`, compte comme ressource : au pire la migration donne une erreur E0402, jamais
+    un changement de sens silencieux).
+  - `lib/std` : `@derive(Copy)` sur `Option`, `Result`, `Ordering`, `FormatSpec`,
+    `Location`, `Weekday`, `Date`, `DateTime`. **`random.Rng` n'est pas déclaré** :
+    copier un générateur duplique sa suite de nombres ; le choix (déclarer `Copy` ou
+    seulement `Clone`) est laissé à la migration de `std` vers l'édition 1 (aujourd'hui
+    `std` est en 0.2, donc rien ne change).
+  - Tests : `tests/ui/copy_declaration.nx` (E0250 : `String`, `drop`, `indirect`,
+    `impl Copy`), `tests/ui/edition1_copy_declaration.nx` (E0402 et sa proposition),
+    `tests/run/edition1_copy_declared.nx`, test unitaire de `migrate`.
+  - Pas fait : survol de l'éditeur (« copiable ») dans `ide.rs`.
 
 ## Composants concernés
 

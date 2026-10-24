@@ -8,6 +8,7 @@
 
 use nxc_syntax::ast::*;
 use nxc_syntax::{lexer, parser, DiagSink, Edition, SourceMap};
+use std::collections::{HashMap, HashSet};
 
 /// The result of a migration.
 pub struct Migration {
@@ -34,6 +35,8 @@ struct Migrator<'a> {
     manual: Vec<(usize, String)>,
     /// The function being rewritten returns `Result[..., String]`.
     string_errors: bool,
+    /// Public types copied by their structure in 0.2, which declare `Copy` in edition 1.
+    add_copy: HashSet<String>,
 }
 
 /// The functions of `std.io` whose errors became `io.IoError` (ADR 0015).
@@ -58,7 +61,7 @@ pub fn migrate(name: &str, src: &str) -> Result<Migration, String> {
         let list = diags.take_sorted();
         return Err(list.iter().map(|d| format!("error[{}]: {}", d.code, d.message)).collect::<Vec<_>>().join("\n"));
     }
-    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false };
+    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false, add_copy: copy_types(&module) };
     for item in &module.items {
         m.item(item);
     }
@@ -244,6 +247,13 @@ impl<'a> Migrator<'a> {
                 if let Some(k) = self.find(lo, s.name.span.lo as usize, "struct") {
                     self.rep(k, k + "struct".len(), "type");
                 }
+                // Edition 1 copies a public type only if it says so (ADR 0012).
+                if self.add_copy.contains(&s.name.name) {
+                    if let Some(open) = self.find(s.name.span.hi as usize, item.span.hi as usize, "{") {
+                        let spaced = self.src[..open].ends_with(char::is_whitespace);
+                        self.ins(open, if spaced { "is Copy " } else { " is Copy " });
+                    }
+                }
                 for fd in &s.fields {
                     let mut t = String::new();
                     if fd.is_pub {
@@ -390,7 +400,11 @@ impl<'a> Migrator<'a> {
                 s
             })
             .collect();
-        let generics = if e.generics.is_empty() { String::new() } else { format!("[{}]", e.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")) };
+        let mut generics = if e.generics.is_empty() { String::new() } else { format!("[{}]", e.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")) };
+        // Edition 1 copies a public type only if it says so (ADR 0012).
+        if self.add_copy.contains(&e.name.name) {
+            generics.push_str(" is Copy");
+        }
         let one_line = format!("type {}{} = {}", e.name.name, generics, variants.join(" | "));
         let indent: String = self.src[..k].rsplit('\n').next().unwrap_or("").chars().take_while(|c| c.is_whitespace()).collect();
         let mut text = String::new();
@@ -757,6 +771,98 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
     unsafe_words.dedup_by(|a, b| a.1 == b.1);
     (out, renamed, unsafe_words)
 }
+/// The public structs and enums of the module that edition 0.2 copies by their structure
+/// and that do not declare `Copy` yet: edition 1 copies them only with `is Copy` (ADR
+/// 0012). Without the types of other modules, a value of a type not declared here counts
+/// as a resource (apart from `Option`, `Result` and `Ordering`): such a type stays a
+/// resource, and a copy of it is reported by the compiler (E0402), never silently changed.
+fn copy_types(module: &Module) -> HashSet<String> {
+    struct Decl<'a> {
+        is_pub: bool,
+        generics: Vec<String>,
+        values: Vec<&'a TypeExpr>,
+        indirect: bool,
+    }
+    let mut decls: HashMap<String, Decl> = HashMap::new();
+    let mut not_copy: HashSet<String> = HashSet::new();
+    let mut declared: HashSet<String> = HashSet::new();
+    for item in &module.items {
+        if item.attrs.iter().any(|a| a.name.name == "derive" && a.args.iter().any(|(l, _)| matches!(l, Lit::Str(s) if s == "Copy"))) {
+            if let ItemKind::Struct(StructDecl { name, .. }) | ItemKind::Enum(EnumDecl { name, .. }) = &item.kind {
+                declared.insert(name.name.clone());
+            }
+        }
+        match &item.kind {
+            ItemKind::Struct(s) => {
+                let d = Decl {
+                    is_pub: item.is_pub,
+                    generics: s.generics.iter().map(|g| g.name.clone()).collect(),
+                    values: s.fields.iter().map(|f| &f.ty).collect(),
+                    indirect: s.fields.iter().any(|f| f.indirect),
+                };
+                decls.insert(s.name.name.clone(), d);
+            }
+            ItemKind::Enum(e) => {
+                let d = Decl {
+                    is_pub: item.is_pub,
+                    generics: e.generics.iter().map(|g| g.name.clone()).collect(),
+                    values: e.variants.iter().flat_map(|v| v.fields.iter()).collect(),
+                    indirect: e.variants.iter().any(|v| v.indirect),
+                };
+                decls.insert(e.name.name.clone(), d);
+            }
+            ItemKind::Impl(i) => {
+                let TypeExprKind::Path { segments, .. } = &i.ty.kind else { continue };
+                let Some(name) = segments.last().map(|s| s.name.clone()) else { continue };
+                match &i.trait_ {
+                    Some(t) if matches!(&t.kind, TypeExprKind::Path { segments, .. } if segments.last().is_some_and(|s| s.name == "Copy")) => {
+                        declared.insert(name);
+                    }
+                    None if i.items.iter().any(|it| matches!(&it.kind, ItemKind::Fn(f) if f.name.name == "drop")) => {
+                        not_copy.insert(name);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    // The greatest set of copyable types: remove the types with a value that is not.
+    let mut copy: HashSet<String> = decls.iter().filter(|(n, d)| !d.indirect && !not_copy.contains(*n)).map(|(n, _)| n.clone()).collect();
+    loop {
+        let out: Vec<String> = copy.iter().filter(|n| !decls[*n].values.iter().all(|t| copyable(t, &decls[*n].generics, &copy))).cloned().collect();
+        if out.is_empty() {
+            break;
+        }
+        for n in out {
+            copy.remove(&n);
+        }
+    }
+    copy.into_iter().filter(|n| decls[n].is_pub && !declared.contains(n)).collect()
+}
+
+/// Is a value of type `t` copied in edition 0.2, given the copyable types of the module?
+fn copyable(t: &TypeExpr, generics: &[String], copy: &HashSet<String>) -> bool {
+    const PRIMITIVES: &[&str] = &["i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool", "char", "Ptr", "Ordering"];
+    match &t.kind {
+        TypeExprKind::Path { segments, args } if segments.len() == 1 => {
+            let n = segments[0].name.as_str();
+            let args_copy = args.iter().all(|a| copyable(a, generics, copy));
+            if n == "Ptr" || (PRIMITIVES.contains(&n) && args.is_empty()) || generics.iter().any(|g| g == n) {
+                true
+            } else if n == "Option" || n == "Result" {
+                args_copy
+            } else {
+                copy.contains(n) && args_copy
+            }
+        }
+        TypeExprKind::Unit | TypeExprKind::Fn(..) => true,
+        TypeExprKind::Tuple(xs) => xs.iter().all(|x| copyable(x, generics, copy)),
+        TypeExprKind::Array(e, _) => copyable(e, generics, copy),
+        _ => false,
+    }
+}
+
 /// `Result[..., String]`.
 fn is_result_of_string(t: &TypeExpr) -> bool {
     let TypeExprKind::Path { segments, args } = &t.kind else { return false };
@@ -827,5 +933,18 @@ mod tests {
         let r = migrate("t.nx", src).unwrap();
         assert_eq!(r.manual.len(), 1, "{:?}", r.manual);
         assert!(r.manual[0].0 == 2 && r.manual[0].1.contains("ADR 0015"), "{:?}", r.manual);
+    }
+
+    #[test]
+    fn public_copyable_types_declare_copy() {
+        // ADR 0012: what 0.2 copies by structure says `is Copy` in edition 1.
+        assert_eq!(m("pub struct P {\n    x: i32\n}\n"), "pub type P is Copy {\n    i32 x\n}\n");
+        assert_eq!(m("pub enum D {\n    N\n    S\n}\n"), "pub type D is Copy = .N | .S\n");
+        assert_eq!(m("pub struct G[T] {\n    v: Option[T]\n    i: In\n}\nstruct In {\n    p: (u8, [i32; 2])\n}\n"), "pub type G[T] is Copy {\n    Option[T] v\n    In i\n}\ntype In {\n    (u8, [i32; 2]) p\n}\n");
+        // Resources, private types, and types that already say it: unchanged.
+        assert_eq!(m("pub struct S {\n    s: String\n}\n"), "pub type S {\n    String s\n}\n");
+        assert_eq!(m("struct Q {\n    x: i32\n}\n"), "type Q {\n    i32 x\n}\n");
+        assert_eq!(m("pub struct H {\n    x: i32\n}\nimpl H {\n    fn drop(inout self) {\n    }\n}\n"), "pub type H {\n    i32 x\n}\nextend H {\n    fn drop(self!) {\n    }\n}\n");
+        assert_eq!(m("@derive(Copy)\npub struct C {\n    x: i32\n}\n"), "@derive(Copy)\npub type C {\n    i32 x\n}\n");
     }
 }

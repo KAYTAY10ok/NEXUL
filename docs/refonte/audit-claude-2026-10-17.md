@@ -434,3 +434,13 @@ standard tamponnée.
 - **Migration** : `nxc migrate` signale les `?` concernés ; le test des programmes migrés
   exclut le seul programme qui teste exprès la règle de transition (`// no-migrate:`).
 - Détails, fichiers et limites : [ADR 0015, « Mise en œuvre »](../adr/0015-erreurs-et-conversion.md).
+
+## 16. Lot 12 (24/10, branche `refonte/core-adr0012-copy`) — ADR 0012 mise en œuvre
+
+- **Copiabilité des types publics** : en édition 1, un type `pub` n'est copié que s'il
+  déclare `Copy` ; la déclaration est vérifiée (E0250). L'édition 0.2 ne change pas.
+- **Parseur de l'édition 1** : `type T is Copy = .A | .B` ; les fonctions de
+  `type T is Copy { … }` restent celles du type (avant : rattachées à `Copy`, E0241).
+- **Migration** : `nxc migrate` ajoute `is Copy` ; E0402 propose la déclaration.
+- `random.Rng` laissé sans déclaration (décision à prendre à la migration de `std`).
+- Détails : [ADR 0012](../adr/0012-copiabilite-explicite.md).

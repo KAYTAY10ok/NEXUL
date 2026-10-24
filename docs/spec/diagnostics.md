@@ -75,6 +75,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0247` | An `impl Trait for Type` block is in an unrelated module. |
 | `E0248` | An anonymous function is used where it could outlive the call that receives it. |
 | `E0249` | A type does not implement a trait required by a bound. |
+| `E0250` | A type declared `Copy` cannot be copied bit for bit. |
 
 ## Types, motifs et constantes (chapitres 03 et 04)
 

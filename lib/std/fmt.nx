@@ -10,6 +10,7 @@ import std.math
 
 /// A format specification `{value:spec}` (spec §1.5).
 @lang("format_spec")
+@derive(Copy)
 pub struct FormatSpec {
     pub fill: char
     /// 0 default, 1 left `<`, 2 center `^`, 3 right `>`.

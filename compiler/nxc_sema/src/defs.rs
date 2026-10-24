@@ -563,6 +563,69 @@ impl Program {
         self.is_copy_rec(t, bounds, &mut visiting)
     }
 
+    /// ADR 0012: a public type of a module written in edition 1 is copyable only if it
+    /// declares `Copy` (`type T is Copy`); elsewhere its structure decides.
+    pub fn copy_must_be_declared(&self, adt: AdtId) -> bool {
+        let a = &self.adts[adt.idx()];
+        a.is_pub && self.modules[a.module.idx()].edition == nxc_syntax::Edition::V1
+    }
+
+    /// Does the type declare `Copy` (`@derive(Copy)`, `type T is Copy`, `impl Copy for T`)?
+    pub fn declares_copy(&self, adt: AdtId) -> bool {
+        let Some(copy) = self.lang_trait("copy") else { return false };
+        self.impls.iter().any(|i| i.trait_id == copy && matches!(&*self.tcx.kind(i.self_ty), TyKind::Adt(a, _) if *a == adt))
+    }
+
+    /// Why a type that declares `Copy` cannot be copyable (E0250): a destructor,
+    /// `indirect` storage, or a value that is not copyable. Its generic parameters count
+    /// as copyable: the declaration applies when they are.
+    pub fn copy_obstacle(&self, adt: AdtId) -> Option<String> {
+        let a = &self.adts[adt.idx()];
+        if a.drop_fn.is_some() {
+            return Some(format!("`{}` has a destructor (`drop`)", a.name));
+        }
+        let copy = self.lang_trait("copy")?;
+        let bounds: Vec<Bound> = (0..a.generics.len() as u32).map(|param| Bound { param, trait_id: copy }).collect();
+        match &a.kind {
+            AdtKind::Struct { fields } => {
+                for f in fields {
+                    if f.indirect {
+                        return Some(format!("field `{}` is `indirect`", f.name));
+                    }
+                    if !self.is_copy_with(f.ty, &bounds) {
+                        return Some(format!("field `{}` has type `{}`, which is not copyable", f.name, self.ty_str_with(f.ty, &a.generics)));
+                    }
+                }
+            }
+            AdtKind::Enum { variants } => {
+                for v in variants {
+                    if v.indirect {
+                        return Some(format!("variant `{}` is `indirect`", v.name));
+                    }
+                    if let Some(&f) = v.fields.iter().find(|&&f| !self.is_copy_with(f, &bounds)) {
+                        return Some(format!("variant `{}` holds a `{}`, which is not copyable", v.name, self.ty_str_with(f, &a.generics)));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The public type of edition 1 that `t` names when declaring it `Copy` would make it
+    /// copyable (for the help of E0402).
+    pub fn undeclared_copy(&self, t: Ty) -> Option<String> {
+        let TyKind::Adt(id, args) = &*self.tcx.kind(t) else { return None };
+        if !self.copy_must_be_declared(*id) || self.declares_copy(*id) || self.copy_obstacle(*id).is_some() {
+            return None;
+        }
+        let a = &self.adts[id.idx()];
+        let fields_copy = match &a.kind {
+            AdtKind::Struct { fields } => fields.iter().all(|f| self.is_copy(self.tcx.subst(f.ty, args))),
+            AdtKind::Enum { variants } => variants.iter().all(|v| v.fields.iter().all(|&f| self.is_copy(self.tcx.subst(f, args)))),
+        };
+        fields_copy.then(|| a.name.clone())
+    }
+
     /// Is a generic parameter declared `Copy` by `bounds`?
     fn param_is_copy(&self, param: u32, bounds: &[Bound]) -> bool {
         let Some(copy) = self.lang_trait("copy") else { return false };
@@ -585,6 +648,10 @@ impl Program {
                 }
                 let adt = &self.adts[id.idx()];
                 if adt.drop_fn.is_some() {
+                    return false;
+                }
+                // ADR 0012: in edition 1, a public type is copyable only if it says so.
+                if self.copy_must_be_declared(*id) && !self.declares_copy(*id) {
                     return false;
                 }
                 visiting.push(t);

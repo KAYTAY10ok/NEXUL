@@ -421,7 +421,14 @@ fn report(p: &Program, body: &Body, fx: &Effects, back: &[(BlockId, BlockId)], s
             d = d.secondary(m.span, "value moved here");
         }
     }
-    d = d.note(format!("`{}` has type `{}`, which owns resources and is moved rather than copied", name, ty));
+    let undeclared = p.undeclared_copy(decl.ty);
+    d = match &undeclared {
+        // ADR 0012: the type would be copyable if it said so.
+        Some(t) => d
+            .note(format!("`{}` has type `{}`, a public type: it is moved rather than copied unless it declares `Copy`", name, ty))
+            .help(format!("declare it copyable: `type {} is Copy {{ … }}`", t)),
+        None => d.note(format!("`{}` has type `{}`, which owns resources and is moved rather than copied", name, ty)),
+    };
     if same_statement {
         d = d.note("a value passed by reference, or assigned to, is taken after every other value of the statement is computed (evaluation order, spec §4.1)");
     }

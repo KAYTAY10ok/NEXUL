@@ -361,7 +361,8 @@ impl<'a> Parser<'a> {
     }
 
     /// `type Name[T] { fields and functions }`, `type Name is I { … }`, `type Name = .A | .B(T)`,
-    /// `type Name = Type`.
+    /// `type Name is I = .A | .B` (an enumeration that declares interfaces without functions,
+    /// such as `Copy`), `type Name = Type`.
     fn type_decl1(&mut self, attrs: Vec<Attr>, is_pub: bool, start: Span) -> PResult<Vec<Item>> {
         self.bump(); // type
         let name = self.ident("a type name")?;
@@ -391,12 +392,22 @@ impl<'a> Parser<'a> {
             }
             return Ok(vec![Item { attrs, is_pub, kind: ItemKind::TypeAlias(TypeAliasDecl { name, ty }), span: item_span(self) }]);
         }
-        let mut interfaces = Vec::new();
+        let mut interfaces: Vec<TypeExpr> = Vec::new();
         if self.eat_word("is") {
             interfaces.push(self.type_expr()?);
             while self.eat(&TokenKind::And) {
                 interfaces.push(self.type_expr()?);
             }
+        }
+        if !interfaces.is_empty() && self.is(&TokenKind::Eq) && matches!(self.peek_at(1), TokenKind::Dot | TokenKind::Pipe | TokenKind::Indirect) {
+            self.bump(); // =
+            let variants = self.variants1()?;
+            let span = start.to(self.prev_span());
+            let mut items = vec![Item { attrs, is_pub, kind: ItemKind::Enum(EnumDecl { name, generics, variants }), span }];
+            for i in interfaces {
+                items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![] }), span });
+            }
+            return Ok(items);
         }
         let open = self.expect(TokenKind::LBrace, "`{`, `=` or `is`")?;
         self.skip_newlines();
@@ -443,6 +454,13 @@ impl<'a> Parser<'a> {
         }
         let span = start.to(self.prev_span());
         let mut items = vec![Item { attrs, is_pub, kind: ItemKind::Struct(StructDecl { name, generics, fields }), span }];
+        // `Copy` has no function (ADR 0012): `type P is Copy { … fn … }` keeps its functions
+        // for the type, or for its other interface.
+        let is_copy = |t: &TypeExpr| matches!(&t.kind, TypeExprKind::Path { segments, args } if args.is_empty() && segments.last().is_some_and(|s| s.name == "Copy"));
+        let (copy, mut interfaces): (Vec<TypeExpr>, Vec<TypeExpr>) = interfaces.into_iter().partition(is_copy);
+        for c in copy {
+            items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(c), bounds: vec![], items: vec![] }), span });
+        }
         match interfaces.len() {
             0 if !fns.is_empty() => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: None, bounds: vec![], items: fns }), span }),
             0 => {}

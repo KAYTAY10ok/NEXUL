@@ -171,18 +171,39 @@ Une conversion dont le résultat est connu à la compilation est vérifiée à l
 
 ## 3.7 Types copiables et types ressources
 
-Chaque type appartient à exactement une catégorie, déterminée **structurellement** :
+Chaque type appartient à exactement une catégorie :
 
 - **Copiable (trivial)** : primitifs, `Ptr[T]`, types `fn`, et tout tuple, tableau,
   structure ou énumération dont tous les composants sont copiables, qui n'a pas de
-  méthode `drop` et ne contient pas de stockage `indirect`.
+  méthode `drop` et ne contient pas de stockage `indirect` ; en **édition 1**, une
+  structure ou une énumération **publique** doit en plus **déclarer** `Copy` (ADR 0012).
 - **Ressource** : tous les autres (`String`, `Vec[T]`, types avec `drop`, types avec
-  `indirect`, et les paramètres de type dans un corps générique, sauf contrainte `Copy`).
+  `indirect`, types publics de l'édition 1 sans déclaration, et les paramètres de type
+  dans un corps générique, sauf contrainte `Copy`).
 
-L'interface **`Copy`** du prélude nomme la catégorie copiable. Elle n'a pas de méthode
-et ne s'implémente pas par un `impl` : un type la satisfait par sa structure (ci-dessus).
-Elle sert de contrainte générique. *(Proposé par l'ADR 0012, en attente de décision :
-qu'un type public doive déclarer `Copy` pour être copiable à partir de l'édition 1.)*
+L'interface **`Copy`** du prélude nomme la catégorie copiable. Elle n'a pas de méthode et
+sert de contrainte générique (`T: Copy`, `T is Copy`). Un type la **déclare** par
+`@derive(Copy)`, `impl Copy for T {}`, ou `type T is Copy { … }` / `type T is Copy = .A | .B`
+en édition 1 ; les fonctions écrites dans `type T is Copy { … }` restent celles du type.
+La déclaration est **vérifiée** : un champ ou une valeur de variante non copiable, une
+méthode `drop` ou un stockage `indirect` donnent E0250 (les paramètres d'un type générique
+comptent comme copiables : `Paire[i32, String]` reste une ressource).
+
+La règle dépend de l'édition du fichier **qui déclare le type** :
+
+| Type | Édition 0.2 | Édition 1 |
+|---|---|---|
+| privé à son module | structure | structure |
+| public (`pub`) | structure | structure **et** déclaration `Copy` |
+
+Ainsi la copiabilité d'un type public fait partie de son contrat écrit : ajouter un champ
+`String` privé à un type public déclaré `Copy` est refusé (E0250) au lieu de changer en
+silence les copies de ses utilisateurs en déplacements. Un type public de l'édition 1
+copiable par sa structure mais non déclaré est une ressource ; E0402 propose alors la
+déclaration. `nxc migrate` ajoute `is Copy` aux types publics que l'édition 0.2 copie,
+si bien que la migration ne change pas le sens d'un programme. Les types publics
+copiables de `std` (`Option`, `Result`, `Ordering`, `fmt.FormatSpec`, `rt.Location`,
+`time.Weekday`, `time.Date`, `time.DateTime`) déclarent `Copy`.
 
 Une valeur copiable est dupliquée bit à bit quand on la réutilise ; une ressource est
 **déplacée**. Les règles complètes sont au chapitre 05.

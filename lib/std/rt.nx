@@ -10,6 +10,7 @@ import std.fmt
 
 /// Position in the source code, attached to panics (`file:line:column`).
 @lang("location")
+@derive(Copy)
 pub struct Location {
     pub file: Ptr[u8]
     pub file_len: usize

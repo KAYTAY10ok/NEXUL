@@ -1,0 +1,37 @@
+error[E0250]: `Name` cannot be `Copy`
+ --> copy_declaration.nx:4:12
+  |
+4 | pub struct Name {
+  |            ^^^^ declared `Copy`
+  |
+  = note: field `text` has type `String`, which is not copyable
+  = help: remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)
+
+error[E0250]: `Handle` cannot be `Copy`
+ --> copy_declaration.nx:9:8
+  |
+9 | struct Handle {
+  |        ^^^^^^ declared `Copy`
+  |
+  = note: `Handle` has a destructor (`drop`)
+  = help: remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)
+
+error[E0250]: `List` cannot be `Copy`
+  --> copy_declaration.nx:19:6
+   |
+19 | enum List {
+   |      ^^^^ declared `Copy`
+   |
+   = note: variant `Cons` is `indirect`
+   = help: remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)
+
+error[E0250]: `Holder` cannot be `Copy`
+  --> copy_declaration.nx:24:8
+   |
+24 | struct Holder {
+   |        ^^^^^^ declared `Copy`
+   |
+   = note: field `names` has type `Vec[i32]`, which is not copyable
+   = help: remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)
+
+error: could not compile due to 4 errors
