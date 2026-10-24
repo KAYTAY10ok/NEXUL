@@ -979,7 +979,10 @@ impl<'a> Gen<'a> {
         let target = self.opts.target.clone();
         match target.os {
             Os::Windows => {
-                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
+                let _ = write!(self.fn_defs, "define i32 @nx_windows_fault(ptr %exception) nounwind {{\nstart:\n  %r = call i32 {}(ptr %exception)\n  ret i32 %r\n}}\n\n", fault);
+                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr @nx_windows_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n", set_handler, entry_fn, main_ptr);
             }
             Os::Linux | Os::MacOs => {
                 let (set_stack, _) = self.lang_fn("sys_set_stack");

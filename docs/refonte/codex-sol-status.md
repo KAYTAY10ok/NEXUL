@@ -157,3 +157,28 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C2 — dépassement de pile Windows/RISC-V (24/10/2026)
+
+Statut : IMPLÉMENTÉ, revue Claude et validation native requises.
+Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
+
+- Windows : SetThreadStackGuarantee(64 Kio), gestionnaire vectorisé avant l'entrée
+  utilisateur, filtrage de 0xC00000FD, sortie directe WriteFile et ExitProcess(101).
+  Les autres exceptions continuent leur recherche.
+- RISC-V : sigaction sans sa_restorer, masque au troisième mot, pile alternative activée.
+- `cargo test --release -p nxc --test codegen_ir --test suite --test robustness` :
+  IR 2/2, robustesse 4/4, suite 12/13 (O0/O2 réussis). Le test de migration
+  échoue à lancer un binaire avec `Text file busy` (OS 26), également lors de sa relance isolée.
+  Cet échec n'est ni ignoré ni déclaré réussi.
+- Compilations réelles `stack_overflow.nx` vers x86_64-windows et riscv64-linux : réussies.
+- Windows/RISC-V : exécution non testée (pas de Windows/Wine ni de QEMU).
+  C6 doit exécuter la suite Windows, où stack_overflow est désormais activé.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; `CARGO_PROFILE_RELEASE_LTO=false`,
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` (la chaîne locale a aussi produit des objets vides
+  avec plusieurs unités ; la compilation à une unité réussit). `git diff --check` : réussi.
+- macOS : dépend de C12, inchangé.
+
+Sources ABI vérifiées : documentation Microsoft SetThreadStackGuarantee ;
+Linux `include/uapi/asm-generic/signal.h` (champ restorer conditionnel).
