@@ -157,3 +157,24 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C10 — audit scientifique et chemin ASCII (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT pour l'optimisation ASCII, tâche globale partiellement ouverte.
+Branche `refonte/sol-c10-perf-audit`, base #43.
+
+- String.push sépare l'entrée ASCII du traitement multioctet privé ; Vec reste inchangé.
+- P13 à 10 M, 25 répétitions alternées après les compilations : temps chaîne -12,67 %.
+  Premier relevé 9 répétitions : -12,35 % à 10 M, gain non établi à 1 M.
+  Médianes, dispersions et tous les échantillons : `benchmarks/sol/c10-*2026-10-24*`.
+- Noyau scientifique : principalement f64, 3 llvm.sqrt.f64. Contrôles du reste par
+  constante 2 présents O0, repliés par LLVM à O2 ; contrôles de l'addition i64 inconnue
+  toujours présents et panique MAX+1 vérifiée avec position via wasm.
+- Suite/robustesse : 17/17 ; navigateur : 1/1 ; frontières Unicode, littéral, croissance
+  et compteur de fuite O0/O2 : réussis via check-string-push.py.
+- Revue Claude requise pour lib/std/string.nx. Aucun changement de règle, alias,
+  fast-math ou fichier tests/run de Claude.
+- Non terminé : gain vectoriel non démontré, rapport 1,12× C sur Windows non reproduit,
+  100 M et autres cibles non mesurés. PR en brouillon ; rapport causal prudent, pas de
+  conclusion globale NEXUL/C ni sur la libm de la machine d'origine.
