@@ -176,3 +176,12 @@ validation par oracle dense, diagnostics et destructions inchangés.
 20 000 if : médiane locale 5,307 s (3 essais, machine partagée). 50 000 bras :
 SIGKILL à 27,126 s, cause non établie. Aucun objectif de temps atteint ou revendiqué.
 Données brutes conservées. Aucun code sémantique modifié ; `git diff --check` réussi.
+
+
+## C11 — proposition NIR monomorphe (24/10/2026)
+
+Statut : CONÇU, revue Claude préalable requise par C11.
+Proposition : `proposals/sol-c11-monomorphic-nir.md`. Types concrets et tables dyn
+symboliques hors LLVM ; nommage paresseux préservé pour l'identité à l'octet.
+Aucun code extrait. Matrice d'équivalence future explicitée, non exécutée/non revendiquée.
+`git diff --check` réussi.
