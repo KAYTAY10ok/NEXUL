@@ -157,3 +157,22 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   non résolus. Ces tests relèvent de `compiler/**` / Core et la PR L3 ne les modifie pas.
   La construction de `studio/app` et du paquet complet reste à vérifier par
   `tools/build_installer.py` sur Windows avec MSVC.
+
+
+## C3 — pile WebAssembly avant les données (24/10/2026)
+
+Statut : TESTÉ_UNITAIREMENT ; revue Claude requise.
+Branche `refonte/sol-c3-wasm-stack-first`, base #43 (`a824c76`).
+
+- `link_wasm` passe explicitement `--stack-first` pour WASI et le navigateur.
+- `cargo test --release -p nxc --test web -- --ignored --nocapture` : 1/1 réussi ;
+  contrat navigateur existant et nouveau piège de pile testés à O0/O2 sur WASI/web.
+  Le test vérifie l'adresse des statiques et leurs 16 octets après le piège.
+- `NEXUL_TEST_TARGETS=wasm32-wasi cargo test --release -p nxc --test suite run_programs_cross` :
+  1/1 réussi (suite d'exécution cross complète).
+- LLD 23.1.1 utilise déjà stack-first par défaut ; le drapeau rend cette garantie
+  indépendante du défaut du linker. Un contrôle négatif `--no-stack-first` est refusé
+  par le nouveau test (statiques avant la pile).
+- ABI navigateur et documentation du contrat inchangées. Aucun test nouvellement ignoré.
+- Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; `CARGO_PROFILE_RELEASE_LTO=false`,
+  `CARGO_PROFILE_RELEASE_CODEGEN_UNITS=1` pour contourner les défauts de la chaîne locale.
