@@ -1,0 +1,14 @@
+// edition: 1
+// The host ABI validates scalar values even when a distinct type wraps them.
+type Flag = distinct bool is Copy
+type Letter = distinct char is Copy
+type Positive = i32 where it > 0
+
+@export("flag_flip")
+pub fn bool flag_flip(Flag value) = not (value as bool)
+
+@export("letter_code")
+pub fn u32 letter_code(Letter value) = (value as char) as u32
+
+@export("positive_value")
+pub fn i32 positive_value(Positive value) = value
