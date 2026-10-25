@@ -2093,6 +2093,17 @@ fail:
                 let t = targs[0];
                 let lt = self.llty(t);
                 let al = self.align_of(t);
+                // The integer operands, by value (loaded if one was passed by reference).
+                let ints: Vec<String> = vals
+                    .iter()
+                    .skip(1)
+                    .map(|(v, _)| match v {
+                        Val::Scalar(vt, x) if *vt == lt => x.clone(),
+                        Val::Scalar(_, x) | Val::Mem(x) => self.val(cx, format!("load {lt}, ptr {x}, align {al}")),
+                        Val::Unit => panic!("internal: atomic operand without a value"),
+                    })
+                    .collect();
+                let s = |i: usize| -> String { if i == 0 { vals[0].0.scalar().to_string() } else { ints[i - 1].clone() } };
                 match name {
                     "atomic_load" => {
                         let r = self.val(cx, format!("load atomic {lt}, ptr {} seq_cst, align {al}", s(0)));

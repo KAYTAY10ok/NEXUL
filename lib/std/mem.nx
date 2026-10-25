@@ -89,20 +89,20 @@ pub unsafe fn atomic_load[T](p: Ptr[T]) -> T
 
 /// Writes `value` at `p`.
 @intrinsic
-pub unsafe fn atomic_store[T](p: Ptr[T], value: T)
+pub unsafe fn atomic_store[T](p: Ptr[T], owned value: T)
 
 /// Writes `value` at `p` and returns the previous value.
 @intrinsic
-pub unsafe fn atomic_swap[T](p: Ptr[T], value: T) -> T
+pub unsafe fn atomic_swap[T](p: Ptr[T], owned value: T) -> T
 
 /// Adds `value` (wrapping around) and returns the previous value.
 @intrinsic
-pub unsafe fn atomic_add[T](p: Ptr[T], value: T) -> T
+pub unsafe fn atomic_add[T](p: Ptr[T], owned value: T) -> T
 
 /// Writes `new` at `p` if it holds `expected`; returns the previous value (`expected`
 /// when the write took place).
 @intrinsic
-pub unsafe fn atomic_cas[T](p: Ptr[T], expected: T, new: T) -> T
+pub unsafe fn atomic_cas[T](p: Ptr[T], owned expected: T, owned new: T) -> T
 
 /// Orders every memory access before it before every access after it.
 @intrinsic
