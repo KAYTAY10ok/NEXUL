@@ -45,15 +45,19 @@ pub fn expand(module: &mut ast::Module, sm: &mut SourceMap, file_name: &str, dia
                 None
             }
         };
+        // A refused condition generates no `check`: its code would only repeat the error,
+        // in a source the program does not show.
+        let mut cond_ok = true;
         if let (Some(b), Some(cond)) = (&base, &nt.cond) {
             if b == "bool" {
                 diags.emit(Diagnostic::error("E0251", format!("`{}`: a condition applies to a number or a `char`", name)).primary(cond.span, "condition on a `bool`"));
+                cond_ok = false;
             } else {
-                check_constants(cond, b, diags);
+                cond_ok = check_constants(cond, b, diags);
             }
         }
         if let Some(b) = &base {
-            text.push_str(&generated(item.is_pub, &nt, b, sm, diags));
+            text.push_str(&generated(item.is_pub, &nt, b, cond_ok, sm, diags));
         }
         let field = FieldDecl { is_pub: false, indirect: false, name: Ident { name: BASE_FIELD.into(), span: nt.name.span }, ty: nt.base.clone(), span: nt.base.span };
         item.kind = ItemKind::Struct(StructDecl { name: nt.name.clone(), generics: vec![], fields: vec![field] });
@@ -67,23 +71,18 @@ pub fn expand(module: &mut ast::Module, sm: &mut SourceMap, file_name: &str, dia
     decls
 }
 
-/// The constants of a condition are literals of the base type (ADR 0014 §2.2).
-fn check_constants(c: &ast::Constraint, base: &str, diags: &DiagSink) {
+/// The constants of a condition are literals of the base type (ADR 0014 §2.2). Returns
+/// whether they all are.
+fn check_constants(c: &ast::Constraint, base: &str, diags: &DiagSink) -> bool {
     match &c.kind {
-        ConstraintKind::Or(a, b) | ConstraintKind::And(a, b) => {
-            check_constants(a, base, diags);
-            check_constants(b, base, diags);
-        }
+        ConstraintKind::Or(a, b) | ConstraintKind::And(a, b) => check_constants(a, base, diags) & check_constants(b, base, diags),
         ConstraintKind::Not(a) => check_constants(a, base, diags),
-        ConstraintKind::In { lo, hi, .. } => {
-            check_constant(lo, base, diags);
-            check_constant(hi, base, diags);
-        }
+        ConstraintKind::In { lo, hi, .. } => check_constant(lo, base, diags) & check_constant(hi, base, diags),
         ConstraintKind::Cmp { value, .. } => check_constant(value, base, diags),
     }
 }
 
-fn check_constant(e: &ast::Expr, base: &str, diags: &DiagSink) {
+fn check_constant(e: &ast::Expr, base: &str, diags: &DiagSink) -> bool {
     let mut x = e;
     let mut negated = false;
     loop {
@@ -110,6 +109,7 @@ fn check_constant(e: &ast::Expr, base: &str, diags: &DiagSink) {
                 .note("a condition has no call and no variable: it is checked in a few instructions, and at compile time on constants"),
         );
     }
+    ok
 }
 
 /// The condition as an edition 1 expression on `value`.
@@ -125,11 +125,11 @@ fn render(c: &ast::Constraint, sm: &SourceMap) -> String {
 }
 
 /// The edition 1 source generated for one type.
-fn generated(is_pub: bool, nt: &NewtypeDecl, base: &str, sm: &SourceMap, diags: &DiagSink) -> String {
+fn generated(is_pub: bool, nt: &NewtypeDecl, base: &str, cond_ok: bool, sm: &SourceMap, diags: &DiagSink) -> String {
     let name = &nt.name.name;
     let vis = if is_pub { "pub " } else { "" };
     let mut out = String::new();
-    if let Some(cond) = &nt.cond {
+    if let Some(cond) = nt.cond.as_ref().filter(|_| cond_ok) {
         let c = render(cond, sm);
         let shown = sm.snippet(cond.span).replace('\\', "\\\\").replace('"', "\\\"").replace('{', "{{").replace('}', "}}");
         out.push_str(&format!(
