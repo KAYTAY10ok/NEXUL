@@ -372,3 +372,15 @@ pub fn thread_id() -> u64 {
 
 pub fn thread_yield() {
 }
+
+/// Without threads, a task that waits can never be woken: the other tasks have already run
+/// or run after it.
+pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+    let _ = p
+    let _ = expected
+    panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
+}
+
+pub unsafe fn wake_all(p: Ptr[u32]) {
+    let _ = p
+}

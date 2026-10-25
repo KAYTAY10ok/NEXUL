@@ -1,0 +1,34 @@
+error[E0249]: `Ptr[u8]` does not implement `Transfer`
+ --> task_channels.nx:7:18
+  |
+7 |     let (e, r) = tache.canal[Ptr[u8]](1)
+  |                  ^^^^^^^^^^^^^^^^^^^^^^^ `Transfer` is required by `canal`
+  |
+  = note: `Ptr[u8]` cannot be moved to another task: it holds a `Ptr`, an anonymous function or a `dyn` value without `Transfer`
+
+error[E0248]: an anonymous function cannot be stored in a value
+ --> task_channels.nx:8:35
+  |
+8 |     let t = tache.lancer_detachee(fn(owned x: i64) -> i64 => x * 2, 1)
+  |                                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ a function value is expected here
+  |
+  = note: only a borrowed parameter of function type (`f: fn(T) -> U`) accepts an anonymous function; this place may keep the function after the call
+  = help: declare a named function and pass its name
+
+error[E0249]: `f64` does not implement `EntierAtomique`
+ --> task_channels.nx:9:13
+  |
+9 |     let a = tache.Atomique.nouveau(1.5)
+  |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^ `EntierAtomique` is required by `Atomique.nouveau`
+  |
+  = note: `EntierAtomique` is implemented by `i32`, `u32`, `i64`, `u64`, `isize`, `usize`
+
+error[E0249]: `Verrou[Ptr[u8]]` does not implement `Share`
+  --> task_channels.nx:12:18
+   |
+12 |         p.lancer(fn() { v.avec(fn(inout x: Ptr[u8]) { x = Ptr.null() }) })
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Share` is required by a task that reads `v`
+   |
+   = note: `Verrou[Ptr[u8]]` cannot be read by several tasks at once: it holds a `Ptr`, an anonymous function or a `dyn` value without `Share`
+
+error: could not compile due to 4 errors

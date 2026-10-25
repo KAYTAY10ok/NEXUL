@@ -73,3 +73,461 @@ fn run_task(block: Ptr[u8]) {
         mem.free(env)
     }
 }
+
+// ---------------------------------------------------------------------------
+// Short locks (the state of a channel, a `Verrou`)
+//
+// The word holds 0 (free), 1 (taken) or 2 (taken, with threads waiting): only a release
+// that finds 2 wakes them.
+
+unsafe fn verrouiller(mot: Ptr[u32]) {
+    if mem.atomic_cas(mot, 0, 1) == 0 {
+        return
+    }
+    while mem.atomic_swap(mot, 2) != 0 {
+        sys.wait_on(mot, 2)
+    }
+}
+
+unsafe fn deverrouiller(mot: Ptr[u32]) {
+    if mem.atomic_swap(mot, 0) == 2 {
+        sys.wake_all(mot)
+    }
+}
+
+/// A word that changes at every change of a channel: a thread that waits for a change
+/// sleeps while it keeps the value it read under the lock.
+unsafe fn signaler(signal: Ptr[u32]) {
+    let _ = mem.atomic_add(signal, 1)
+    sys.wake_all(signal)
+}
+
+unsafe fn nouveau_mot() -> Ptr[u32] {
+    let p = mem.alloc(4).cast[u32]()
+    p.write(0)
+    return p
+}
+
+// ---------------------------------------------------------------------------
+// Channels (ADR 0013 §4)
+
+/// What the handles of a channel share, behind its lock.
+struct EtatCanal[T] {
+    cases: Vec[Option[T]]
+    tete: usize
+    longueur: usize
+    emetteurs: usize
+    recepteurs: usize
+    poignees: usize
+}
+
+/// The sending side of a channel. Several tasks can send through the same `Emetteur`, or
+/// each through a copy (`clone`).
+pub struct Emetteur[T] {
+    verrou: Ptr[u32]
+    signal: Ptr[u32]
+    etat: Ptr[EtatCanal[T]]
+    ferme: Ptr[u32]
+}
+
+/// The receiving side of a channel.
+pub struct Recepteur[T] {
+    verrou: Ptr[u32]
+    signal: Ptr[u32]
+    etat: Ptr[EtatCanal[T]]
+}
+
+/// A channel that holds at most `capacite` values: `envoyer` waits while it is full,
+/// `recevoir` waits while it is empty and returns `None` once every sender is closed
+/// (`fermer`) or destroyed and the values are all received.
+pub fn canal[T: Transfer](capacite: usize) -> (Emetteur[T], Recepteur[T]) {
+    if capacite == 0 {
+        panic("a channel holds at least one value")
+    }
+    var cases: Vec[Option[T]] = Vec.with_capacity(capacite)
+    for i in 0..capacite {
+        let _ = i
+        cases.push(None)
+    }
+    unsafe {
+        let verrou = nouveau_mot()
+        let signal = nouveau_mot()
+        let etat = mem.alloc(mem.size_of[EtatCanal[T]]()).cast[EtatCanal[T]]()
+        etat.write(EtatCanal(cases: cases, tete: 0, longueur: 0, emetteurs: 1, recepteurs: 1, poignees: 2))
+        return (Emetteur(verrou: verrou, signal: signal, etat: etat, ferme: nouveau_mot()), Recepteur(verrou: verrou, signal: signal, etat: etat))
+    }
+}
+
+/// One handle less: the last one destroys the values left and the channel.
+unsafe fn quitter_canal[T](verrou: Ptr[u32], signal: Ptr[u32], etat: Ptr[EtatCanal[T]], emetteur: bool, recepteur: bool) {
+    verrouiller(verrou)
+    var e = etat.read()
+    if emetteur {
+        e.emetteurs -= 1
+    }
+    if recepteur {
+        e.recepteurs -= 1
+    }
+    e.poignees -= 1
+    let dernier = e.poignees == 0
+    etat.write(e)
+    signaler(signal)
+    deverrouiller(verrou)
+    if dernier {
+        mem.drop_in_place(etat)
+        mem.free(etat.cast[u8]())
+        mem.free(verrou.cast[u8]())
+        mem.free(signal.cast[u8]())
+    }
+}
+
+impl Emetteur {
+    /// Sends `valeur`, waiting while the channel is full. Returns `false`, and destroys
+    /// `valeur`, when no receiver remains. Panics if this sender is closed.
+    pub fn envoyer(self, owned valeur: T) -> bool {
+        unsafe {
+            if mem.atomic_load(self.ferme) != 0 {
+                panic("send through a closed sender")
+            }
+            var v = Some(valeur)
+            while true {
+                verrouiller(self.verrou)
+                var e = self.etat.read()
+                if e.recepteurs == 0 {
+                    self.etat.write(e)
+                    deverrouiller(self.verrou)
+                    return false
+                }
+                let n = e.cases.len()
+                if e.longueur < n {
+                    let i = (e.tete + e.longueur) % n
+                    e.cases[i] = v.take()
+                    e.longueur += 1
+                    self.etat.write(e)
+                    signaler(self.signal)
+                    deverrouiller(self.verrou)
+                    return true
+                }
+                let s = mem.atomic_load(self.signal)
+                self.etat.write(e)
+                deverrouiller(self.verrou)
+                sys.wait_on(self.signal, s)
+            }
+        }
+    }
+
+    /// Closes this sender (once): when every sender is closed or destroyed, `recevoir`
+    /// returns `None` after the last value.
+    pub fn fermer(self) {
+        unsafe {
+            if mem.atomic_swap(self.ferme, 1) != 0 {
+                return
+            }
+            verrouiller(self.verrou)
+            var e = self.etat.read()
+            e.emetteurs -= 1
+            self.etat.write(e)
+            signaler(self.signal)
+            deverrouiller(self.verrou)
+        }
+    }
+
+    fn drop(inout self) {
+        unsafe {
+            let ouvert = mem.atomic_swap(self.ferme, 1) == 0
+            mem.free(self.ferme.cast[u8]())
+            quitter_canal[T](self.verrou, self.signal, self.etat, ouvert, false)
+        }
+    }
+}
+
+impl Clone for Emetteur[T] {
+    /// Another sender of the same channel (open, even if this one is closed).
+    fn clone(self) -> Emetteur[T] {
+        unsafe {
+            verrouiller(self.verrou)
+            var e = self.etat.read()
+            e.emetteurs += 1
+            e.poignees += 1
+            self.etat.write(e)
+            deverrouiller(self.verrou)
+            return Emetteur(verrou: self.verrou, signal: self.signal, etat: self.etat, ferme: nouveau_mot())
+        }
+    }
+}
+
+impl Recepteur {
+    /// The oldest value of the channel, waiting while it is empty; `None` once every
+    /// sender is closed or destroyed and every value received.
+    pub fn recevoir(self) -> Option[T] {
+        unsafe {
+            while true {
+                verrouiller(self.verrou)
+                var e = self.etat.read()
+                if e.longueur > 0 {
+                    let i = e.tete
+                    let v = e.cases[i].take()
+                    e.tete = (i + 1) % e.cases.len()
+                    e.longueur -= 1
+                    self.etat.write(e)
+                    signaler(self.signal)
+                    deverrouiller(self.verrou)
+                    return v
+                }
+                if e.emetteurs == 0 {
+                    self.etat.write(e)
+                    deverrouiller(self.verrou)
+                    return None
+                }
+                let s = mem.atomic_load(self.signal)
+                self.etat.write(e)
+                deverrouiller(self.verrou)
+                sys.wait_on(self.signal, s)
+            }
+        }
+    }
+
+    fn drop(inout self) {
+        unsafe {
+            quitter_canal[T](self.verrou, self.signal, self.etat, false, true)
+        }
+    }
+}
+
+impl Clone for Recepteur[T] {
+    /// Another receiver of the same channel: each value goes to one of them.
+    fn clone(self) -> Recepteur[T] {
+        unsafe {
+            verrouiller(self.verrou)
+            var e = self.etat.read()
+            e.recepteurs += 1
+            e.poignees += 1
+            self.etat.write(e)
+            deverrouiller(self.verrou)
+            return Recepteur(verrou: self.verrou, signal: self.signal, etat: self.etat)
+        }
+    }
+}
+
+// The values cross the channel under its lock: its handles can be shared by tasks and
+// moved to them when the values can be moved.
+unsafe impl Transfer for Emetteur[T: Transfer] {
+}
+
+unsafe impl Share for Emetteur[T: Transfer] {
+}
+
+unsafe impl Transfer for Recepteur[T: Transfer] {
+}
+
+unsafe impl Share for Recepteur[T: Transfer] {
+}
+
+// ---------------------------------------------------------------------------
+// Shared memory (ADR 0013 §5)
+
+/// A value shared by tasks and modified under a lock: `v.avec(fn(inout x: T) { … })` runs
+/// the function alone, the other tasks wait for their turn.
+pub struct Verrou[T] {
+    mot: Ptr[u32]
+    valeur: Ptr[T]
+}
+
+impl Verrou {
+    pub fn nouveau(owned valeur: T) -> Verrou[T] {
+        unsafe {
+            let p = mem.alloc(mem.size_of[T]()).cast[T]()
+            p.write(valeur)
+            return Verrou(mot: nouveau_mot(), valeur: p)
+        }
+    }
+
+    /// Calls `f` with the value, while no other task can use it.
+    pub fn avec(self, f: fn(inout T)) {
+        unsafe {
+            verrouiller(self.mot)
+            var v = self.valeur.read()
+            f(&v)
+            self.valeur.write(v)
+            deverrouiller(self.mot)
+        }
+    }
+
+    fn drop(inout self) {
+        unsafe {
+            mem.drop_in_place(self.valeur)
+            mem.free(self.valeur.cast[u8]())
+            mem.free(self.mot.cast[u8]())
+        }
+    }
+}
+
+unsafe impl Transfer for Verrou[T: Transfer] {
+}
+
+unsafe impl Share for Verrou[T: Transfer] {
+}
+
+/// The integer types of `Atomique`.
+pub trait EntierAtomique {
+}
+
+impl EntierAtomique for i32 {
+}
+
+impl EntierAtomique for u32 {
+}
+
+impl EntierAtomique for i64 {
+}
+
+impl EntierAtomique for u64 {
+}
+
+impl EntierAtomique for isize {
+}
+
+impl EntierAtomique for usize {
+}
+
+/// An integer shared by tasks, read and modified atomically (sequentially consistent):
+/// no lock, but only these operations.
+pub struct Atomique[T] {
+    cellule: Ptr[T]
+}
+
+impl Atomique {
+    pub fn nouveau(owned valeur: T) -> Atomique[T] where T: EntierAtomique {
+        unsafe {
+            let p = mem.alloc(mem.size_of[T]()).cast[T]()
+            p.write(valeur)
+            return Atomique(cellule: p)
+        }
+    }
+
+    pub fn charger(self) -> T {
+        return unsafe { mem.atomic_load(self.cellule) }
+    }
+
+    pub fn stocker(self, owned valeur: T) {
+        unsafe {
+            mem.atomic_store(self.cellule, valeur)
+        }
+    }
+
+    /// Writes `valeur` and returns the previous value.
+    pub fn echanger(self, owned valeur: T) -> T {
+        return unsafe { mem.atomic_swap(self.cellule, valeur) }
+    }
+
+    /// Adds `valeur` (wrapping around) and returns the previous value.
+    pub fn ajouter(self, owned valeur: T) -> T {
+        return unsafe { mem.atomic_add(self.cellule, valeur) }
+    }
+
+    /// Writes `nouveau` if the value is `attendu`; returns the previous value (`attendu`
+    /// when the write took place).
+    pub fn comparer_echanger(self, owned attendu: T, owned nouveau: T) -> T {
+        return unsafe { mem.atomic_cas(self.cellule, attendu, nouveau) }
+    }
+
+    fn drop(inout self) {
+        unsafe {
+            mem.free(self.cellule.cast[u8]())
+        }
+    }
+}
+
+unsafe impl Transfer for Atomique[T: Transfer] {
+}
+
+unsafe impl Share for Atomique[T: Transfer] {
+}
+
+// ---------------------------------------------------------------------------
+// Detached tasks (ADR 0013 §4)
+
+/// The work of a detached task, its types erased: the thread runs it through a `dyn`.
+trait CorpsDeTache {
+    fn executer(self)
+}
+
+type BoiteDeTache = dyn CorpsDeTache
+
+struct Travail[T, U] {
+    fonction: fn(owned T) -> U
+    donnees: Ptr[T]
+    resultat: Ptr[Option[U]]
+}
+
+impl CorpsDeTache for Travail[T, U] {
+    fn executer(self) {
+        unsafe {
+            let d = self.donnees.read()
+            mem.free(self.donnees.cast[u8]())
+            let f = self.fonction
+            self.resultat.write(Some(f(d)))
+        }
+    }
+}
+
+/// A task launched by `lancer_detachee`: `rejoindre` waits for its value. Destroying the
+/// handle also waits for the task.
+pub struct Tache[U] {
+    fil: usize
+    resultat: Ptr[Option[U]]
+}
+
+/// Runs `travail(donnees)` in a new thread (or now, on a target without threads). The
+/// task owns its data: it does not borrow anything, so it is not bound to a `portee`.
+pub fn lancer_detachee[T: Transfer, U: Transfer](owned travail: fn(owned T) -> U, owned donnees: T) -> Tache[U] {
+    unsafe {
+        let d = mem.alloc(mem.size_of[T]()).cast[T]()
+        d.write(donnees)
+        let r = mem.alloc(mem.size_of[Option[U]]()).cast[Option[U]]()
+        r.write(None)
+        let boite = mem.alloc(mem.size_of[BoiteDeTache]()).cast[BoiteDeTache]()
+        boite.write(Travail(fonction: travail, donnees: d, resultat: r))
+        let fil = sys.thread_start(run_detached, boite.cast[u8]())
+        if fil == 0 {
+            run_detached(boite.cast[u8]())
+        }
+        return Tache(fil: fil, resultat: r)
+    }
+}
+
+fn run_detached(boite: Ptr[u8]) {
+    unsafe {
+        let corps = boite.cast[BoiteDeTache]().read()
+        mem.free(boite)
+        corps.executer()
+    }
+}
+
+impl Tache {
+    /// Waits for the end of the task and returns its value.
+    pub fn rejoindre(owned self) -> U {
+        unsafe {
+            if self.fil != 0 {
+                sys.thread_join(self.fil)
+                self.fil = 0
+            }
+            let r = self.resultat.read()
+            self.resultat.write(None)
+            return r.unwrap()
+        }
+    }
+
+    fn drop(inout self) {
+        unsafe {
+            if self.fil != 0 {
+                sys.thread_join(self.fil)
+            }
+            mem.drop_in_place(self.resultat)
+            mem.free(self.resultat.cast[u8]())
+        }
+    }
+}
+
+unsafe impl Transfer for Tache[U: Transfer] {
+}

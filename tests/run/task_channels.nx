@@ -1,0 +1,99 @@
+// targets: linux, windows
+// ADR 0013 §4 and §5: bounded channels, detached tasks, `Verrou` and `Atomique`, on the
+// threads of the system (a task that waits needs another thread: Linux, Windows).
+import std.tache
+
+fn produire(owned e: tache.Emetteur[i64]) -> i64 {
+    for i in 1..101 {
+        let _ = e.envoyer(i)
+    }
+    return 100
+}
+
+fn longueur(owned s: String) -> usize {
+    return s.len()
+}
+
+fn carre(owned x: i64) -> i64 {
+    return x * x
+}
+
+fn main() {
+    // A pipeline: a detached producer owns its sender; destroying it ends the stream.
+    let (e, r) = tache.canal[i64](8)
+    let producteur = tache.lancer_detachee(produire, e)
+    var somme: i64 = 0
+    while true {
+        match r.recevoir() {
+            Some(x) => somme += x
+            None => break
+        }
+    }
+    println("{somme} {producteur.rejoindre()}")
+
+    // Two tasks of a `portee` connected by a channel of capacity 2.
+    let (e2, r2) = tache.canal[String](2)
+    var recus: Vec[String] = Vec.new()
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() {
+            for i in 0..5 {
+                let _ = e2.envoyer("message {i}")
+            }
+            e2.fermer()
+        })
+        p.lancer(fn() {
+            while true {
+                match r2.recevoir() {
+                    Some(m) => recus.push(m)
+                    None => break
+                }
+            }
+        })
+    })
+    println("{recus}")
+
+    // Four tasks increment one counter and fill one vector.
+    let compteur: tache.Atomique[i64] = tache.Atomique.nouveau(0)
+    let total: tache.Verrou[Vec[i64]] = tache.Verrou.nouveau(Vec.new())
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() {
+            for _i in 0..1000 {
+                let _ = compteur.ajouter(1)
+                total.avec(fn(inout v: Vec[i64]) { v.push(1) })
+            }
+        })
+        p.lancer(fn() {
+            for _i in 0..1000 {
+                let _ = compteur.ajouter(1)
+                total.avec(fn(inout v: Vec[i64]) { v.push(2) })
+            }
+        })
+        p.lancer(fn() {
+            for _i in 0..1000 {
+                let _ = compteur.ajouter(1)
+                total.avec(fn(inout v: Vec[i64]) { v.push(3) })
+            }
+        })
+        p.lancer(fn() {
+            for _i in 0..1000 {
+                let _ = compteur.ajouter(1)
+                total.avec(fn(inout v: Vec[i64]) { v.push(4) })
+            }
+        })
+    })
+    var n: usize = 0
+    var s: i64 = 0
+    total.avec(fn(inout v: Vec[i64]) {
+        n = v.len()
+        for x in v {
+            s += x
+        }
+    })
+    println("{compteur.charger()} {n} {s} {compteur.comparer_echanger(4000, 7)} {compteur.charger()}")
+
+    // Detached tasks with their own data; a handle destroyed without `rejoindre` waits.
+    let t = tache.lancer_detachee(longueur, "bonjour")
+    let q = tache.lancer_detachee(carre, 12)
+    let _attendue = tache.lancer_detachee(carre, 5)
+    println("{t.rejoindre()} {q.rejoindre()}")
+}

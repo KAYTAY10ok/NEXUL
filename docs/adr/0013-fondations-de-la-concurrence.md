@@ -165,7 +165,7 @@ L'utilisateur a choisi le 25/10/2026 les noms de l'ADR (`Transfer`, `Share`, `po
 |---|---|---|
 | 15 | `Transfer` et `Share` (partie 2) : interfaces du prélude, règle structurelle, `unsafe impl` / `unsafe extend` (E0253), déclarations de `String`, `Vec`, `Location` | fait (branche `refonte/core-adr0013-proprietes`) |
 | 16 | atomiques dans le générateur, threads du système (Linux par `clone`, Windows par `CreateThread`), runtime sûr entre threads (verrou réentrant derrière `rt.critical_section()` de la tâche C5 de Codex, fusionnée dans ce lot) ; **et** le module `std.tache` (`portee`, `lancer`), le gel des captures par tâche dans `places.rs`, `Share` / `Transfer` exigés des captures (E0254) : les deux lots ont été réunis, car `lancer` sans ses règles aurait été une API sûre avec des courses de données | fait (branche `refonte/core-adr0013-threads`) |
-| 18 | canaux bornés, `Verrou`, `Atomique`, `lancer_detachee` (parties 4 et 5) | à faire |
+| 18 | canaux bornés (`canal`, `Emetteur`, `Recepteur`, `fermer`), `Verrou`, `Atomique` (entiers), `lancer_detachee` et `Tache` (parties 4 et 5) ; attente par futex sur Linux, par cession du processeur sur Windows ; panique explicite sur une cible sans threads | fait (branche `refonte/core-adr0013-canaux`) ; pas encore : `Atomique[bool]`, ordres mémoire faibles, `WaitOnAddress` |
 
 Lot 15, précisions : `Fn` (pointeur de fonction) a les deux propriétés ; une fonction
 anonyme n'en a aucune ; un type récursif est jugé sur ses autres valeurs ; une déclaration

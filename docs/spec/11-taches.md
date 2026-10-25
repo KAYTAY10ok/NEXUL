@@ -79,5 +79,43 @@ unique) : un gestionnaire **non masquable** (NMI, faute matérielle) ne DOIT NI 
 section protégée. Les opérations atomiques (`mem.atomic_*`, séquentiellement cohérentes) sont
 réservées à la bibliothèque et au code `unsafe`.
 
-*(Pas encore, lot 18 de l'ADR 0013 : canaux bornés `canal[T is Transfer](capacite)`,
-`Verrou[T]`, `Atomique[…]`, `tache.lancer_detachee`.)*
+## 11.4 Canaux
+
+`tache.canal[T](capacite)` (avec `T: Transfer`) rend un `Emetteur[T]` et un `Recepteur[T]`
+d'un canal **borné** :
+
+- `e.envoyer(valeur)` déplace la valeur dans le canal, en attendant tant qu'il contient
+  `capacite` valeurs ; rend `false` (et détruit la valeur) s'il ne reste aucun récepteur ;
+- `r.recevoir()` rend la plus ancienne valeur, en attendant tant que le canal est vide, et
+  `None` quand **tous les émetteurs sont fermés** (`e.fermer()`) **ou détruits** et toutes
+  les valeurs reçues ;
+- `clone()` donne un autre émetteur ou récepteur du même canal (chaque valeur va à un seul
+  récepteur). Les poignées sont `Transfer` et `Share` : plusieurs tâches peuvent envoyer
+  par le même émetteur.
+
+## 11.5 Mémoire partagée
+
+- `tache.Verrou.nouveau(valeur)` : `v.avec(fn(inout x: T) { … })` appelle la fonction
+  avec la valeur, **seule** : les autres tâches attendent leur tour. Aucune garde ne peut
+  être gardée au-delà de l'appel.
+- `tache.Atomique.nouveau(valeur)` pour `i32`, `u32`, `i64`, `u64`, `isize`, `usize` :
+  `charger`, `stocker`, `echanger`, `ajouter` (avec repli), `comparer_echanger`, toutes
+  séquentiellement cohérentes. *(Pas encore : `Atomique[bool]`, ordres mémoire plus
+  faibles.)*
+
+Ces types modifient leur contenu à travers un emprunt en lecture : c'est la seule
+mutabilité intérieure de NEXUL, déclarée `Share` dans du code relu (invariant I1).
+
+## 11.6 Tâches détachées
+
+`tache.lancer_detachee(travail, donnees)` exécute la **fonction nommée** `travail` avec
+`donnees`, **déplacées** (`T: Transfer`), dans un nouveau thread ; la valeur rendue
+(`U: Transfer`) s'obtient par `t.rejoindre()`. Une tâche détachée n'emprunte rien : elle
+n'est liée à aucune `portee`. Détruire la poignée sans `rejoindre` attend la fin de la
+tâche. Un émetteur déplacé dans une tâche détachée est détruit à sa fin, ce qui termine
+le flux de ses récepteurs.
+
+Sur une cible sans threads, une tâche qui devrait attendre (canal plein ou vide) ne
+pourrait jamais être réveillée : le programme panique avec un message qui le dit. Sur
+Windows, l'attente se fait encore par cession du processeur (`SwitchToThread`), pas par
+`WaitOnAddress`.

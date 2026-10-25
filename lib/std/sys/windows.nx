@@ -794,3 +794,17 @@ unsafe fn input_lock() -> InputLock {
     }
     return InputLock(locked: true)
 }
+
+/// Lets the other threads run while the word at `p` may still hold `expected`: the caller
+/// checks again (a wait by polling; `WaitOnAddress` is a later improvement). Used by the
+/// channels and the locks of `std.tache`.
+pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+    if mem.atomic_load(p) == expected {
+        thread_yield()
+    }
+}
+
+/// Nothing to do: the waiting threads poll.
+pub unsafe fn wake_all(p: Ptr[u32]) {
+    let _ = p
+}

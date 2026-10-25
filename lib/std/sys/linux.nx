@@ -1010,3 +1010,31 @@ unsafe fn input_lock() -> InputLock {
     }
     return InputLock(locked: true)
 }
+
+/// Sleeps while the word at `p` holds `expected` (a wake or a change of the word ends the
+/// sleep; it may also end without reason: the caller checks again). Used by the channels
+/// and the locks of `std.tache`.
+@cfg("linux")
+pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+    // FUTEX_WAIT_PRIVATE (128)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 128, expected as isize, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+    let _ = p
+    let _ = expected
+    panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
+}
+
+/// Wakes every thread sleeping in `wait_on` on the word at `p`.
+@cfg("linux")
+pub unsafe fn wake_all(p: Ptr[u32]) {
+    // FUTEX_WAKE_PRIVATE (129)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 0x7FFF_FFFF, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wake_all(p: Ptr[u32]) {
+    let _ = p
+}

@@ -678,7 +678,20 @@ impl<'a> FnCtxt<'a> {
                     d.note(format!("the values of `{}` own resources: they are moved, not copied (spec §3.7)", ts))
                         .help("pass a copy made with `.clone()` to a parameter without the bound `Copy`, or use a copyable type")
                 } else {
-                    d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
+                    // Suggest an `impl` only where the program may write one (its trait or its
+                    // type); otherwise name the types that have it.
+                    let own_trait = !self.p.modules[self.p.traits[trait_id.idx()].module.idx()].is_std;
+                    let own_type = tcx.as_adt(t).is_some_and(|(id, _)| !self.p.modules[self.p.adt(id).module.idx()].is_std);
+                    if own_trait || own_type {
+                        d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
+                    } else {
+                        let have: Vec<String> = self.p.impls.iter().filter(|i| i.trait_id == trait_id).map(|i| format!("`{}`", self.p.ty_str_with(i.self_ty, &i.generics))).collect();
+                        if have.is_empty() || have.len() > 8 {
+                            d
+                        } else {
+                            d.note(format!("`{}` is implemented by {}", tname, have.join(", ")))
+                        }
+                    }
                 };
                 self.err(d);
             }

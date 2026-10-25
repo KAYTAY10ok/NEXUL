@@ -496,3 +496,18 @@ standard tamponnée.
 - Opérations atomiques (`mem.atomic_*`) et intrinsèques des fonctions anonymes dans le
   générateur (partagé avec Codex : sections nouvelles, aucune modification de ses lignes).
 - Reste de l'ADR 0013 : canaux, `Verrou`, `Atomique`, `lancer_detachee` (lot 18).
+
+## 21. Lot 18 (25/10, branche `refonte/core-adr0013-canaux`) — canaux, verrous, atomiques, tâches détachées
+
+- **Canaux bornés** : `tache.canal[T](n)` → `Emetteur` / `Recepteur` ; attente quand le
+  canal est plein ou vide (futex sur Linux) ; `None` quand tous les émetteurs sont fermés
+  ou détruits ; poignées clonables, `Transfer` et `Share`.
+- **`Verrou`** (`avec`), **`Atomique`** (entiers, séquentiellement cohérentes),
+  **`lancer_detachee`** / `Tache.rejoindre` : une fonction nommée et des données
+  déplacées, exécutées par un `dyn` interne (le point d'entrée d'un thread n'est pas
+  générique).
+- La CI du lot 16 avait trouvé un IR invalide que le test structurel ne voyait pas : un
+  script de contrôle des types d'opérandes est désormais passé sur l'IR de cinq cibles
+  avant de pousser (zéro incohérence pour ce lot).
+- ADR 0013 : toutes les parties sont mises en œuvre ; restent `Atomique[bool]`, les ordres
+  mémoire faibles et l'attente par `WaitOnAddress` sous Windows.
