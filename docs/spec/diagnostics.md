@@ -78,6 +78,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0250` | A type declared `Copy` cannot be copied bit for bit. |
 | `E0251` | Invalid distinct or constrained type (edition 1, ADR 0014). |
 | `E0252` | A constant does not satisfy the condition of its constrained type. |
+| `E0253` | `unsafe impl` declares exactly `Transfer` and `Share` (ADR 0013). |
 
 ## Types, motifs et constantes (chapitres 03 et 04)
 

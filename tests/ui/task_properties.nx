@@ -1,0 +1,49 @@
+// `Transfer` and `Share` (ADR 0013): properties of the structure of a type. `Ptr` and
+// anonymous functions have neither; a type that holds a `Ptr` declares them with
+// `unsafe impl`, and `unsafe` declares nothing else (E0253).
+struct Handle {
+    raw: Ptr[u8]
+}
+
+struct Owned {
+    name: String
+    items: Vec[i32]
+}
+
+struct Declared {
+    raw: Ptr[u8]
+}
+
+unsafe impl Transfer for Declared {
+}
+
+impl Share for Owned {
+}
+
+unsafe impl Display for Owned {
+    fn to_string(self) -> String {
+        return self.name.clone()
+    }
+}
+
+unsafe impl Owned {
+}
+
+fn send[T: Transfer](owned value: T) -> i32 {
+    return 1
+}
+
+fn read_together[T: Share](value: T) -> i32 {
+    return 2
+}
+
+fn main() {
+    let ok = send(1) + send("text") + send(Owned(name: "a", items: Vec.new())) + send((1, 'x')) + send([Some(2.5); 3])
+    let declared = send(Declared(raw: Ptr.null()))
+    let not_declared = send(Handle(raw: Ptr.null()))
+    let only_transfer = read_together(Declared(raw: Ptr.null()))
+    let p: Ptr[i32] = Ptr.null()
+    let raw = send(p)
+    var v: Vec[Ptr[u8]] = Vec.new()
+    let raws = send(v)
+}

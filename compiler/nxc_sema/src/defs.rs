@@ -640,6 +640,56 @@ impl Program {
         fields_copy.then(|| a.name.clone())
     }
 
+    /// Is `tr` one of the properties of tasks, `Transfer` or `Share` (ADR 0013)?
+    pub fn is_task_property(&self, tr: TraitId) -> bool {
+        self.lang_trait("transfer") == Some(tr) || self.lang_trait("share") == Some(tr)
+    }
+
+    /// Does `t` have the property `tr` (`Transfer` or `Share`, ADR 0013)? By its structure:
+    /// numbers, `bool`, `char`, `()` and function pointers have both; `Ptr` and anonymous
+    /// functions have neither; a `dyn` value has those its interface requires; a struct,
+    /// an enum, a tuple or an array has them when all its values do. A type that declares
+    /// the property (`unsafe impl`) has it when its arguments satisfy the declaration.
+    pub fn has_task_property(&self, t: Ty, tr: TraitId, bounds: &[Bound]) -> bool {
+        let mut visiting = Vec::new();
+        self.task_property_rec(t, tr, bounds, &mut visiting)
+    }
+
+    fn task_property_rec(&self, t: Ty, tr: TraitId, bounds: &[Bound], visiting: &mut Vec<Ty>) -> bool {
+        match &*self.tcx.kind(t) {
+            TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit | TyKind::Never => true,
+            TyKind::IntVar(_) | TyKind::FloatVar(_) | TyKind::Error | TyKind::Fn(..) => true,
+            TyKind::Ptr(_) | TyKind::Closure(..) | TyKind::Infer(_) => false,
+            TyKind::Dyn(d) => self.trait_closure(*d).contains(&tr),
+            TyKind::Param(i) => bounds.iter().any(|b| b.param == *i && self.trait_closure(b.trait_id).contains(&tr)),
+            TyKind::Tuple(elems) => elems.iter().all(|&e| self.task_property_rec(e, tr, bounds, visiting)),
+            TyKind::Array(e, _) => self.task_property_rec(*e, tr, bounds, visiting),
+            TyKind::Adt(id, args) => {
+                if let Some((imp, iargs)) = self.find_impl(tr, t) {
+                    return self.impls[imp.idx()].bounds.iter().all(|b| {
+                        if self.is_task_property(b.trait_id) {
+                            self.task_property_rec(iargs[b.param as usize], b.trait_id, bounds, visiting)
+                        } else {
+                            self.implements_concrete(iargs[b.param as usize], b.trait_id)
+                        }
+                    });
+                }
+                if visiting.contains(&t) {
+                    // A recursive type: its other values decide.
+                    return true;
+                }
+                visiting.push(t);
+                let adt = &self.adts[id.idx()];
+                let r = match &adt.kind {
+                    AdtKind::Struct { fields } => fields.iter().all(|f| self.task_property_rec(self.tcx.subst(f.ty, args), tr, bounds, visiting)),
+                    AdtKind::Enum { variants } => variants.iter().all(|v| v.fields.iter().all(|&f| self.task_property_rec(self.tcx.subst(f, args), tr, bounds, visiting))),
+                };
+                visiting.pop();
+                r
+            }
+        }
+    }
+
     /// Is a generic parameter declared `Copy` by `bounds`?
     fn param_is_copy(&self, param: u32, bounds: &[Bound]) -> bool {
         let Some(copy) = self.lang_trait("copy") else { return false };
@@ -733,6 +783,9 @@ impl Program {
         // `Copy` is satisfied by the structure of the type (spec §3.7), not by an `impl`.
         if self.lang_trait("copy") == Some(trait_id) {
             return self.is_copy(ty);
+        }
+        if self.is_task_property(trait_id) {
+            return self.has_task_property(ty, trait_id, &[]);
         }
         if let TyKind::Dyn(d) = &*self.tcx.kind(ty) {
             return self.trait_closure(*d).contains(&trait_id);

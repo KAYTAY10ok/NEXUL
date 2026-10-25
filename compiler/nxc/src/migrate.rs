@@ -949,4 +949,10 @@ mod tests {
         assert_eq!(m("pub struct H {\n    x: i32\n}\nimpl H {\n    fn drop(inout self) {\n    }\n}\n"), "pub type H {\n    i32 x\n}\nextend H {\n    fn drop(self!) {\n    }\n}\n");
         assert_eq!(m("@derive(Copy)\npub struct C {\n    x: i32\n}\n"), "@derive(Copy)\npub type C {\n    i32 x\n}\n");
     }
+
+    #[test]
+    fn unsafe_declarations_of_task_properties() {
+        // ADR 0013: `unsafe impl Transfer for T` becomes `unsafe extend T is Transfer`.
+        assert_eq!(m("unsafe impl Transfer for H {\n}\n"), "unsafe extend H is Transfer {\n}\n");
+    }
 }

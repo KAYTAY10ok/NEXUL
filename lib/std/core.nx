@@ -181,6 +181,21 @@ pub trait Clone {
 pub trait Copy {
 }
 
+/// A value that can be moved to another task (ADR 0013). Satisfied by the structure of
+/// the type, like `Copy`: every value it holds is `Transfer`. `Ptr` and anonymous
+/// functions are not; a type that holds a `Ptr` declares it in reviewed code
+/// (`unsafe impl Transfer for T {}`), as `String` and `Vec` do.
+@lang("transfer")
+pub trait Transfer {
+}
+
+/// A value that several tasks can read at the same time through borrows (ADR 0013).
+/// Satisfied by the structure of the type: in safe code a read borrow never modifies
+/// anything (no interior mutability). `Ptr` and anonymous functions are not `Share`.
+@lang("share")
+pub trait Share {
+}
+
 /// Text for users: `{x}` in a string, `print(x)`.
 @lang("display")
 pub trait Display {

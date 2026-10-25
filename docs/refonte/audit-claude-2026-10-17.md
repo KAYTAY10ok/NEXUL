@@ -470,3 +470,13 @@ standard tamponnée.
   `tests/web/interop.mjs` (comportement, exécuté seulement à la main : LLVM, wasm-ld, Node).
 - `compiler/nxc_codegen_llvm` est partagé avec Codex : seules `instance()` (nom de
   l'export) et la fin de `emit_fn` changent, loin des sections modifiées par #44, #46, #51.
+
+## 19. Lot 15 (25/10, branche `refonte/core-adr0013-proprietes`) — ADR 0013, propriétés des tâches
+
+- L'utilisateur a validé les noms de l'ADR 0013 et les threads du système d'abord.
+- **`Transfer` et `Share`** : interfaces du prélude satisfaites par la structure (comme
+  `Copy`) ; `Ptr` et les fonctions anonymes n'en ont aucune ; un type qui contient un
+  `Ptr` les déclare par `unsafe impl` (nouvelle syntaxe, et `unsafe extend` en édition 1),
+  sinon E0253. `String`, `Vec`, `Location` les déclarent.
+- Rien n'exécute encore de tâche : ces propriétés seront exigées par `std.tache` (lot 17)
+  et les canaux (lot 18). Plan des lots : [ADR 0013, « Mise en œuvre »](../adr/0013-fondations-de-la-concurrence.md).

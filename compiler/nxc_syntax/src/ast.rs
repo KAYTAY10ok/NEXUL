@@ -152,6 +152,9 @@ pub struct ImplDecl {
     pub trait_: Option<TypeExpr>,
     pub bounds: Vec<BoundDecl>,
     pub items: Vec<Item>,
+    /// `unsafe impl Transfer for T` (`unsafe extend T is Transfer`): a promise the compiler
+    /// cannot check, written in reviewed code (ADR 0013).
+    pub is_unsafe: bool,
 }
 
 /// `trait Name: Super1 + Super2 { fn method(self) -> T  fn with_default(self) { ... } }`

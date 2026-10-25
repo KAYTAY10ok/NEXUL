@@ -611,7 +611,7 @@ impl<'a> FnCtxt<'a> {
     }
 
     /// The edition of the file being checked (ADR 0010).
-    fn edition(&self) -> nxc_syntax::Edition {
+    pub(crate) fn edition(&self) -> nxc_syntax::Edition {
         self.p.modules[self.module.idx()].edition
     }
 

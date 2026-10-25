@@ -1,0 +1,22 @@
+// edition: 1
+// `Transfer` and `Share` in edition 1: `T is Transfer and Share`, and
+// `unsafe extend T is Transfer` for a type that holds a `Ptr` (ADR 0013).
+type Handle {
+    Ptr[u8] raw
+}
+
+type Buffer {
+    Ptr[u8] raw
+}
+
+unsafe extend Buffer is Transfer {}
+unsafe extend Buffer is Share {}
+extend Handle is Transfer {}
+
+fn i32 both[T is Transfer and Share](owned T value) = 1
+
+fn main() {
+    let a = both(Buffer(raw: Ptr.null()))
+    let b = both("text")
+    let c = both(Handle(raw: Ptr.null()))
+}

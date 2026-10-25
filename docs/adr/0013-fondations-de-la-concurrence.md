@@ -155,3 +155,21 @@ TLS si nécessaire), `docs/spec/05-memoire.md`, nouveau chapitre de spécificati
 - Coût de la règle « gel jusqu'à la fin de la portée » si la portée est longue :
   à mesurer sur le corpus.
 - Noms définitifs (`Transfer`, `Share`, `portee`, `lancer`) : P6 et l'utilisateur.
+
+## Mise en œuvre
+
+L'utilisateur a choisi le 25/10/2026 les noms de l'ADR (`Transfer`, `Share`, `portee`,
+`lancer`) et les **threads du système d'abord**. Ordre des lots :
+
+| Lot | Contenu | État |
+|---|---|---|
+| 15 | `Transfer` et `Share` (partie 2) : interfaces du prélude, règle structurelle, `unsafe impl` / `unsafe extend` (E0253), déclarations de `String`, `Vec`, `Location` | fait (branche `refonte/core-adr0013-proprietes`) |
+| 16 | atomiques dans le générateur, threads du système (Linux, Windows), runtime sûr entre threads (allocateur, sortie) ; exécution en séquence sur les cibles sans threads | à faire |
+| 17 | module `std.tache` : `portee` et `lancer` (partie 3), gel des captures par tâche dans `places.rs`, `Share` / `Transfer` exigés des captures | à faire |
+| 18 | canaux bornés, `Verrou`, `Atomique`, `lancer_detachee` (parties 4 et 5) | à faire |
+
+Lot 15, précisions : `Fn` (pointeur de fonction) a les deux propriétés ; une fonction
+anonyme n'en a aucune ; un type récursif est jugé sur ses autres valeurs ; une déclaration
+`unsafe impl` vaut quand ses contraintes sont satisfaites (`Vec[T: Transfer]`). Tests :
+`tests/ui/task_properties.nx`, `tests/ui/edition1_task_properties.nx`,
+`tests/run/task_properties.nx`, test unitaire de `migrate`.

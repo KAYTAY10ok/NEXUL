@@ -455,6 +455,13 @@ impl<'a> Parser<'a> {
         let attrs = self.attrs()?;
         let is_pub = self.eat(&TokenKind::Pub);
         let kind = match self.peek() {
+            // `unsafe impl Transfer for T`: a declaration the compiler cannot check (ADR 0013).
+            TokenKind::Unsafe if !in_impl && self.peek_at(1) == &TokenKind::Impl => {
+                self.bump();
+                let mut decl = self.impl_decl()?;
+                decl.is_unsafe = true;
+                ItemKind::Impl(decl)
+            }
             TokenKind::Fn | TokenKind::Unsafe => ItemKind::Fn(self.fn_decl()?),
             TokenKind::Struct if !in_impl => ItemKind::Struct(self.struct_decl()?),
             TokenKind::Enum if !in_impl => ItemKind::Enum(self.enum_decl()?),
@@ -753,7 +760,7 @@ impl<'a> Parser<'a> {
                 Err(()) => self.recover_stmt(),
             }
         }
-        Ok(ImplDecl { ty, trait_, bounds, items })
+        Ok(ImplDecl { ty, trait_, bounds, items, is_unsafe: false })
     }
 
     fn trait_decl(&mut self) -> PResult<TraitDecl> {

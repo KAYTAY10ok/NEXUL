@@ -166,6 +166,13 @@ impl<'a> Parser<'a> {
         let mut attrs = self.attrs()?;
         let is_pub = self.eat(&TokenKind::Pub);
         let kind = match self.peek().clone() {
+            // `unsafe extend T is Transfer`: a declaration the compiler cannot check (ADR 0013).
+            TokenKind::Unsafe if matches!(self.peek_at(1), TokenKind::Ident(w) if w == "extend") => {
+                self.bump();
+                let mut decl = self.extend1()?;
+                decl.is_unsafe = true;
+                ItemKind::Impl(decl)
+            }
             TokenKind::Fn | TokenKind::Unsafe => ItemKind::Fn(self.fn_decl1()?),
             TokenKind::Type => return self.type_decl1(attrs, is_pub, start),
             TokenKind::Const => {
@@ -413,7 +420,7 @@ impl<'a> Parser<'a> {
             let span = start.to(self.prev_span());
             let mut items = vec![Item { attrs, is_pub, kind: ItemKind::Enum(EnumDecl { name, generics, variants }), span }];
             for i in interfaces {
-                items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![] }), span });
+                items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![], is_unsafe: false }), span });
             }
             return Ok(items);
         }
@@ -467,18 +474,18 @@ impl<'a> Parser<'a> {
         let is_copy = |t: &TypeExpr| matches!(&t.kind, TypeExprKind::Path { segments, args } if args.is_empty() && segments.last().is_some_and(|s| s.name == "Copy"));
         let (copy, mut interfaces): (Vec<TypeExpr>, Vec<TypeExpr>) = interfaces.into_iter().partition(is_copy);
         for c in copy {
-            items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(c), bounds: vec![], items: vec![] }), span });
+            items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(c), bounds: vec![], items: vec![], is_unsafe: false }), span });
         }
         match interfaces.len() {
-            0 if !fns.is_empty() => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: None, bounds: vec![], items: fns }), span }),
+            0 if !fns.is_empty() => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: None, bounds: vec![], items: fns, is_unsafe: false }), span }),
             0 => {}
-            1 => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: interfaces.pop(), bounds: vec![], items: fns }), span }),
+            1 => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: interfaces.pop(), bounds: vec![], items: fns, is_unsafe: false }), span }),
             _ => {
                 if !fns.is_empty() {
                     self.not_yet(span, "functions in a type that declares several interfaces (write them in `extend Type is I { … }`)");
                 }
                 for i in interfaces {
-                    items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![] }), span });
+                    items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![], is_unsafe: false }), span });
                 }
             }
         }
@@ -631,7 +638,7 @@ impl<'a> Parser<'a> {
         };
         let trait_ = if self.eat_word("is") { Some(self.type_expr()?) } else { None };
         let items = self.fn_body_items("a function")?;
-        Ok(ImplDecl { ty, trait_, bounds, items })
+        Ok(ImplDecl { ty, trait_, bounds, items, is_unsafe: false })
     }
 
     /// `{ [attributes] [pub] fn … }`

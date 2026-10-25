@@ -251,6 +251,21 @@ copiables de `std` (`Option`, `Result`, `Ordering`, `fmt.FormatSpec`, `rt.Locati
 Une valeur copiable est dupliquée bit à bit quand on la réutilise ; une ressource est
 **déplacée**. Les règles complètes sont au chapitre 05.
 
+**Propriétés des tâches** (ADR 0013). Deux interfaces sans méthode du prélude disent ce
+qu'une valeur peut faire entre tâches : **`Transfer`** (elle peut être déplacée vers une
+autre tâche) et **`Share`** (plusieurs tâches peuvent la lire en même temps par des
+emprunts en lecture). Comme `Copy`, elles viennent de la **structure** du type : nombres,
+`bool`, `char`, `()` et pointeurs de fonction les ont ; un tuple, un tableau, une
+structure ou une énumération les a si toutes ses valeurs les ont ; une valeur `dyn I` a
+celles que `I` exige. **`Ptr[T]` et les fonctions anonymes n'ont ni l'une ni l'autre.** Un
+type qui contient un `Ptr` et reste sûr d'une tâche à l'autre le **déclare** dans du code
+relu : `unsafe impl Transfer for T {}` (`unsafe extend T is Transfer {}` en édition 1) ;
+`unsafe` ne déclare rien d'autre, et ces propriétés ne se déclarent pas sans lui (E0253).
+`String` et `Vec[T]` (si `T` les a) les déclarent. Elles s'emploient comme contraintes
+(`[T: Transfer]`, `T is Share`) ; un argument qui ne les a pas est l'erreur E0249. Comme le
+code sûr n'a pas de mutabilité intérieure (un emprunt en lecture ne modifie rien), presque
+tous les types sont `Share`.
+
 ## 3.8 Disposition mémoire
 
 En 0.1, la disposition des structures, tuples et énumérations n'est **pas spécifiée**

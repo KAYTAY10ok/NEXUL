@@ -577,3 +577,14 @@ impl Default for Vec[T] {
         return Vec.new()
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tasks (ADR 0013)
+
+// The elements belong to the vector alone: it can be moved to another task when they
+// can, and read by several tasks when they can.
+unsafe impl Transfer for Vec[T: Transfer] {
+}
+
+unsafe impl Share for Vec[T: Share] {
+}

@@ -314,6 +314,9 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
         if imp.decl.trait_.is_some() {
             collect_trait_impl(prog, imp, diags);
         } else {
+            if imp.decl.is_unsafe {
+                diags.emit(Diagnostic::error("E0253", "`unsafe` only declares `Transfer` or `Share`").primary(imp.span, "methods are declared without `unsafe`"));
+            }
             collect_impl(prog, imp, diags);
         }
     }
@@ -1037,6 +1040,21 @@ fn collect_trait(prog: &mut Program, id: TraitId, decl: &ast::TraitDecl, diags: 
 fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     let trait_expr = imp.decl.trait_.clone().unwrap();
     let Some(tr) = resolve_trait_ref(prog, imp.module, &trait_expr, diags) else { return };
+    // `Transfer` and `Share` are promises the compiler cannot check for a type that holds a
+    // `Ptr`: they are declared with `unsafe`, and `unsafe` declares nothing else (ADR 0013).
+    let property = prog.is_task_property(tr);
+    if property != imp.decl.is_unsafe {
+        let name = prog.traits[tr.idx()].name.clone();
+        let d = if property {
+            Diagnostic::error("E0253", format!("declaring `{}` is a promise the compiler cannot check", name))
+                .primary(imp.span, "without `unsafe`")
+                .note(format!("a type has `{}` by its structure; a type that holds a `Ptr` declares it after a review of its code", name))
+                .help(format!("write `unsafe impl {} for …` (`unsafe extend … is {}` in edition 1)", name, name))
+        } else {
+            Diagnostic::error("E0253", format!("`unsafe` cannot declare `{}`", name)).primary(imp.span, "remove `unsafe`").note("only `Transfer` and `Share` are declared with `unsafe`")
+        };
+        diags.emit(d);
+    }
     let TypeExprKind::Path { segments, args } = &imp.decl.ty.kind else { return };
     // The implementing type: a primitive type or a struct/enum, generic parameters
     // listed (optionally) with their bounds.

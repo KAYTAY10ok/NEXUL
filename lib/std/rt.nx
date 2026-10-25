@@ -279,3 +279,10 @@ pub fn char_is_whitespace(c: char) -> bool {
     return v == 0x20 or (v >= 0x09 and v <= 0x0D) or v == 0x85 or v == 0xA0 or v == 0x1680 or (v >= 0x2000 and v <= 0x200A) or
         v == 0x2028 or v == 0x2029 or v == 0x202F or v == 0x205F or v == 0x3000
 }
+
+// A location points to the name of a source file, a constant of the program.
+unsafe impl Transfer for Location {
+}
+
+unsafe impl Share for Location {
+}

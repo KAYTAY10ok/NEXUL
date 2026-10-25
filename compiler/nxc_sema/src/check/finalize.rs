@@ -660,6 +660,19 @@ impl<'a> FnCtxt<'a> {
                 let mut d = Diagnostic::error("E0249", format!("`{}` does not implement `{}`", ts, tname)).primary(span, format!("`{}` is required {}", tname, what));
                 d = if matches!(&*tcx.kind(t), TyKind::Param(_)) {
                     d.help(format!("add the bound `{}: {}` to the type parameter", ts, tname))
+                } else if self.p.is_task_property(trait_id) {
+                    // `Transfer` and `Share` come from the structure of the type (ADR 0013).
+                    let what = if self.p.lang_trait("transfer") == Some(trait_id) { "moved to another task" } else { "read by several tasks at once" };
+                    let d = d.note(format!("`{}` cannot be {}: it holds a `Ptr`, an anonymous function or a `dyn` value without `{}`", ts, what, tname));
+                    // Only the program's own types can be declared.
+                    let own = tcx.as_adt(t).is_some_and(|(id, _)| !self.p.modules[self.p.adt(id).module.idx()].is_std);
+                    if !own {
+                        d
+                    } else if self.edition() == nxc_syntax::Edition::V1 {
+                        d.help(format!("if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe extend {} is {} {{}}`", ts, tname))
+                    } else {
+                        d.help(format!("if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe impl {} for {} {{}}`", tname, ts))
+                    }
                 } else if self.p.lang_trait("copy") == Some(trait_id) {
                     // `Copy` comes from the structure of the type, never from an `impl`.
                     d.note(format!("the values of `{}` own resources: they are moved, not copied (spec §3.7)", ts))

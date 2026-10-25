@@ -16,6 +16,10 @@ impl<'a> FnCtxt<'a> {
         if self.p.lang_trait("copy") == Some(tr) && !matches!(&*tcx.kind(ty), TyKind::Error | TyKind::Never | TyKind::Infer(_)) {
             return self.p.is_copy_with(ty, &self.bounds);
         }
+        // `Transfer` and `Share` too (ADR 0013), with the declarations of `unsafe impl`.
+        if self.p.is_task_property(tr) && !matches!(&*tcx.kind(ty), TyKind::Error | TyKind::Never | TyKind::Infer(_)) {
+            return self.p.has_task_property(ty, tr, &self.bounds);
+        }
         match &*tcx.kind(ty) {
             TyKind::Error | TyKind::Never => true,
             TyKind::Param(i) => self.bounds.iter().any(|b| b.param == *i && self.p.trait_closure(b.trait_id).contains(&tr)),

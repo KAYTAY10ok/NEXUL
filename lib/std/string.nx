@@ -620,3 +620,14 @@ impl Default for String {
         return ""
     }
 }
+
+// ---------------------------------------------------------------------------
+// Tasks (ADR 0013)
+
+// The bytes belong to the string alone (no other pointer to them): moving the string
+// to another task moves them; a read borrow never writes them.
+unsafe impl Transfer for String {
+}
+
+unsafe impl Share for String {
+}

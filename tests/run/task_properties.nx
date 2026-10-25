@@ -1,0 +1,40 @@
+// ADR 0013: generic functions that require `Transfer` or `Share`, called with strings,
+// vectors, enums, tuples and a type declared with `unsafe impl`.
+struct Declared {
+    raw: Ptr[u8]
+    len: usize
+}
+
+unsafe impl Transfer for Declared {
+}
+
+enum Message {
+    Text(String)
+    Numbers(Vec[i64])
+    Stop
+}
+
+fn take[T: Transfer](owned value: T) -> T {
+    return value
+}
+
+fn count[T: Share](values: Vec[T]) -> usize {
+    return values.len()
+}
+
+fn main() {
+    let s = take("bonjour")
+    var numbers: Vec[i64] = Vec.new()
+    numbers.push(4)
+    numbers.push(5)
+    var v: Vec[Message] = Vec.new()
+    v.push(Message.Text(s))
+    v.push(Message.Numbers(take(numbers)))
+    v.push(Message.Stop)
+    let moved = take(v)
+    println("{count(moved)}")
+    let d = take(Declared(raw: Ptr.null(), len: 3))
+    println("{d.len} {d.raw.is_null()}")
+    let pair = take((1, "deux"))
+    println("{pair.0} {pair.1}")
+}
