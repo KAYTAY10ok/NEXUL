@@ -59,8 +59,9 @@ l'égalité textuelle avec les URI `didOpen`.
 La PR #62 associe les diagnostics par identité physique du fichier et conserve
 l'URI du client, aussi pour le manifeste non ouvert. Six tests LSP passent sous
 Linux, dont une nouvelle régression de protocole avec lien symbolique couvrant
-les deux cas. Les tests Windows existants restent actifs ; validation de la
-correction par Actions en cours au moment de cette première publication.
+les deux cas. Les cinq tests LSP Windows existants, dont les deux anciens échecs,
+passent dans le run C6 40132365202 sur `f9c5dca`. Le même test de protocole échoue
+sur le binaire Core #60 non corrigé (diagnostics vides), puis passe avec le correctif.
 
 ## Reproduction indépendante
 
@@ -84,7 +85,7 @@ suite verte et ne modifient pas les tests de langage appartenant à Claude.
 |---|---|
 | Core #60, workspace Linux hors installateur Windows | 75 tests réussis ; fuzz 40 tours, seed 2410 |
 | Core #60, ABI navigateur explicitement `--ignored` | 1 test réussi |
-| Intégration C1/C2/C3/C5/C6/C7/C8/C10, même workspace | 78 tests réussis avant ajout du nouveau test LSP |
+| Intégration C1/C2/C3/C5/C6/C7/C8/C10 avec correctif LSP, même workspace | 79 tests réussis ; fuzz 40 tours, seed 2410 |
 | Intégration, ABI navigateur explicite | 1 test réussi |
 | Intégration, corpus croisé wasm32-wasi | `run_programs_cross` réussi |
 | Intégration, QEMU Cortex-M mps2-an386 | O0/O2 réussis : 100000 boucles, interruption SysTick, bilans d'allocations nuls |
@@ -112,10 +113,14 @@ sans retirer la comparaison du chemin complet), puis le défaut LSP ci-dessus.
 Le premier run d'intégration 40131661105 reproduit seulement les deux échecs
 LSP dans la suite compilateur ; son test `run_programs` réussit.
 
-La relance intègre #62. La branche #61 ajoute les 20 répétitions Windows
-du test de registre C8. Elles ne sont pas déclarées réussies avant un journal
-les exécutant réellement. La construction/validation graphique de Studio
-natif, un vrai lldb-dap et macOS ne sont pas couverts par ces jobs.
+La relance 40132439801 sur la pile corrigée #62 est **verte sur Linux et Windows**.
+Windows réussit la suite compilateur complète, l'ABI navigateur, l'installateur
+sandbox, Studio/syntax, ConPTY, DAP et LSP. Le test de registre C8 passe ensuite
+20 fois consécutives, chacune avec un succès. Le test d'intégration lldb-dap
+apparaît comme réussi, mais son exécution réelle du scénario NEXUL n'est pas
+établie par ce run ; aucune validation DAP réelle n'est revendiquée.
+La construction/validation graphique de Studio natif et macOS ne sont pas
+couvertes par ces jobs.
 
 ## État du projet et ordre conseillé
 
