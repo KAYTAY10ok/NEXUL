@@ -1,0 +1,82 @@
+// ADR 0013: tasks of `std.tache`, on the threads of the system (Linux, Windows), one
+// after the other elsewhere. Each task modifies its own variables, so the results do not
+// depend on the order; the tasks allocate at the same time (lock of the runtime).
+import std.tache
+
+fn somme(v: Vec[i64], debut: usize, fin: usize) -> i64 {
+    var s: i64 = 0
+    for i in debut..fin {
+        s += v[i]
+    }
+    return s
+}
+
+fn compte_premiers(debut: i64, fin: i64) -> i64 {
+    var n: i64 = 0
+    for k in debut..fin {
+        if k >= 2 {
+            var premier = true
+            var d: i64 = 2
+            while d * d <= k {
+                if k % d == 0 {
+                    premier = false
+                    break
+                }
+                d += 1
+            }
+            if premier {
+                n += 1
+            }
+        }
+    }
+    return n
+}
+
+fn mots(n: i64) -> Vec[String] {
+    var v: Vec[String] = Vec.new()
+    for i in 0..n {
+        v.push("mot {i}")
+    }
+    return v
+}
+
+fn main() {
+    var v: Vec[i64] = Vec.new()
+    for i in 0..100000 {
+        v.push(i)
+    }
+    var a: i64 = 0
+    var b: i64 = 0
+    var c: i64 = 0
+    var d: i64 = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { a = somme(v, 0, 25000) })
+        p.lancer(fn() { b = somme(v, 25000, 50000) })
+        p.lancer(fn() { c = somme(v, 50000, 75000) })
+        p.lancer(fn() { d = somme(v, 75000, 100000) })
+    })
+    println("{a + b + c + d}")
+
+    var p0: i64 = 0
+    var p1: i64 = 0
+    var p2: i64 = 0
+    var p3: i64 = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { p0 = compte_premiers(0, 25000) })
+        p.lancer(fn() { p1 = compte_premiers(25000, 50000) })
+        p.lancer(fn() { p2 = compte_premiers(50000, 75000) })
+        p.lancer(fn() { p3 = compte_premiers(75000, 100000) })
+    })
+    println("{p0 + p1 + p2 + p3}")
+
+    var texte = ""
+    var w1: Vec[String] = Vec.new()
+    var w2: Vec[String] = Vec.new()
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { texte = "bonjour depuis une tache" })
+        p.lancer(fn() { w1 = mots(20000) })
+        p.lancer(fn() { w2 = mots(20000) })
+    })
+    println(texte)
+    println("{w1.len() + w2.len()} {w1[19999]} {w2[0]}")
+}

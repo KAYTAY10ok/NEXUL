@@ -322,6 +322,7 @@ unsafe fn read_byte(h: Ptr[u8]) -> i32 {
 
 /// Reads one line of standard input without its terminator; `false` at the end.
 pub fn read_line(inout out: String) -> bool {
+    let _input = unsafe { input_lock() }
     rt.flush()
     unsafe {
         let h = GetStdHandle(STD_INPUT)
@@ -658,4 +659,138 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
         done += n
     }
     return true
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013)
+
+@link("kernel32")
+extern "C" fn CreateThread(attributes: Ptr[u8], stack_size: usize, start: fn(Ptr[u8]) -> u32, parameter: Ptr[u8], flags: u32, id: Ptr[u32]) -> Ptr[u8]
+@link("kernel32")
+extern "C" fn GetCurrentThreadId() -> u32
+@link("kernel32")
+extern "C" fn SwitchToThread() -> i32
+
+/// STACK_SIZE_PARAM_IS_A_RESERVATION: the size reserves the stack (8 MiB, like Linux).
+const THREAD_STACK_RESERVE: u32 = 0x10000
+const THREAD_STACK: usize = 8_388_608
+
+/// What a thread runs.
+struct ThreadStart {
+    entry: fn(Ptr[u8])
+    arg: Ptr[u8]
+}
+
+/// Set (to 1) before the first thread starts: from then on the runtime locks.
+static var THREADED: u32 = 0
+
+/// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
+/// caller then runs `entry(arg)` itself).
+pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+    mem.atomic_store(mem.addr_of(&THREADED), 1)
+    let s = rt.alloc(mem.size_of[ThreadStart]()).cast[ThreadStart]()
+    s.write(ThreadStart(entry: entry, arg: arg))
+    let h = CreateThread(Ptr.null(), THREAD_STACK, thread_main, s.cast[u8](), THREAD_STACK_RESERVE, Ptr.null())
+    if h.is_null() {
+        rt.free(s.cast[u8]())
+        return 0
+    }
+    return h.addr()
+}
+
+/// The first function of a thread (the start routine of `CreateThread`).
+fn thread_main(arg: Ptr[u8]) -> u32 {
+    unsafe {
+        let s = arg.cast[ThreadStart]().read()
+        rt.free(arg)
+        let entry = s.entry
+        entry(s.arg)
+    }
+    return 0
+}
+
+/// Waits for the end of a thread started by `thread_start`.
+pub unsafe fn thread_join(handle: usize) {
+    let h = Ptr[u8].from_addr(handle)
+    let _ = WaitForSingleObject(h, 0xFFFF_FFFF)
+    let _ = CloseHandle(h)
+}
+
+/// The id of the calling thread.
+pub fn thread_id() -> u64 {
+    return unsafe { GetCurrentThreadId() } as u64
+}
+
+/// Lets another thread run.
+pub fn thread_yield() {
+    let _ = unsafe { SwitchToThread() }
+}
+
+// ---------------------------------------------------------------------------
+// Lock of the runtime (ADR 0013, task C5)
+//
+// The allocator and the outputs are shared by the threads: `rt.critical_section()` takes
+// this lock. The runtime calls itself (`print` allocates), so the thread that holds the
+// lock may take it again. Until the first thread starts, nothing is locked.
+
+static var RT_OWNER: u64 = 0
+static var RT_DEPTH: u32 = 0
+
+pub struct CriticalSection {
+    locked: bool
+}
+
+impl CriticalSection {
+    fn drop(inout self) {
+        if self.locked {
+            unsafe {
+                RT_DEPTH -= 1
+                if RT_DEPTH == 0 {
+                    mem.atomic_store(mem.addr_of(&RT_OWNER), 0)
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn critical_section() -> CriticalSection {
+    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+        return CriticalSection(locked: false)
+    }
+    let me = thread_id() + 1
+    if mem.atomic_load(mem.addr_of(&RT_OWNER)) != me {
+        while mem.atomic_cas(mem.addr_of(&RT_OWNER), 0, me) != 0 {
+            thread_yield()
+        }
+    }
+    RT_DEPTH += 1
+    return CriticalSection(locked: true)
+}
+
+/// The standard input is read by one thread at a time, with its own lock: a thread that
+/// waits for a line does not hold the lock of the runtime.
+static var IN_LOCK: u32 = 0
+
+struct InputLock {
+    locked: bool
+}
+
+impl InputLock {
+    fn drop(inout self) {
+        if self.locked {
+            unsafe {
+                mem.atomic_store(mem.addr_of(&IN_LOCK), 0)
+            }
+        }
+    }
+}
+
+unsafe fn input_lock() -> InputLock {
+    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+        return InputLock(locked: false)
+    }
+    while mem.atomic_cas(mem.addr_of(&IN_LOCK), 0, 1) != 0 {
+        thread_yield()
+    }
+    return InputLock(locked: true)
 }

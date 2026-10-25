@@ -76,3 +76,46 @@ pub fn replace[T](inout dest: T, owned value: T) -> T
 /// Destroys a value now instead of at the end of its scope.
 pub fn drop[T](owned value: T) {
 }
+
+// ---------------------------------------------------------------------------
+// Atomic operations (ADR 0013)
+//
+// Sequentially consistent operations on an integer shared by threads: the only accesses
+// to the same memory from two threads that are not a data race.
+
+/// Reads the integer at `p`.
+@intrinsic
+pub unsafe fn atomic_load[T](p: Ptr[T]) -> T
+
+/// Writes `value` at `p`.
+@intrinsic
+pub unsafe fn atomic_store[T](p: Ptr[T], value: T)
+
+/// Writes `value` at `p` and returns the previous value.
+@intrinsic
+pub unsafe fn atomic_swap[T](p: Ptr[T], value: T) -> T
+
+/// Adds `value` (wrapping around) and returns the previous value.
+@intrinsic
+pub unsafe fn atomic_add[T](p: Ptr[T], value: T) -> T
+
+/// Writes `new` at `p` if it holds `expected`; returns the previous value (`expected`
+/// when the write took place).
+@intrinsic
+pub unsafe fn atomic_cas[T](p: Ptr[T], expected: T, new: T) -> T
+
+/// Orders every memory access before it before every access after it.
+@intrinsic
+pub unsafe fn atomic_fence()
+
+/// The code of an anonymous function (`std.tache`).
+@intrinsic
+pub unsafe fn closure_code(f: fn()) -> Ptr[u8]
+
+/// The environment of an anonymous function: the addresses of the variables it uses.
+@intrinsic
+pub unsafe fn closure_env(f: fn()) -> Ptr[u8]
+
+/// Calls an anonymous function given by its code and its environment.
+@intrinsic
+pub unsafe fn call_closure(code: Ptr[u8], env: Ptr[u8])

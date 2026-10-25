@@ -1,0 +1,11 @@
+error[E0420]: cannot use `gauche` while a task modifies `gauche`
+  --> edition1_tasks.nx:10:19
+   |
+ 9 |         p!.lancer(fn() { gauche = 1 })
+   |                   ------------------- this task modifies `gauche` until the end of `tache.portee`
+10 |         p!.lancer(fn() { droite = gauche })
+   |                   ^^^^^^^^^^^^^^^^^^^^^^^^ use here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error: could not compile due to 1 error

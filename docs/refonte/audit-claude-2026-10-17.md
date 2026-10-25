@@ -480,3 +480,19 @@ standard tamponnée.
   sinon E0253. `String`, `Vec`, `Location` les déclarent.
 - Rien n'exécute encore de tâche : ces propriétés seront exigées par `std.tache` (lot 17)
   et les canaux (lot 18). Plan des lots : [ADR 0013, « Mise en œuvre »](../adr/0013-fondations-de-la-concurrence.md).
+
+## 20. Lot 16 (25/10, branche `refonte/core-adr0013-threads`) — tâches de `std.tache`
+
+- **Threads** : Linux par `clone` (assembleur en ligne pour x86-64, AArch64, RISC-V ; pile
+  de 8 Mio, garde, pile de signal par thread : un débordement de pile dans une tâche
+  finit comme une panique), Windows par `CreateThread` ; ailleurs, chaque tâche
+  s'exécute quand elle est lancée.
+- **Runtime sûr entre threads** : la tâche C5 de Codex (#51) a été fusionnée dans ce lot ;
+  son point de garde `rt.critical_section()` devient, sur les cibles avec threads, un
+  verrou réentrant (identité du thread, profondeur) actif dès le premier thread. Entrée
+  standard sous un verrou à part. Table paresseuse de `math` sous le verrou.
+- **`std.tache`** : `portee` et `lancer` ; règles E0254 ; gel des captures par tâche
+  jusqu'à la fin de la `portee` (E0420) ; `Share` / `Transfer` exigés des captures.
+- Opérations atomiques (`mem.atomic_*`) et intrinsèques des fonctions anonymes dans le
+  générateur (partagé avec Codex : sections nouvelles, aucune modification de ses lignes).
+- Reste de l'ADR 0013 : canaux, `Verrou`, `Atomique`, `lancer_detachee` (lot 18).

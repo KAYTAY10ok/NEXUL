@@ -1311,6 +1311,10 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         let f = Rc::new(f);
         let id = FnId(prog.fns.len() as u32);
         prog.fns.push(new_fn_def(&f, imp.module, item.is_pub, Some(adt_id), &item.attrs));
+        // A method known to the compiler (`Portee.lancer`, ADR 0013).
+        if let Some(name) = lang_name(&item.attrs) {
+            prog.lang_fns.insert(name, id);
+        }
         let self_ty = prog.tcx.adt(adt_id, (0..owner_generics.len() as u32).map(|i| prog.tcx.param(i)).collect());
         let owner = SigOwner { generics: owner_generics.clone(), self_ty: Some(self_ty), bounds: vec![], trait_id: None };
         resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);

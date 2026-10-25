@@ -1,0 +1,13 @@
+// A panic in a task ends the whole program with code 101 (ADR 0013, invariant I4).
+import std.tache
+
+fn main() {
+    var x = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() {
+            x = 1
+            panic("panic in a task")
+        })
+    })
+    println("unreachable {x}")
+}

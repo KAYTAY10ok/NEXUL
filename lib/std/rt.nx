@@ -18,14 +18,11 @@ pub struct Location {
     pub col: u32
 }
 
-/// Internal runtime lock: on hosted targets this is a zero-sized no-op.
-@cfg("bare")
+/// Internal runtime lock: interrupts masked on bare metal (task C5), a lock shared by the
+/// threads elsewhere (ADR 0013), nothing on a target without either.
 pub unsafe fn critical_section() -> sys.CriticalSection {
     return sys.critical_section()
 }
-
-@cfg("!bare")
-pub unsafe fn critical_section() {}
 
 // ---------------------------------------------------------------------------
 // Heap

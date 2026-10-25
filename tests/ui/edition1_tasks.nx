@@ -1,0 +1,13 @@
+// edition: 1
+// Tasks in edition 1 (ADR 0013): `p!.lancer(fn() { … })` in `tache.portee`.
+import std.tache
+
+fn main() {
+    var i64 gauche = 0
+    var i64 droite = 0
+    tache.portee(fn(tache.Portee p!) {
+        p!.lancer(fn() { gauche = 1 })
+        p!.lancer(fn() { droite = gauche })
+    })
+    println("{gauche} {droite}")
+}

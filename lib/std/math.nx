@@ -8,6 +8,7 @@
 /// refined by musl: results are within 1 ulp of the exact value.
 
 import std.fmt
+import std.rt
 
 /// The ratio of a circle's circumference to its diameter.
 pub const PI: f64 = 3.14159265358979323846264338327950288
@@ -743,8 +744,12 @@ fn init_two_over_pi() {
 /// Reduction of a huge |x| (>= 2^20 π/2): returns the quadrant and `r = y0 + y1` with
 /// `x = (4m + n) π/2 + r` (Payne-Hanek method with exact integer arithmetic).
 fn rem_pio2_large(x: f64) -> (i32, f64, f64) {
-    if not unsafe { TWO_OVER_PI_READY } {
-        init_two_over_pi()
+    unsafe {
+        // One thread computes the table, the others wait for it (ADR 0013).
+        let _critical = rt.critical_section()
+        if not TWO_OVER_PI_READY {
+            init_two_over_pi()
+        }
     }
     let bits = x.abs().to_bits()
     let e = ((bits >> 52) & 0x7FF) as i32 - 1075

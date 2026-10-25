@@ -24,6 +24,12 @@ Fichiers que Claude modifie pour ces ADR (à éviter côté Codex jusqu'à leur 
 `lib/std/io.nx`, `lib/std/core.nx`, `lib/std/sys/*.nx` (fonctions d'entrée-sortie),
 `compiler/nxc_sema/**`, `compiler/nxc_nir/src/build.rs`, `compiler/nxc_syntax/src/parser/ed1.rs`,
 `compiler/nxc/src/migrate.rs`, `docs/spec/**`, `docs/adr/**`, `tests/ui/**`, `tests/run/**`.
+Note du 25/10 (ADR 0013) : la branche de C5 (#51) est fusionnée dans le lot 16 de Claude
+(`refonte/core-adr0013-threads`). `rt.critical_section()` y garde son rôle sur les cibles
+sans système (masque des interruptions) et devient, sur les cibles avec threads, un verrou
+réentrant du runtime (`sys.critical_section()` de `linux.nx` et `windows.nx`). Toute
+modification de ce point de garde passe par une revue de Claude.
+
 Fichiers de Codex à ne pas toucher côté Claude : `.github/**`, `installer/**`, `studio/**`,
 `editors/**`, `benchmarks/**`, `compiler/nxc/src/link.rs`, `compiler/nxc/src/lsp.rs`.
 `compiler/nxc_codegen_llvm/**` est partagé : prévenir dans la PR quand on y touche.

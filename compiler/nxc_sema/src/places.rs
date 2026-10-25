@@ -71,6 +71,9 @@ struct Cx<'a> {
     guard_bindings: Vec<thir::LocalId>,
     /// The trait bounds of the function: a parameter `T: Copy` is copyable.
     bounds: &'a [crate::defs::Bound],
+    /// What the tasks launched by `Portee.lancer` use, until the end of the function given
+    /// to `tache.portee` (ADR 0013): read (shared) or modified (exclusive).
+    tasks: Vec<Frozen>,
 }
 
 pub fn check_program(prog: &Program, diags: &DiagSink) {
@@ -78,7 +81,7 @@ pub fn check_program(prog: &Program, diags: &DiagSink) {
     ids.sort();
     for id in ids {
         let body = &prog.bodies[&id];
-        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new(), bounds: &prog.func(id).bounds };
+        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new(), bounds: &prog.func(id).bounds, tasks: Vec::new() };
         cx.block(&body.block);
     }
 }
@@ -118,6 +121,9 @@ impl<'a> Cx<'a> {
             return;
         }
         let Some(path) = place_path(e) else { return };
+        if self.task_conflict(e, &path, true, action, span) {
+            return;
+        }
         for f in self.frozen.iter().rev() {
             if overlaps(&f.path, &path) {
                 let root = self.local_name(path.root);
@@ -476,8 +482,34 @@ impl<'a> Cx<'a> {
     }
 
     /// A read of a place: forbidden while the place is borrowed for writing.
+    /// E0420 for a place that a running task uses: no write to it, and no read when the
+    /// task modifies it (ADR 0013).
+    fn task_conflict(&self, e: &Expr, path: &PlacePath, write: bool, action: &str, span: Span) -> bool {
+        for t in self.tasks.iter().rev() {
+            if (write || t.exclusive) && overlaps(&t.path, path) {
+                let root = self.local_name(path.root);
+                let (msg, label) = if t.exclusive {
+                    (format!("cannot {} {} while a task modifies `{}`", action, self.describe(e), root), format!("this task modifies `{}` until the end of `tache.portee`", root))
+                } else {
+                    (format!("cannot {} {} while a task reads `{}`", action, self.describe(e), root), format!("this task reads `{}` until the end of `tache.portee`", root))
+                };
+                self.diags.emit(
+                    Diagnostic::error("E0420", msg)
+                        .primary(span, format!("{} here", action))
+                        .secondary(t.span, label)
+                        .note("two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)"),
+                );
+                return true;
+            }
+        }
+        false
+    }
+
     fn read(&self, e: &Expr) {
         let Some(path) = place_path(e) else { return };
+        if self.task_conflict(e, &path, false, "use", e.span) {
+            return;
+        }
         for f in self.frozen.iter().rev() {
             if f.exclusive && overlaps(&f.path, &path) {
                 let root = self.local_name(path.root);
@@ -535,6 +567,16 @@ impl<'a> Cx<'a> {
                 }
                 let method_call = matches!(callee, Callee::Fn(f, _) if self.p.func(*f).has_self);
                 self.call_args(args, e.span, method_call);
+                // A launched task keeps what it uses until the end of the `portee` (ADR 0013).
+                if matches!(callee, Callee::Fn(f, _) if self.p.lang_fn("task_launch") == Some(*f)) {
+                    for a in args {
+                        if let T::Closure { captures, .. } = &a.expr.kind {
+                            for &(l, mutated) in captures {
+                                self.tasks.push(Frozen { path: PlacePath { root: l, projs: vec![] }, span: a.expr.span, why: "task", exclusive: mutated });
+                            }
+                        }
+                    }
+                }
             }
             T::Adt { fields: xs, .. } | T::Tuple(xs) | T::Array(xs) => {
                 for x in xs {

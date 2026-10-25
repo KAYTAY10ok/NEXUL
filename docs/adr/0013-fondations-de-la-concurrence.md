@@ -164,8 +164,7 @@ L'utilisateur a choisi le 25/10/2026 les noms de l'ADR (`Transfer`, `Share`, `po
 | Lot | Contenu | État |
 |---|---|---|
 | 15 | `Transfer` et `Share` (partie 2) : interfaces du prélude, règle structurelle, `unsafe impl` / `unsafe extend` (E0253), déclarations de `String`, `Vec`, `Location` | fait (branche `refonte/core-adr0013-proprietes`) |
-| 16 | atomiques dans le générateur, threads du système (Linux, Windows), runtime sûr entre threads (allocateur, sortie) ; exécution en séquence sur les cibles sans threads | à faire |
-| 17 | module `std.tache` : `portee` et `lancer` (partie 3), gel des captures par tâche dans `places.rs`, `Share` / `Transfer` exigés des captures | à faire |
+| 16 | atomiques dans le générateur, threads du système (Linux par `clone`, Windows par `CreateThread`), runtime sûr entre threads (verrou réentrant derrière `rt.critical_section()` de la tâche C5 de Codex, fusionnée dans ce lot) ; **et** le module `std.tache` (`portee`, `lancer`), le gel des captures par tâche dans `places.rs`, `Share` / `Transfer` exigés des captures (E0254) : les deux lots ont été réunis, car `lancer` sans ses règles aurait été une API sûre avec des courses de données | fait (branche `refonte/core-adr0013-threads`) |
 | 18 | canaux bornés, `Verrou`, `Atomique`, `lancer_detachee` (parties 4 et 5) | à faire |
 
 Lot 15, précisions : `Fn` (pointeur de fonction) a les deux propriétés ; une fonction
@@ -173,3 +172,14 @@ anonyme n'en a aucune ; un type récursif est jugé sur ses autres valeurs ; une
 `unsafe impl` vaut quand ses contraintes sont satisfaites (`Vec[T: Transfer]`). Tests :
 `tests/ui/task_properties.nx`, `tests/ui/edition1_task_properties.nx`,
 `tests/run/task_properties.nx`, test unitaire de `migrate`.
+
+Lot 16, précisions : l'environnement d'une fonction anonyme lancée comme tâche est alloué
+sur le tas (le cadre de la fonction donnée à `portee` disparaît avant la fin des tâches)
+et libéré par la tâche ; `lancer` exige une fonction anonyme écrite dans l'appel ; macOS,
+WebAssembly et les cibles sans système exécutent chaque tâche quand elle est lancée.
+Spécification : [chapitre 11](../spec/11-taches.md). Tests : `tests/ui/tasks.nx`,
+`tests/ui/edition1_tasks.nx`, `tests/run/tasks.nx` (somme et nombres premiers en
+parallèle, allocations simultanées), `tests/run/task_panic.nx` (code 101),
+`compiler/nxc/tests/codegen_ir.rs` (`clone` sur les trois architectures Linux). Non
+exécutés ici : Windows (la CI n'y lance pas `tests/run`), AArch64 et RISC-V (pas
+d'émulateur dans la CI).

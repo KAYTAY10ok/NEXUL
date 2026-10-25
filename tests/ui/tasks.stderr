@@ -1,0 +1,98 @@
+error[E0254]: a task is launched directly in the function given to `tache.portee`, on its parameter
+  --> tasks.nx:15:5
+   |
+15 |     p.lancer(fn() { travail() })
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ not launched there
+   |
+   = note: `tache.portee` waits for its tasks: a task launched elsewhere could outlive what it uses
+   = help: write `tache.portee(fn(inout p: tache.Portee) { p.lancer(fn() { … }) })`
+
+error[E0420]: cannot modify `a` while a task modifies `a`
+  --> tasks.nx:25:18
+   |
+24 |         p.lancer(fn() { a = 1 })
+   |                  -------------- this task modifies `a` until the end of `tache.portee`
+25 |         p.lancer(fn() { a = 2 })
+   |                  ^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot use `a` while a task modifies `a`
+  --> tasks.nx:26:18
+   |
+25 |         p.lancer(fn() { a = 2 })
+   |                  -------------- this task modifies `a` until the end of `tache.portee`
+26 |         p.lancer(fn() { b = a })
+   |                  ^^^^^^^^^^^^^^ use here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot use `a` while a task modifies `a`
+  --> tasks.nx:27:19
+   |
+25 |         p.lancer(fn() { a = 2 })
+   |                  -------------- this task modifies `a` until the end of `tache.portee`
+26 |         p.lancer(fn() { b = a })
+27 |         println("{a}")
+   |                   ^ use here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0254]: a task cannot use `local`, a variable of the function given to `tache.portee`
+  --> tasks.nx:28:18
+   |
+23 |         var local = 1
+   |             ----- destroyed when that function returns, before the task ends
+...
+28 |         p.lancer(fn() { local = 2 })
+   |                  ^^^^^^^^^^^^^^^^^^ uses `local`
+   |
+   = help: declare `local` before `tache.portee`
+
+error[E0254]: a task is an anonymous function written in the call
+  --> tasks.nx:29:18
+   |
+29 |         p.lancer(travail)
+   |                  ^^^^^^^ not an anonymous function
+   |
+   = help: write `p.lancer(fn() { work() })`
+
+error[E0254]: a task launched in a loop cannot modify `b`
+  --> tasks.nx:31:22
+   |
+31 |             p.lancer(fn() { b = i })
+   |                      ^^^^^^^^^^^^^^ modifies `b`
+   |
+   = note: the task of the next turn would modify it at the same time
+
+error[E0254]: a task cannot use `i`, a variable of the function given to `tache.portee`
+  --> tasks.nx:31:22
+   |
+30 |         for i in 0..3 {
+   |             - destroyed when that function returns, before the task ends
+31 |             p.lancer(fn() { b = i })
+   |                      ^^^^^^^^^^^^^^ uses `i`
+   |
+   = help: declare `i` before `tache.portee`
+
+error[E0420]: cannot modify `b` while a task modifies `b`
+  --> tasks.nx:31:22
+   |
+26 |         p.lancer(fn() { b = a })
+   |                  -------------- this task modifies `b` until the end of `tache.portee`
+...
+31 |             p.lancer(fn() { b = i })
+   |                      ^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0249]: `Handle` does not implement `Share`
+  --> tasks.nx:33:18
+   |
+33 |         p.lancer(fn() { let x = h.raw.is_null() })
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Share` is required by a task that reads `h`
+   |
+   = note: `Handle` cannot be read by several tasks at once: it holds a `Ptr`, an anonymous function or a `dyn` value without `Share`
+   = help: if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe impl Share for Handle {}`
+
+error: could not compile due to 10 errors

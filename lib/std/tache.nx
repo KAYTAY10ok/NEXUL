@@ -1,0 +1,75 @@
+/// Tasks (ADR 0013): structured concurrency over the threads of the system.
+///
+/// `tache.portee(f)` calls `f` with a `Portee`, then waits until every task launched in it
+/// has ended. A task is an anonymous function given to `p.lancer(…)`, directly in `f`:
+///
+///     tache.portee(fn(inout p: tache.Portee) {
+///         p.lancer(fn() { gauche = somme(debut) })
+///         p.lancer(fn() { droite = somme(fin) })
+///     })
+///
+/// A task uses variables declared before `tache.portee`, never those of `f` (they would be
+/// destroyed before the task ends). The compiler checks that two tasks never modify the
+/// same variable, that no variable is read while a task modifies it, and that `f` no longer
+/// touches what a task uses (E0420); a value read by a task must be `Share`, a value it
+/// modifies `Transfer` (E0249). Without threads (WebAssembly, bare metal), each task runs
+/// when it is launched. A panic in a task ends the whole program (code 101).
+
+import std.sys
+import std.mem
+
+/// The tasks launched in a `portee`.
+pub struct Portee {
+    threads: Vec[usize]
+}
+
+/// Calls `f`, then waits for the end of every task it launched.
+@lang("task_scope")
+pub fn portee(f: fn(inout Portee)) {
+    var p = Portee(threads: Vec.new())
+    f(&p)
+    p.join_all()
+}
+
+impl Portee {
+    /// Launches `task` in a new thread, or runs it now on a target without threads. The
+    /// compiler gives the function of the task an environment on the heap, which the task
+    /// frees when it ends.
+    @lang("task_launch")
+    pub fn lancer(inout self, task: fn()) {
+        unsafe {
+            let block = mem.alloc(2 * mem.size_of[Ptr[u8]]()).cast[Ptr[u8]]()
+            block.write(mem.closure_code(task))
+            block.offset(1).write(mem.closure_env(task))
+            let thread = sys.thread_start(run_task, block.cast[u8]())
+            if thread == 0 {
+                run_task(block.cast[u8]())
+            } else {
+                self.threads.push(thread)
+            }
+        }
+    }
+
+    fn join_all(inout self) {
+        while true {
+            match self.threads.pop() {
+                Some(thread) => unsafe {
+                    sys.thread_join(thread)
+                }
+                None => break
+            }
+        }
+    }
+}
+
+/// The body of a task: its function, then the release of its environment.
+fn run_task(block: Ptr[u8]) {
+    unsafe {
+        let b = block.cast[Ptr[u8]]()
+        let code = b.read()
+        let env = b.offset(1).read()
+        mem.free(block)
+        mem.call_closure(code, env)
+        mem.free(env)
+    }
+}

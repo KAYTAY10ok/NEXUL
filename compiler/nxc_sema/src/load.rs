@@ -28,6 +28,7 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.web", include_str!("../../../lib/std/web.nx"), true),
     ("std.wasm", include_str!("../../../lib/std/wasm.nx"), true),
     ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
+    ("std.tache", include_str!("../../../lib/std/tache.nx"), false),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.

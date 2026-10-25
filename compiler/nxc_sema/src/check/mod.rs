@@ -86,6 +86,8 @@ pub(crate) struct PendingClosure {
 pub(crate) struct ClosureFrame {
     pub first_local: LocalId,
     pub captures: Vec<(LocalId, bool)>,
+    /// The function given to `tache.portee`: its `Portee` parameter (ADR 0013).
+    pub scope_param: Option<LocalId>,
 }
 
 pub(crate) struct LoopCtx {
@@ -119,6 +121,8 @@ pub struct FnCtxt<'a> {
     pub(crate) bounds: Vec<Bound>,
     pub(crate) closures: Vec<PendingClosure>,
     pub(crate) closure_frames: Vec<ClosureFrame>,
+    /// The next anonymous function is the argument of `tache.portee` (ADR 0013).
+    pub(crate) next_closure_scope: bool,
     /// The id the next anonymous function will receive.
     pub(crate) next_fn_id: u32,
 }
@@ -143,6 +147,7 @@ impl<'a> FnCtxt<'a> {
             bounds: Vec::new(),
             closures: Vec::new(),
             closure_frames: Vec::new(),
+            next_closure_scope: false,
             next_fn_id: p.fns.len() as u32,
         }
     }
@@ -434,6 +439,7 @@ impl<'a> FnCtxt<'a> {
             bounds: Vec::new(),
             closures: Vec::new(),
             closure_frames: Vec::new(),
+            next_closure_scope: false,
             next_fn_id: 0,
         };
         copy.unify(a, b)

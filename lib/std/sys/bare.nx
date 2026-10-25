@@ -350,3 +350,25 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
     let _ = len
     return false
 }
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013): none on this target. `std.tache` runs each task when it is
+// launched, which is one of the orders allowed by its rules.
+
+/// Returns 0: the caller runs `entry(arg)` itself.
+pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+pub unsafe fn thread_join(handle: usize) {
+    let _ = handle
+}
+
+pub fn thread_id() -> u64 {
+    return 0
+}
+
+pub fn thread_yield() {
+}

@@ -53,3 +53,35 @@ pub fn sleep_ns(ns: u64) {
 pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
     return nx_random(buffer, len) == 0
 }
+
+/// The lock of the runtime (ADR 0013, task C5): nothing to lock on a target without
+/// threads or interrupts.
+pub struct CriticalSection {
+    unused: bool
+}
+
+pub unsafe fn critical_section() -> CriticalSection {
+    return CriticalSection(unused: false)
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013): none on this target. `std.tache` runs each task when it is
+// launched, which is one of the orders allowed by its rules.
+
+/// Returns 0: the caller runs `entry(arg)` itself.
+pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+pub unsafe fn thread_join(handle: usize) {
+    let _ = handle
+}
+
+pub fn thread_id() -> u64 {
+    return 0
+}
+
+pub fn thread_yield() {
+}

@@ -188,7 +188,7 @@ fn fault(signal: i32, info: Ptr[u8]) -> Never {
         // si_addr is at offset 16 of siginfo_t on 64-bit Linux.
         let at = info.offset(16).cast[usize]().read()
         let low = if STACK_LOW > GUARD_SPAN { STACK_LOW - GUARD_SPAN } else { 0 }
-        if STACK_LOW != 0 and at >= low and at < STACK_TOP {
+        if STACK_LOW != 0 and at >= low and at < STACK_TOP or in_thread_guard(at) {
             rt.flush()
             let msg = "panic: stack overflow (the recursion is probably too deep)\n"
             let _ = write_fd(2, msg.as_ptr(), msg.len())
@@ -301,6 +301,7 @@ unsafe fn read_byte() -> i32 {
 
 /// Reads one line of standard input without its terminator; `false` at the end.
 pub fn read_line(inout out: String) -> bool {
+    let _input = unsafe { input_lock() }
     rt.flush()
     var bytes: Vec[u8] = Vec.new()
     var any = false
@@ -776,4 +777,236 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
         done += r as usize
     }
     return true
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013)
+//
+// A thread owns a region of memory: a guard without access (a stack overflow faults
+// there), the stack of its signal handler, then its stack. `clone` starts it on that
+// stack; the kernel writes its id to `tid`, then clears it and wakes the futex on it when
+// the thread ends: that is how `thread_join` waits.
+
+@cfg("x86_64")
+const SYS_MPROTECT: isize = 10
+@cfg("x86_64")
+const SYS_FUTEX: isize = 202
+@cfg("x86_64")
+const SYS_GETTID: isize = 186
+@cfg("x86_64")
+const SYS_SCHED_YIELD: isize = 24
+@cfg("!x86_64")
+const SYS_MPROTECT: isize = 226
+@cfg("!x86_64")
+const SYS_FUTEX: isize = 98
+@cfg("!x86_64")
+const SYS_GETTID: isize = 178
+@cfg("!x86_64")
+const SYS_SCHED_YIELD: isize = 124
+
+/// CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+/// CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID.
+const CLONE_THREAD_FLAGS: isize = 0x350F00
+const THREAD_GUARD: usize = 65536
+const THREAD_ALT_STACK: usize = 65536
+const THREAD_STACK: usize = 8_388_608
+const THREAD_REGION: usize = 8_519_680
+const MAX_THREADS: usize = 256
+
+/// `clone` for a thread: on the new stack, the child calls `entry(arg)` then ends the
+/// thread; the parent receives the id of the child, or minus an error code.
+@intrinsic
+unsafe fn linux_clone(flags: isize, stack: Ptr[u8], tid: Ptr[u32], owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> isize
+
+/// A started thread: the word that holds its id, its region, what it runs.
+struct Thread {
+    tid: Ptr[u32]
+    region: Ptr[u8]
+    entry: fn(Ptr[u8])
+    arg: Ptr[u8]
+}
+
+/// Set (to 1) before the first thread starts: from then on the runtime locks.
+static var THREADED: u32 = 0
+/// The guard regions of the running threads, for the fault handler (0: free slot).
+static var GUARDS: [usize; 256] = [0; 256]
+
+/// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
+/// caller then runs `entry(arg)` itself).
+@cfg("linux")
+pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+    let region = page_alloc(THREAD_REGION)
+    if region.is_null() {
+        return 0
+    }
+    // PROT_NONE on the lowest pages.
+    let _ = sys3(SYS_MPROTECT, addr(region), THREAD_GUARD as isize, 0)
+    mem.atomic_store(mem.addr_of(&THREADED), 1)
+    let tid = rt.alloc(8).cast[u32]()
+    tid.write(0)
+    let t = rt.alloc(mem.size_of[Thread]()).cast[Thread]()
+    t.write(Thread(tid: tid, region: region, entry: entry, arg: arg))
+    if not register_guard(region.addr()) {
+        page_free(region, THREAD_REGION)
+        rt.free(tid.cast[u8]())
+        rt.free(t.cast[u8]())
+        return 0
+    }
+    // The region is page-aligned and its size a multiple of 16: the top is 16-aligned.
+    let r = linux_clone(CLONE_THREAD_FLAGS, region.offset(THREAD_REGION), tid, thread_main, t.cast[u8]())
+    if r < 0 {
+        unregister_guard(region.addr())
+        page_free(region, THREAD_REGION)
+        rt.free(tid.cast[u8]())
+        rt.free(t.cast[u8]())
+        return 0
+    }
+    return t.addr()
+}
+
+@cfg("!linux")
+pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+/// The first function of a thread: the stack of its signal handler, then its work.
+fn thread_main(arg: Ptr[u8]) {
+    unsafe {
+        let t = arg.cast[Thread]().read()
+        // stack_t: ss_sp, ss_flags, ss_size (the alternate stack is per thread).
+        var alt: [usize; 3] = [t.region.offset(THREAD_GUARD).addr(), 0, THREAD_ALT_STACK]
+        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(&alt).cast[u8]()), 0)
+        let entry = t.entry
+        entry(t.arg)
+    }
+}
+
+/// Waits for the end of a thread started by `thread_start`, then frees its memory.
+pub unsafe fn thread_join(handle: usize) {
+    let p = Ptr[Thread].from_addr(handle)
+    let t = p.read()
+    while true {
+        let v = mem.atomic_load(t.tid)
+        if v == 0 {
+            break
+        }
+        // FUTEX_WAIT (0): sleeps while the word still holds `v`.
+        let _ = syscall6(SYS_FUTEX, addr(t.tid.cast[u8]()), 0, v as isize, 0, 0, 0)
+    }
+    unregister_guard(t.region.addr())
+    page_free(t.region, THREAD_REGION)
+    rt.free(t.tid.cast[u8]())
+    rt.free(p.cast[u8]())
+}
+
+/// The id of the calling thread.
+pub fn thread_id() -> u64 {
+    return unsafe { sys1(SYS_GETTID, 0) } as u64
+}
+
+/// Lets another thread run.
+pub fn thread_yield() {
+    let _ = unsafe { sys1(SYS_SCHED_YIELD, 0) }
+}
+
+unsafe fn register_guard(base: usize) -> bool {
+    let _critical = rt.critical_section()
+    for i in 0..MAX_THREADS {
+        if GUARDS[i] == 0 {
+            GUARDS[i] = base
+            return true
+        }
+    }
+    return false
+}
+
+unsafe fn unregister_guard(base: usize) {
+    let _critical = rt.critical_section()
+    for i in 0..MAX_THREADS {
+        if GUARDS[i] == base {
+            GUARDS[i] = 0
+        }
+    }
+}
+
+/// Is `at` in the guard of a thread (its stack overflowed)?
+unsafe fn in_thread_guard(at: usize) -> bool {
+    for i in 0..MAX_THREADS {
+        let b = GUARDS[i]
+        if b != 0 and at >= b and at < b + THREAD_GUARD {
+            return true
+        }
+    }
+    return false
+}
+
+// ---------------------------------------------------------------------------
+// Lock of the runtime (ADR 0013, task C5)
+//
+// The allocator and the outputs are shared by the threads: `rt.critical_section()` takes
+// this lock. The runtime calls itself (`print` allocates), so the thread that holds the
+// lock may take it again. Until the first thread starts, nothing is locked.
+
+static var RT_OWNER: u64 = 0
+static var RT_DEPTH: u32 = 0
+
+pub struct CriticalSection {
+    locked: bool
+}
+
+impl CriticalSection {
+    fn drop(inout self) {
+        if self.locked {
+            unsafe {
+                RT_DEPTH -= 1
+                if RT_DEPTH == 0 {
+                    mem.atomic_store(mem.addr_of(&RT_OWNER), 0)
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn critical_section() -> CriticalSection {
+    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+        return CriticalSection(locked: false)
+    }
+    let me = thread_id() + 1
+    if mem.atomic_load(mem.addr_of(&RT_OWNER)) != me {
+        while mem.atomic_cas(mem.addr_of(&RT_OWNER), 0, me) != 0 {
+            thread_yield()
+        }
+    }
+    RT_DEPTH += 1
+    return CriticalSection(locked: true)
+}
+
+/// The standard input is read by one thread at a time, with its own lock: a thread that
+/// waits for a line does not hold the lock of the runtime.
+static var IN_LOCK: u32 = 0
+
+struct InputLock {
+    locked: bool
+}
+
+impl InputLock {
+    fn drop(inout self) {
+        if self.locked {
+            unsafe {
+                mem.atomic_store(mem.addr_of(&IN_LOCK), 0)
+            }
+        }
+    }
+}
+
+unsafe fn input_lock() -> InputLock {
+    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+        return InputLock(locked: false)
+    }
+    while mem.atomic_cas(mem.addr_of(&IN_LOCK), 0, 1) != 0 {
+        thread_yield()
+    }
+    return InputLock(locked: true)
 }

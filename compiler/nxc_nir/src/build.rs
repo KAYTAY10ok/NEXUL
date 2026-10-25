@@ -57,6 +57,8 @@ pub struct Builder<'a> {
     loops: Vec<LoopInfo>,
     /// The trait bounds of the function: a parameter `T: Copy` is copyable.
     bounds: Vec<nxc_sema::defs::Bound>,
+    /// The next anonymous function is the task of `Portee.lancer` (ADR 0013).
+    task_closure: bool,
 }
 
 pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
@@ -73,6 +75,7 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
         scopes: vec![Vec::new()],
         loops: Vec::new(),
         bounds: fd.bounds.clone(),
+        task_closure: false,
     };
     b.locals.push(LocalDecl { ty: thir.ret_ty, name: None, kind: LocalKind::Return, span: thir.span });
     let entry = b.new_block();
@@ -471,6 +474,11 @@ impl<'a> Builder<'a> {
     fn lower_call(&mut self, e: &Expr, callee: &TCallee, args: &[thir::CallArg], dest: Option<Place>) {
         let tcx = self.tcx();
         let span = e.span;
+        // The anonymous function given to `Portee.lancer` runs in another thread after the
+        // call: its environment goes to the heap (ADR 0013).
+        if let TCallee::Fn(f, _) = callee {
+            self.task_closure = self.p.lang_fn("task_launch") == Some(*f) && args.iter().any(|a| matches!(a.expr.kind, T::Closure { .. }));
+        }
         let ret_ty = e.ty;
         let diverges = tcx.is_never(ret_ty);
         let unit_ret = ret_ty == tcx.unit || diverges;
@@ -659,7 +667,8 @@ impl<'a> Builder<'a> {
                     let place = self.local_place(l);
                     env.push(self.ref_place(place, span));
                 }
-                self.assign(dest, Rvalue::Closure { f: *f, env }, span);
+                let heap = std::mem::take(&mut self.task_closure);
+                self.assign(dest, Rvalue::Closure { f: *f, env, heap }, span);
             }
             T::FnToClosure(x) => {
                 let o = self.operand_read(x);

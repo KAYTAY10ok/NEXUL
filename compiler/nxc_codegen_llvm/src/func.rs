@@ -688,13 +688,21 @@ impl<'a> Gen<'a> {
                 let (dst, _) = self.place_addr(cx, place);
                 self.ins(cx, format!("store ptr {}, ptr {}", g, dst));
             }
-            Rvalue::Closure { f, env } => {
+            Rvalue::Closure { f, env, heap } => {
                 let code = self.instance(*f, cx.targs.clone());
                 let envp = if env.is_empty() {
                     "null".to_string()
                 } else {
                     let arr_t = format!("[{} x ptr]", env.len());
-                    let arr = self.alloca_raw(cx, &arr_t);
+                    let arr = if *heap {
+                        // Freed by the task that runs the function (`std.tache`).
+                        let (alloc, _) = self.lang_fn("alloc");
+                        let u = self.usize_ty();
+                        let size = env.len() as u64 * self.lx.ptr_bytes;
+                        self.val(cx, format!("call ptr {}({} {})", alloc, u, size))
+                    } else {
+                        self.alloca_raw(cx, &arr_t)
+                    };
                     for (i, o) in env.iter().enumerate() {
                         let (v, _) = self.operand(cx, o);
                         let slot = self.val(cx, format!("getelementptr inbounds {}, ptr {}, i32 0, i32 {}", arr_t, arr, i));
@@ -2077,6 +2085,74 @@ fail:
                 };
                 let argv: Vec<String> = (0..7).map(|i| format!("{} {}", w, s(i))).collect();
                 let r = self.val(cx, format!("call {} asm sideeffect \"{}\", \"{}\"({})", w, insn, regs, argv.join(", ")));
+                self.store_result(cx, dest, w, &r);
+            }
+            // Atomic operations on integers, sequentially consistent (ADR 0013): the lock of
+            // the runtime, the end of threads, `std.tache`.
+            "atomic_load" | "atomic_store" | "atomic_swap" | "atomic_add" | "atomic_cas" => {
+                let t = targs[0];
+                let lt = self.llty(t);
+                let al = self.align_of(t);
+                match name {
+                    "atomic_load" => {
+                        let r = self.val(cx, format!("load atomic {lt}, ptr {} seq_cst, align {al}", s(0)));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                    "atomic_store" => self.ins(cx, format!("store atomic {lt} {}, ptr {} seq_cst, align {al}", s(1), s(0))),
+                    "atomic_cas" => {
+                        let pair = self.val(cx, format!("cmpxchg ptr {}, {lt} {}, {lt} {} seq_cst seq_cst, align {al}", s(0), s(1), s(2)));
+                        let r = self.val(cx, format!("extractvalue {{ {lt}, i1 }} {}, 0", pair));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                    _ => {
+                        let op = if name == "atomic_swap" { "xchg" } else { "add" };
+                        let r = self.val(cx, format!("atomicrmw {op} ptr {}, {lt} {} seq_cst, align {al}", s(0), s(1)));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                }
+            }
+            "atomic_fence" => self.ins(cx, "fence seq_cst"),
+            // The code and the environment of an anonymous function, and a call of them
+            // (`std.tache` runs the function in another thread).
+            "closure_code" | "closure_env" => {
+                // The pair `{ code, environment }` in memory, or its address when the function
+                // was received by reference.
+                let fat = match &vals[0].0 {
+                    Val::Mem(a) | Val::Scalar(_, a) => a.clone(),
+                    Val::Unit => panic!("internal: `{}` of a value that is not an anonymous function", name),
+                };
+                let at = if name == "closure_code" { fat } else { self.val(cx, format!("getelementptr inbounds {{ ptr, ptr }}, ptr {}, i32 0, i32 1", fat)) };
+                let r = self.val(cx, format!("load ptr, ptr {}", at));
+                self.store_result(cx, dest, "ptr", &r);
+            }
+            "call_closure" => self.ins(cx, format!("call void {}(ptr {})", s(0), s(1))),
+            // A thread of Linux (ADR 0013): `clone` with a new stack; the child calls
+            // `entry(arg)`, then ends the thread. The kernel writes the thread id to `tid` and
+            // clears it (waking a futex) when the thread ends.
+            "linux_clone" => {
+                let w = u;
+                let (insn, regs) = match self.opts.target.arch {
+                    Arch::X86_64 => (
+                        "syscall\\0Atest %rax, %rax\\0Ajnz 1f\\0Axor %ebp, %ebp\\0Amov %r12, %rdi\\0Acall *%r13\\0Amov $$60, %eax\\0Axor %edi, %edi\\0Asyscall\\0Aud2\\0A1:",
+                        // clone(flags, stack, parent_tid, child_tid, tls)
+                        "={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r12},{r13},~{rcx},~{r11},~{memory}",
+                    ),
+                    Arch::Aarch64 => (
+                        "svc #0\\0Acbnz x0, 1f\\0Amov x29, xzr\\0Amov x0, x20\\0Ablr x19\\0Amov x8, #93\\0Amov x0, xzr\\0Asvc #0\\0Abrk #0\\0A1:",
+                        // clone(flags, stack, parent_tid, tls, child_tid)
+                        "={x0},{x8},{x0},{x1},{x2},{x4},{x3},{x20},{x19},~{memory}",
+                    ),
+                    Arch::Riscv64 => (
+                        "ecall\\0Abnez a0, 1f\\0Amv s0, zero\\0Amv a0, s2\\0Ajalr s1\\0Ali a7, 93\\0Ali a0, 0\\0Aecall\\0Aunimp\\0A1:",
+                        // clone(flags, stack, parent_tid, tls, child_tid)
+                        "={x10},{x17},{x10},{x11},{x12},{x14},{x13},{x18},{x9},~{memory}",
+                    ),
+                    _ => panic!("internal: linux_clone on an architecture without Linux threads"),
+                };
+                let number = if self.opts.target.arch == Arch::X86_64 { 56 } else { 220 };
+                // number, flags, stack, parent tid, child tid (the same word), tls, arg, entry
+                let argv = format!("{w} {number}, {w} {}, ptr {}, ptr {}, ptr {}, {w} 0, ptr {}, ptr {}", s(0), s(1), s(2), s(2), s(4), s(3));
+                let r = self.val(cx, format!("call {w} asm sideeffect \"{insn}\", \"{regs}\"({argv})"));
                 self.store_result(cx, dest, w, &r);
             }
             "wasm_memory_grow" => {

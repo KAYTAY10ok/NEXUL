@@ -92,3 +92,23 @@ fn bare_runtime_saves_and_restores_interrupt_masks() {
     let hosted = ir_for("x86_64-linux", src);
     assert!(!hosted.contains("irq_save") && !hosted.contains("irq_restore"));
 }
+
+/// Tasks of `std.tache` (ADR 0013): on Linux a thread is started by `clone` on its own
+/// stack, then the child calls the function of the task; the anonymous function of a
+/// launched task gets its environment on the heap. Without threads (WebAssembly), no
+/// `clone`.
+#[test]
+fn tasks_start_threads_on_linux() {
+    let src = "import std.tache\n\nfn main() {\n    var a = 0\n    var b = 0\n    tache.portee(fn(inout p: tache.Portee) {\n        p.lancer(fn() { a = 1 })\n        p.lancer(fn() { b = 2 })\n    })\n    println(\"{a} {b}\")\n}\n";
+    for (target, call) in [("x86_64-linux", "call *%r13"), ("aarch64-linux", "blr x19"), ("riscv64-linux", "jalr s1")] {
+        let ir = ir_for(target, src);
+        let clone = ir.lines().find(|l| l.contains("asm sideeffect") && l.contains(call)).unwrap_or_else(|| panic!("{}: no clone", target));
+        assert!(clone.contains(" 3477248, "), "{}: clone flags:\n{}", target, clone);
+        assert!(ir.contains("atomic") && ir.contains("cmpxchg"), "{}: no atomic operation", target);
+        let closure = &ir[ir.find("define internal void @\"main.main.closure").expect("closure of the portee")..];
+        let closure = &closure[..closure.find("\n}").unwrap()];
+        assert_eq!(closure.matches("call ptr @\"std.rt.alloc").count(), 2, "{}: environments of the tasks:\n{}", target, closure);
+    }
+    let wasm = ir_for("wasm32-wasi", src);
+    assert!(!wasm.contains("asm sideeffect \"syscall"), "no thread on wasm32-wasi");
+}
