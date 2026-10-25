@@ -353,6 +353,36 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// Checks a scalar received through the host ABI and returns its parameter type,
+    /// normalized value, and NEXUL value type.
+    fn checked_export_scalar(
+        &self,
+        ty: Ty,
+        a: &str,
+        i: usize,
+        code: &mut String,
+        panic_fn: &str,
+        loc: &str,
+    ) -> Option<(String, String, String)> {
+        match &*self.tcx().kind(ty) {
+            TyKind::Bool => {
+                let _ = writeln!(
+                    code,
+                    "  %bad.c{i} = icmp ugt i8 {a}, 1\n  br i1 %bad.c{i}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 15, ptr {loc})\n  unreachable\nok{i}:\n  %v{i} = trunc i8 {a} to i1"
+                );
+                Some(("i8".into(), format!("%v{i}"), "i1".into()))
+            }
+            TyKind::Char => {
+                let _ = writeln!(
+                    code,
+                    "  %s{i} = sub i32 {a}, 55296\n  %sur{i} = icmp ult i32 %s{i}, 2048\n  %big{i} = icmp ugt i32 {a}, 1114111\n  %bad.c{i} = or i1 %sur{i}, %big{i}\n  br i1 %bad.c{i}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 13, ptr {loc})\n  unreachable\nok{i}:"
+                );
+                Some(("i32".into(), a.into(), "i32".into()))
+            }
+            _ => None,
+        }
+    }
+
     /// The exported symbol of a function that receives from C values to check (ADR 0011
     /// T4, ADR 0014 §2.7): a `bool` must be the byte 0 or 1, a `char` a Unicode scalar
     /// value, a constrained type must satisfy its condition. Otherwise the program panics
@@ -373,24 +403,14 @@ impl<'a> Gen<'a> {
             let t = p.ty;
             let loc = self.location(p.span);
             let a = format!("%a{}", i);
-            let panic_if = |code: &mut String, cond: &str, kind: u32| {
-                let _ = writeln!(code, "  br i1 {cond}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 {kind}, ptr {loc})\n  unreachable\nok{i}:");
-            };
             // The value in the type the function receives.
             let (value, lt) = match &*tcx.kind(t) {
-                TyKind::Bool => {
-                    params.push(format!("i8 {a}"));
-                    let _ = writeln!(code, "  %bad.c{i} = icmp ugt i8 {a}, 1");
-                    panic_if(&mut code, &format!("%bad.c{i}"), 15);
-                    let _ = writeln!(code, "  %v{i} = trunc i8 {a} to i1");
-                    (format!("%v{i}"), "i1".to_string())
-                }
-                TyKind::Char => {
-                    params.push(format!("i32 {a}"));
-                    // A surrogate (0xD800..=0xDFFF) or a value above 0x10FFFF.
-                    let _ = writeln!(code, "  %s{i} = sub i32 {a}, 55296\n  %sur{i} = icmp ult i32 %s{i}, 2048\n  %big{i} = icmp ugt i32 {a}, 1114111\n  %bad.c{i} = or i1 %sur{i}, %big{i}");
-                    panic_if(&mut code, &format!("%bad.c{i}"), 13);
-                    (a.clone(), "i32".to_string())
+                TyKind::Bool | TyKind::Char => {
+                    let (param_ty, value, lt) = self
+                        .checked_export_scalar(t, &a, i, &mut code, &panic_fn, &loc)
+                        .unwrap();
+                    params.push(format!("{param_ty} {a}"));
+                    (value, lt)
                 }
                 TyKind::Adt(id, _) => {
                     // A distinct or constrained type crosses the boundary as its base.
@@ -398,14 +418,22 @@ impl<'a> Gen<'a> {
                     let base = adt.fields()[0].ty;
                     let validate = adt.methods.get(nxc_sema::newtype::VALIDATE_FN).copied();
                     let blt = self.llty(base);
-                    params.push(format!("{blt} {a}"));
+                    let (param_ty, base_value) =
+                        match self.checked_export_scalar(base, &a, i, &mut code, &panic_fn, &loc) {
+                            Some((param_ty, value, _)) => (param_ty, value),
+                            None => (blt.clone(), a.clone()),
+                        };
+                    params.push(format!("{param_ty} {a}"));
                     let v = match validate {
                         Some(vf) => {
                             let vname = self.instance(vf, vec![]);
-                            let _ = writeln!(code, "  %b{i} = call {blt} {vname}({blt} {a}, ptr {loc})");
+                            let _ = writeln!(
+                                code,
+                                "  %b{i} = call {blt} {vname}({blt} {base_value}, ptr {loc})"
+                            );
                             format!("%b{i}")
                         }
-                        None => a.clone(),
+                        None => base_value,
                     };
                     let slt = self.llty(t);
                     let _ = writeln!(allocas, "  %n{i} = alloca {slt}");
