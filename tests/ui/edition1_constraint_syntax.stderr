@@ -1,0 +1,27 @@
+error[E0111]: a generic distinct or constrained type is not supported yet
+ --> edition1_constraint_syntax.nx:5:6
+  |
+5 | type Paire[T] = distinct T
+  |      ^^^^^ planned in edition 1 (ADR 0010), not implemented
+  |
+  = note: the compiler refuses it rather than accept it without checking it
+
+error[E0101]: expected a comparison of `it` with a constant (`it >= 0`, `it in 1..=9`), found `+`
+ --> edition1_constraint_syntax.nx:7:28
+  |
+7 | type Calcul = i32 where it + 1 > 0
+  |                            ^ expected a comparison of `it` with a constant (`it >= 0`, `it in 1..=9`)
+
+error[E0101]: expected `..` or `..=`, found identifier `to`
+ --> edition1_constraint_syntax.nx:9:37
+  |
+9 | type Intervalle = i32 where it in 0 to 9
+  |                                     ^^ expected `..` or `..=`
+
+error[E0101]: expected `)`, found end of line
+  --> edition1_constraint_syntax.nx:11:43
+   |
+11 | type Ouvert = i32 where (it > 0 and it < 9
+   |                                           ^ expected `)` here
+
+error: could not compile due to 4 errors

@@ -1,0 +1,11 @@
+// A standard interface missing on a standard type (E0249): the program cannot write that
+// `impl`, so none is suggested. The types that have the interface are named when they
+// are few (`tests/ui/task_channels.nx`), and not when they are many, as for `Display`.
+fn show[T: Display](x: T) -> String {
+    return x.to_string()
+}
+
+fn main() {
+    let p: Ptr[i32] = Ptr.null()
+    println(show(p))
+}
