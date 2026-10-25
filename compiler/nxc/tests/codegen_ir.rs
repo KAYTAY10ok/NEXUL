@@ -76,7 +76,7 @@ fn export_wrappers_pass_the_other_parameters_and_return_nothing() {
 /// constrained type, then calls the function; NEXUL code calls the function directly.
 #[test]
 fn exports_check_the_values_received_from_c() {
-    let src = "type Pourcent = i32 where it in 0..=100\n\n@export(\"flip\")\npub fn bool flip(bool b) = not b\n\n@export(\"code\")\npub fn u32 code(char c) = c as u32\n\n@export(\"half\")\npub fn i32 half(Pourcent p) = p / 2\n\n@export(\"plain\")\npub fn i32 plain(i32 x) = x\n\nfn main() {\n    println(\"{flip(true)} {code('a')} {half(40)} {plain(1)}\")\n}\n";
+    let src = "type Pourcent = i32 where it in 0..=100\ntype Flag = distinct bool is Copy\ntype Letter = distinct char is Copy\n\n@export(\"flip\")\npub fn bool flip(bool b) = not b\n\n@export(\"code\")\npub fn u32 code(char c) = c as u32\n\n@export(\"flag\")\npub fn bool flag(Flag b) = b as bool\n\n@export(\"letter\")\npub fn u32 letter(Letter c) = (c as char) as u32\n\n@export(\"half\")\npub fn i32 half(Pourcent p) = p / 2\n\n@export(\"plain\")\npub fn i32 plain(i32 x) = x\n\nfn main() {\n    println(\"{flip(true)} {code('a')} {half(40)} {plain(1)}\")\n}\n";
     for target in ["x86_64-linux", "x86_64-windows", "wasm32-web"] {
         let mut opts = CompileOptions::new(Mode::Program);
         opts.target = Target::from_name(target).unwrap();
@@ -99,8 +99,13 @@ fn exports_check_the_values_received_from_c() {
         };
         let flip = def("flip");
         assert!(flip.contains("@\"flip\"(i8 %a0)") && flip.contains("icmp ugt i8 %a0, 1") && flip.contains("(i32 15, ptr @loc."), "{}: `bool` not checked:\n{}", target, flip);
+        let flag = def("flag");
+        assert!(flag.contains("@\"flag\"(i8 %a0)") && flag.contains("icmp ugt i8 %a0, 1"), "{}: distinct `bool` not checked at its external width:\n{}", target, flag);
+        assert!(flag.find("icmp ugt i8").unwrap() < flag.find("trunc i8").unwrap(), "{}: distinct `bool` must be checked before truncation:\n{}", target, flag);
         let code = def("code");
         assert!(code.contains("@\"code\"(i32 %a0)") && code.contains("icmp ugt i32 %a0, 1114111") && code.contains("(i32 13, ptr @loc."), "{}: `char` not checked:\n{}", target, code);
+        let letter = def("letter");
+        assert!(letter.contains("@\"letter\"(i32 %a0)") && letter.contains("icmp ugt i32 %a0, 1114111") && letter.contains("icmp ult i32 %s0, 2048"), "{}: distinct `char` not checked:\n{}", target, letter);
         let half = def("half");
         assert!(half.contains("@\"half\"(i32 %a0)") && half.contains("__nexul_validate"), "{}: constrained type not checked:\n{}", target, half);
         let plain = def("plain");

@@ -4,7 +4,7 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
@@ -14,10 +14,56 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
     - name: Build
       run: cargo build --workspace --exclude nexul-installer --verbose
+    - uses: actions/setup-python@v7
+      if: github.event_name == 'pull_request'
+      with:
+        python-version: '3.13'
+    - name: Install coverage tools
+      if: github.event_name == 'pull_request'
+      run: |
+        rustup component add llvm-tools-preview
+        cargo install cargo-llvm-cov --version 0.9.1 --locked
+        python -m pip install --disable-pip-version-check diff-cover==10.6.0
     - name: Run tests
+      if: github.event_name != 'pull_request'
       run: cargo test --workspace --exclude nexul-installer --verbose
+    - name: Run instrumented tests
+      if: github.event_name == 'pull_request'
+      run: cargo llvm-cov --workspace --exclude nexul-installer --lcov --output-path lcov.info --verbose
+    - name: Run documentation tests
+      if: github.event_name == 'pull_request'
+      run: cargo test --workspace --exclude nexul-installer --doc --verbose
+    - name: Enforce 90% coverage on changed production Rust lines
+      if: github.event_name == 'pull_request'
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        git diff --name-only -z --diff-filter=ACMR "$PR_BASE_SHA...$PR_HEAD_SHA" -- compiler/ studio/src/ > "$RUNNER_TEMP/changed-files.nul"
+        mapfile -d '' -t candidate_files < "$RUNNER_TEMP/changed-files.nul"
+
+        changed_sources=()
+        for path in "${candidate_files[@]}"; do
+          [[ "$path" == *.rs ]] || continue
+          if [[ "$path" =~ (^|/)(tests?|benches|examples|fuzz)(/|$) ||
+                "$path" =~ (^|/)[^/]*[_-]tests?\.rs$ ||
+                "$path" =~ (^|/)tests?\.rs$ ]]; then
+            continue
+          fi
+          changed_sources+=("$path")
+        done
+
+        if (( ${#changed_sources[@]} == 0 )); then
+          echo "No changed Rust production files in the Linux workspace; skipping the coverage threshold."
+          exit 0
+        fi
+
+        git diff --no-ext-diff --unified=0 "$PR_BASE_SHA...$PR_HEAD_SHA" -- "${changed_sources[@]}" > "$RUNNER_TEMP/coverage.diff"
+        diff-cover lcov.info --diff-file="$RUNNER_TEMP/coverage.diff" --fail-under=90 --total-percent-float
 
   windows:
     runs-on: windows-latest
