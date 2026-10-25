@@ -1,0 +1,32 @@
+// edition: 1
+// The forms of a condition checked at run time by `check` and by `as` (ADR 0014 §2.2,
+// §2.3): `or`, `not`, parentheses, every comparison, `it` on the right, exclusive ranges,
+// negative constants, floats and characters; and the interfaces of the base that a
+// distinct type reuses by delegation (§1.2).
+type Impair = i32 where it == 1 or it == 3 or it == 5
+type HorsBorne = i32 where not (it in -10..10)
+type Positif = i16 where 0 <= it
+type Petit = u8 where 10 > it
+type Reel = f64 where it != 0.0 and (it == 2.5 or it <= -1.5)
+type Lettre = char where not (it in 'a'..'z') and it != '_'
+type Pourcent = i32 where it in 0..=100
+
+type Ecart = distinct i32 is Copy and Add and Sub and Mul and Div and Rem and Neg and Default and Eq and Ord and Display
+
+fn main() {
+    println("{Impair.check(3).is_some()} {Impair.check(4).is_some()}")
+    println("{HorsBorne.check(10).is_some()} {HorsBorne.check(-10).is_some()} {HorsBorne.check(9).is_some()}")
+    println("{Positif.check(0).is_some()} {Positif.check(-1).is_some()}")
+    println("{Petit.check(9).is_some()} {Petit.check(10).is_some()}")
+    println("{Reel.check(2.5).is_some()} {Reel.check(-1.5).is_some()} {Reel.check(0.0).is_some()} {Reel.check(1.0).is_some()}")
+    println("{Lettre.check('Z').is_some()} {Lettre.check('q').is_some()} {Lettre.check('_').is_some()} {Lettre.check('z').is_some()}")
+
+    // `as` from another integer type: converted to the base, then checked.
+    let i64 grand = 50
+    let p = grand as Pourcent
+    println("{p}")
+
+    let Ecart a = 17
+    let Ecart b = 5
+    println("{a + b} {a - b} {a * b} {a / b} {a % b} {-a} {Ecart.default()} {a == b} {a > b}")
+}
