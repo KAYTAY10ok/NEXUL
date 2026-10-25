@@ -11,6 +11,14 @@ fn browser_abi() {
     let compile = |source: &str, name: &str, library: bool, release: bool| -> PathBuf {
         let mut opts = CompileOptions::new(if library { Mode::Library } else { Mode::Program });
         opts.target = target.clone();
+        if std::fs::read_to_string(root.join(source))
+            .unwrap()
+            .lines()
+            .take(3)
+            .any(|line| line.trim() == "// edition: 1")
+        {
+            opts.edition = nxc_syntax::Edition::V1;
+        }
         opts.release = release;
         opts.debug_info = !release;
         let compilation = compile_file(&root.join(source), &opts);
@@ -24,9 +32,15 @@ fn browser_abi() {
     for release in [false, true] {
         let example = compile("examples/web/calcul.nx", "example", true, release);
         let library = compile("tests/web/interop.nx", "library", true, release);
+        let distinct_library = compile("tests/web/interop_distinct.nx", "distinct-library", true, release);
         let program = compile("tests/web/interop.nx", "program", false, release);
         let result = Command::new("node").arg(root.join("tests/web/interop.mjs"))
             .args([example, library, program]).output().expect("Node is required");
+        assert!(result.status.success(), "{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        println!("{}", String::from_utf8_lossy(&result.stdout));
+
+        let result = Command::new("node").arg(root.join("tests/web/interop_distinct.mjs"))
+            .arg(distinct_library).output().expect("Node is required");
         assert!(result.status.success(), "{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         println!("{}", String::from_utf8_lossy(&result.stdout));
     }

@@ -1,0 +1,10 @@
+error[E0252]: `16777216` does not satisfy the condition of `Cut`
+ --> edition1_f32_constraint_rounding.nx:5:21
+  |
+2 | type Cut = f32 where it < 16777217.0
+  |                      --------------- the condition
+...
+5 |     let Cut value = 16777216.0
+  |                     ^^^^^^^^^^ outside the condition
+
+error: could not compile due to 1 error
