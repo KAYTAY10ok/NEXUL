@@ -18,6 +18,15 @@ pub struct Location {
     pub col: u32
 }
 
+/// Internal runtime lock: on hosted targets this is a zero-sized no-op.
+@cfg("bare")
+pub unsafe fn critical_section() -> sys.CriticalSection {
+    return sys.critical_section()
+}
+
+@cfg("!bare")
+pub unsafe fn critical_section() {}
+
 // ---------------------------------------------------------------------------
 // Heap
 
@@ -25,6 +34,13 @@ pub struct Location {
 /// a program that ends with live allocations reports them (used by the test suite to
 /// verify that every value is destroyed exactly once).
 static var LIVE_ALLOCATIONS: i64 = 0
+
+/// Internal runtime diagnostics, also usable on targets without environment
+/// variables (where NEXUL_LEAK_CHECK cannot be set). Take a consistent snapshot.
+pub fn allocation_balance() -> i64 {
+    let _critical = unsafe { critical_section() }
+    return unsafe { LIVE_ALLOCATIONS }
+}
 
 @cold
 fn out_of_memory() -> Never {
@@ -38,6 +54,7 @@ fn out_of_memory() -> Never {
 /// Allocates `size` bytes (aligned for any type); never returns null.
 @lang("alloc")
 pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+    let _critical = unsafe { critical_section() }
     let p = sys.heap_alloc(if size == 0 { 1 } else { size })
     if p.is_null() {
         out_of_memory()
@@ -49,6 +66,7 @@ pub unsafe fn alloc(size: usize) -> Ptr[u8] {
 /// Resizes an allocation made by `alloc` (or allocates if `p` is null).
 @lang("realloc")
 pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+    let _critical = unsafe { critical_section() }
     if p.is_null() {
         return alloc(size)
     }
@@ -62,6 +80,7 @@ pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
 /// Frees an allocation made by `alloc` or `realloc`; does nothing for null.
 @lang("free")
 pub unsafe fn free(p: Ptr[u8]) {
+    let _critical = unsafe { critical_section() }
     if not p.is_null() {
         LIVE_ALLOCATIONS -= 1
         sys.heap_free(p)
@@ -80,6 +99,7 @@ static var OUT_IS_TERMINAL: bool = false
 /// Writes the buffered standard output.
 @lang("flush")
 pub fn flush() {
+    let _critical = unsafe { critical_section() }
     unsafe {
         if OUT_LEN > 0 {
             let n = OUT_LEN
@@ -91,6 +111,7 @@ pub fn flush() {
 
 /// Appends bytes to the standard output buffer.
 pub unsafe fn write_out(data: Ptr[u8], len: usize) {
+    let _critical = unsafe { critical_section() }
     if len >= OUT_CAP {
         flush()
         let _ = sys.write(1, data, len)
@@ -127,6 +148,7 @@ unsafe fn write_err_u64(value: u64) {
 /// `print`, `println`, `eprint` and `eprintln`.
 @lang("print")
 fn print(text: String, newline: bool, to_stderr: bool) {
+    let _critical = unsafe { critical_section() }
     unsafe {
         if to_stderr {
             flush()

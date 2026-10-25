@@ -73,3 +73,22 @@ fn exports_check_the_values_received_from_c() {
         assert!(!ir.contains("call i1 @\"flip\"("), "{}: internal call through the wrapper", target);
     }
 }
+
+#[test]
+fn bare_runtime_saves_and_restores_interrupt_masks() {
+    let src = "fn main() {\n    var v: Vec[u64] = Vec.with_capacity(8)\n    v.push(42)\n    println(v[0])\n}\n";
+    for (target, save, restore) in [
+        ("thumbv7em-none", "primask\\0Acpsid i", "msr primask"),
+        ("thumbv7m-none", "primask\\0Acpsid i", "msr primask"),
+        ("riscv32-none", "csrrci $0, mstatus, 8", "csrs mstatus"),
+        ("riscv64-none", "csrrci $0, mstatus, 8", "csrs mstatus"),
+        ("aarch64-none", "daif\\0Amsr daifset", "msr daif"),
+    ] {
+        let ir = ir_for(target, src);
+        assert!(ir.contains(save), "{}: no save/mask", target);
+        assert!(ir.contains(restore), "{}: no restore", target);
+        assert!(ir.contains("~{memory}"), "{}: missing compiler barrier", target);
+    }
+    let hosted = ir_for("x86_64-linux", src);
+    assert!(!hosted.contains("irq_save") && !hosted.contains("irq_restore"));
+}
