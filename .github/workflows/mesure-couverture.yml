@@ -51,25 +51,17 @@ jobs:
     - name: Changed production lines per lot
       env:
         PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-      run: >
-        python .github/mesure/lotcov.py . lcov.info "$PR_BASE_SHA"
-        surete-semantique=1617e23975d66ea5f9c74c50d7c65987def62dd2
-        feuille-de-route=d0d5d85e26e1b85466e713cbbd9c78eddc6289bb
-        robustesse=df2865ac519e69f7d0d9e903541b2aa1df121385
-        perf-match=b5b58c2b6a1d37d2bc0ffe5b7b621d513ad599f1
-        copy-et-never=e91370502f2f12d70c63ec95dfa94fd1a560991b
-        couverture=be6b52afaa277ff20c84a1757ec86e34e65127cb
-        pile-linux=07998cace0d6f0c1c752ac56ab1c79df7fd9a44b
-        diagnostics-d4-d5=a824c766a321fa87255c2ea01d7fb7ca98362948
-        adr-acceptees=69caaaff384a0f0cbf59e56db4ab43f1b66c3246
-        try-deplacement=6c7546189c10b5d9c3c170e48bba03f92e72e636
-        adr0015-erreurs=06bf539b98d30c79a734c27968e513f0003bd459
-        adr0012-copy=481a53af2f4dedcb2c1e0451ceee1ac1eb8dfb50
-        adr0014-types=8ffd365ea30a2c2db3be51222b7ea35f4af075ec
-        c4-exports=7d72bba65c7eb83be52a464be13df20ed5425f43
-        adr0013-proprietes=9fb14fb596621bfb68fe1631857ff883a8d1778c
-        adr0013-threads=e1b85b83284d7b88ac0fca01a03cfc653623381f
-        adr0013-canaux=55ace50dea5ecb3ff56dca1cb305d4c7c9b05c52
+        LOTS: surete-semantique=1617e23975d66ea5f9c74c50d7c65987def62dd2 feuille-de-route=d0d5d85e26e1b85466e713cbbd9c78eddc6289bb robustesse=df2865ac519e69f7d0d9e903541b2aa1df121385 perf-match=b5b58c2b6a1d37d2bc0ffe5b7b621d513ad599f1 copy-et-never=e91370502f2f12d70c63ec95dfa94fd1a560991b couverture=be6b52afaa277ff20c84a1757ec86e34e65127cb pile-linux=07998cace0d6f0c1c752ac56ab1c79df7fd9a44b diagnostics-d4-d5=a824c766a321fa87255c2ea01d7fb7ca98362948 adr-acceptees=69caaaff384a0f0cbf59e56db4ab43f1b66c3246 try-deplacement=6c7546189c10b5d9c3c170e48bba03f92e72e636 adr0015-erreurs=06bf539b98d30c79a734c27968e513f0003bd459 adr0012-copy=481a53af2f4dedcb2c1e0451ceee1ac1eb8dfb50 adr0014-types=10fadcce917bef3f5d716f8862bea18512ba1e16 c4-exports=747d468f26ea35185184fe422310d102220ea037 adr0013-proprietes=5d10bac752aced95e9f3a1eb2471b89b67ec35b9 adr0013-threads=2884ffb7bab7d8e6c01232fac55d7001fadcf81e adr0013-canaux=a1370b479caebeca8da805a34f13d0faae04def3
+      run: python .github/mesure/lotcov.py . lcov.info "$PR_BASE_SHA" $LOTS
+    - name: Adjusted gate proposed on #63 (lines of internal panics not counted)
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        LOTS: surete-semantique=1617e23975d66ea5f9c74c50d7c65987def62dd2 feuille-de-route=d0d5d85e26e1b85466e713cbbd9c78eddc6289bb robustesse=df2865ac519e69f7d0d9e903541b2aa1df121385 perf-match=b5b58c2b6a1d37d2bc0ffe5b7b621d513ad599f1 copy-et-never=e91370502f2f12d70c63ec95dfa94fd1a560991b couverture=be6b52afaa277ff20c84a1757ec86e34e65127cb pile-linux=07998cace0d6f0c1c752ac56ab1c79df7fd9a44b diagnostics-d4-d5=a824c766a321fa87255c2ea01d7fb7ca98362948 adr-acceptees=69caaaff384a0f0cbf59e56db4ab43f1b66c3246 try-deplacement=6c7546189c10b5d9c3c170e48bba03f92e72e636 adr0015-erreurs=06bf539b98d30c79a734c27968e513f0003bd459 adr0012-copy=481a53af2f4dedcb2c1e0451ceee1ac1eb8dfb50 adr0014-types=10fadcce917bef3f5d716f8862bea18512ba1e16 c4-exports=747d468f26ea35185184fe422310d102220ea037 adr0013-proprietes=5d10bac752aced95e9f3a1eb2471b89b67ec35b9 adr0013-threads=2884ffb7bab7d8e6c01232fac55d7001fadcf81e adr0013-canaux=a1370b479caebeca8da805a34f13d0faae04def3
+      run: |
+        cp lcov.info lcov-adjusted.info
+        python .github/mesure/drop_internal.py lcov-adjusted.info
+        diff-cover lcov-adjusted.info --diff-file="$RUNNER_TEMP/coverage.diff" --fail-under=0 --total-percent-float
+        python .github/mesure/lotcov.py . lcov-adjusted.info "$PR_BASE_SHA" $LOTS
     - uses: actions/upload-artifact@v4
       with:
         name: lcov
