@@ -185,7 +185,7 @@ Une PR `[sol]`, branche `refonte/sol-c1-stack-probes`, basée sur la branche de 
 
 ## C2 — dépassement de pile Windows/RISC-V (24/10/2026)
 
-Statut : TESTÉ_UNITAIREMENT sous QEMU RISC-V, Windows à valider ; revue Claude requise.
+Statut : TESTÉ_UNITAIREMENT sous QEMU RISC-V et dans la suite Windows native ; revue Claude requise.
 Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
 
 - Windows : SetThreadStackGuarantee(64 Kio), gestionnaire vectorisé avant l'entrée
@@ -198,8 +198,7 @@ Branche `refonte/sol-c2-stack-overflow`, base #43 (`a824c76`).
 - Compilations de stack_overflow.nx vers x86_64-windows et riscv64-linux : réussies.
 - QEMU user 8.2.2 installé localement : stack_overflow.nx riscv64-linux exécuté
   à O0 et O2, sortie exacte `before\n`, message exact attendu sur stderr, code 101.
-- Windows : exécution non testée, pas de Windows/Wine. C6 doit exécuter la suite
-  où stack_overflow est désormais activé. PR en brouillon pour cette validation.
+- Windows : run d’intégration #61 40132439801, suite compilateur complète réussie. `stack_overflow.nx` cible Linux et Windows ; le harnais exécute les programmes d’hôte à O0 et O2, sortie attendue avant débordement, message panic, code 101. La validation Windows est ainsi couverte. Revue Claude requise.
 - Rust 1.99.1, LLVM 20.1, LLD 23.1.1 ; LTO=false et codegen-units=1 pour contourner
   les défauts de la chaîne locale. `git diff --check` réussi. macOS dépend de C12.
 
@@ -250,7 +249,7 @@ Branche `refonte/sol-c5-runtime-critical`, base #43.
 
 ## C8 — clés de registre isolées et erreur 1018 (24/10/2026)
 
-Statut : IMPLÉMENTÉ, validation Windows en attente.
+Statut : TESTÉ_UNITAIREMENT sur le registre Windows, revue requise.
 Branche `refonte/sol-c8-registry-tests`, base #43.
 Chaque clé de test combine PID, nanosecondes et compteur atomique.
 RegCreateKeyExW réessaie uniquement ERROR_KEY_DELETED (1018), au maximum 20 fois,
@@ -260,8 +259,7 @@ NEXUL-Tests par un autre test. Les autres erreurs sont rendues immédiatement.
 - `cargo check --release -p nexul-installer --target x86_64-pc-windows-msvc
   --features test-sandbox --tests` : réussi, depuis Linux avec std Windows 1.99.1.
 - `git diff --check` : réussi.
-- Exécution réelle du registre et 20 passages consécutifs : non testés, Windows absent.
-  Critère d'acceptation non satisfait ; PR en brouillon.
+- Run d’intégration #61 40132439801 sur Windows : test ciblé `win::reg::tests::keys_tree` réussi 20/20 fois consécutives, avec contrôle du code de sortie à chaque passage. Suite sandbox installateur : 24 réussis, 2 anciens ignorés.
 
 
 ## C10 — audit scientifique et chemin ASCII (24/10/2026)
@@ -331,7 +329,5 @@ C11 doit utiliser nxc_nir::mono et inclure les conversions vers dyn Error ajout�
 Rapport : sol-reanalyse-2026-10-24.md. Deux P1 Core reproduits O0/O2.
 Correction LSP #62 : six tests Linux passent, alias physique conservé pour les
 diagnostics et le manifeste. Les deux anciens tests Windows restent actifs.
-C6 #52 dépend désormais de #62 ; relance Actions en cours.
-C7 déjà vérifié : run 40124607293, Linux et Windows réussis.
-Les 20 répétitions C8 sont ajoutées à la branche de validation #61 ; leur
-réussite ne sera déclarée qu'après consultation du journal Windows.
+C6 #52 et le correctif LSP #62 sont prêts pour revue ; run 40132365202 vert sur Linux et Windows.
+L’intégration #61 passe au run 40132439801 sur les deux systèmes, avec 20/20 répétitions du test de registre Windows réussies. C7 passait déjà au run 40124607293.
