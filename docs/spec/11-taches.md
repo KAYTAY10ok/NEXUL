@@ -73,7 +73,10 @@ Le runtime (allocateur, sorties standard, table paresseuse de `math`) est proté
 verrou réentrant dès que le premier thread démarre (`rt.critical_section()`, le même
 point de garde que les interruptions des cibles sans système, tâche C5) ; l'entrée
 standard a son propre verrou, si bien qu'une tâche qui attend une ligne ne bloque pas
-les autres. Les opérations atomiques (`mem.atomic_*`, séquentiellement cohérentes) sont
+les autres. Sur les cibles sans système, ce point de garde masque les interruptions (cœur
+unique) : un gestionnaire **non masquable** (NMI, faute matérielle) ne DOIT NI allouer NI
+écrire sur les sorties standard, car il peut interrompre le runtime au milieu d'une
+section protégée. Les opérations atomiques (`mem.atomic_*`, séquentiellement cohérentes) sont
 réservées à la bibliothèque et au code `unsafe`.
 
 *(Pas encore, lot 18 de l'ADR 0013 : canaux bornés `canal[T is Transfer](capacite)`,
