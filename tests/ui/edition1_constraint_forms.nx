@@ -1,0 +1,54 @@
+// edition: 1
+// The forms of a condition (ADR 0014 §2.2), evaluated at compile time on constants (E0252):
+// `or`, `not`, parentheses, every comparison, `it` on the right, exclusive ranges, negative
+// constants, integers compared with floats, characters. A constant of a condition is a
+// literal of the base (E0251), and a distinct type names the interfaces it reuses.
+type Impair = i32 where it == 1 or it == 3 or it == 5
+type NonNul = i64 where it != 0
+type HorsBorne = i32 where not (it in -10..10)
+type Positif = i16 where 0 <= it
+type Petit = u8 where 10 > it
+type Grand = u32 where it >= 1000 and it <= 2000
+type Temperature = f64 where it >= -273.15
+type Fraction = f32 where it > 0 and it < 1
+type Reel = f64 where it != 0.0 and (it == 2.5 or it <= -1.5)
+type Chiffre = char where it in '0'..='9'
+type Lettre = char where not (it in 'a'..'z') and it != '_'
+type Signe = i8 where -1 <= it and it <= 1
+
+type Naturel = u16 where it > -1
+type Code = char where it > -'a'
+type Entier = i32 where it < 2.5
+type Liste = distinct i32 is Iterator[i32]
+
+fn main() {
+    // Accepted.
+    let Impair a = 3
+    let NonNul b = -5
+    let HorsBorne c = 10
+    let Positif d = 0
+    let Petit e = 9
+    let Grand f = 2000
+    let Temperature g = -273
+    let Fraction h = 0.5
+    let Reel r = -2.0
+    let Chiffre i = '7'
+    let Lettre j = 'Z'
+    let Signe k = -1
+    // Refused.
+    let Impair a2 = 4
+    let NonNul b2 = 0
+    let HorsBorne c2 = -10
+    let Positif d2 = -1
+    let Petit e2 = 10
+    let Grand f2 = 999
+    let Temperature g2 = -274.5
+    let Fraction h2 = 1
+    let Reel r2 = 1.0
+    let Chiffre i2 = 'x'
+    let Lettre j2 = 'q'
+    let Signe k2 = 2
+    // A literal of another kind is not a value of the type.
+    let Chiffre z = 5
+    println("{a} {b} {c} {d} {e} {f} {g} {h} {r} {i} {j} {k}")
+}
