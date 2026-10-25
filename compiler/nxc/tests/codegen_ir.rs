@@ -6,6 +6,18 @@ use nxc_driver::{compile_source, CompileOptions, Mode, Target};
 fn ir_for(target: &str, src: &str) -> String {
     let mut opts = CompileOptions::new(Mode::Program);
     opts.target = Target::from_name(target).unwrap();
+    compile_ir(opts, src)
+}
+
+/// The IR of a program written in edition 1.
+fn ir_for_edition1(target: &str, src: &str) -> String {
+    let mut opts = CompileOptions::new(Mode::Program);
+    opts.target = Target::from_name(target).unwrap();
+    opts.edition = nxc_syntax::Edition::V1;
+    compile_ir(opts, src)
+}
+
+fn compile_ir(opts: CompileOptions, src: &str) -> String {
     let src = src.to_string();
     // The analyses are recursive: a large stack, as in `nxc` (contract K6.3).
     std::thread::Builder::new()
@@ -32,6 +44,30 @@ fn linux_programs_install_the_fault_handler() {
         let install = start.find("(ptr @nx_linux_fault)").expect("handler installed by the entry point");
         let main_call = start.rfind("call void").unwrap();
         assert!(install < main_call, "{}: the handler must be installed before the program starts:\n{}", target, start);
+    }
+}
+
+/// The wrapper of an `@export` function passes its other parameters unchanged and in
+/// their order, between the checked ones, and returns nothing for a function without a
+/// result (task C4).
+#[test]
+fn export_wrappers_pass_the_other_parameters_and_return_nothing() {
+    let src = "type Pourcent = i32 where it in 0..=100\n\n@export(\"mix\")\npub fn i64 mix(bool b, i64 x, char c, f64 y, Pourcent p) = x + ((c as u32) as i64) + (y as i64)\n\n@export(\"reset\")\npub fn reset(bool b) {\n    println(\"{b}\")\n}\n\nfn main() {\n    println(\"{mix(true, 1, 'a', 2.0, 3)}\")\n    reset(false)\n}\n";
+    for target in ["x86_64-linux", "x86_64-windows", "wasm32-web"] {
+        let ir = ir_for_edition1(target, src);
+        let def = |sym: &str| -> String {
+            let at = ir.find(&format!("@\"{}\"(", sym)).and_then(|i| ir[..i].rfind("define ")).unwrap_or_else(|| panic!("{}: no definition of `{}`", target, sym));
+            let body = &ir[at..];
+            body[..body.find("\n}").unwrap()].to_string()
+        };
+        let mix = def("mix");
+        assert!(mix.contains("@\"mix\"(i8 %a0, i64 %a1, i32 %a2, double %a3, i32 %a4)"), "{}: parameters of the wrapper:\n{}", target, mix);
+        assert!(mix.contains("icmp ugt i8 %a0, 1") && mix.contains("icmp ugt i32 %a2, 1114111") && mix.contains("__nexul_validate"), "{}: checks:\n{}", target, mix);
+        let call = mix.lines().find(|l| l.contains("%r = call i64")).unwrap_or_else(|| panic!("{}: no call:\n{}", target, mix));
+        assert!(call.contains("i64 %a1, ") && call.contains("double %a3, "), "{}: the other parameters are passed unchanged:\n{}", target, call);
+        let reset = def("reset");
+        assert!(reset.contains("@\"reset\"(i8 %a0)") && reset.contains("icmp ugt i8 %a0, 1"), "{}: `bool` not checked:\n{}", target, reset);
+        assert!(reset.contains("  call void ") && reset.trim_end().ends_with("ret void"), "{}: a function without a result:\n{}", target, reset);
     }
 }
 
