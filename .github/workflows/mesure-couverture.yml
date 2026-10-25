@@ -1,0 +1,76 @@
+# Temporary measurement (draft PR, not to be merged): line coverage at the top of the
+# Core stack, with the tools and versions of the gate proposed in #63, but reporting only.
+name: Mesure de couverture
+
+on:
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    - uses: actions/setup-python@v5
+      with:
+        python-version: '3.13'
+    - name: Install coverage tools (versions of #63)
+      run: |
+        rustup component add llvm-tools-preview
+        cargo install cargo-llvm-cov --version 0.9.1 --locked
+        python -m pip install --disable-pip-version-check diff-cover==10.6.0
+    - name: Run instrumented tests
+      run: cargo llvm-cov --workspace --exclude nexul-installer --lcov --output-path lcov.info --ignore-run-fail
+    - name: Coverage per crate
+      run: python .github/mesure/lcovsum.py lcov.info .
+    - name: Changed production lines of the whole stack (what the gate of #63 computes)
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      run: |
+        git diff --name-only -z --diff-filter=ACMR "$PR_BASE_SHA...$PR_HEAD_SHA" -- compiler/ studio/src/ > "$RUNNER_TEMP/changed-files.nul"
+        mapfile -d '' -t candidate_files < "$RUNNER_TEMP/changed-files.nul"
+        changed_sources=()
+        for path in "${candidate_files[@]}"; do
+          [[ "$path" == *.rs ]] || continue
+          if [[ "$path" =~ (^|/)(tests?|benches|examples|fuzz)(/|$) ||
+                "$path" =~ (^|/)[^/]*[_-]tests?\.rs$ ||
+                "$path" =~ (^|/)tests?\.rs$ ]]; then
+            continue
+          fi
+          changed_sources+=("$path")
+        done
+        printf '%s\n' "${changed_sources[@]}"
+        git diff --no-ext-diff --unified=0 "$PR_BASE_SHA...$PR_HEAD_SHA" -- "${changed_sources[@]}" > "$RUNNER_TEMP/coverage.diff"
+        diff-cover lcov.info --diff-file="$RUNNER_TEMP/coverage.diff" --fail-under=0 --total-percent-float
+    - name: Changed production lines per lot
+      env:
+        PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      run: >
+        python .github/mesure/lotcov.py . lcov.info "$PR_BASE_SHA"
+        surete-semantique=1617e23975d66ea5f9c74c50d7c65987def62dd2
+        feuille-de-route=d0d5d85e26e1b85466e713cbbd9c78eddc6289bb
+        robustesse=df2865ac519e69f7d0d9e903541b2aa1df121385
+        perf-match=b5b58c2b6a1d37d2bc0ffe5b7b621d513ad599f1
+        copy-et-never=e91370502f2f12d70c63ec95dfa94fd1a560991b
+        couverture=be6b52afaa277ff20c84a1757ec86e34e65127cb
+        pile-linux=07998cace0d6f0c1c752ac56ab1c79df7fd9a44b
+        diagnostics-d4-d5=a824c766a321fa87255c2ea01d7fb7ca98362948
+        adr-acceptees=69caaaff384a0f0cbf59e56db4ab43f1b66c3246
+        try-deplacement=6c7546189c10b5d9c3c170e48bba03f92e72e636
+        adr0015-erreurs=06bf539b98d30c79a734c27968e513f0003bd459
+        adr0012-copy=481a53af2f4dedcb2c1e0451ceee1ac1eb8dfb50
+        adr0014-types=8ffd365ea30a2c2db3be51222b7ea35f4af075ec
+        c4-exports=7d72bba65c7eb83be52a464be13df20ed5425f43
+        adr0013-proprietes=9fb14fb596621bfb68fe1631857ff883a8d1778c
+        adr0013-threads=e1b85b83284d7b88ac0fca01a03cfc653623381f
+        adr0013-canaux=55ace50dea5ecb3ff56dca1cb305d4c7c9b05c52
+    - uses: actions/upload-artifact@v4
+      with:
+        name: lcov
+        path: lcov.info
