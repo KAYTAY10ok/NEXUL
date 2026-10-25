@@ -1,0 +1,7 @@
+error[E0249]: `Ptr[i32]` does not implement `Display`
+  --> std_trait_bounds.nx:10:13
+   |
+10 |     println(show(p))
+   |             ^^^^^^^ `Display` is required by `show`
+
+error: could not compile due to 1 error
