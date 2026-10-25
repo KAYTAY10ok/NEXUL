@@ -1,0 +1,515 @@
+define internal void @"scientific.compute#301"(ptr %l0, i64 %a1) nounwind "frame-pointer"="all" {
+start:
+  %l1 = alloca i64, align 8
+  %l2 = alloca double, align 8
+  %l3 = alloca double, align 8
+  %l4 = alloca double, align 8
+  %l5 = alloca double, align 8
+  %l6 = alloca double, align 8
+  %l7 = alloca double, align 8
+  %l8 = alloca double, align 8
+  %l9 = alloca double, align 8
+  %l10 = alloca double, align 8
+  %l11 = alloca double, align 8
+  %l12 = alloca double, align 8
+  %l13 = alloca double, align 8
+  %l14 = alloca double, align 8
+  %l15 = alloca double, align 8
+  %l16 = alloca double, align 8
+  %l17 = alloca double, align 8
+  %l18 = alloca double, align 8
+  %l19 = alloca double, align 8
+  %l20 = alloca double, align 8
+  %l21 = alloca double, align 8
+  %l22 = alloca double, align 8
+  %l23 = alloca double, align 8
+  %l24 = alloca double, align 8
+  %l25 = alloca i64, align 8
+  %l26 = alloca i64, align 8
+  %l27 = alloca i1, align 1
+  %l28 = alloca i64, align 8
+  %l29 = alloca double, align 8
+  %l30 = alloca double, align 8
+  %l31 = alloca double, align 8
+  %l32 = alloca double, align 8
+  %l33 = alloca double, align 8
+  %l34 = alloca double, align 8
+  %l35 = alloca i1, align 1
+  %l36 = alloca i64, align 8
+  %l37 = alloca double, align 8
+  %l38 = alloca double, align 8
+  %l39 = alloca double, align 8
+  %l40 = alloca double, align 8
+  %l41 = alloca double, align 8
+  %l42 = alloca double, align 8
+  %l43 = alloca double, align 8
+  %l44 = alloca double, align 8
+  %l45 = alloca double, align 8
+  %l46 = alloca double, align 8
+  %l47 = alloca double, align 8
+  %l48 = alloca double, align 8
+  %l49 = alloca double, align 8
+  %l50 = alloca double, align 8
+  %l51 = alloca double, align 8
+  %l52 = alloca double, align 8
+  %l53 = alloca double, align 8
+  %l54 = alloca double, align 8
+  %l55 = alloca double, align 8
+  %l56 = alloca double, align 8
+  %l57 = alloca double, align 8
+  %l58 = alloca double, align 8
+  %l59 = alloca double, align 8
+  %l60 = alloca double, align 8
+  %l61 = alloca double, align 8
+  %l62 = alloca double, align 8
+  %l63 = alloca double, align 8
+  %l64 = alloca double, align 8
+  %l65 = alloca double, align 8
+  %l66 = alloca double, align 8
+  %l67 = alloca double, align 8
+  %l68 = alloca double, align 8
+  %l69 = alloca double, align 8
+  %l70 = alloca double, align 8
+  %l71 = alloca double, align 8
+  %l72 = alloca double, align 8
+  %l73 = alloca double, align 8
+  %l74 = alloca double, align 8
+  %l75 = alloca double, align 8
+  %l76 = alloca double, align 8
+  %l77 = alloca double, align 8
+  %l78 = alloca double, align 8
+  %l79 = alloca double, align 8
+  %l80 = alloca double, align 8
+  %l81 = alloca double, align 8
+  %l82 = alloca double, align 8
+  %l83 = alloca double, align 8
+  %l84 = alloca double, align 8
+  %l85 = alloca double, align 8
+  %l86 = alloca double, align 8
+  %l87 = alloca i1, align 1
+  store i64 %a1, ptr %l1
+  br label %bb0
+bb0:
+  %t1 = load i64, ptr %l1
+  %t2 = sitofp i64 %t1 to double
+  store double %t2, ptr %l2
+  %t3 = load double, ptr %l2
+  %t4 = fdiv double 0x3FF0000000000000, %t3
+  store double %t4, ptr %l3
+  store double 0x0000000000000000, ptr %l4
+  store double 0x0000000000000000, ptr %l5
+  store double 0x0000000000000000, ptr %l6
+  store double 0x0000000000000000, ptr %l7
+  store double 0x0000000000000000, ptr %l8
+  store double 0x0000000000000000, ptr %l9
+  store double 0x0000000000000000, ptr %l10
+  store double 0x0000000000000000, ptr %l11
+  store double 0x0000000000000000, ptr %l12
+  store double 0x0000000000000000, ptr %l13
+  store double 0x3FF0000000000000, ptr %l14
+  store double 0x3FF0000000000000, ptr %l15
+  store double 0x3FF0000000000000, ptr %l16
+  store double 0x3FF0000000000000, ptr %l17
+  store double 0x3FF0000000000000, ptr %l18
+  store double 0x3FF0000000000000, ptr %l19
+  store double 0x3FF0000000000000, ptr %l20
+  store double 0x0000000000000000, ptr %l21
+  store double 0x3FF0000000000000, ptr %l22
+  store double 0x0000000000000000, ptr %l23
+  store double 0x0000000000000000, ptr %l24
+  store i64 1, ptr %l25
+  %t5 = load i64, ptr %l1
+  store i64 %t5, ptr %l26
+  br label %bb1
+bb1:
+  %t6 = load i64, ptr %l25
+  %t7 = load i64, ptr %l26
+  %t8 = icmp sle i64 %t6, %t7
+  store i1 %t8, ptr %l27
+  %t9 = load i1, ptr %l27
+  br i1 %t9, label %bb2, label %bb4
+bb2:
+  %t10 = load i64, ptr %l25
+  store i64 %t10, ptr %l28
+  %t11 = load i64, ptr %l28
+  %t12 = sitofp i64 %t11 to double
+  store double %t12, ptr %l29
+  %t13 = load double, ptr %l29
+  %t14 = load double, ptr %l3
+  %t15 = fmul double %t13, %t14
+  store double %t15, ptr %l30
+  %t16 = load double, ptr %l30
+  %t17 = load double, ptr %l30
+  %t18 = fmul double %t16, %t17
+  store double %t18, ptr %l31
+  %t19 = load double, ptr %l4
+  %t20 = load double, ptr %l30
+  %t21 = fadd double %t19, %t20
+  store double %t21, ptr %l4
+  %t22 = load double, ptr %l5
+  %t23 = load double, ptr %l31
+  %t24 = fadd double %t22, %t23
+  store double %t24, ptr %l5
+  %t25 = load double, ptr %l29
+  %t26 = fdiv double 0x3FF0000000000000, %t25
+  store double %t26, ptr %l32
+  %t27 = load double, ptr %l6
+  %t28 = load double, ptr %l32
+  %t29 = fadd double %t27, %t28
+  store double %t29, ptr %l6
+  %t30 = load double, ptr %l29
+  %t31 = load double, ptr %l29
+  %t32 = fmul double %t30, %t31
+  store double %t32, ptr %l34
+  %t33 = load double, ptr %l34
+  %t34 = fdiv double 0x3FF0000000000000, %t33
+  store double %t34, ptr %l33
+  %t35 = load double, ptr %l7
+  %t36 = load double, ptr %l33
+  %t37 = fadd double %t35, %t36
+  store double %t37, ptr %l7
+  %t38 = load i64, ptr %l28
+  %t39 = icmp eq i64 2, 0
+  br i1 %t39, label %x40, label %x41
+x40:
+  call void @"std.rt.panic_arith#8"(i32 5, ptr @loc.638)
+  unreachable
+x41:
+  %t42 = icmp eq i64 2, -1
+  %t43 = icmp eq i64 %t38, -9223372036854775808
+  %t44 = and i1 %t42, %t43
+  br i1 %t44, label %x45, label %x46
+x45:
+  call void @"std.rt.panic_arith#8"(i32 6, ptr @loc.638)
+  unreachable
+x46:
+  %t47 = srem i64 %t38, 2
+  store i64 %t47, ptr %l36
+  %t48 = load i64, ptr %l36
+  %t49 = icmp eq i64 %t48, 1
+  store i1 %t49, ptr %l35
+  %t50 = load i1, ptr %l35
+  br i1 %t50, label %bb5, label %bb6
+bb3:
+  %t51 = load i64, ptr %l25
+  %t52 = load i64, ptr %l26
+  %t53 = icmp eq i64 %t51, %t52
+  store i1 %t53, ptr %l87
+  %t54 = load i1, ptr %l87
+  br i1 %t54, label %bb4, label %bb11
+bb4:
+  %t55 = load double, ptr %l4
+  %t56 = load double, ptr %l5
+  %t57 = load double, ptr %l6
+  %t58 = load double, ptr %l7
+  %t59 = load double, ptr %l8
+  %t60 = load double, ptr %l9
+  %t61 = load double, ptr %l10
+  %t62 = load double, ptr %l11
+  %t63 = load double, ptr %l12
+  %t64 = load double, ptr %l13
+  %t65 = load double, ptr %l15
+  %t66 = load double, ptr %l17
+  %t67 = load double, ptr %l19
+  %t68 = load double, ptr %l20
+  %t69 = load double, ptr %l21
+  %t70 = load double, ptr %l22
+  %t71 = load double, ptr %l23
+  %t72 = load double, ptr %l24
+  %t73 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 0
+  store double %t55, ptr %t73
+  %t74 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 1
+  store double %t56, ptr %t74
+  %t75 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 2
+  store double %t57, ptr %t75
+  %t76 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 3
+  store double %t58, ptr %t76
+  %t77 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 4
+  store double %t59, ptr %t77
+  %t78 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 5
+  store double %t60, ptr %t78
+  %t79 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 6
+  store double %t61, ptr %t79
+  %t80 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 7
+  store double %t62, ptr %t80
+  %t81 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 8
+  store double %t63, ptr %t81
+  %t82 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 9
+  store double %t64, ptr %t82
+  %t83 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 10
+  store double %t65, ptr %t83
+  %t84 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 11
+  store double %t66, ptr %t84
+  %t85 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 12
+  store double %t67, ptr %t85
+  %t86 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 13
+  store double %t68, ptr %t86
+  %t87 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 14
+  store double %t69, ptr %t87
+  %t88 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 15
+  store double %t70, ptr %t88
+  %t89 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 16
+  store double %t71, ptr %t89
+  %t90 = getelementptr inbounds %"BenchResult#286", ptr %l0, i32 0, i32 17
+  store double %t72, ptr %t90
+  ret void
+bb5:
+  %t91 = load double, ptr %l29
+  %t92 = fdiv double 0x3FF0000000000000, %t91
+  store double %t92, ptr %l37
+  %t93 = load double, ptr %l8
+  %t94 = load double, ptr %l37
+  %t95 = fadd double %t93, %t94
+  store double %t95, ptr %l8
+  %t96 = load double, ptr %l29
+  %t97 = fmul double 0x4000000000000000, %t96
+  store double %t97, ptr %l40
+  %t98 = load double, ptr %l40
+  %t99 = fsub double %t98, 0x3FF0000000000000
+  store double %t99, ptr %l39
+  %t100 = load double, ptr %l39
+  %t101 = fdiv double 0x4010000000000000, %t100
+  store double %t101, ptr %l38
+  %t102 = load double, ptr %l9
+  %t103 = load double, ptr %l38
+  %t104 = fadd double %t102, %t103
+  store double %t104, ptr %l9
+  br label %bb7
+bb6:
+  %t105 = load double, ptr %l29
+  %t106 = fdiv double 0x3FF0000000000000, %t105
+  store double %t106, ptr %l41
+  %t107 = load double, ptr %l8
+  %t108 = load double, ptr %l41
+  %t109 = fsub double %t107, %t108
+  store double %t109, ptr %l8
+  %t110 = load double, ptr %l29
+  %t111 = fmul double 0x4000000000000000, %t110
+  store double %t111, ptr %l44
+  %t112 = load double, ptr %l44
+  %t113 = fsub double %t112, 0x3FF0000000000000
+  store double %t113, ptr %l43
+  %t114 = load double, ptr %l43
+  %t115 = fdiv double 0x4010000000000000, %t114
+  store double %t115, ptr %l42
+  %t116 = load double, ptr %l9
+  %t117 = load double, ptr %l42
+  %t118 = fsub double %t116, %t117
+  store double %t118, ptr %l9
+  br label %bb7
+bb7:
+  %t119 = load double, ptr %l31
+  %t120 = fadd double 0x3FF0000000000000, %t119
+  store double %t120, ptr %l47
+  %t121 = load double, ptr %l47
+  %t122 = fdiv double 0x4010000000000000, %t121
+  store double %t122, ptr %l46
+  %t123 = load double, ptr %l46
+  %t124 = load double, ptr %l3
+  %t125 = fmul double %t123, %t124
+  store double %t125, ptr %l45
+  %t126 = load double, ptr %l10
+  %t127 = load double, ptr %l45
+  %t128 = fadd double %t126, %t127
+  store double %t128, ptr %l10
+  %t129 = load double, ptr %l31
+  %t130 = fsub double 0x3FF0000000000000, %t129
+  store double %t130, ptr %l51
+  %t131 = load double, ptr %l51
+  %t132 = call double @llvm.sqrt.f64(double %t131)
+  store double %t132, ptr %l50
+  br label %bb8
+bb8:
+  %t133 = load double, ptr %l50
+  %t134 = fmul double 0x4010000000000000, %t133
+  store double %t134, ptr %l49
+  %t135 = load double, ptr %l49
+  %t136 = load double, ptr %l3
+  %t137 = fmul double %t135, %t136
+  store double %t137, ptr %l48
+  %t138 = load double, ptr %l11
+  %t139 = load double, ptr %l48
+  %t140 = fadd double %t138, %t139
+  store double %t140, ptr %l11
+  %t141 = load double, ptr %l30
+  %t142 = call double @llvm.sqrt.f64(double %t141)
+  store double %t142, ptr %l53
+  br label %bb9
+bb9:
+  %t143 = load double, ptr %l53
+  %t144 = load double, ptr %l3
+  %t145 = fmul double %t143, %t144
+  store double %t145, ptr %l52
+  %t146 = load double, ptr %l12
+  %t147 = load double, ptr %l52
+  %t148 = fadd double %t146, %t147
+  store double %t148, ptr %l12
+  %t149 = load double, ptr %l30
+  %t150 = fadd double 0x3FF0000000000000, %t149
+  store double %t150, ptr %l57
+  %t151 = load double, ptr %l57
+  %t152 = call double @llvm.sqrt.f64(double %t151)
+  store double %t152, ptr %l56
+  br label %bb10
+bb10:
+  %t153 = load double, ptr %l56
+  %t154 = fdiv double 0x3FF0000000000000, %t153
+  store double %t154, ptr %l55
+  %t155 = load double, ptr %l55
+  %t156 = load double, ptr %l3
+  %t157 = fmul double %t155, %t156
+  store double %t157, ptr %l54
+  %t158 = load double, ptr %l13
+  %t159 = load double, ptr %l54
+  %t160 = fadd double %t158, %t159
+  store double %t160, ptr %l13
+  %t161 = load double, ptr %l14
+  %t162 = load double, ptr %l29
+  %t163 = fdiv double %t161, %t162
+  store double %t163, ptr %l14
+  %t164 = load double, ptr %l15
+  %t165 = load double, ptr %l14
+  %t166 = fadd double %t164, %t165
+  store double %t166, ptr %l15
+  %t167 = load double, ptr %l16
+  %t168 = fneg double %t167
+  store double %t168, ptr %l59
+  %t169 = load double, ptr %l29
+  %t170 = fmul double 0x4000000000000000, %t169
+  store double %t170, ptr %l61
+  %t171 = load double, ptr %l29
+  %t172 = fmul double 0x4000000000000000, %t171
+  store double %t172, ptr %l63
+  %t173 = load double, ptr %l63
+  %t174 = fadd double %t173, 0x3FF0000000000000
+  store double %t174, ptr %l62
+  %t175 = load double, ptr %l61
+  %t176 = load double, ptr %l62
+  %t177 = fmul double %t175, %t176
+  store double %t177, ptr %l60
+  %t178 = load double, ptr %l59
+  %t179 = load double, ptr %l60
+  %t180 = fdiv double %t178, %t179
+  store double %t180, ptr %l58
+  %t181 = load double, ptr %l58
+  store double %t181, ptr %l16
+  %t182 = load double, ptr %l17
+  %t183 = load double, ptr %l16
+  %t184 = fadd double %t182, %t183
+  store double %t184, ptr %l17
+  %t185 = load double, ptr %l18
+  %t186 = fneg double %t185
+  store double %t186, ptr %l65
+  %t187 = load double, ptr %l29
+  %t188 = fmul double 0x4000000000000000, %t187
+  store double %t188, ptr %l68
+  %t189 = load double, ptr %l68
+  %t190 = fsub double %t189, 0x3FF0000000000000
+  store double %t190, ptr %l67
+  %t191 = load double, ptr %l29
+  %t192 = fmul double 0x4000000000000000, %t191
+  store double %t192, ptr %l69
+  %t193 = load double, ptr %l67
+  %t194 = load double, ptr %l69
+  %t195 = fmul double %t193, %t194
+  store double %t195, ptr %l66
+  %t196 = load double, ptr %l65
+  %t197 = load double, ptr %l66
+  %t198 = fdiv double %t196, %t197
+  store double %t198, ptr %l64
+  %t199 = load double, ptr %l64
+  store double %t199, ptr %l18
+  %t200 = load double, ptr %l19
+  %t201 = load double, ptr %l18
+  %t202 = fadd double %t200, %t201
+  store double %t202, ptr %l19
+  %t203 = load double, ptr %l20
+  %t204 = fmul double 0xC010000000000000, %t203
+  store double %t204, ptr %l71
+  %t205 = load double, ptr %l21
+  %t206 = fmul double 0x3FB999999999999A, %t205
+  store double %t206, ptr %l72
+  %t207 = load double, ptr %l71
+  %t208 = load double, ptr %l72
+  %t209 = fsub double %t207, %t208
+  store double %t209, ptr %l70
+  %t210 = load double, ptr %l70
+  %t211 = load double, ptr %l3
+  %t212 = fmul double %t210, %t211
+  store double %t212, ptr %l73
+  %t213 = load double, ptr %l21
+  %t214 = load double, ptr %l73
+  %t215 = fadd double %t213, %t214
+  store double %t215, ptr %l21
+  %t216 = load double, ptr %l21
+  %t217 = load double, ptr %l3
+  %t218 = fmul double %t216, %t217
+  store double %t218, ptr %l74
+  %t219 = load double, ptr %l20
+  %t220 = load double, ptr %l74
+  %t221 = fadd double %t219, %t220
+  store double %t221, ptr %l20
+  %t222 = load double, ptr %l22
+  %t223 = fmul double 0x3FE6666666666666, %t222
+  store double %t223, ptr %l76
+  %t224 = load double, ptr %l76
+  %t225 = load double, ptr %l3
+  %t226 = fmul double %t224, %t225
+  store double %t226, ptr %l75
+  %t227 = load double, ptr %l22
+  %t228 = load double, ptr %l75
+  %t229 = fsub double %t227, %t228
+  store double %t229, ptr %l22
+  %t230 = load double, ptr %l21
+  %t231 = fmul double 0x3FE0000000000000, %t230
+  store double %t231, ptr %l80
+  %t232 = load double, ptr %l80
+  %t233 = load double, ptr %l21
+  %t234 = fmul double %t232, %t233
+  store double %t234, ptr %l79
+  %t235 = load double, ptr %l20
+  %t236 = fmul double 0x4000000000000000, %t235
+  store double %t236, ptr %l82
+  %t237 = load double, ptr %l82
+  %t238 = load double, ptr %l20
+  %t239 = fmul double %t237, %t238
+  store double %t239, ptr %l81
+  %t240 = load double, ptr %l79
+  %t241 = load double, ptr %l81
+  %t242 = fadd double %t240, %t241
+  store double %t242, ptr %l78
+  %t243 = load double, ptr %l78
+  %t244 = load double, ptr %l3
+  %t245 = fmul double %t243, %t244
+  store double %t245, ptr %l77
+  %t246 = load double, ptr %l23
+  %t247 = load double, ptr %l77
+  %t248 = fadd double %t246, %t247
+  store double %t248, ptr %l23
+  %t249 = load double, ptr %l30
+  %t250 = load double, ptr %l3
+  %t251 = fadd double %t249, %t250
+  store double %t251, ptr %l85
+  %t252 = load double, ptr %l30
+  %t253 = load double, ptr %l85
+  %t254 = fmul double %t252, %t253
+  store double %t254, ptr %l84
+  %t255 = load double, ptr %l84
+  %t256 = load double, ptr %l31
+  %t257 = fsub double %t255, %t256
+  store double %t257, ptr %l83
+  %t258 = load double, ptr %l83
+  %t259 = load double, ptr %l83
+  %t260 = fmul double %t258, %t259
+  store double %t260, ptr %l86
+  %t261 = load double, ptr %l24
+  %t262 = load double, ptr %l86
+  %t263 = fadd double %t261, %t262
+  store double %t263, ptr %l24
+  br label %bb3
+bb11:
+  %t264 = load i64, ptr %l25
+  %t265 = add i64 %t264, 1
+  store i64 %t265, ptr %l25
+  br label %bb1
+}

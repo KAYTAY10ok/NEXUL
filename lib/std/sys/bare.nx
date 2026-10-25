@@ -26,6 +26,31 @@ unsafe fn heap_start() -> Ptr[u8]
 @intrinsic
 unsafe fn stack_top() -> Ptr[u8]
 
+/// Save the interrupt mask, then mask interrupts. The memory clobber on the
+/// intrinsic prevents accesses to runtime state from crossing the boundary.
+@intrinsic
+unsafe fn irq_save() -> usize
+@intrinsic
+unsafe fn irq_restore(state: usize)
+
+/// A nested critical section on a single core. Only maskable interrupts are
+/// covered: NMI/fault handlers must not allocate or print (review required).
+pub struct CriticalSection {
+    state: usize
+}
+
+impl CriticalSection {
+    fn drop(inout self) {
+        unsafe { irq_restore(self.state) }
+    }
+}
+
+/// Internal runtime guard. Restore the saved mask, never unconditionally enable
+/// interrupts: allocator calls can nest and can run inside an interrupt handler.
+pub unsafe fn critical_section() -> CriticalSection {
+    return CriticalSection(state: irq_save())
+}
+
 const SYS_OPEN: usize = 0x01
 const SYS_CLOSE: usize = 0x02
 const SYS_WRITE: usize = 0x05

@@ -2089,6 +2089,28 @@ fail:
                 let r = self.val(cx, "call i32 @llvm.wasm.memory.size.i32(i32 0)");
                 self.store_result(cx, dest, "i32", &r);
             }
+            "irq_save" => {
+                let (insn, regs) = match self.opts.target.arch {
+                    Arch::Arm => ("mrs $0, primask\\0Acpsid i", "=r,~{memory}"),
+                    Arch::Aarch64 => ("mrs $0, daif\\0Amsr daifset, #3", "=r,~{memory}"),
+                    Arch::Riscv32 | Arch::Riscv64 => ("csrrci $0, mstatus, 8", "=r,~{memory}"),
+                    _ => panic!("internal: irq_save on a non-bare architecture"),
+                };
+                let r = self.val(cx, format!("call {u} asm sideeffect \"{}\", \"{}\"()", insn, regs));
+                self.store_result(cx, dest, u, &r);
+            }
+            "irq_restore" => {
+                match self.opts.target.arch {
+                    Arch::Arm => self.ins(cx, format!("call void asm sideeffect \"msr primask, $0\", \"r,~{{memory}}\"({u} {})", s(0))),
+                    Arch::Aarch64 => self.ins(cx, format!("call void asm sideeffect \"msr daif, $0\", \"r,~{{memory}}\"({u} {})", s(0))),
+                    Arch::Riscv32 | Arch::Riscv64 => {
+                        // Only restore MIE, not unrelated status bits (notably MPP).
+                        let enabled = self.val(cx, format!("and {u} {}, 8", s(0)));
+                        self.ins(cx, format!("call void asm sideeffect \"csrs mstatus, $0\", \"r,~{{memory}}\"({u} {})", enabled));
+                    }
+                    _ => panic!("internal: irq_restore on a non-bare architecture"),
+                }
+            }
             "semihost" => {
                 let (insn, regs) = match self.opts.target.arch {
                     Arch::Arm => ("bkpt #0xab", "={r0},{r0},{r1},~{memory}"),

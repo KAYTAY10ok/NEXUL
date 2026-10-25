@@ -135,7 +135,9 @@ fn link_elf(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
 fn link_wasm(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     let lld = tc.linker("wasm-ld")?;
     let mut cmd = Command::new(lld);
-    cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("-z").arg("stack-size=8388608");
+    // A downward-growing stack must underflow out of linear memory before it
+    // can overwrite static data (ADR 0011, T3). Applies to WASI and the browser.
+    cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("--stack-first").arg("-z").arg("stack-size=8388608");
     if job.target.os == Os::Web {
         cmd.arg("--export-memory");
     }

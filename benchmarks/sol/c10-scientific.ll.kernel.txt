@@ -1,0 +1,133 @@
+define internal fastcc void @"scientific.compute#301"(ptr nocapture nonnull writeonly %l0, i64 range(i64 1, -9223372036854775808) %a1) unnamed_addr #5 {
+start:
+  %t2 = uitofp nneg i64 %a1 to double
+  %t4 = fdiv double 1.000000e+00, %t2
+  %0 = insertelement <2 x double> poison, double %t4, i64 0
+  %1 = shufflevector <2 x double> %0, <2 x double> poison, <2 x i32> zeroinitializer
+  br label %bb2
+
+bb2:                                              ; preds = %bb2, %start
+  %l14.018 = phi double [ 1.000000e+00, %start ], [ %58, %bb2 ]
+  %l16.016 = phi double [ 1.000000e+00, %start ], [ %59, %bb2 ]
+  %l18.014 = phi double [ 1.000000e+00, %start ], [ %t198, %bb2 ]
+  %l20.012 = phi double [ 1.000000e+00, %start ], [ %34, %bb2 ]
+  %l21.011 = phi double [ 0.000000e+00, %start ], [ %31, %bb2 ]
+  %l22.010 = phi double [ 1.000000e+00, %start ], [ %t229, %bb2 ]
+  %l25.07 = phi i64 [ 1, %start ], [ %t265, %bb2 ]
+  %2 = phi <2 x double> [ zeroinitializer, %start ], [ %39, %bb2 ]
+  %3 = phi <2 x double> [ zeroinitializer, %start ], [ %13, %bb2 ]
+  %4 = phi <2 x double> [ zeroinitializer, %start ], [ %44, %bb2 ]
+  %5 = phi <2 x double> [ zeroinitializer, %start ], [ %49, %bb2 ]
+  %6 = phi <2 x double> [ splat (double 1.000000e+00), %start ], [ %24, %bb2 ]
+  %7 = phi <2 x double> [ splat (double 1.000000e+00), %start ], [ %33, %bb2 ]
+  %8 = phi <2 x double> [ zeroinitializer, %start ], [ %57, %bb2 ]
+  %9 = phi <2 x double> [ zeroinitializer, %start ], [ %19, %bb2 ]
+  %t12 = sitofp i64 %l25.07 to double
+  %t32 = fmul double %t12, %t12
+  %10 = insertelement <2 x double> poison, double %t12, i64 0
+  %11 = insertelement <2 x double> %10, double %t32, i64 1
+  %12 = fdiv <2 x double> splat (double 1.000000e+00), %11
+  %13 = fadd <2 x double> %12, %3
+  %14 = and i64 %l25.07, -9223372036854775807
+  %t49 = icmp eq i64 %14, 1
+  %t97 = fmul double %t12, 2.000000e+00
+  %t99 = fadd double %t97, -1.000000e+00
+  %t101 = fdiv double 4.000000e+00, %t99
+  %15 = insertelement <2 x double> %12, double %t101, i64 1
+  %16 = insertelement <2 x i1> poison, i1 %t49, i64 0
+  %17 = shufflevector <2 x i1> %16, <2 x i1> poison, <2 x i32> zeroinitializer
+  %18 = fneg <2 x double> %15
+  %.p = select <2 x i1> %17, <2 x double> %15, <2 x double> %18
+  %19 = fadd <2 x double> %9, %.p
+  %t168 = fneg double %l16.016
+  %t174 = fadd double %t97, 1.000000e+00
+  %t177 = fmul double %t97, %t174
+  %20 = insertelement <2 x double> poison, double %l14.018, i64 0
+  %21 = insertelement <2 x double> %20, double %t168, i64 1
+  %22 = insertelement <2 x double> %10, double %t177, i64 1
+  %23 = fdiv <2 x double> %21, %22
+  %24 = fadd <2 x double> %6, %23
+  %t186 = fneg double %l18.014
+  %t195 = fmul double %t97, %t99
+  %t198 = fdiv double %t186, %t195
+  %t204 = fmul double %l20.012, -4.000000e+00
+  %t206 = fmul double %l21.011, 1.000000e-01
+  %t209 = fsub double %t204, %t206
+  %25 = insertelement <2 x double> poison, double %t198, i64 0
+  %t223 = fmul double %l22.010, 0x3FE6666666666666
+  %t226 = fmul double %t4, %t223
+  %t229 = fsub double %l22.010, %t226
+  %26 = insertelement <2 x double> poison, double %t209, i64 0
+  %27 = insertelement <2 x double> %26, double %t12, i64 1
+  %28 = fmul <2 x double> %1, %27
+  %29 = insertelement <2 x double> %1, double %l21.011, i64 0
+  %30 = fadd <2 x double> %29, %28
+  %31 = extractelement <2 x double> %30, i64 0
+  %t218 = fmul double %t4, %31
+  %32 = insertelement <2 x double> %25, double %t218, i64 1
+  %33 = fadd <2 x double> %7, %32
+  %34 = extractelement <2 x double> %33, i64 1
+  %t236 = fmul double %34, 2.000000e+00
+  %35 = shufflevector <2 x double> %33, <2 x double> %28, <2 x i32> <i32 1, i32 3>
+  %36 = insertelement <2 x double> %28, double %t236, i64 0
+  %37 = fmul <2 x double> %35, %36
+  %38 = shufflevector <2 x double> %28, <2 x double> %37, <2 x i32> <i32 1, i32 3>
+  %39 = fadd <2 x double> %38, %2
+  %40 = extractelement <2 x double> %37, i64 1
+  %t120 = fadd double %40, 1.000000e+00
+  %t122 = fdiv double 4.000000e+00, %t120
+  %t130 = fsub double 1.000000e+00, %40
+  %t132 = tail call double @llvm.sqrt.f64(double %t130)
+  %t134 = fmul double %t132, 4.000000e+00
+  %41 = insertelement <2 x double> poison, double %t122, i64 0
+  %42 = insertelement <2 x double> %41, double %t134, i64 1
+  %43 = fmul <2 x double> %1, %42
+  %44 = fadd <2 x double> %43, %4
+  %45 = extractelement <2 x double> %28, i64 1
+  %t142 = tail call double @llvm.sqrt.f64(double %45)
+  %t150 = fadd double %45, 1.000000e+00
+  %t152 = tail call double @llvm.sqrt.f64(double %t150)
+  %t154 = fdiv double 1.000000e+00, %t152
+  %46 = insertelement <2 x double> poison, double %t142, i64 0
+  %47 = insertelement <2 x double> %46, double %t154, i64 1
+  %48 = fmul <2 x double> %1, %47
+  %49 = fadd <2 x double> %48, %5
+  %t231 = fmul double %31, 5.000000e-01
+  %50 = insertelement <2 x double> %28, double %t231, i64 0
+  %51 = fmul <2 x double> %30, %50
+  %52 = fadd <2 x double> %51, %37
+  %53 = fsub <2 x double> %51, %37
+  %54 = shufflevector <2 x double> %52, <2 x double> %53, <2 x i32> <i32 0, i32 3>
+  %55 = shufflevector <2 x double> %1, <2 x double> %53, <2 x i32> <i32 1, i32 3>
+  %56 = fmul <2 x double> %55, %54
+  %57 = fadd <2 x double> %8, %56
+  %t53 = icmp eq i64 %l25.07, %a1
+  %t265 = add nuw i64 %l25.07, 1
+  %t8.not = icmp sgt i64 %t265, %a1
+  %or.cond = select i1 %t53, i1 true, i1 %t8.not
+  %58 = extractelement <2 x double> %23, i64 0
+  %59 = extractelement <2 x double> %23, i64 1
+  br i1 %or.cond, label %bb4, label %bb2
+
+bb4:                                              ; preds = %bb2
+  store <2 x double> %39, ptr %l0, align 8
+  %t75 = getelementptr inbounds nuw i8, ptr %l0, i64 16
+  store <2 x double> %13, ptr %t75, align 8
+  %t77 = getelementptr inbounds nuw i8, ptr %l0, i64 32
+  store <2 x double> %19, ptr %t77, align 8
+  %t79 = getelementptr inbounds nuw i8, ptr %l0, i64 48
+  store <2 x double> %44, ptr %t79, align 8
+  %t81 = getelementptr inbounds nuw i8, ptr %l0, i64 64
+  store <2 x double> %49, ptr %t81, align 8
+  %t83 = getelementptr inbounds nuw i8, ptr %l0, i64 80
+  store <2 x double> %24, ptr %t83, align 8
+  %t85 = getelementptr inbounds nuw i8, ptr %l0, i64 96
+  store <2 x double> %33, ptr %t85, align 8
+  %t87 = getelementptr inbounds nuw i8, ptr %l0, i64 112
+  store double %31, ptr %t87, align 8
+  %t88 = getelementptr inbounds nuw i8, ptr %l0, i64 120
+  store double %t229, ptr %t88, align 8
+  %t89 = getelementptr inbounds nuw i8, ptr %l0, i64 128
+  store <2 x double> %57, ptr %t89, align 8
+  ret void
+}

@@ -201,11 +201,21 @@ impl String {
     }
 
     /// Appends a character.
+    @inline
     pub fn push(inout self, c: char) {
         let v = c as u32
         if v < 0x80 {
             self.push_byte(v as u8)
-        } else if v < 0x800 {
+        } else {
+            self.push_multibyte(c)
+        }
+    }
+
+    // Keep the ASCII append small enough to inline into byte-building loops.
+    // The Unicode path retains exactly the same checked operations and growth.
+    fn push_multibyte(inout self, c: char) {
+        let v = c as u32
+        if v < 0x800 {
             self.push_byte((0xC0 | (v >> 6)) as u8)
             self.push_byte((0x80 | (v & 0x3F)) as u8)
         } else if v < 0x10000 {

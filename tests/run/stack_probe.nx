@@ -1,0 +1,14 @@
+// targets: linux
+// Each frame is larger than the kernel guard gap. Probes must fault before a
+// write can jump over that gap, including after optimization (ADR 0011, T1).
+fn deep(n: u64) -> u64 {
+    var buf: [u64; 524288] = [n; 524288]
+    buf[(n % 524288) as usize] = n *% 3
+    let r = deep(n +% 1)
+    return r ^ buf[((r +% n) % 524288) as usize]
+}
+
+fn main() {
+    println("before")
+    println(deep(0))
+}

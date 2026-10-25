@@ -631,6 +631,49 @@ fn lsp_reports_missing_cached_dependency_on_manifest_without_fetching() {
     assert_eq!(client.exit(true), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn diagnostics_keep_the_client_uri_through_a_directory_alias() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    let project = scratch.path().join("real");
+    std::fs::create_dir_all(project.join("src/tools")).unwrap();
+    let main = "import tools.calc\nfn main() { let answer: i32 = calc.value(); println(answer) }\n";
+    let calc = "pub fn value() -> i32 { return 42 }\n";
+    std::fs::write(project.join("nexul.toml"), "[package]\nname = \"alias\"\nversion = \"0.1.0\"\n").unwrap();
+    std::fs::write(project.join("src/main.nx"), main).unwrap();
+    std::fs::write(project.join("src/tools/calc.nx"), calc).unwrap();
+    let alias = scratch.path().join("alias");
+    std::os::unix::fs::symlink(&project, &alias).unwrap();
+    let main_uri = uri(&alias.join("src/main.nx"));
+    let calc_uri = uri(&alias.join("src/tools/calc.nx"));
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    for (uri, text) in [(&main_uri, main), (&calc_uri, calc)] {
+        client.notification("textDocument/didOpen", &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":1,\"text\":{}}}}}", quote(uri), quote(text)));
+    }
+    assert!(client.diagnostics(&main_uri, 1).contains("\"diagnostics\":[]"));
+    assert!(client.diagnostics(&calc_uri, 1).contains("\"diagnostics\":[]"));
+    client.notification("textDocument/didChange", &format!(
+        "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
+        quote(&calc_uri), quote("pub fn value() -> String { return \"wrong\" }\n")));
+    let diagnostics = client.diagnostics(&main_uri, 1);
+    assert!(diagnostics.contains("\"diagnostics\":[{"), "{diagnostics}");
+    assert_eq!(client.exit(true), 0);
+
+    std::fs::write(project.join("nexul.toml"),
+        "[package]\nname = \"alias\"\nversion = \"0.1.0\"\n\n[dependencies]\nremote = { git = \"https://example.invalid/remote.git\", tag = \"v1\" }\n").unwrap();
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("textDocument/didOpen", &format!(
+        "{{\"textDocument\":{{\"uri\":{},\"version\":1,\"text\":{}}}}}", quote(&main_uri), quote(main)));
+    let diagnostics = client.diagnostics_without_version(&uri(&alias.join("nexul.toml")));
+    assert!(diagnostics.contains("dependency `remote`"), "{diagnostics}");
+    assert!(!project.join("nexul.lock").exists());
+    assert_eq!(client.exit(true), 0);
+}
+
 #[test]
 fn lsp_hot_requests_and_diagnostics_meet_the_latency_targets() {
     let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
