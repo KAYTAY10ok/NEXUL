@@ -1,0 +1,8 @@
+// edition: 1
+// A strict bound is rounded to the f32 base type before comparing at run time.
+type Cut = f32 where it < 16777217.0
+
+fn main() {
+    let f32 value = 16777216.0
+    println(Cut.check(value).is_some())
+}

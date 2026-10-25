@@ -10,7 +10,7 @@ use super::{Expect, FnCtxt};
 use crate::defs::{AdtId, ConstValue};
 use crate::newtype::VALIDATE_FN;
 use crate::thir::{self, CallArg, Callee, ExprKind as T};
-use crate::ty::{Ty, TyKind};
+use crate::ty::{FloatTy, Ty, TyKind};
 use nxc_syntax::ast::{self, BinOp, ConstraintKind, Convention, Lit, UnOp};
 use nxc_syntax::{Diagnostic, Span};
 
@@ -99,7 +99,12 @@ impl<'a> FnCtxt<'a> {
     fn check_literal_condition(&mut self, id: AdtId, v: &ConstValue, span: Span) {
         let a = self.p.adt(id);
         let Some(cond) = a.newtype.as_ref().and_then(|n| n.cond.as_ref()) else { return };
-        if eval(cond, v) == Some(false) {
+        let base = a.fields()[0].ty;
+        let f32_base = matches!(
+            &*self.tcx().kind(base),
+            TyKind::Float(FloatTy::F32)
+        );
+        if eval(cond, v, f32_base) == Some(false) {
             self.err(
                 Diagnostic::error("E0252", format!("`{}` does not satisfy the condition of `{}`", show(v), a.name))
                     .primary(span, "outside the condition")
@@ -180,26 +185,109 @@ fn cmp_ord(o: std::cmp::Ordering, op: BinOp) -> bool {
     }
 }
 
+fn at_f32_precision(n: Num, f32_base: bool) -> Num {
+    if !f32_base {
+        return n;
+    }
+    let f = match n {
+        Num::Int(n) => n as f32,
+        Num::Float(f) => f as f32,
+    };
+    Num::Float(f as f64)
+}
+
 /// The condition evaluated on a constant; `None` if it cannot be (an error was reported
 /// on the declaration).
-fn eval(c: &ast::Constraint, v: &ConstValue) -> Option<bool> {
-    let it = num_of_value(v)?;
+fn eval(c: &ast::Constraint, v: &ConstValue, f32_base: bool) -> Option<bool> {
+    let it = at_f32_precision(num_of_value(v)?, f32_base);
     match &c.kind {
-        ConstraintKind::Or(a, b) => Some(eval(a, v)? || eval(b, v)?),
-        ConstraintKind::And(a, b) => Some(eval(a, v)? && eval(b, v)?),
-        ConstraintKind::Not(a) => Some(!eval(a, v)?),
+        ConstraintKind::Or(a, b) => Some(eval(a, v, f32_base)? || eval(b, v, f32_base)?),
+        ConstraintKind::And(a, b) => Some(eval(a, v, f32_base)? && eval(b, v, f32_base)?),
+        ConstraintKind::Not(a) => Some(!eval(a, v, f32_base)?),
         ConstraintKind::In { lo, hi, inclusive } => {
-            let ge = cmp(it, BinOp::Ge, num_of_expr(lo)?)?;
-            let below = cmp(it, if *inclusive { BinOp::Le } else { BinOp::Lt }, num_of_expr(hi)?)?;
+            let lo = at_f32_precision(num_of_expr(lo)?, f32_base);
+            let hi = at_f32_precision(num_of_expr(hi)?, f32_base);
+            let ge = cmp(it, BinOp::Ge, lo)?;
+            let below = cmp(it, if *inclusive { BinOp::Le } else { BinOp::Lt }, hi)?;
             Some(ge && below)
         }
         ConstraintKind::Cmp { op, value, it_left } => {
-            let k = num_of_expr(value)?;
+            let k = at_f32_precision(num_of_expr(value)?, f32_base);
             if *it_left {
                 cmp(it, *op, k)
             } else {
                 cmp(k, *op, it)
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn expr(lit: Lit) -> ast::Expr {
+        ast::Expr {
+            kind: ast::ExprKind::Lit(lit),
+            span: Span::DUMMY,
+        }
+    }
+
+    fn cmp_constraint(op: BinOp, value: Lit, it_left: bool) -> ast::Constraint {
+        ast::Constraint {
+            kind: ConstraintKind::Cmp {
+                op,
+                value: expr(value),
+                it_left,
+            },
+            span: Span::DUMMY,
+        }
+    }
+
+    #[test]
+    fn f32_literal_constraints_use_the_base_type_precision() {
+        let value = ConstValue::Float(16_777_216.0);
+        let upper_float = cmp_constraint(BinOp::Lt, Lit::Float(16_777_217.0), true);
+        let upper_int = cmp_constraint(BinOp::Lt, Lit::Int(16_777_217), true);
+        let reversed = cmp_constraint(BinOp::Gt, Lit::Float(16_777_217.0), false);
+
+        assert_eq!(eval(&upper_float, &value, true), Some(false));
+        assert_eq!(eval(&upper_float, &value, false), Some(true));
+        assert_eq!(eval(&upper_int, &value, true), Some(false));
+        assert_eq!(eval(&upper_int, &value, false), Some(true));
+        assert_eq!(eval(&reversed, &value, true), Some(false));
+        assert_eq!(eval(&reversed, &value, false), Some(true));
+    }
+
+    #[test]
+    fn f32_precision_is_kept_through_ranges_and_compound_conditions() {
+        let value = ConstValue::Float(16_777_216.0);
+        let range = ast::Constraint {
+            kind: ConstraintKind::In {
+                lo: expr(Lit::Float(16_777_217.0)),
+                hi: expr(Lit::Float(16_777_218.0)),
+                inclusive: true,
+            },
+            span: Span::DUMMY,
+        };
+        let below_unrounded_bound = cmp_constraint(BinOp::Lt, Lit::Float(16_777_217.0), true);
+        let range_and_not = ast::Constraint {
+            kind: ConstraintKind::And(
+                Box::new(range.clone()),
+                Box::new(ast::Constraint {
+                    kind: ConstraintKind::Not(Box::new(below_unrounded_bound.clone())),
+                    span: Span::DUMMY,
+                }),
+            ),
+            span: Span::DUMMY,
+        };
+        let condition = ast::Constraint {
+            kind: ConstraintKind::Or(Box::new(below_unrounded_bound), Box::new(range_and_not)),
+            span: Span::DUMMY,
+        };
+
+        assert_eq!(eval(&range, &value, true), Some(true));
+        assert_eq!(eval(&range, &value, false), Some(false));
+        assert_eq!(eval(&condition, &value, true), Some(true));
     }
 }
