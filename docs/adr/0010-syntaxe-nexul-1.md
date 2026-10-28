@@ -643,3 +643,30 @@ Reste : `===`/`!==` (avec les valeurs partagées), types distincts et contraints
 - **Type après le nom** (`x: i32`, `-> i32`) : écarté à la demande de l'utilisateur.
 - **Indentation significative** : écartée (passation §3.1 : pas de règle dépendant
   d'espaces mal définis ; copier-coller fragile).
+
+## Questions ouvertes (28/10/2026) — à décider par l'utilisateur
+
+Constatées en migrant la bibliothèque standard (Claude Main). Tant qu'elles ne sont pas
+tranchées, `vec.nx`, `string.nx`, `collections.nx` et `tache.nx` restent en édition 0.2, et
+`nxc migrate` signale ces cas au lieu de les réécrire.
+
+**Q1. Une méthode contrainte sur un paramètre de son type.** En 0.2,
+`impl Vec { fn contains(self, value: T) -> bool where T: Eq { … } }` ; en édition 1, ni
+l'en-tête de la méthode ni `extend Vec[T is Eq] { … }` (refusé : E0224) ne peuvent l'écrire.
+Un programme en édition 1 ne peut donc pas définir un conteneur générique complet.
+
+- **Proposition A (recommandée)** : `extend Vec[T is Eq] { pub fn bool contains(self, T value) … }`
+  — un bloc conditionnel, comme les `extend … is Interface` existants ; une seule règle à
+  apprendre ; les méthodes n'existent que si la contrainte est satisfaite (message clair
+  sinon). `nxc migrate` regroupe les méthodes par contrainte.
+- **Proposition B** : `pub fn bool contains(self, T value) where T is Eq { … }` — plus
+  proche de la 0.2, migration ligne à ligne, mais `where` y prend un second sens (il
+  désigne déjà la condition d'un type contraint, ADR 0014).
+
+**Q2. Une méthode publique dont le nom devient réservé** (`repeat`, `any`, `extend`,
+`test`) : `v.any(f)` s'écrit déjà en édition 1 (un nom après un point n'est jamais un mot
+clé), mais `fn bool any(…)` ne se déclare pas.
+
+- **Proposition (recommandée)** : accepter un mot réservé comme **nom de méthode ou de
+  champ** dans sa déclaration (le mot suit `fn T` ou un type, jamais en tête
+  d'instruction), sans le permettre ailleurs. Aucun renommage de l'API, aucune rupture.

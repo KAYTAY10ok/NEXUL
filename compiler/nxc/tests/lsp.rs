@@ -946,18 +946,26 @@ fn lsp_hot_requests_and_diagnostics_meet_the_latency_targets() {
         }
     }
 
-    let changed = format!("// revision 2\n{}", text);
-    let started = Instant::now();
-    client.notification(
-        "textDocument/didChange",
-        &format!(
-            "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
-            quote(&uri), quote(&changed)
-        ),
-    );
-    client.diagnostics(&uri, 2);
-    let diagnostics_latency = started.elapsed();
-    eprintln!("nxc lsp diagnostics latency: {diagnostics_latency:.2?}; warmup {warmup:.2?}");
+    // Five successive changes: the median is compared with the target of ADR 0009 §8, so
+    // that one pause of a shared machine (CI) does not decide alone.
+    let mut latencies = Vec::new();
+    for version in 2..=6 {
+        let changed = format!("// revision {version}\n{}", text);
+        let started = Instant::now();
+        client.notification(
+            "textDocument/didChange",
+            &format!(
+                "{{\"textDocument\":{{\"uri\":{},\"version\":{version}}},\"contentChanges\":[{{\"text\":{}}}]}}",
+                quote(&uri), quote(&changed)
+            ),
+        );
+        client.diagnostics(&uri, version);
+        latencies.push(started.elapsed());
+    }
+    let mut sorted = latencies.clone();
+    sorted.sort();
+    let diagnostics_latency = sorted[sorted.len() / 2];
+    eprintln!("nxc lsp diagnostics latency: median {diagnostics_latency:.2?} of {latencies:.2?}; warmup {warmup:.2?}");
     if !cfg!(debug_assertions) {
         assert!(
             diagnostics_latency < Duration::from_millis(300),
