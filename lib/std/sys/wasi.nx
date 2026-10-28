@@ -550,3 +550,59 @@ pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] o
     let _ = code
     return 52
 }
+
+// ---------------------------------------------------------------------------
+// TCP (std.net): unavailable on this target (-1).
+
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    let _ = listener
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn u16 socket_port(i64 handle) {
+    let _ = handle
+    return 0
+}
+
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    let _ = handle
+    let _ = buffer
+    let _ = len
+    let _ = got
+    return -1
+}
+
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    let _ = handle
+    let _ = data
+    let _ = len
+    return -1
+}
+
+pub fn socket_shutdown(i64 handle) {
+    let _ = handle
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = handle
+}
+
+pub fn u8 net_error_kind(i32 code) {
+    let _ = code
+    return 0
+}

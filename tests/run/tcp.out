@@ -1,0 +1,18 @@
+port chosen: true
+HELLO 0 | NEXUL
+HELLO 1 | NEXUL
+HELLO 2 | NEXUL
+HELLO 3 | NEXUL
+HELLO 4 | NEXUL
+HELLO 5 | NEXUL
+HELLO 6 | NEXUL
+HELLO 7 | NEXUL
+lines served: 16
+refused: true
+localhost:80 -> 127.0.0.1:80
+10.0.0.255:65535 -> 10.0.0.255:65535
+1.2.3:4 -> none
+1.2.3.4 -> none
+256.0.0.1:1 -> none
+1.2.3.4:70000 -> none
+a.b.c.d:1 -> none

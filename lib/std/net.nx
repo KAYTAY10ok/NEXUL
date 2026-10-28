@@ -1,0 +1,225 @@
+// edition: 1
+/// TCP over IPv4 (spec chapter 09): a listener that accepts connections, and streams of
+/// bytes in both directions. The operations block the task that makes them; a server
+/// serves each connection in its own task (`tache.lancer_detachee`).
+///
+/// An address is `a.b.c.d:port` or `localhost:port`; names are not resolved yet (no DNS)
+/// and IPv6 is not supported yet.
+
+import std.sys
+import std.io.{IoError}
+
+/// An IPv4 address and a port.
+@derive(Eq, Clone)
+pub type Address {
+    /// The address, `a` in its high byte for `a.b.c.d`.
+    pub u32 ip
+    pub u16 port
+}
+
+extend Address is Display {
+    fn String to_string(self) {
+        let ip = self.ip
+        return "{ip >> 24}.{(ip >> 16) & 255}.{(ip >> 8) & 255}.{ip & 255}:{self.port}"
+    }
+}
+
+/// Reads `a.b.c.d:port` or `localhost:port`.
+pub fn Option[Address] parse_address(String text) {
+    let colon = when text.find(":") {
+        .Some(i) then i
+        .None then return None
+    }
+    let host = text.substring(0, colon)
+    let port = when text.substring(colon + 1, text.len()).parse_int() {
+        .Some(p) then p
+        .None then return None
+    }
+    if port < 0 or port > 65535 {
+        return None
+    }
+    if host == "localhost" {
+        return Some(Address(ip: 0x7f00_0001, port: port as u16))
+    }
+    let parts = host.split(".")
+    if parts.len() != 4 {
+        return None
+    }
+    var u32 ip = 0
+    for part in parts {
+        // Digits only: `parse_int` would accept a sign.
+        if part.len() == 0 or part.len() > 3 or part.starts_with("+") or part.starts_with("-") {
+            return None
+        }
+        let n = when part.parse_int() {
+            .Some(n) then n
+            .None then return None
+        }
+        if n > 255 {
+            return None
+        }
+        ip = ip << 8 | n as u32
+    }
+    return Some(Address(ip: ip, port: port as u16))
+}
+
+/// The error for a code of the system layer, about `what` (an address).
+fn IoError error(i32 code, String action, String what) {
+    let reason = when sys.net_error_kind(code) {
+        1 then "connection refused"
+        2 then "connection reset"
+        3 then "address in use"
+        4 then return IoError.Interrupted
+        5 then "timed out"
+        6 then "unreachable"
+        _ then when sys.io_error_kind(code) {
+            2 then return IoError.PermissionDenied(what.clone())
+            _ then "cannot {action}"
+        }
+    }
+    return IoError.Other(code, "{reason}: {what}")
+}
+
+fn Result[Address, IoError] to_address(String text) {
+    return when parse_address(text) {
+        .Some(a) then Ok(a)
+        .None then Err(IoError.InvalidData("not an IPv4 address with a port: {text}"))
+    }
+}
+
+/// A socket that waits for connections.
+pub type TcpListener {
+    i64 handle
+}
+
+extend TcpListener {
+    /// Listens on `address` (`127.0.0.1:0`: a free port chosen by the system, see
+    /// `port`).
+    pub fn Result[TcpListener, IoError] bind(String address) {
+        let a = to_address(address)?
+        var i64 handle = -1
+        let code = sys.tcp_listen(a.ip, a.port, handle!)
+        if code != 0 {
+            return Err(error(code, "listen on", address))
+        }
+        return Ok(TcpListener(handle: handle))
+    }
+
+    /// The port it listens on.
+    pub fn u16 port(self) {
+        return sys.socket_port(self.handle)
+    }
+
+    /// Waits for the next connection.
+    pub fn Result[TcpStream, IoError] accept(self) {
+        var i64 handle = -1
+        let code = sys.tcp_accept(self.handle, handle!)
+        if code != 0 {
+            return Err(error(code, "accept on", "port {self.port()}"))
+        }
+        return Ok(TcpStream(handle: handle))
+    }
+
+    fn drop(self!) {
+        sys.socket_close(self.handle)
+    }
+}
+
+/// A TCP connection: bytes in both directions.
+pub type TcpStream {
+    i64 handle
+}
+
+extend TcpStream {
+    /// Connects to `address`.
+    pub fn Result[TcpStream, IoError] connect(String address) {
+        let a = to_address(address)?
+        var i64 handle = -1
+        let code = sys.tcp_connect(a.ip, a.port, handle!)
+        if code != 0 {
+            return Err(error(code, "connect to", address))
+        }
+        return Ok(TcpStream(handle: handle))
+    }
+
+    /// Reads what has arrived, at most `max` bytes, appended to `out`; 0 once the peer
+    /// has closed its side and everything was read.
+    pub fn Result[usize, IoError] read(self, Vec[u8] out!, usize max) {
+        out.reserve(max)
+        var usize got = 0
+        let code = unsafe { sys.socket_read(self.handle, out.as_ptr().offset(out.len()), max, got!) }
+        if code != 0 {
+            return Err(error(code, "read from", "a connection"))
+        }
+        unsafe {
+            out.set_len(out.len() + got)
+        }
+        return Ok(got)
+    }
+
+    /// Reads until the peer closes its side.
+    pub fn Result[Vec[u8], IoError] read_to_end(self) {
+        var Vec[u8] all = Vec.new()
+        loop {
+            if self.read(all!, 65536)? == 0 {
+                return Ok(all)
+            }
+        }
+    }
+
+    /// Reads until the peer closes its side, as UTF-8 text (invalid bytes become U+FFFD).
+    pub fn Result[String, IoError] read_text(self) {
+        let bytes = self.read_to_end()?
+        return Ok(unsafe { String.from_bytes_lossy(bytes.as_ptr(), bytes.len()) })
+    }
+
+    /// Reads one line (without its `\n` or `\r\n`); none once the peer has closed its
+    /// side. Reads byte by byte: meant for short exchanges.
+    pub fn Result[Option[String], IoError] read_line(self) {
+        var Vec[u8] line = Vec.new()
+        loop {
+            let before = line.len()
+            if self.read(line!, 1)? == 0 {
+                if line.len() == 0 {
+                    return Ok(None)
+                }
+                break
+            }
+            if line[before] == 10 {
+                line.pop()
+                break
+            }
+        }
+        if line.len() > 0 and line[line.len() - 1] == 13 {
+            line.pop()
+        }
+        return Ok(Some(unsafe { String.from_bytes_lossy(line.as_ptr(), line.len()) }))
+    }
+
+    /// Writes all of `text`.
+    pub fn Result[(), IoError] write(self, String text) {
+        let code = sys.socket_write(self.handle, text.as_ptr(), text.len())
+        if code != 0 {
+            return Err(error(code, "write to", "a connection"))
+        }
+        return Ok(())
+    }
+
+    /// Writes all of `bytes`.
+    pub fn Result[(), IoError] write_bytes(self, Vec[u8] bytes) {
+        let code = sys.socket_write(self.handle, bytes.as_ptr(), bytes.len())
+        if code != 0 {
+            return Err(error(code, "write to", "a connection"))
+        }
+        return Ok(())
+    }
+
+    /// Ends the writing side: the peer reads the end of the data, and can still answer.
+    pub fn shutdown(self) {
+        sys.socket_shutdown(self.handle)
+    }
+
+    fn drop(self!) {
+        sys.socket_close(self.handle)
+    }
+}

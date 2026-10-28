@@ -1074,3 +1074,186 @@ pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] o
         return 0
     }
 }
+
+// ---------------------------------------------------------------------------
+// TCP over IPv4 (std.net)
+
+@cfg("x86_64")
+const isize SYS_SOCKET = 41
+@cfg("x86_64")
+const isize SYS_CONNECT = 42
+@cfg("x86_64")
+const isize SYS_SENDTO = 44
+@cfg("x86_64")
+const isize SYS_RECVFROM = 45
+@cfg("x86_64")
+const isize SYS_SHUTDOWN = 48
+@cfg("x86_64")
+const isize SYS_BIND = 49
+@cfg("x86_64")
+const isize SYS_LISTEN = 50
+@cfg("x86_64")
+const isize SYS_GETSOCKNAME = 51
+@cfg("x86_64")
+const isize SYS_SETSOCKOPT = 54
+@cfg("x86_64")
+const isize SYS_ACCEPT4 = 288
+
+@cfg("!x86_64")
+const isize SYS_SOCKET = 198
+@cfg("!x86_64")
+const isize SYS_BIND = 200
+@cfg("!x86_64")
+const isize SYS_LISTEN = 201
+@cfg("!x86_64")
+const isize SYS_CONNECT = 203
+@cfg("!x86_64")
+const isize SYS_GETSOCKNAME = 204
+@cfg("!x86_64")
+const isize SYS_SENDTO = 206
+@cfg("!x86_64")
+const isize SYS_RECVFROM = 207
+@cfg("!x86_64")
+const isize SYS_SETSOCKOPT = 208
+@cfg("!x86_64")
+const isize SYS_SHUTDOWN = 210
+@cfg("!x86_64")
+const isize SYS_ACCEPT4 = 242
+
+/// struct sockaddr_in for `ip:port` (both in the order of the machine).
+fn [u64; 2] sockaddr(u32 ip, u16 port) {
+    // AF_INET, then the port and the address in network order (big-endian).
+    let q = port as u64
+    let p = (q >> 8) | (q & 0xff) << 8
+    let i = ip as u64
+    let a = i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24
+    return [2 | p << 16 | a << 32, 0]
+}
+
+/// A new TCP socket (closed by `exec`), or minus `errno`.
+unsafe fn isize tcp_socket() {
+    // AF_INET, SOCK_STREAM | SOCK_CLOEXEC
+    return sys3(SYS_SOCKET, 2, 0x80001, 0)
+}
+
+/// Listens on `ip:port` (port 0: one chosen by the system); `handle` receives the socket.
+/// Returns 0, or the error code.
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        // SOL_SOCKET, SO_REUSEADDR: a server restarted at once gets its port back.
+        var i32 one = 1
+        let _ = syscall6(SYS_SETSOCKOPT, fd, 1, 2, addr(mem.addr_of(one!).cast[u8]()), 4, 0)
+        var a = sockaddr(ip, port)
+        var r = sys3(SYS_BIND, fd, addr(mem.addr_of(a!).cast[u8]()), 16)
+        if r == 0 {
+            r = sys2(SYS_LISTEN, fd, 128)
+        }
+        if r < 0 {
+            let _ = sys1(SYS_CLOSE, fd)
+            return (-r) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Waits for a connection on `listener`; `handle` receives its socket. Returns 0, or the
+/// error code.
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    unsafe {
+        // SOCK_CLOEXEC
+        let fd = retry6(SYS_ACCEPT4, listener as isize, 0, 0, 0x80000, 0)
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Connects to `ip:port`; `handle` receives the socket. Returns 0, or the error code.
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        var a = sockaddr(ip, port)
+        let r = retry6(SYS_CONNECT, fd, addr(mem.addr_of(a!).cast[u8]()), 16, 0, 0)
+        if r < 0 {
+            let _ = sys1(SYS_CLOSE, fd)
+            return (-r) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// The local port of a socket (the one chosen by the system for port 0).
+pub fn u16 socket_port(i64 handle) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var u32 len = 16
+        let _ = sys3(SYS_GETSOCKNAME, handle as isize, addr(mem.addr_of(a!).cast[u8]()), addr(mem.addr_of(len!).cast[u8]()))
+        let p = (a[0] >> 16) & 0xffff
+        return ((p >> 8) | (p & 0xff) << 8) as u16
+    }
+}
+
+/// Reads at most `len` bytes; `got` receives their number (0: the peer closed its side).
+/// Returns 0, or the error code.
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    unsafe {
+        let n = retry6(SYS_RECVFROM, handle as isize, addr(buffer), len as isize, 0, 0)
+        if n < 0 {
+            return (-n) as i32
+        }
+        got = n as usize
+        return 0
+    }
+}
+
+/// Writes all of `data`. Returns 0, or the error code (a closed peer is an error, not the
+/// signal SIGPIPE).
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    unsafe {
+        var usize done = 0
+        while done < len {
+            // MSG_NOSIGNAL
+            let n = retry6(SYS_SENDTO, handle as isize, addr(data.offset(done)), (len - done) as isize, 0x4000, 0)
+            if n < 0 {
+                return (-n) as i32
+            }
+            done += n as usize
+        }
+        return 0
+    }
+}
+
+/// Ends the writing side: the peer reads the end of the data.
+pub fn socket_shutdown(i64 handle) {
+    // SHUT_WR
+    let _ = unsafe { sys2(SYS_SHUTDOWN, handle as isize, 1) }
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = unsafe { sys1(SYS_CLOSE, handle as isize) }
+}
+
+/// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
+/// peer gone, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
+pub fn u8 net_error_kind(i32 code) {
+    return when code {
+        111 then 1 // ECONNREFUSED
+        104 | 32 then 2 // ECONNRESET, EPIPE
+        98 then 3 // EADDRINUSE
+        4 then 4 // EINTR
+        110 then 5 // ETIMEDOUT
+        101 | 113 then 6 // ENETUNREACH, EHOSTUNREACH
+        _ then 0
+    }
+}

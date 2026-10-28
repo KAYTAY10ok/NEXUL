@@ -1129,3 +1129,194 @@ pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] o
         return 0
     }
 }
+
+// ---------------------------------------------------------------------------
+// TCP over IPv4 (std.net), through Winsock
+
+@link("ws2_32")
+extern "C" fn i32 WSAStartup(u16 version, Ptr[u8] data)
+@link("ws2_32")
+extern "C" fn i32 WSAGetLastError()
+@link("ws2_32")
+extern "C" fn usize socket(i32 af, i32 kind, i32 protocol)
+@link("ws2_32")
+extern "C" fn i32 bind(usize s, Ptr[u8] address, i32 len)
+@link("ws2_32")
+extern "C" fn i32 listen(usize s, i32 backlog)
+@link("ws2_32")
+extern "C" fn usize accept(usize s, Ptr[u8] address, Ptr[i32] len)
+@link("ws2_32")
+extern "C" fn i32 connect(usize s, Ptr[u8] address, i32 len)
+@link("ws2_32")
+extern "C" fn i32 getsockname(usize s, Ptr[u8] address, Ptr[i32] len)
+@link("ws2_32")
+extern "C" fn i32 recv(usize s, Ptr[u8] buffer, i32 len, i32 flags)
+@link("ws2_32")
+extern "C" fn i32 send(usize s, Ptr[u8] buffer, i32 len, i32 flags)
+@link("ws2_32")
+extern "C" fn i32 shutdown(usize s, i32 how)
+@link("ws2_32")
+extern "C" fn i32 closesocket(usize s)
+
+static var u32 WINSOCK_READY = 0
+
+/// Starts Winsock once (WSAStartup counts its calls: a second one at the same time is
+/// harmless).
+unsafe fn i32 winsock() {
+    if mem.atomic_load(mem.addr_of(WINSOCK_READY!)) != 0 {
+        return 0
+    }
+    var [u64; 64] data = [0; 64]
+    let r = WSAStartup(0x0202, mem.addr_of(data!).cast[u8]())
+    if r == 0 {
+        mem.atomic_store(mem.addr_of(WINSOCK_READY!), 1)
+    }
+    return r
+}
+
+/// struct sockaddr_in for `ip:port` (both in the order of the machine).
+fn [u64; 2] sockaddr(u32 ip, u16 port) {
+    // AF_INET, then the port and the address in network order (big-endian).
+    let q = port as u64
+    let p = (q >> 8) | (q & 0xff) << 8
+    let i = ip as u64
+    let a = i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24
+    return [2 | p << 16 | a << 32, 0]
+}
+
+/// A socket not inherited by the programs this one runs.
+unsafe fn usize private_socket(usize s) {
+    // HANDLE_FLAG_INHERIT
+    let _ = SetHandleInformation(Ptr[u8].from_addr(s), 1, 0)
+    return s
+}
+
+/// A new TCP socket, or `usize.MAX` (INVALID_SOCKET).
+unsafe fn usize tcp_socket() {
+    // AF_INET, SOCK_STREAM, IPPROTO_TCP
+    let s = socket(2, 1, 6)
+    return if s == usize.MAX { s } else { private_socket(s) }
+}
+
+/// Listens on `ip:port` (port 0: one chosen by the system); `handle` receives the socket.
+/// Returns 0, or the error code. (No SO_REUSEADDR: on Windows it lets another program
+/// take the port.)
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let started = winsock()
+        if started != 0 {
+            return started
+        }
+        let s = tcp_socket()
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        var a = sockaddr(ip, port)
+        if bind(s, mem.addr_of(a!).cast[u8](), 16) != 0 or listen(s, 128) != 0 {
+            let e = WSAGetLastError()
+            let _ = closesocket(s)
+            return e
+        }
+        handle = s as i64
+        return 0
+    }
+}
+
+/// Waits for a connection on `listener`; `handle` receives its socket. Returns 0, or the
+/// error code.
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    unsafe {
+        let s = accept(listener as usize, Ptr.null(), Ptr.null())
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        handle = private_socket(s) as i64
+        return 0
+    }
+}
+
+/// Connects to `ip:port`; `handle` receives the socket. Returns 0, or the error code.
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let started = winsock()
+        if started != 0 {
+            return started
+        }
+        let s = tcp_socket()
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        var a = sockaddr(ip, port)
+        if connect(s, mem.addr_of(a!).cast[u8](), 16) != 0 {
+            let e = WSAGetLastError()
+            let _ = closesocket(s)
+            return e
+        }
+        handle = s as i64
+        return 0
+    }
+}
+
+/// The local port of a socket (the one chosen by the system for port 0).
+pub fn u16 socket_port(i64 handle) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var i32 len = 16
+        let _ = getsockname(handle as usize, mem.addr_of(a!).cast[u8](), mem.addr_of(len!))
+        let p = (a[0] >> 16) & 0xffff
+        return ((p >> 8) | (p & 0xff) << 8) as u16
+    }
+}
+
+/// Reads at most `len` bytes; `got` receives their number (0: the peer closed its side).
+/// Returns 0, or the error code.
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    unsafe {
+        let n = recv(handle as usize, buffer, if len > 0x4000_0000 { 0x4000_0000 } else { len as i32 }, 0)
+        if n < 0 {
+            return WSAGetLastError()
+        }
+        got = n as usize
+        return 0
+    }
+}
+
+/// Writes all of `data`. Returns 0, or the error code.
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    unsafe {
+        var usize done = 0
+        while done < len {
+            let part = len - done
+            let n = send(handle as usize, data.offset(done), if part > 0x4000_0000 { 0x4000_0000 } else { part as i32 }, 0)
+            if n < 0 {
+                return WSAGetLastError()
+            }
+            done += n as usize
+        }
+        return 0
+    }
+}
+
+/// Ends the writing side: the peer reads the end of the data.
+pub fn socket_shutdown(i64 handle) {
+    // SD_SEND
+    let _ = unsafe { shutdown(handle as usize, 1) }
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = unsafe { closesocket(handle as usize) }
+}
+
+/// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
+/// aborted, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
+pub fn u8 net_error_kind(i32 code) {
+    return when code {
+        10061 then 1 // WSAECONNREFUSED
+        10054 | 10053 then 2 // WSAECONNRESET, WSAECONNABORTED
+        10048 then 3 // WSAEADDRINUSE
+        10004 then 4 // WSAEINTR
+        10060 then 5 // WSAETIMEDOUT
+        10051 | 10065 then 6 // WSAENETUNREACH, WSAEHOSTUNREACH
+        _ then 0
+    }
+}

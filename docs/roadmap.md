@@ -104,9 +104,12 @@ ne passent pas par la libc ; raison dans la fiche).
 
 État de la **0.6.0** (28/10, en cours) : `std.fs` et `std.process` faits, testés par
 `tests/run/fs.nx` (Linux x86-64, AArch64 et RISC-V, WASI ; Windows et macOS par la CI) et
-`tests/run/process.nx` (Linux, Windows, macOS) ; restent la compilation séparée et le cache
-incrémental, `@repr("C")` et les rappels C, `std.net`, les vues de chaînes, et les trois
-critères de sortie (serveur TCP, temps de compilation incrémentale, appels C ↔ NEXUL).
+`tests/run/process.nx` (Linux, Windows, macOS) ; `std.net` (TCP sur IPv4) fait, et le
+critère « serveur TCP concurrent d'exemple testé » rempli sur Linux (trois architectures)
+par `tests/run/tcp.nx` (un serveur, une tâche par connexion, 8 clients simultanés) ;
+Windows et macOS : à confirmer par la CI. Restent la compilation séparée et le cache incrémental,
+`@repr("C")` et les rappels C, les vues de chaînes, UDP, et deux critères de sortie (temps
+de compilation incrémentale, appels C ↔ NEXUL).
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les

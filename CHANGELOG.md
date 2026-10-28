@@ -18,6 +18,9 @@ critères de sortie de chaque version sont suivis dans la [feuille de route](doc
   (appels système directs), macOS (`libSystem`), Windows (`kernel32`), WASI.
 - `std.process` : `run` (sorties capturées) et `status` (sorties partagées), recherche
   dans `PATH`, sans shell ; Linux, macOS, Windows.
+- `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
+  connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
+  Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
 - Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
   `String.push` 1,75 fois plus rapide.
 

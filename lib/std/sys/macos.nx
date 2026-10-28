@@ -897,3 +897,172 @@ pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] o
         return 0
     }
 }
+
+// ---------------------------------------------------------------------------
+// TCP over IPv4 (std.net)
+
+extern "C" fn i32 socket(i32 domain, i32 kind, i32 protocol)
+extern "C" fn i32 setsockopt(i32 fd, i32 level, i32 name, Ptr[i32] value, u32 len)
+extern "C" fn i32 bind(i32 fd, Ptr[u8] address, u32 len)
+extern "C" fn i32 listen(i32 fd, i32 backlog)
+extern "C" fn i32 accept(i32 fd, Ptr[u8] address, Ptr[u32] len)
+extern "C" fn i32 connect(i32 fd, Ptr[u8] address, u32 len)
+extern "C" fn i32 getsockname(i32 fd, Ptr[u8] address, Ptr[u32] len)
+extern "C" fn isize recv(i32 fd, Ptr[u8] buffer, usize len, i32 flags)
+extern "C" fn isize send(i32 fd, Ptr[u8] buffer, usize len, i32 flags)
+extern "C" fn i32 shutdown(i32 fd, i32 how)
+
+/// struct sockaddr_in for `ip:port` (both in the order of the machine).
+fn [u64; 2] sockaddr(u32 ip, u16 port) {
+    // sin_len 16, AF_INET, then the port and the address in network order.
+    let q = port as u64
+    let p = (q >> 8) | (q & 0xff) << 8
+    let i = ip as u64
+    let a = i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24
+    return [16 | 2 << 8 | p << 16 | a << 32, 0]
+}
+
+/// A new TCP socket that never raises SIGPIPE, or minus `errno`.
+unsafe fn i32 tcp_socket() {
+    // AF_INET, SOCK_STREAM
+    let fd = socket(2, 1, 0)
+    if fd < 0 {
+        return -errno()
+    }
+    var i32 one = 1
+    // SOL_SOCKET, SO_NOSIGPIPE
+    let _ = setsockopt(fd, 0xffff, 0x1022, mem.addr_of(one!), 4)
+    return fd
+}
+
+/// Listens on `ip:port` (port 0: one chosen by the system); `handle` receives the socket.
+/// Returns 0, or the error code.
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return -fd
+        }
+        var i32 one = 1
+        // SOL_SOCKET, SO_REUSEADDR
+        let _ = setsockopt(fd, 0xffff, 4, mem.addr_of(one!), 4)
+        var a = sockaddr(ip, port)
+        if bind(fd, mem.addr_of(a!).cast[u8](), 16) != 0 or listen(fd, 128) != 0 {
+            let e = errno()
+            let _ = close(fd)
+            return e
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Waits for a connection on `listener`; `handle` receives its socket. Returns 0, or the
+/// error code.
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    unsafe {
+        loop {
+            let fd = accept(listener as i32, Ptr.null(), Ptr.null())
+            if fd >= 0 {
+                var i32 one = 1
+                let _ = setsockopt(fd, 0xffff, 0x1022, mem.addr_of(one!), 4)
+                handle = fd as i64
+                return 0
+            }
+            let e = errno()
+            if e != EINTR {
+                return e
+            }
+        }
+    }
+}
+
+/// Connects to `ip:port`; `handle` receives the socket. Returns 0, or the error code.
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return -fd
+        }
+        var a = sockaddr(ip, port)
+        if connect(fd, mem.addr_of(a!).cast[u8](), 16) != 0 {
+            let e = errno()
+            let _ = close(fd)
+            return e
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// The local port of a socket (the one chosen by the system for port 0).
+pub fn u16 socket_port(i64 handle) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var u32 len = 16
+        let _ = getsockname(handle as i32, mem.addr_of(a!).cast[u8](), mem.addr_of(len!))
+        let p = (a[0] >> 16) & 0xffff
+        return ((p >> 8) | (p & 0xff) << 8) as u16
+    }
+}
+
+/// Reads at most `len` bytes; `got` receives their number (0: the peer closed its side).
+/// Returns 0, or the error code.
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    unsafe {
+        loop {
+            let n = recv(handle as i32, buffer, len, 0)
+            if n >= 0 {
+                got = n as usize
+                return 0
+            }
+            let e = errno()
+            if e != EINTR {
+                return e
+            }
+        }
+    }
+}
+
+/// Writes all of `data`. Returns 0, or the error code.
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    unsafe {
+        var usize done = 0
+        while done < len {
+            let n = send(handle as i32, data.offset(done), len - done, 0)
+            if n < 0 {
+                let e = errno()
+                if e == EINTR {
+                    continue
+                }
+                return e
+            }
+            done += n as usize
+        }
+        return 0
+    }
+}
+
+/// Ends the writing side: the peer reads the end of the data.
+pub fn socket_shutdown(i64 handle) {
+    // SHUT_WR
+    let _ = unsafe { shutdown(handle as i32, 1) }
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = unsafe { close(handle as i32) }
+}
+
+/// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
+/// peer gone, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
+pub fn u8 net_error_kind(i32 code) {
+    return when code {
+        61 then 1 // ECONNREFUSED
+        54 | 32 then 2 // ECONNRESET, EPIPE
+        48 then 3 // EADDRINUSE
+        4 then 4 // EINTR
+        60 then 5 // ETIMEDOUT
+        51 | 65 then 6 // ENETUNREACH, EHOSTUNREACH
+        _ then 0
+    }
+}
