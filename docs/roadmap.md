@@ -84,6 +84,8 @@ avec détection de fuites.
 
 ### Trajectoire vers la 1.0.0 (proposition du 17/10/2026)
 
+**Validée par l'utilisateur le 28/10/2026** : la 1.0.0 est la version majeure complète ; la 0.3.0 sort d'abord. État au 28/10 : le contenu de langage de la 0.4.0 (ADR 0012, 0014, 0015, tâches T1–T5) et de la 0.5.0 (ADR 0013) est intégré ; leurs critères de sortie restent à prouver (matrice des plateformes, `lib/` migrée, macOS validé ou exclu, ThreadSanitizer, scénario C).
+
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
 estimations et la validation opérationnelle ; l'utilisateur la valide. Elle remplace les

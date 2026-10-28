@@ -5,7 +5,8 @@ intégrateur, propriétaire de NEXUL Studio. Périmètre : [AGENTS.md](AGENTS.md
 de travail : `refonte/claude-studio` (worktree `C:\NEXUL\.claude\worktrees\claude-studio`) ;
 lots suivants sur `refonte/main-…`. Seul Claude Main modifie ce document.
 
-Dernière mise à jour : 15 octobre 2026 (ordres de mission des agents).
+Dernière mise à jour : 28 octobre 2026 (relecture et intégration des PR #29 à #67, version 0.3.0).
+Session cloud du 28/10 : branche `claude/pensive-darwin-3e2tye` (imposée par l'environnement), Linux sans Windows ni MSVC.
 Plan des lots : [master-plan.md](master-plan.md).
 
 ## Travaux réalisés
@@ -28,6 +29,8 @@ Plan des lots : [master-plan.md](master-plan.md).
 | 15/10 | M10 recherche et remplacement dans les fichiers (Ctrl+Maj+F) | `030d617` |
 | 15/10 | M8 (en partie) : Exécuter, Construire, version optimisée, tests (`nxpm` si `nexul.toml`) | `af55669` |
 | 15/10 | ADR 0009 (`nxc lsp`) acceptée ; relecture des PR #14 à #17 ([revues-main.md](revues-main.md)) ; `E0110` (ligne coupée en deux) dans le parser ; **G1 : trois propositions de syntaxe** ([g1-propositions.md](../adr/syntaxe/g1-propositions.md)) | ce lot |
+
+| 28/10 | Relecture des 39 PR ouvertes (#29 à #67) et intégration sur une seule branche ; essais adverses de la concurrence ; canaux de `std.tache` 60× plus rapides sous contention ; garantie de pile des threads Windows ; sonde ETXTBSY de `studio/lsp` ; CI Linux des crates de Studio ; version 0.3.0 et `CHANGELOG` | [revues-main.md](revues-main.md) §28/10 |
 
 ## Travaux en cours
 

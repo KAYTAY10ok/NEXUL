@@ -6,27 +6,32 @@ Tenu par **Claude Main** (voir [AGENTS.md](AGENTS.md)). Source des exigences :
 preuve (commande, test, PR). Un résultat déclaré par un agent et non revérifié par Main est
 marqué « déclaré ».
 
-Dernière mise à jour : 15 octobre 2026, `main` à `e57380c` (PR #14 à #17 fusionnées : assistant de l'installateur, audit G0, extension VS Code, QA de Gemma). Codex Astral devient **Codex Luna 2** (terminal, débogueur, mesures).
+Dernière mise à jour : 28 octobre 2026 — PR #29 à #67 relues et intégrées sur `claude/pensive-darwin-3e2tye` ([revues-main.md](revues-main.md), section du 28/10). Historique : le 15/10, `main` à `e57380c`.
+
+**Cap validé par l'utilisateur le 28/10/2026** : la **1.0** est la version majeure complète (édition 1 figée, concurrence sûre, profil temps réel prouvé sur sa cible, performances mesurées, compilateur auto-hébergé stage0 → stage1 → stage2). La **0.3.0** sort d'abord ; puis 0.4 à 0.9 selon la [trajectoire de la feuille de route](../roadmap.md#trajectoire-vers-la-100-proposition-du-17102026).
 
 Sommaire : §1 lots · §1.1 scénarios de fin et responsables · §2 **ordres de mission par agent** · §3 **toutes les améliorations
 (refonte et création)** · §4 composants existants · §5 vérifications de Main · §6 décisions
 de l'utilisateur · §7 intégration.
 
-## 0.3.0 — première version de la refonte (objectif du 16/10)
+## 0.3.0 — première version de la refonte
 
 Contenu : ce qui est intégré et prouvé, rien de plus. Statuts au §1 et au §3.
 
-| Domaine | Dans la 0.3.0 | Propriétaire | Statut |
+| Domaine | Dans la 0.3.0 | Propriétaire | Statut (28/10) |
 |---|---|---|---|
-| Langage | édition 1 (ADR 0010) : tranches 1–3 + repli `else`, `in`, `expects panic` ; édition propre à chaque fichier et paquet ; `nxc migrate` | Main | tranches 1–4 INTÉGRÉES (repli `else`, `in`, `expects panic` le 16/10) ; éditions par fichier et par paquet |
-| Outils | `nxc lsp` (ADR 0009), `version --json` avec éditions, formateur compatible édition 1 | Sol (P9), Main | INTÉGRÉ (PR #24) ; tests d'éditions mélangées : Sol |
-| Studio natif | P1 (essai manuel passé), coloration 0.2/1, nouveau projet, recherche, exécuter/construire/tester, avertissement `nxc` trop ancien | Main | INTÉGRÉ ; paramètres et raccourcis (M9) en cours ; terminal (M6) et débogueur (M7) après fusion de #20/#21 |
-| VS Code | extension 0.3.0 (édition 1, LSP, format) prête pour la Marketplace | Sol | publication par l'utilisateur |
-| Distribution | installateur 0.3.0 avec Studio natif, mise à niveau depuis 0.2 | Sol (#25) | revue Main en cours |
-| Version | `nxc`, `nxpm`, Studio, extension, installateur en 0.3.0 ; `CHANGELOG.md` ; étiquette `v0.3.0` posée par l'utilisateur | Main | à faire en dernier |
+| Langage | édition 1 (ADR 0010), éditions par fichier et paquet, `nxc migrate` ; ADR 0012 (`Copy`), 0014 (types distincts et contraints), 0015 (erreurs), 0013 (concurrence, `std.tache`) | Main (ex-Core) | INTÉGRÉ sur la branche d'intégration ; `main` après fusion de sa PR |
+| Sûreté | ADR 0011 : sondes de pile (C1), dépassement de pile → panique Linux/Windows/RISC-V (C2, T2), pile WASM avant les données (C3), `@export` vérifiés (C4), runtime réentrant sans système (C5) | Main, Sol | TESTÉ_UNITAIREMENT (Linux ici ; Windows par la CI de Sol) |
+| Outils | `nxc lsp` (ADR 0009), `version --json`, formateur édition 1, tests d'éditions mélangées (#34) | Sol, Main | INTÉGRÉ |
+| Studio natif | P1, coloration 0.2/1, nouveau projet, recherche, exécuter/construire/tester ; crates terminal/DAP corrigées (#31, #32) | Main, Sol | INTÉGRÉ ; M6/M7 (vues terminal et débogueur), M9 restent pour la 0.4 |
+| VS Code | extension 0.3.0 (#30) | Sol | publication par l'utilisateur |
+| Distribution | installateur 0.3.0, Studio natif, migration 0.2, versions alignées (#33) | Sol | INTÉGRÉ ; construction complète MSVC : non testée ici (pas de Windows) |
+| Version | `nxc`, `nxpm`, Studio, installateur en 0.3.0 ; `CHANGELOG.md` | Main | FAIT ; étiquette `v0.3.0` : **l'utilisateur**, après fusion et CI verte |
 
-Hors 0.3.0 (versions suivantes) : `===`, types distincts et contraints, concurrence, temps
-réel, auto-hébergement, compilation séparée (ancienne feuille de route « 0.3 Système »).
+Plus tôt que prévu : la concurrence (prévue en 0.5.0) et les ADR de la 0.4.0 sont déjà
+intégrées ; leurs **critères de sortie** (feuille de route) restent à prouver avant que
+ces versions soient déclarées.
+
 ## 1. Lots
 
 | Lot | Urgence | Travail et preuve de sortie | Propriétaire | Dépend de | Statut |
