@@ -39,10 +39,17 @@ Run these blocking lifecycle calls away from the UI thread. Writes and resizes a
 shutdown return `BrokenPipe`. Removing a terminal through `TerminalManager::close`
 performs the same cleanup.
 
-On Windows, the reader answers cursor-position/status requests, including ConPTY's
-initial cursor query. A separate process watcher polls without holding a blocking
-child wait lock, then closes the input and PTY while the reader drains ConPTY. This
+The reader queues cursor-position/status responses to a dedicated writer thread,
+including ConPTY's initial cursor query. It never waits on the input lock while it
+drains output. A separate process watcher waits for the child without holding a lock
+needed by `stop()`, then closes the input and PTY while the reader drains output. This
 also handles a shell exiting normally without an explicit `stop()` call.
+
+On Unix, `stop()` terminates the configured shell process. A background descendant
+that inherited the PTY can keep its output open, so shutdown may wait until that
+descendant exits or closes the PTY. Call `stop()` away from the UI thread; applications
+that launch long-lived background jobs should manage those jobs before stopping the
+terminal.
 
 ## Behavior and limits
 
