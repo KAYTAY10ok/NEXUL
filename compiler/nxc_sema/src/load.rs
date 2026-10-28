@@ -33,6 +33,7 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.fs", include_str!("../../../lib/std/fs.nx"), false),
     ("std.process", include_str!("../../../lib/std/process.nx"), false),
     ("std.net", include_str!("../../../lib/std/net.nx"), false),
+    ("std.strview", include_str!("../../../lib/std/strview.nx"), false),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.

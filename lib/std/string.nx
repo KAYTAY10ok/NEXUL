@@ -558,6 +558,12 @@ extend String {
         return s
     }
 
+    /// A string over bytes it does not own (never freed, like a literal): valid UTF-8
+    /// that must outlive it and not change meanwhile (`std.strview`).
+    pub unsafe fn String borrowed_from(Ptr[u8] data, usize len) {
+        return String(data: data, len: len, cap: 0)
+    }
+
     /// Takes ownership of a heap buffer of valid UTF-8 allocated with `mem.alloc`
     /// (`capacity` bytes, of which `len` are used).
     pub unsafe fn String from_raw_parts(Ptr[u8] data, usize len, usize capacity) {

@@ -1,0 +1,12 @@
+4 lines
+[fn main() {] trimmed [fn main() {] len 11
+[    let x = 42] trimmed [let x = 42] len 14
+[  é ü ] trimmed [é ü] len 8
+[}] trimmed [}] len 1
+4 parts, last Some(42), first is let: true
+starts true ends true find Some(17) contains true
+slice [main] = copy: true eq true chars 4
+kept [  é ü ]
+a: Some(3), c: Some(1)
+words in a task: 4
+empty: true 0 split none 2

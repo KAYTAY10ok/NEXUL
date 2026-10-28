@@ -21,6 +21,9 @@ critères de sortie de chaque version sont suivis dans la [feuille de route](doc
 - `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
   connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
   Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
+- `std.strview` : vues de chaînes qui partagent leur texte (`slice`, `split`, `lines`,
+  `trim` sans copie), sûres sans références stockées (compteur atomique), utilisables
+  comme clés et entre tâches.
 - Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (fonction du
   programme, pointeur de fonction reçu), testé avec le compilateur C du système, lié à
   la bibliothèque statique et à la partagée, sur Linux, macOS et Windows

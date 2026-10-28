@@ -105,13 +105,14 @@ ne passent pas par la libc ; raison dans la fiche).
 État de la **0.6.0** (28/10, en cours) : `std.fs` et `std.process` faits, testés par
 `tests/run/fs.nx` (Linux x86-64, AArch64 et RISC-V, WASI ; Windows et macOS par la CI) et
 `tests/run/process.nx` (Linux, Windows, macOS) ; `std.net` (TCP sur IPv4) fait, et le
-critère « serveur TCP concurrent d'exemple testé » rempli sur Linux (trois architectures)
-par `tests/run/tcp.nx` (un serveur, une tâche par connexion, 8 clients simultanés) ;
-Windows et macOS : à confirmer par la CI. Le critère « programme C qui appelle NEXUL et
+critère « serveur TCP concurrent d'exemple testé » **rempli** par `tests/run/tcp.nx` (un
+serveur, une tâche par connexion, 8 clients simultanés) : Linux (trois architectures),
+Windows et macOS, CI verte le 28/10 (`99ad9e3`). Le critère « programme C qui appelle NEXUL et
 inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
 compris ; Linux ici, macOS et Windows par la CI). Restent la compilation séparée et le
-cache incrémental, `@repr("C")` (structures par valeur), les vues de chaînes, UDP, et le
-critère du temps de compilation incrémentale.
+cache incrémental, `@repr("C")` (structures par valeur), UDP, et le critère du temps de
+compilation incrémentale. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
+Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct.
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
