@@ -1043,3 +1043,15 @@ pub unsafe fn wake_all(p: Ptr[u32]) {
 pub unsafe fn wake_all(p: Ptr[u32]) {
     let _ = p
 }
+
+/// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
+@cfg("linux")
+pub unsafe fn wake_one(p: Ptr[u32]) {
+    // FUTEX_WAKE_PRIVATE (129)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 1, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wake_one(p: Ptr[u32]) {
+    let _ = p
+}
