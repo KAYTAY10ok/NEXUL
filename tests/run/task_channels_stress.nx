@@ -1,4 +1,4 @@
-// targets: linux, windows
+// targets: linux, windows, macos
 // Stress of the channels (ADR 0013): 8 producers, 3 receivers that share a `Recepteur`,
 // a channel of 2 places; every value is received exactly once. Then a receiver destroyed
 // while its sender waits: the sender gets `false`.

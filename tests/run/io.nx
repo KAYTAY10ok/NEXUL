@@ -1,4 +1,4 @@
-// targets: windows, linux, wasi
+// targets: windows, linux, macos, wasi
 // Spec §09: standard input, arguments, environment, files.
 import std.io
 import std.system

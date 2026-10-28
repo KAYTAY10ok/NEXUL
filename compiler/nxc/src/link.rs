@@ -166,6 +166,8 @@ fn link_macos(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     // A text stub of the system library lists the functions used: no SDK is needed.
     let stub = job.work_dir.join("libSystem.nx.tbd");
     let mut syms: Vec<String> = job.imports.iter().map(|(_, s)| format!("_{}", s)).collect();
+    // The lazy binding of the imports goes through this function of the loader.
+    syms.push("dyld_stub_binder".into());
     syms.sort();
     syms.dedup();
     let tbd = format!(
@@ -178,7 +180,7 @@ fn link_macos(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     let mut cmd = Command::new(lld);
     cmd.arg("-arch").arg(arch).arg("-platform_version").arg("macos").arg("11.0.0").arg("11.0.0").arg("-o").arg(&job.out);
     if job.kind == OutputKind::Executable {
-        cmd.arg("-e").arg("_start");
+        cmd.arg("-e").arg("_main");
     } else {
         cmd.arg("-dylib");
     }

@@ -28,6 +28,31 @@ jobs:
           cargo test --manifest-path studio/$c/Cargo.toml
         done
 
+  macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install LLVM 20 and LLD (Homebrew)
+      run: |
+        brew install llvm@20
+        llvm="$(brew --prefix llvm@20)"
+        if [ ! -x "$llvm/bin/ld64.lld" ]; then
+          brew install lld@20 || brew install lld
+        fi
+        tools="$RUNNER_TEMP/llvm"
+        mkdir -p "$tools/bin" "$tools/lib"
+        ln -sf "$llvm/lib/libLLVM.dylib" "$tools/lib/libLLVM.dylib"
+        for t in ld64.lld wasm-ld ld.lld lld; do
+          for d in "$llvm/bin" "$(brew --prefix lld@20 2>/dev/null)/bin" "$(brew --prefix lld 2>/dev/null)/bin"; do
+            if [ -x "$d/$t" ]; then ln -sf "$d/$t" "$tools/bin/$t"; break; fi
+          done
+        done
+        ls -l "$tools/bin" "$tools/lib"
+        test -e "$tools/lib/libLLVM.dylib" && test -e "$tools/bin/ld64.lld"
+        echo "NEXUL_LLVM=$tools" >> "$GITHUB_ENV"
+    - name: Run the compiler tests (O0 and O2 programs, on macOS)
+      run: cargo test --release -p nxc --no-fail-fast --verbose
+
   windows:
     runs-on: windows-latest
     steps:

@@ -29,11 +29,13 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.wasm", include_str!("../../../lib/std/wasm.nx"), true),
     ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
     ("std.tache", include_str!("../../../lib/std/tache.nx"), false),
+    ("std.tzif", include_str!("../../../lib/std/tzif.nx"), true),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.
 const SYS_WINDOWS: &str = include_str!("../../../lib/std/sys/windows.nx");
 const SYS_LINUX: &str = include_str!("../../../lib/std/sys/linux.nx");
+const SYS_MACOS: &str = include_str!("../../../lib/std/sys/macos.nx");
 const SYS_WASI: &str = include_str!("../../../lib/std/sys/wasi.nx");
 const SYS_BARE: &str = include_str!("../../../lib/std/sys/bare.nx");
 
@@ -42,7 +44,8 @@ pub fn std_source(path: &str, cfg: &Cfg) -> Option<&'static str> {
     if path == "std.sys" {
         return Some(match cfg.target.os {
             Os::Windows => SYS_WINDOWS,
-            Os::Linux | Os::MacOs => SYS_LINUX,
+            Os::Linux => SYS_LINUX,
+            Os::MacOs => SYS_MACOS,
             Os::Wasi => SYS_WASI,
             Os::Web => include_str!("../../../lib/std/sys/web.nx"),
             Os::None => SYS_BARE,

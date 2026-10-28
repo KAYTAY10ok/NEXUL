@@ -1,4 +1,4 @@
-// targets: windows, linux, wasi
+// targets: windows, linux, macos, wasi
 // `?` converts errors (ADR 0015): into the only variant that holds the error, or into
 // a `dyn Error` value. The conversion to `String` of edition 0.2 is in try_convert_text.nx.
 import std.io

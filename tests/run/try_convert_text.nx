@@ -1,4 +1,4 @@
-// targets: windows, linux, wasi
+// targets: windows, linux, macos, wasi
 // no-migrate: edition 1 refuses these `?` on purpose (tests/ui/edition1_try_string.nx)
 // Transition of ADR 0015, edition 0.2 only: in a function that returns
 // `Result[..., String]`, `?` turns an error that implements `Error` into its text, so the

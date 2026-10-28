@@ -560,6 +560,9 @@ impl<'a> Gen<'a> {
                 let dll = l.clone().unwrap_or_else(|| "ucrtbase".into());
                 self.imports.push((dll, fd.name.clone()));
             }
+            // macOS: the functions of the system library (libSystem), linked through a
+            // text stub that lists them.
+            (Os::MacOs, None) => self.imports.push(("System".into(), fd.name.clone())),
             (_, Some(l)) if target.arch == Arch::Wasm32 => {
                 attrs.push_str(&format!(" \"wasm-import-module\"=\"{}\" \"wasm-import-name\"=\"{}\"", l, fd.name));
                 self.imports.push((l.clone(), fd.name.clone()));
@@ -997,7 +1000,24 @@ impl<'a> Gen<'a> {
                 let _ = write!(self.fn_defs, "define i32 @nx_windows_fault(ptr %exception) nounwind {{\nstart:\n  %r = call i32 {}(ptr %exception)\n  ret i32 %r\n}}\n\n", fault);
                 let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr @nx_windows_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n", set_handler, entry_fn, main_ptr);
             }
-            Os::Linux | Os::MacOs => {
+            Os::MacOs => {
+                // The dynamic loader calls `main(argc, argv, envp)`; memory faults reach the
+                // runtime through a C entry, on an alternate stack (ADR 0011, T2).
+                let (set_args, _) = self.lang_fn("sys_set_args");
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_macos_fault(i32 %sig, ptr %info, ptr %ctx) nounwind {{\nstart:\n  call void {}(i32 %sig, ptr %info)\n  unreachable\n}}\n\n",
+                    fault
+                );
+                let _ = write!(
+                    self.fn_defs,
+                    "define i32 @main(i32 %argc, ptr %argv, ptr %envp) nounwind {{\nstart:\n  call void {}(i32 %argc, ptr %argv, ptr %envp)\n  call void {}(ptr @nx_macos_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    set_args, set_handler, entry_fn, main_ptr
+                );
+            }
+            Os::Linux => {
                 let (set_stack, _) = self.lang_fn("sys_set_stack");
                 // Memory faults (SIGSEGV, SIGBUS) reach the runtime through a C entry, on
                 // an alternate stack: a stack overflow ends like a panic (ADR 0011, T2).

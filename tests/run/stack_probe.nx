@@ -1,4 +1,4 @@
-// targets: linux
+// targets: linux, macos
 // Each frame is larger than the kernel guard gap. Probes must fault before a
 // write can jump over that gap, including after optimization (ADR 0011, T1).
 fn deep(n: u64) -> u64 {

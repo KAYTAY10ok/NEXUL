@@ -1,4 +1,4 @@
-// targets: linux, windows
+// targets: linux, windows, macos
 // ADR 0013 §4 and §5: bounded channels, detached tasks, `Verrou` and `Atomique`, on the
 // threads of the system (a task that waits needs another thread: Linux, Windows).
 import std.tache

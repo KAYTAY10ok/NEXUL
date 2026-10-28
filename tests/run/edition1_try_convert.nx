@@ -1,5 +1,5 @@
 // edition: 1
-// targets: windows, linux, wasi
+// targets: windows, linux, macos, wasi
 // `?` in edition 1 (ADR 0015): into the only variant that holds the error, or into
 // `any Error`. The conversion to `String` of edition 0.2 does not exist here.
 import std.io
