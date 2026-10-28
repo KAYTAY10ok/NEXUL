@@ -36,7 +36,7 @@ fn compile_ir(opts: CompileOptions, src: &str) -> String {
 /// entry point before `main` (ADR 0011, task T2: a stack overflow ends like a panic).
 #[test]
 fn linux_programs_install_the_fault_handler() {
-    for target in ["x86_64-linux", "aarch64-linux"] {
+    for target in ["x86_64-linux", "aarch64-linux", "riscv64-linux"] {
         let ir = ir_for(target, "fn main() {\n    println(\"ok\")\n}\n");
         assert!(ir.contains("define void @nx_linux_fault(i32 %sig, ptr %info, ptr %ctx)"), "{}: no fault entry", target);
         let start = &ir[ir.find("define void @nx_linux_start").expect("entry point")..];
@@ -112,6 +112,36 @@ fn exports_check_the_values_received_from_c() {
         assert!(plain.contains("@\"plain\"(i32 %a1)"), "{}: an export without such parameters is the function itself:\n{}", target, plain);
         // NEXUL code calls the checked function itself, not its wrapper.
         assert!(!ir.contains("call i1 @\"flip\"("), "{}: internal call through the wrapper", target);
+    }
+}
+
+#[test]
+fn stack_probes_cover_all_generated_functions_on_supported_targets() {
+    let src = "fn deep(n: u64) -> u64 {\n    let buf: [u64; 524288] = [n; 524288]\n    let r = deep(n +% 1)\n    return r ^ buf[(r % 524288) as usize]\n}\nfn main() { println(deep(0)) }\n";
+    for target in ["x86_64-linux", "aarch64-linux", "x86_64-macos", "aarch64-macos", "x86_64-windows", "wasm32-wasi", "thumbv7em-none", "riscv64-linux"] {
+        let ir = ir_for(target, src);
+        let probes = matches!(target, "x86_64-linux" | "aarch64-linux" | "x86_64-macos" | "aarch64-macos");
+        assert_eq!(ir.contains("attributes #0 = { \"probe-stack\"=\"inline-asm\" }"), probes, "{}", target);
+        let headers: Vec<_> = ir.lines().filter(|line| line.starts_with("define ")).collect();
+        assert!(!headers.is_empty());
+        for header in headers {
+            assert_eq!(header.contains(" #0"), probes, "{}: {}", target, header);
+        }
+        assert_eq!(ir, ir_for(target, src), "{}: non-deterministic IR", target);
+    }
+}
+
+#[test]
+fn windows_programs_reserve_a_stack_and_install_the_fault_handler() {
+    for target in ["x86_64-windows", "aarch64-windows"] {
+        let ir = ir_for(target, "fn main() { println(\"ok\") }\n");
+        assert!(ir.contains("define i32 @nx_windows_fault(ptr %exception)"));
+        assert!(ir.contains("SetThreadStackGuarantee"));
+        assert!(ir.contains("AddVectoredExceptionHandler"));
+        assert!(ir.contains("WriteFile"));
+        let start = &ir[ir.find("define void @mainCRTStartup").unwrap()..];
+        let start = &start[..start.find("\n}").unwrap()];
+        assert!(start.find("(ptr @nx_windows_fault)").unwrap() < start.rfind("call void").unwrap());
     }
 }
 

@@ -93,6 +93,15 @@ static var OUT_LEN: usize = 0
 /// When standard output is a terminal, every `print` is flushed immediately.
 static var OUT_IS_TERMINAL: bool = false
 
+/// Only the Windows stack-fault path uses this. The process exits immediately,
+/// so no allocation, destruction or console transcoding is needed.
+@cfg("windows")
+pub unsafe fn flush_stack_overflow() {
+    let n = OUT_LEN
+    OUT_LEN = 0
+    sys.write_fault(1, mem.addr_of(&OUT_BUF).cast[u8](), n)
+}
+
 /// Writes the buffered standard output.
 @lang("flush")
 pub fn flush() {

@@ -152,13 +152,6 @@ fn set_fault_handler(handler: Ptr[u8]) {
     install_fault_handler(handler)
 }
 
-@cfg("riscv64")
-fn install_fault_handler(_handler: Ptr[u8]) {
-    // The kernel structure of `rt_sigaction` differs on RISC-V: not handled yet (ADR
-    // 0011, condition C3).
-}
-
-@cfg("!riscv64")
 fn install_fault_handler(handler: Ptr[u8]) {
     unsafe {
         // RLIMIT_STACK (3): the size of the main stack.
@@ -173,12 +166,24 @@ fn install_fault_handler(handler: Ptr[u8]) {
         // struct sigaction of the kernel (x86-64, AArch64): handler, flags, restorer,
         // mask. The handler never returns, so the restorer is never used; x86-64 still
         // requires one.
-        let flags = SA_SIGINFO | SA_ONSTACK | SA_RESTORER | SA_NODEFER | SA_RESETHAND
-        var action: [usize; 4] = [handler.addr(), flags, handler.addr(), 0]
+        let flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER | SA_RESETHAND
+        var action = fault_action(handler, flags)
         let a = addr(mem.addr_of(&action).cast[u8]())
         let _ = syscall6(SYS_RT_SIGACTION, SIGSEGV, a, 0, 8, 0, 0)
         let _ = syscall6(SYS_RT_SIGACTION, SIGBUS, a, 0, 8, 0, 0)
     }
+}
+
+// RISC-V uses asm-generic/signal.h without SA_RESTORER: the mask is the
+// third word, not the fourth. Keep an unused trailing word for a common size.
+@cfg("riscv64")
+fn fault_action(handler: Ptr[u8], flags: usize) -> [usize; 4] {
+    return [handler.addr(), flags, 0, 0]
+}
+
+@cfg("!riscv64")
+fn fault_action(handler: Ptr[u8], flags: usize) -> [usize; 4] {
+    return [handler.addr(), flags | SA_RESTORER, handler.addr(), 0]
 }
 
 /// Called by `nx_linux_fault` on the alternate stack, with the signal and its `siginfo_t`.

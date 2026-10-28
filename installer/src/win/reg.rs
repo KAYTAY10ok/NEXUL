@@ -66,8 +66,11 @@ fn open(key: &str, access: u32) -> Option<Key> {
 fn create(key: &str) -> Result<Key, String> {
     let (root, sub) = resolve(key)?;
     let mut h: HKEY = 0;
-    let r = unsafe {
-        RegCreateKeyExW(
+    // A concurrent deletion of an ancestor can temporarily leave it marked for
+    // deletion (1018). Retry only that transient error, with a bounded delay.
+    let mut r = ERROR_SUCCESS;
+    for attempt in 0..20 {
+        r = unsafe { RegCreateKeyExW(
             root,
             wide(&sub).as_ptr(),
             0,
@@ -77,8 +80,12 @@ fn create(key: &str) -> Result<Key, String> {
             std::ptr::null(),
             &mut h,
             std::ptr::null_mut(),
-        )
-    };
+        ) };
+        if r != 1018 || attempt == 19 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     if r == ERROR_SUCCESS {
         Ok(Key(h))
     } else {
@@ -229,7 +236,10 @@ mod tests {
 
     impl TestKey {
         fn new(name: &str) -> TestKey {
-            TestKey(format!(r"HKCU\Software\NEXUL-Tests\unit-{}-{name}", std::process::id()))
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            TestKey(format!(r"HKCU\Software\NEXUL-Tests\unit-{}-{timestamp}-{sequence}-{name}", std::process::id()))
         }
     }
 

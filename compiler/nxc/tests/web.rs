@@ -43,5 +43,20 @@ fn browser_abi() {
             .arg(distinct_library).output().expect("Node is required");
         assert!(result.status.success(), "{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
         println!("{}", String::from_utf8_lossy(&result.stdout));
+        let stack_web = compile("tests/web/stack_first.nx", "stack-web", true, release);
+        let mut opts = CompileOptions::new(Mode::Library);
+        opts.target = Target::from_name("wasm32-wasi").unwrap();
+        opts.release = release;
+        opts.debug_info = !release;
+        let c = compile_file(&root.join("tests/web/stack_first.nx"), &opts);
+        assert_eq!(c.errors + c.warnings, 0, "{}", c.diagnostics);
+        let stack_wasi = work.join(format!("stack-wasi-{release}.wasm"));
+        let mut build_opts = BuildOptions::new(opts.target.clone(), release);
+        build_opts.kind = OutputKind::SharedLibrary;
+        build(c.output.as_ref().unwrap(), &stack_wasi, &build_opts).unwrap();
+        let result = Command::new("node").arg("--no-warnings").arg(root.join("tests/web/stack_first.mjs"))
+            .args([stack_web, stack_wasi]).output().expect("Node is required");
+        assert!(result.status.success(), "{}{}", String::from_utf8_lossy(&result.stdout), String::from_utf8_lossy(&result.stderr));
+        println!("{}", String::from_utf8_lossy(&result.stdout));
     }
 }

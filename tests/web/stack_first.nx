@@ -1,0 +1,22 @@
+// A 64 KiB frame reaches linear-memory underflow before the host call stack
+// overflows. Static data must survive the trap.
+import std.mem
+
+static var SENTINEL: [u32; 4] = [0x12345678, 0x87654321, 0xABCDEF01, 0x10203040]
+
+@export("sentinel_ptr")
+pub fn sentinel_ptr() -> usize {
+    return unsafe { mem.addr_of(&SENTINEL).cast[u8]().addr() }
+}
+
+fn deep(n: u32) -> u32 {
+    var buf: [u32; 16384] = [n; 16384]
+    buf[(n % 16384) as usize] = n *% 3
+    let r = deep(n +% 1)
+    return r ^ buf[((r +% n) % 16384) as usize]
+}
+
+@export("overflow")
+pub fn overflow() -> u32 {
+    return deep(0)
+}
