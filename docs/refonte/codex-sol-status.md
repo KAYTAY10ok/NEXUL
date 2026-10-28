@@ -341,3 +341,36 @@ Correction LSP #62 : six tests Linux passent, alias physique conservé pour les
 diagnostics et le manifeste. Les deux anciens tests Windows restent actifs.
 C6 #52 et le correctif LSP #62 sont prêts pour revue ; run 40132365202 vert sur Linux et Windows.
 L’intégration #61 passe au run 40132439801 sur les deux systèmes, avec 20/20 répétitions du test de registre Windows réussies. C7 passait déjà au run 40124607293.
+
+Statut : CONÇU, accord utilisateur requis par le mandat avant modification de `.github/**`.
+Branche `refonte/sol-c6-ci-proposal`. YAML et patch exacts dans `docs/refonte/proposals/sol-c6-*`.
+Installation LLVM 20.1.8 avec C API, précontrôle des outils et tests complets release
+Windows ; tests Linux workspace en release. Analyse YAML et diff check réussis.
+Aucune exécution Windows/Actions déclarée. Le workflow actif reste inchangé.
+
+
+## C9 — proposition et référence d'analyse (24/10/2026)
+
+Statut : CONÇU, revue Claude obligatoire avant ownership.rs.
+Proposition : `proposals/sol-c9-ownership.md`. Bitsets persistants par pages,
+validation par oracle dense, diagnostics et destructions inchangés.
+20 000 if : médiane locale 5,307 s (3 essais, machine partagée). 50 000 bras :
+SIGKILL à 27,126 s, cause non établie. Aucun objectif de temps atteint ou revendiqué.
+Données brutes conservées. Aucun code sémantique modifié ; `git diff --check` réussi.
+
+
+## C11 — proposition NIR monomorphe (24/10/2026)
+
+Statut : CONÇU, revue Claude préalable requise par C11.
+Proposition : `proposals/sol-c11-monomorphic-nir.md`. Types concrets et tables dyn
+symboliques hors LLVM ; nommage paresseux préservé pour l'identité à l'octet.
+Aucun code extrait. Matrice d'équivalence future explicitée, non exécutée/non revendiquée.
+`git diff --check` réussi.
+
+
+## C12 — macOS (24/10/2026)
+
+Statut : BLOQUÉ : pas de Mac. Analyse dans `proposals/sol-c12-macos.md`.
+La sélection SYS_LINUX et l'entrée ELF partagée sont confirmées ; aucun résultat
+macOS revendiqué. Couche Darwin ou exclusion explicite à arbitrer/revoir par Claude,
+notamment les chemins réservés par #45. C2 macOS reste bloqué.
