@@ -862,3 +862,8 @@ pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
 pub unsafe fn wake_all(p: Ptr[u32]) {
     let _ = p
 }
+
+/// Nothing to do: the waiting threads poll.
+pub unsafe fn wake_one(p: Ptr[u32]) {
+    let _ = p
+}

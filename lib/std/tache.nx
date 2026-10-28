@@ -78,11 +78,22 @@ fn run_task(block: Ptr[u8]) {
 // Short locks (the state of a channel, a `Verrou`)
 //
 // The word holds 0 (free), 1 (taken) or 2 (taken, with threads waiting): only a release
-// that finds 2 wakes them.
+// that finds 2 wakes one of them, which takes the lock with the value 2 (others may still
+// wait). Before it sleeps, a thread looks at the lock a few times: its holder usually
+// releases it sooner than a sleep and a wake would take.
+
+const ESSAIS: u32 = 200
 
 unsafe fn verrouiller(mot: Ptr[u32]) {
     if mem.atomic_cas(mot, 0, 1) == 0 {
         return
+    }
+    var essais: u32 = 0
+    while essais < ESSAIS {
+        if mem.atomic_load(mot) == 0 and mem.atomic_cas(mot, 0, 1) == 0 {
+            return
+        }
+        essais += 1
     }
     while mem.atomic_swap(mot, 2) != 0 {
         sys.wait_on(mot, 2)
@@ -91,21 +102,91 @@ unsafe fn verrouiller(mot: Ptr[u32]) {
 
 unsafe fn deverrouiller(mot: Ptr[u32]) {
     if mem.atomic_swap(mot, 0) == 2 {
-        sys.wake_all(mot)
+        sys.wake_one(mot)
     }
-}
-
-/// A word that changes at every change of a channel: a thread that waits for a change
-/// sleeps while it keeps the value it read under the lock.
-unsafe fn signaler(signal: Ptr[u32]) {
-    let _ = mem.atomic_add(signal, 1)
-    sys.wake_all(signal)
 }
 
 unsafe fn nouveau_mot() -> Ptr[u32] {
     let p = mem.alloc(4).cast[u32]()
     p.write(0)
     return p
+}
+
+// ---------------------------------------------------------------------------
+// Waiting threads
+//
+// A thread that waits for a channel puts a node on its own stack in a queue of the channel
+// (under its lock), then sleeps on its own word until a change it can use takes the node
+// out of the queue and sets the word: one value sent wakes one receiver, one place freed
+// one sender, and nobody else. A node is two words: the address of the next node (0 at the
+// end), and the address of the word of its thread.
+
+/// Appends the node at `noeud` to the queue `tete`…`queue` (under the lock).
+unsafe fn enfiler(inout tete: usize, inout queue: usize, noeud: Ptr[usize]) {
+    noeud.write(0)
+    if queue == 0 {
+        tete = noeud.addr()
+    } else {
+        Ptr[usize].from_addr(queue).write(noeud.addr())
+    }
+    queue = noeud.addr()
+}
+
+/// Takes the first node out of the queue (under the lock); the address of its word, or 0.
+unsafe fn defiler(inout tete: usize, inout queue: usize) -> usize {
+    if tete == 0 {
+        return 0
+    }
+    let n = Ptr[usize].from_addr(tete)
+    let mot = n.offset(1).read()
+    tete = n.read()
+    if tete == 0 {
+        queue = 0
+    }
+    return mot
+}
+
+/// Wakes the thread of a word taken out of a queue (after the lock is released): from the
+/// write on, the node may disappear with the stack of its thread.
+unsafe fn reveiller(mot: usize) {
+    if mot != 0 {
+        let p = Ptr[u32].from_addr(mot)
+        mem.atomic_store(p, 1)
+        sys.wake_one(p)
+    }
+}
+
+/// Takes every node out of the queue (under the lock), linked from the first: give the
+/// result to `reveiller_tous` after the lock is released.
+unsafe fn vider(inout tete: usize, inout queue: usize) -> usize {
+    let premier = tete
+    tete = 0
+    queue = 0
+    return premier
+}
+
+unsafe fn reveiller_tous(premier: usize) {
+    var n = premier
+    while n != 0 {
+        let p = Ptr[usize].from_addr(n)
+        let suivant = p.read()
+        reveiller(p.offset(1).read())
+        n = suivant
+    }
+}
+
+/// Sleeps until the word at `mot` is set (a few looks first).
+unsafe fn attendre_reveil(mot: Ptr[u32]) {
+    var essais: u32 = 0
+    while essais < ESSAIS {
+        if mem.atomic_load(mot) != 0 {
+            return
+        }
+        essais += 1
+    }
+    while mem.atomic_load(mot) == 0 {
+        sys.wait_on(mot, 0)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -119,13 +200,18 @@ struct EtatCanal[T] {
     emetteurs: usize
     recepteurs: usize
     poignees: usize
+    /// The queues of the threads asleep in `envoyer` (channel full) and in `recevoir`
+    /// (channel empty).
+    attente_e_tete: usize
+    attente_e_queue: usize
+    attente_r_tete: usize
+    attente_r_queue: usize
 }
 
 /// The sending side of a channel. Several tasks can send through the same `Emetteur`, or
 /// each through a copy (`clone`).
 pub struct Emetteur[T] {
     verrou: Ptr[u32]
-    signal: Ptr[u32]
     etat: Ptr[EtatCanal[T]]
     ferme: Ptr[u32]
 }
@@ -133,7 +219,6 @@ pub struct Emetteur[T] {
 /// The receiving side of a channel.
 pub struct Recepteur[T] {
     verrou: Ptr[u32]
-    signal: Ptr[u32]
     etat: Ptr[EtatCanal[T]]
 }
 
@@ -151,15 +236,15 @@ pub fn canal[T: Transfer](capacite: usize) -> (Emetteur[T], Recepteur[T]) {
     }
     unsafe {
         let verrou = nouveau_mot()
-        let signal = nouveau_mot()
         let etat = mem.alloc(mem.size_of[EtatCanal[T]]()).cast[EtatCanal[T]]()
-        etat.write(EtatCanal(cases: cases, tete: 0, longueur: 0, emetteurs: 1, recepteurs: 1, poignees: 2))
-        return (Emetteur(verrou: verrou, signal: signal, etat: etat, ferme: nouveau_mot()), Recepteur(verrou: verrou, signal: signal, etat: etat))
+        etat.write(EtatCanal(cases: cases, tete: 0, longueur: 0, emetteurs: 1, recepteurs: 1, poignees: 2, attente_e_tete: 0, attente_e_queue: 0, attente_r_tete: 0, attente_r_queue: 0))
+        return (Emetteur(verrou: verrou, etat: etat, ferme: nouveau_mot()), Recepteur(verrou: verrou, etat: etat))
     }
 }
 
-/// One handle less: the last one destroys the values left and the channel.
-unsafe fn quitter_canal[T](verrou: Ptr[u32], signal: Ptr[u32], etat: Ptr[EtatCanal[T]], emetteur: bool, recepteur: bool) {
+/// One handle less: the last one destroys the values left and the channel. Every waiting
+/// thread looks again (the end of the senders or of the receivers concerns all of them).
+unsafe fn quitter_canal[T](verrou: Ptr[u32], etat: Ptr[EtatCanal[T]], emetteur: bool, recepteur: bool) {
     verrouiller(verrou)
     var e = etat.read()
     if emetteur {
@@ -170,14 +255,16 @@ unsafe fn quitter_canal[T](verrou: Ptr[u32], signal: Ptr[u32], etat: Ptr[EtatCan
     }
     e.poignees -= 1
     let dernier = e.poignees == 0
+    let emetteurs = vider(&e.attente_e_tete, &e.attente_e_queue)
+    let recepteurs = vider(&e.attente_r_tete, &e.attente_r_queue)
     etat.write(e)
-    signaler(signal)
     deverrouiller(verrou)
+    reveiller_tous(emetteurs)
+    reveiller_tous(recepteurs)
     if dernier {
         mem.drop_in_place(etat)
         mem.free(etat.cast[u8]())
         mem.free(verrou.cast[u8]())
-        mem.free(signal.cast[u8]())
     }
 }
 
@@ -203,15 +290,18 @@ impl Emetteur {
                     let i = (e.tete + e.longueur) % n
                     e.cases[i] = v.take()
                     e.longueur += 1
+                    let r = defiler(&e.attente_r_tete, &e.attente_r_queue)
                     self.etat.write(e)
-                    signaler(self.signal)
                     deverrouiller(self.verrou)
+                    reveiller(r)
                     return true
                 }
-                let s = mem.atomic_load(self.signal)
+                var mot: u32 = 0
+                var noeud: [usize; 2] = [0, mem.addr_of(&mot).addr()]
+                enfiler(&e.attente_e_tete, &e.attente_e_queue, mem.addr_of(&noeud).cast[usize]())
                 self.etat.write(e)
                 deverrouiller(self.verrou)
-                sys.wait_on(self.signal, s)
+                attendre_reveil(mem.addr_of(&mot))
             }
         }
     }
@@ -226,9 +316,10 @@ impl Emetteur {
             verrouiller(self.verrou)
             var e = self.etat.read()
             e.emetteurs -= 1
+            let recepteurs = vider(&e.attente_r_tete, &e.attente_r_queue)
             self.etat.write(e)
-            signaler(self.signal)
             deverrouiller(self.verrou)
+            reveiller_tous(recepteurs)
         }
     }
 
@@ -236,7 +327,7 @@ impl Emetteur {
         unsafe {
             let ouvert = mem.atomic_swap(self.ferme, 1) == 0
             mem.free(self.ferme.cast[u8]())
-            quitter_canal[T](self.verrou, self.signal, self.etat, ouvert, false)
+            quitter_canal[T](self.verrou, self.etat, ouvert, false)
         }
     }
 }
@@ -251,7 +342,7 @@ impl Clone for Emetteur[T] {
             e.poignees += 1
             self.etat.write(e)
             deverrouiller(self.verrou)
-            return Emetteur(verrou: self.verrou, signal: self.signal, etat: self.etat, ferme: nouveau_mot())
+            return Emetteur(verrou: self.verrou, etat: self.etat, ferme: nouveau_mot())
         }
     }
 }
@@ -269,9 +360,10 @@ impl Recepteur {
                     let v = e.cases[i].take()
                     e.tete = (i + 1) % e.cases.len()
                     e.longueur -= 1
+                    let w = defiler(&e.attente_e_tete, &e.attente_e_queue)
                     self.etat.write(e)
-                    signaler(self.signal)
                     deverrouiller(self.verrou)
+                    reveiller(w)
                     return v
                 }
                 if e.emetteurs == 0 {
@@ -279,17 +371,19 @@ impl Recepteur {
                     deverrouiller(self.verrou)
                     return None
                 }
-                let s = mem.atomic_load(self.signal)
+                var mot: u32 = 0
+                var noeud: [usize; 2] = [0, mem.addr_of(&mot).addr()]
+                enfiler(&e.attente_r_tete, &e.attente_r_queue, mem.addr_of(&noeud).cast[usize]())
                 self.etat.write(e)
                 deverrouiller(self.verrou)
-                sys.wait_on(self.signal, s)
+                attendre_reveil(mem.addr_of(&mot))
             }
         }
     }
 
     fn drop(inout self) {
         unsafe {
-            quitter_canal[T](self.verrou, self.signal, self.etat, false, true)
+            quitter_canal[T](self.verrou, self.etat, false, true)
         }
     }
 }
@@ -304,7 +398,7 @@ impl Clone for Recepteur[T] {
             e.poignees += 1
             self.etat.write(e)
             deverrouiller(self.verrou)
-            return Recepteur(verrou: self.verrou, signal: self.signal, etat: self.etat)
+            return Recepteur(verrou: self.verrou, etat: self.etat)
         }
     }
 }
