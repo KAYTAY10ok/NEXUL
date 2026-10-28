@@ -176,6 +176,13 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         c
     } else if target.os == nxc_driver::Os::None {
         return run_qemu(target, exe, stdin);
+    } else if cfg!(target_os = "linux") && target.os == nxc_driver::Os::Linux {
+        // Another architecture of Linux: the executables are static, QEMU in user mode
+        // runs them (`qemu-aarch64`, `qemu-riscv64`).
+        let arch = if target.arch == nxc_driver::Arch::Aarch64 { "aarch64" } else { "riscv64" };
+        let mut c = Command::new(format!("qemu-{}", arch));
+        c.arg(exe);
+        c
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
     };
