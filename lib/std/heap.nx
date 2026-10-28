@@ -1,3 +1,4 @@
+// edition: 1
 /// A general-purpose heap allocator for systems without one (Linux without a C library,
 /// WebAssembly, bare metal), spec §5.3.
 ///
@@ -10,22 +11,22 @@ import std.sys
 import std.mem
 import std.rt
 
-const HEADER: usize = 16
-const CLASSES: usize = 12
+const usize HEADER = 16
+const usize CLASSES = 12
 /// The largest block of a size class: 32 << 11 = 64 KiB.
-const MAX_CLASS_SIZE: usize = 65536
-const CHUNK: usize = 1048576
-const SMALL: usize = 0x5A11
-const LARGE: usize = 0x1A26E
+const usize MAX_CLASS_SIZE = 65536
+const usize CHUNK = 1048576
+const usize SMALL = 0x5A11
+const usize LARGE = 0x1A26E
 
-static var FREE_LISTS: [Ptr[u8]; 12] = [Ptr.null(); 12]
-static var CHUNK_NEXT: Ptr[u8] = Ptr.null()
-static var CHUNK_LEFT: usize = 0
+static var [Ptr[u8]; 12] FREE_LISTS = [Ptr.null(); 12]
+static var Ptr[u8] CHUNK_NEXT = Ptr.null()
+static var usize CHUNK_LEFT = 0
 
 /// The smallest class whose blocks hold `total` bytes: blocks of 32 << class bytes.
-fn class_of(total: usize) -> usize {
-    var c: usize = 0
-    var size: usize = 32
+fn usize class_of(usize total) {
+    var usize c = 0
+    var usize size = 32
     while size < total {
         size <<= 1
         c += 1
@@ -33,21 +34,21 @@ fn class_of(total: usize) -> usize {
     return c
 }
 
-fn class_size(c: usize) -> usize {
+fn usize class_size(usize c) {
     return (32 as usize) << (c as u32)
 }
 
-fn round_up(x: usize, to: usize) -> usize {
+fn usize round_up(usize x, usize to) {
     return (x + to - 1) / to * to
 }
 
-unsafe fn write_header(block: Ptr[u8], first: usize, marker: usize) {
+unsafe fn write_header(Ptr[u8] block, usize first, usize marker) {
     block.cast[usize]().write(first)
     block.offset(8).cast[usize]().write(marker)
 }
 
 /// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
-pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] alloc(usize size) {
     let _critical = unsafe { rt.critical_section() }
     if size > usize.MAX - MAX_CLASS_SIZE {
         return Ptr.null()
@@ -86,7 +87,7 @@ pub unsafe fn alloc(size: usize) -> Ptr[u8] {
 }
 
 /// Usable size of an allocation.
-unsafe fn usable_size(p: Ptr[u8]) -> usize {
+unsafe fn usize usable_size(Ptr[u8] p) {
     let block = p.sub(HEADER)
     let first = block.cast[usize]().read()
     let marker = block.offset(8).cast[usize]().read()
@@ -96,7 +97,7 @@ unsafe fn usable_size(p: Ptr[u8]) -> usize {
     return class_size(first) - HEADER
 }
 
-pub unsafe fn free(p: Ptr[u8]) {
+pub unsafe fn free(Ptr[u8] p) {
     let _critical = unsafe { rt.critical_section() }
     if p.is_null() {
         return
@@ -116,7 +117,7 @@ pub unsafe fn free(p: Ptr[u8]) {
     FREE_LISTS[first] = block
 }
 
-pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
     let _critical = unsafe { rt.critical_section() }
     if p.is_null() {
         return alloc(size)

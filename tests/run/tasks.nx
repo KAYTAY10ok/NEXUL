@@ -1,3 +1,4 @@
+// targets: linux, windows, macos, wasi
 // ADR 0013: tasks of `std.tache`, on the threads of the system (Linux, Windows), one
 // after the other elsewhere. Each task modifies its own variables, so the results do not
 // depend on the order; the tasks allocate at the same time (lock of the runtime).

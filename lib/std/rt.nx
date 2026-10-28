@@ -1,3 +1,4 @@
+// edition: 1
 /// The NEXUL runtime (spec §5.3): program entry, panics, heap and standard output.
 ///
 /// The code generator calls the functions marked `@lang`. Everything here is written in
@@ -11,16 +12,16 @@ import std.fmt
 /// Position in the source code, attached to panics (`file:line:column`).
 @lang("location")
 @derive(Copy)
-pub struct Location {
-    pub file: Ptr[u8]
-    pub file_len: usize
-    pub line: u32
-    pub col: u32
+pub type Location {
+    pub Ptr[u8] file
+    pub usize file_len
+    pub u32 line
+    pub u32 col
 }
 
 /// Internal runtime lock: interrupts masked on bare metal (task C5), a lock shared by the
 /// threads elsewhere (ADR 0013), nothing on a target without either.
-pub unsafe fn critical_section() -> sys.CriticalSection {
+pub unsafe fn sys.CriticalSection critical_section() {
     return sys.critical_section()
 }
 
@@ -30,17 +31,17 @@ pub unsafe fn critical_section() -> sys.CriticalSection {
 /// Number of live heap allocations. With the environment variable `NEXUL_LEAK_CHECK`,
 /// a program that ends with live allocations reports them (used by the test suite to
 /// verify that every value is destroyed exactly once).
-static var LIVE_ALLOCATIONS: i64 = 0
+static var i64 LIVE_ALLOCATIONS = 0
 
 /// Internal runtime diagnostics, also usable on targets without environment
 /// variables (where NEXUL_LEAK_CHECK cannot be set). Take a consistent snapshot.
-pub fn allocation_balance() -> i64 {
+pub fn i64 allocation_balance() {
     let _critical = unsafe { critical_section() }
     return unsafe { LIVE_ALLOCATIONS }
 }
 
 @cold
-fn out_of_memory() -> Never {
+fn Never out_of_memory() {
     unsafe {
         flush()
         write_err("panic: out of memory\n")
@@ -50,7 +51,7 @@ fn out_of_memory() -> Never {
 
 /// Allocates `size` bytes (aligned for any type); never returns null.
 @lang("alloc")
-pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] alloc(usize size) {
     let _critical = unsafe { critical_section() }
     let p = sys.heap_alloc(if size == 0 { 1 } else { size })
     if p.is_null() {
@@ -62,7 +63,7 @@ pub unsafe fn alloc(size: usize) -> Ptr[u8] {
 
 /// Resizes an allocation made by `alloc` (or allocates if `p` is null).
 @lang("realloc")
-pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
     let _critical = unsafe { critical_section() }
     if p.is_null() {
         return alloc(size)
@@ -76,7 +77,7 @@ pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
 
 /// Frees an allocation made by `alloc` or `realloc`; does nothing for null.
 @lang("free")
-pub unsafe fn free(p: Ptr[u8]) {
+pub unsafe fn free(Ptr[u8] p) {
     let _critical = unsafe { critical_section() }
     if not p.is_null() {
         LIVE_ALLOCATIONS -= 1
@@ -87,11 +88,11 @@ pub unsafe fn free(p: Ptr[u8]) {
 // ---------------------------------------------------------------------------
 // Standard output (buffered) and standard error (unbuffered)
 
-const OUT_CAP: usize = 8192
-static var OUT_BUF: [u8; 8192] = [0; 8192]
-static var OUT_LEN: usize = 0
+const usize OUT_CAP = 8192
+static var [u8; 8192] OUT_BUF = [0; 8192]
+static var usize OUT_LEN = 0
 /// When standard output is a terminal, every `print` is flushed immediately.
-static var OUT_IS_TERMINAL: bool = false
+static var bool OUT_IS_TERMINAL = false
 
 /// Only the Windows stack-fault path uses this. The process exits immediately,
 /// so no allocation, destruction or console transcoding is needed.
@@ -99,7 +100,7 @@ static var OUT_IS_TERMINAL: bool = false
 pub unsafe fn flush_stack_overflow() {
     let n = OUT_LEN
     OUT_LEN = 0
-    sys.write_fault(1, mem.addr_of(&OUT_BUF).cast[u8](), n)
+    sys.write_fault(1, mem.addr_of(OUT_BUF!).cast[u8](), n)
 }
 
 /// Writes the buffered standard output.
@@ -110,13 +111,13 @@ pub fn flush() {
         if OUT_LEN > 0 {
             let n = OUT_LEN
             OUT_LEN = 0
-            let _ = sys.write(1, mem.addr_of(&OUT_BUF).cast[u8](), n)
+            let _ = sys.write(1, mem.addr_of(OUT_BUF!).cast[u8](), n)
         }
     }
 }
 
 /// Appends bytes to the standard output buffer.
-pub unsafe fn write_out(data: Ptr[u8], len: usize) {
+pub unsafe fn write_out(Ptr[u8] data, usize len) {
     let _critical = unsafe { critical_section() }
     if len >= OUT_CAP {
         flush()
@@ -126,21 +127,21 @@ pub unsafe fn write_out(data: Ptr[u8], len: usize) {
     if OUT_LEN + len > OUT_CAP {
         flush()
     }
-    mem.copy(data, mem.addr_of(&OUT_BUF).cast[u8]().offset(OUT_LEN), len)
+    mem.copy(data, mem.addr_of(OUT_BUF!).cast[u8]().offset(OUT_LEN), len)
     OUT_LEN += len
 }
 
-unsafe fn write_err(text: String) {
+unsafe fn write_err(String text) {
     let _ = sys.write(2, text.as_ptr(), text.len())
 }
 
 /// Writes a number to standard error without allocating (usable when the heap is
 /// exhausted).
-unsafe fn write_err_u64(value: u64) {
-    var digits: [u8; 20] = [0; 20]
-    var n: usize = 0
+unsafe fn write_err_u64(u64 value) {
+    var [u8; 20] digits = [0; 20]
+    var usize n = 0
     var v = value
-    while true {
+    loop {
         digits[19 - n] = ('0' as u8) + (v % 10) as u8
         n += 1
         v /= 10
@@ -148,12 +149,12 @@ unsafe fn write_err_u64(value: u64) {
             break
         }
     }
-    let _ = sys.write(2, mem.addr_of(&digits).cast[u8]().offset(20 - n), n)
+    let _ = sys.write(2, mem.addr_of(digits!).cast[u8]().offset(20 - n), n)
 }
 
 /// `print`, `println`, `eprint` and `eprintln`.
 @lang("print")
-fn print(text: String, newline: bool, to_stderr: bool) {
+fn print(String text, bool newline, bool to_stderr) {
     let _critical = unsafe { critical_section() }
     unsafe {
         if to_stderr {
@@ -179,7 +180,7 @@ fn print(text: String, newline: bool, to_stderr: bool) {
 
 /// Called by the platform entry point with the program's `main` function.
 @lang("entry")
-fn entry(owned main: fn()) {
+fn entry(owned fn() main) {
     sys.init()
     unsafe {
         OUT_IS_TERMINAL = sys.stdout_is_terminal()
@@ -189,7 +190,7 @@ fn entry(owned main: fn()) {
 }
 
 /// Ends the program: flushes the output, runs the leak check if requested, and exits.
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     flush()
     let live = unsafe { LIVE_ALLOCATIONS }
     if live != 0 and sys.env_is_set("NEXUL_LEAK_CHECK") {
@@ -210,18 +211,18 @@ pub fn exit(code: i32) -> Never {
 
 /// For `nxc test`: the index of the test to run (first command-line argument).
 @lang("test_index")
-fn test_index() -> i32 {
+fn i32 test_index() {
     if sys.arg_count() < 2 {
         return -1
     }
-    match sys.arg(1).parse_int() {
-        Some(n) => {
+    when sys.arg(1).parse_int() {
+        .Some(n) then {
             if n < 0 or n > 1_000_000 {
                 return -1
             }
             return n as i32
         }
-        None => return -1
+        .None then return -1
     }
 }
 
@@ -231,7 +232,7 @@ fn test_index() -> i32 {
 /// Reports a panic and ends the program with exit code 101.
 @lang("panic")
 @cold
-pub fn panic_at(message: String, location: Ptr[Location]) -> Never {
+pub fn Never panic_at(String message, Ptr[Location] location) {
     unsafe {
         flush()
         write_err("panic: ")
@@ -254,25 +255,25 @@ pub fn panic_at(message: String, location: Ptr[Location]) -> Never {
 /// Failed checks of arithmetic, conversions and shifts (spec §4.2, §3.6).
 @lang("panic_arith")
 @cold
-fn panic_arith(kind: u32, location: Ptr[Location]) -> Never {
-    let message = match kind {
-        0 => "attempt to add with overflow"
-        1 => "attempt to subtract with overflow"
-        2 => "attempt to multiply with overflow"
-        3 => "attempt to divide by zero"
-        4 => "attempt to divide with overflow"
-        5 => "attempt to calculate the remainder with a divisor of zero"
-        6 => "attempt to calculate the remainder with overflow"
-        7 => "attempt to negate with overflow"
-        8 => "attempt to shift left with overflow"
-        9 => "attempt to shift right with overflow"
-        10 => "attempt to take the absolute value with overflow"
-        11 => "value out of range in `as` conversion"
-        12 => "cannot convert NaN to an integer"
-        13 => "value is not a valid `char`"
-        14 => "attempt to raise to a power with overflow"
-        15 => "value is not a valid `bool` (0 or 1)"
-        _ => "arithmetic error"
+fn Never panic_arith(u32 kind, Ptr[Location] location) {
+    let message = when kind {
+        0 then "attempt to add with overflow"
+        1 then "attempt to subtract with overflow"
+        2 then "attempt to multiply with overflow"
+        3 then "attempt to divide by zero"
+        4 then "attempt to divide with overflow"
+        5 then "attempt to calculate the remainder with a divisor of zero"
+        6 then "attempt to calculate the remainder with overflow"
+        7 then "attempt to negate with overflow"
+        8 then "attempt to shift left with overflow"
+        9 then "attempt to shift right with overflow"
+        10 then "attempt to take the absolute value with overflow"
+        11 then "value out of range in `as` conversion"
+        12 then "cannot convert NaN to an integer"
+        13 then "value is not a valid `char`"
+        14 then "attempt to raise to a power with overflow"
+        15 then "value is not a valid `bool` (0 or 1)"
+        _ then "arithmetic error"
     }
     panic_at(message, location)
 }
@@ -280,20 +281,20 @@ fn panic_arith(kind: u32, location: Ptr[Location]) -> Never {
 /// An index outside of `0..len` (spec §4.6).
 @lang("panic_bounds")
 @cold
-fn panic_bounds(index: u64, len: u64, location: Ptr[Location]) -> Never {
+fn Never panic_bounds(u64 index, u64 len, Ptr[Location] location) {
     panic_at("index out of bounds: the index is {index} but the length is {len}", location)
 }
 
 @lang("panic_bounds_neg")
 @cold
-fn panic_bounds_neg(index: i64, len: u64, location: Ptr[Location]) -> Never {
+fn Never panic_bounds_neg(i64 index, u64 len, Ptr[Location] location) {
     panic_at("index out of bounds: the index is {index} but the length is {len}", location)
 }
 
 /// Out-of-bounds access through an `@index` method (reported at the caller).
 @track_caller
 @cold
-pub fn index_fail(index: usize, len: usize) -> Never {
+pub fn Never index_fail(usize index, usize len) {
     panic("index out of bounds: the index is {index} but the length is {len}")
 }
 
@@ -302,15 +303,15 @@ pub fn index_fail(index: usize, len: usize) -> Never {
 
 /// Unicode `White_Space` property.
 @lang("char_is_whitespace")
-pub fn char_is_whitespace(c: char) -> bool {
+pub fn bool char_is_whitespace(char c) {
     let v = c as u32
     return v == 0x20 or (v >= 0x09 and v <= 0x0D) or v == 0x85 or v == 0xA0 or v == 0x1680 or (v >= 0x2000 and v <= 0x200A) or
         v == 0x2028 or v == 0x2029 or v == 0x202F or v == 0x205F or v == 0x3000
 }
 
 // A location points to the name of a source file, a constant of the program.
-unsafe impl Transfer for Location {
+unsafe extend Location is Transfer {
 }
 
-unsafe impl Share for Location {
+unsafe extend Location is Share {
 }

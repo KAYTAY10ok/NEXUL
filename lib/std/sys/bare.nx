@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for bare metal: microcontrollers and boards without an operating system
 /// (spec §7).
 ///
@@ -16,69 +17,69 @@ import std.heap
 
 /// A semihosting request: operation number and parameter (usually a parameter block).
 @intrinsic
-unsafe fn semihost(op: usize, param: usize) -> isize
+unsafe fn isize semihost(usize op, usize param)
 
 /// The start of the free RAM, after the data (`__heap_start` of the linker script).
 @intrinsic
-unsafe fn heap_start() -> Ptr[u8]
+unsafe fn Ptr[u8] heap_start()
 
 /// The top of the stack, at the end of the RAM (`__stack_top`).
 @intrinsic
-unsafe fn stack_top() -> Ptr[u8]
+unsafe fn Ptr[u8] stack_top()
 
 /// Save the interrupt mask, then mask interrupts. The memory clobber on the
 /// intrinsic prevents accesses to runtime state from crossing the boundary.
 @intrinsic
-unsafe fn irq_save() -> usize
+unsafe fn usize irq_save()
 @intrinsic
-unsafe fn irq_restore(state: usize)
+unsafe fn irq_restore(usize state)
 
 /// A nested critical section on a single core. Only maskable interrupts are
 /// covered: NMI/fault handlers must not allocate or print (review required).
-pub struct CriticalSection {
-    state: usize
+pub type CriticalSection {
+    usize state
 }
 
-impl CriticalSection {
-    fn drop(inout self) {
+extend CriticalSection {
+    fn drop(self!) {
         unsafe { irq_restore(self.state) }
     }
 }
 
 /// Internal runtime guard. Restore the saved mask, never unconditionally enable
 /// interrupts: allocator calls can nest and can run inside an interrupt handler.
-pub unsafe fn critical_section() -> CriticalSection {
+pub unsafe fn CriticalSection critical_section() {
     return CriticalSection(state: irq_save())
 }
 
-const SYS_OPEN: usize = 0x01
-const SYS_CLOSE: usize = 0x02
-const SYS_WRITE: usize = 0x05
-const SYS_READ: usize = 0x06
-const SYS_READC: usize = 0x07
-const SYS_FLEN: usize = 0x0C
-const SYS_TIME: usize = 0x11
-const SYS_GET_CMDLINE: usize = 0x15
-const SYS_EXIT_EXTENDED: usize = 0x20
-const SYS_ELAPSED: usize = 0x30
-const SYS_TICKFREQ: usize = 0x31
+const usize SYS_OPEN = 0x01
+const usize SYS_CLOSE = 0x02
+const usize SYS_WRITE = 0x05
+const usize SYS_READ = 0x06
+const usize SYS_READC = 0x07
+const usize SYS_FLEN = 0x0C
+const usize SYS_TIME = 0x11
+const usize SYS_GET_CMDLINE = 0x15
+const usize SYS_EXIT_EXTENDED = 0x20
+const usize SYS_ELAPSED = 0x30
+const usize SYS_TICKFREQ = 0x31
 
 /// Space kept for the stack below the top of RAM.
-const STACK_RESERVE: usize = 65536
+const usize STACK_RESERVE = 65536
 
-static var STDOUT: isize = -1
-static var STDERR: isize = -1
-static var HEAP_NEXT: Ptr[u8] = Ptr.null()
-static var HEAP_END: Ptr[u8] = Ptr.null()
-static var FREE_REGIONS: Ptr[u8] = Ptr.null()
+static var isize STDOUT = -1
+static var isize STDERR = -1
+static var Ptr[u8] HEAP_NEXT = Ptr.null()
+static var Ptr[u8] HEAP_END = Ptr.null()
+static var Ptr[u8] FREE_REGIONS = Ptr.null()
 
-fn addr(p: Ptr[u8]) -> usize {
+fn usize addr(Ptr[u8] p) {
     return p.addr()
 }
 
-unsafe fn open_host(name: String, mode: usize) -> isize {
-    var block: [usize; 3] = [addr(name.as_ptr()), mode, name.len()]
-    return semihost(SYS_OPEN, addr(mem.addr_of(&block).cast[u8]()))
+unsafe fn isize open_host(String name, usize mode) {
+    var [usize; 3] block = [addr(name.as_ptr()), mode, name.len()]
+    return semihost(SYS_OPEN, addr(mem.addr_of(block!).cast[u8]()))
 }
 
 /// Called by the startup code before the program.
@@ -98,16 +99,16 @@ pub fn init() {
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+pub fn bool stdout_is_terminal() {
     return true
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
         // ADP_Stopped_ApplicationExit with the exit code.
-        var block: [usize; 2] = [0x20026, if code < 0 { 1 } else { code as usize }]
-        while true {
-            let _ = semihost(SYS_EXIT_EXTENDED, addr(mem.addr_of(&block).cast[u8]()))
+        var [usize; 2] block = [0x20026, if code < 0 { 1 } else { code as usize }]
+        loop {
+            let _ = semihost(SYS_EXIT_EXTENDED, addr(mem.addr_of(block!).cast[u8]()))
         }
     }
 }
@@ -115,8 +116,8 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
-    var prev: Ptr[u8] = Ptr.null()
+pub unsafe fn Ptr[u8] page_alloc(usize size) {
+    var Ptr[u8] prev = Ptr.null()
     var r = FREE_REGIONS
     while not r.is_null() {
         let rsize = r.cast[usize]().read()
@@ -144,58 +145,58 @@ pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
     return p
 }
 
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+pub unsafe fn page_free(Ptr[u8] p, usize size) {
     p.cast[usize]().write(size)
     p.offset(mem.size_of[usize]()).cast[Ptr[u8]]().write(FREE_REGIONS)
     FREE_REGIONS = p
 }
 
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return heap.alloc(size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return heap.realloc(p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     heap.free(p)
 }
 
 // ---------------------------------------------------------------------------
 // Console
 
-unsafe fn write_handle(h: isize, data: Ptr[u8], len: usize) -> bool {
+unsafe fn bool write_handle(isize h, Ptr[u8] data, usize len) {
     if h < 0 {
         return false
     }
-    var block: [usize; 3] = [h as usize, addr(data), len]
+    var [usize; 3] block = [h as usize, addr(data), len]
     // Returns the number of bytes NOT written.
-    return semihost(SYS_WRITE, addr(mem.addr_of(&block).cast[u8]())) == 0
+    return semihost(SYS_WRITE, addr(mem.addr_of(block!).cast[u8]())) == 0
 }
 
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return write_handle(if fd == 2 { STDERR } else { STDOUT }, data, len)
 }
 
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
     rt.flush()
-    var bytes: Vec[u8] = Vec.new()
-    var any = false
+    var Vec[u8] bytes = Vec.new()
+    var any_ = false
     unsafe {
-        while true {
+        loop {
             let c = semihost(SYS_READC, 0)
             if c < 0 or c == 4 {
                 break
             }
-            any = true
+            any_ = true
             if c == 10 {
                 break
             }
             bytes.push((c & 0xFF) as u8)
         }
     }
-    if not any {
+    if not any_ {
         return false
     }
     if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -208,12 +209,12 @@ pub fn read_line(inout out: String) -> bool {
 // ---------------------------------------------------------------------------
 // Command line and environment
 
-fn command_line() -> Vec[String] {
-    var out: Vec[String] = Vec.new()
+fn Vec[String] command_line() {
+    var Vec[String] out = Vec.new()
     unsafe {
         let buf = mem.alloc(1024)
-        var block: [usize; 2] = [addr(buf), 1024]
-        if semihost(SYS_GET_CMDLINE, addr(mem.addr_of(&block).cast[u8]())) == 0 {
+        var [usize; 2] block = [addr(buf), 1024]
+        if semihost(SYS_GET_CMDLINE, addr(mem.addr_of(block!).cast[u8]())) == 0 {
             let text = String.from_bytes_lossy(buf, block[1])
             for part in text.split(" ") {
                 if part.len() > 0 {
@@ -229,11 +230,11 @@ fn command_line() -> Vec[String] {
     return out
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return command_line().len() as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     let all = command_line()
     if index < 0 or index as usize >= all.len() {
         panic("argument index {index} out of range")
@@ -242,12 +243,12 @@ pub fn arg(index: i32) -> String {
 }
 
 /// There is no environment without an operating system.
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     let _ = name
     return None
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     let _ = name
     return false
 }
@@ -257,34 +258,34 @@ pub fn env_is_set(name: String) -> bool {
 
 /// Reads a whole file of the host into `out` (bytes). Returns 0, or -1: semihosting
 /// gives no portable error code.
-pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         // Mode 1: "rb".
         let h = open_host(path, 1)
         if h < 0 {
             return -1
         }
-        var fb: [usize; 1] = [h as usize]
-        let len = semihost(SYS_FLEN, addr(mem.addr_of(&fb).cast[u8]()))
+        var [usize; 1] fb = [h as usize]
+        let len = semihost(SYS_FLEN, addr(mem.addr_of(fb!).cast[u8]()))
         var ok = len >= 0
         if ok {
             let n = len as usize
             out.reserve(n)
-            var block: [usize; 3] = [h as usize, addr(out.as_ptr().offset(out.len())), n]
-            let missing = semihost(SYS_READ, addr(mem.addr_of(&block).cast[u8]()))
+            var [usize; 3] block = [h as usize, addr(out.as_ptr().offset(out.len())), n]
+            let missing = semihost(SYS_READ, addr(mem.addr_of(block!).cast[u8]()))
             if missing < 0 or missing as usize > n {
                 ok = false
             } else {
                 out.set_len(out.len() + n - missing as usize)
             }
         }
-        let _ = semihost(SYS_CLOSE, addr(mem.addr_of(&fb).cast[u8]()))
+        let _ = semihost(SYS_CLOSE, addr(mem.addr_of(fb!).cast[u8]()))
         return if ok { 0 } else { -1 }
     }
 }
 
 /// Creates (or replaces, or appends to) a file of the host. Returns 0, or -1.
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
         // Mode 5: "wb", 9: "ab".
         let h = open_host(path, if append { 9 } else { 5 })
@@ -292,8 +293,8 @@ pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 
             return -1
         }
         let ok = len == 0 or write_handle(h, data, len)
-        var fb: [usize; 1] = [h as usize]
-        let _ = semihost(SYS_CLOSE, addr(mem.addr_of(&fb).cast[u8]()))
+        var [usize; 1] fb = [h as usize]
+        let _ = semihost(SYS_CLOSE, addr(mem.addr_of(fb!).cast[u8]()))
         return if ok { 0 } else { -1 }
     }
 }
@@ -301,7 +302,7 @@ pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 
 /// The `std.io` category of an error code returned by `read_file` or `write_file`
 /// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
 /// 0 another error.
-pub fn io_error_kind(code: i32) -> u8 {
+pub fn u8 io_error_kind(i32 code) {
     let _ = code
     return 0
 }
@@ -309,10 +310,10 @@ pub fn io_error_kind(code: i32) -> u8 {
 // ---------------------------------------------------------------------------
 // Time
 
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     unsafe {
-        var ticks: [u32; 2] = [0; 2]
-        if semihost(SYS_ELAPSED, addr(mem.addr_of(&ticks).cast[u8]())) != 0 {
+        var [u32; 2] ticks = [0; 2]
+        if semihost(SYS_ELAPSED, addr(mem.addr_of(ticks!).cast[u8]())) != 0 {
             return 0
         }
         let freq = semihost(SYS_TICKFREQ, 0)
@@ -325,17 +326,17 @@ pub fn monotonic_ns() -> u64 {
     }
 }
 
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     return unsafe { semihost(SYS_TIME, 0) } as i64 * 1_000_000_000
 }
 
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     let _ = unix_seconds
     return 0
 }
 
 /// Busy waiting on the clock (no scheduler without an operating system).
-pub fn sleep_ns(ns: u64) {
+pub fn sleep_ns(u64 ns) {
     let start = monotonic_ns()
     while monotonic_ns() - start < ns {
     }
@@ -345,7 +346,7 @@ pub fn sleep_ns(ns: u64) {
 // Random numbers
 
 /// No entropy source is known without an operating system.
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
     let _ = buffer
     let _ = len
     return false
@@ -356,17 +357,17 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
 // launched, which is one of the orders allowed by its rules.
 
 /// Returns 0: the caller runs `entry(arg)` itself.
-pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
     let _ = entry
     let _ = arg
     return 0
 }
 
-pub unsafe fn thread_join(handle: usize) {
+pub unsafe fn thread_join(usize handle) {
     let _ = handle
 }
 
-pub fn thread_id() -> u64 {
+pub fn u64 thread_id() {
     return 0
 }
 
@@ -375,16 +376,16 @@ pub fn thread_yield() {
 
 /// Without threads, a task that waits can never be woken: the other tasks have already run
 /// or run after it.
-pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
     let _ = p
     let _ = expected
     panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
 }
 
-pub unsafe fn wake_all(p: Ptr[u32]) {
+pub unsafe fn wake_all(Ptr[u32] p) {
     let _ = p
 }
 
-pub unsafe fn wake_one(p: Ptr[u32]) {
+pub unsafe fn wake_one(Ptr[u32] p) {
     let _ = p
 }

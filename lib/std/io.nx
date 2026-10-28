@@ -1,3 +1,4 @@
+// edition: 1
 /// Standard input/output and files (spec chapter 09).
 
 import std.sys
@@ -11,9 +12,9 @@ pub fn flush() {
 
 /// Reads one line from the standard input, without its line terminator.
 /// Returns `None` at the end of the input.
-pub fn read_line() -> Option[String] {
+pub fn Option[String] read_line() {
     var line = String.new()
-    if sys.read_line(&line) {
+    if sys.read_line(line!) {
         return Some(line)
     }
     return None
@@ -22,52 +23,51 @@ pub fn read_line() -> Option[String] {
 /// Why an input/output operation failed (ADR 0015). The variants keep the path given
 /// to the function; `Other` keeps the system's error code.
 @derive(Eq, Clone)
-pub enum IoError {
-    /// Nothing exists at this path.
-    NotFound(String)
-    /// The system refuses access to this path.
-    PermissionDenied(String)
-    /// Something already exists at this path.
-    AlreadyExists(String)
-    /// The content is not what was expected (a text file that is not UTF-8).
-    InvalidData(String)
-    /// A signal interrupted the operation.
-    Interrupted
-    /// Another error: the system's code (-1 when the system gives none) and a message.
-    Other(i32, String)
-}
+pub /// Nothing exists at this path.
+/// The system refuses access to this path.
+/// Something already exists at this path.
+/// The content is not what was expected (a text file that is not UTF-8).
+/// A signal interrupted the operation.
+/// Another error: the system's code (-1 when the system gives none) and a message.
+type IoError =
+    | .NotFound(String)
+    | .PermissionDenied(String)
+    | .AlreadyExists(String)
+    | .InvalidData(String)
+    | .Interrupted
+    | .Other(i32, String)
 
-impl Display for IoError {
-    fn to_string(self) -> String {
-        return match self {
-            NotFound(path) => "file not found: {path}"
-            PermissionDenied(path) => "permission denied: {path}"
-            AlreadyExists(path) => "file already exists: {path}"
-            InvalidData(detail) => "invalid data: {detail}"
-            Interrupted => "operation interrupted"
-            Other(code, message) => "{message} (os error {code})"
+extend IoError is Display {
+    fn String to_string(self) {
+        return when self {
+            .NotFound(path) then "file not found: {path}"
+            .PermissionDenied(path) then "permission denied: {path}"
+            .AlreadyExists(path) then "file already exists: {path}"
+            .InvalidData(detail) then "invalid data: {detail}"
+            .Interrupted then "operation interrupted"
+            .Other(code, message) then "{message} (os error {code})"
         }
     }
 }
 
-impl Error for IoError {
+extend IoError is Error {
 }
 
 /// The error for a code returned by `sys.read_file` or `sys.write_file`.
-fn io_error(code: i32, owned path: String, action: String) -> IoError {
-    return match sys.io_error_kind(code) {
-        1 => IoError.NotFound(path)
-        2 => IoError.PermissionDenied(path)
-        3 => IoError.AlreadyExists(path)
-        4 => IoError.Interrupted
-        _ => IoError.Other(code, "cannot {action} file: {path}")
+fn IoError io_error(i32 code, owned String path, String action) {
+    return when sys.io_error_kind(code) {
+        1 then IoError.NotFound(path)
+        2 then IoError.PermissionDenied(path)
+        3 then IoError.AlreadyExists(path)
+        4 then IoError.Interrupted
+        _ then IoError.Other(code, "cannot {action} file: {path}")
     }
 }
 
 /// Reads a whole file as bytes.
-pub fn read_bytes(path: String) -> Result[Vec[u8], IoError] {
-    var bytes: Vec[u8] = Vec.new()
-    let code = sys.read_file(path, &bytes)
+pub fn Result[Vec[u8], IoError] read_bytes(String path) {
+    var Vec[u8] bytes = Vec.new()
+    let code = sys.read_file(path, bytes!)
     if code != 0 {
         return Err(io_error(code, path.clone(), "read"))
     }
@@ -75,9 +75,9 @@ pub fn read_bytes(path: String) -> Result[Vec[u8], IoError] {
 }
 
 /// Reads a whole UTF-8 text file.
-pub fn read_file(path: String) -> Result[String, IoError] {
-    var bytes: Vec[u8] = Vec.new()
-    let code = sys.read_file(path, &bytes)
+pub fn Result[String, IoError] read_file(String path) {
+    var Vec[u8] bytes = Vec.new()
+    let code = sys.read_file(path, bytes!)
     if code != 0 {
         return Err(io_error(code, path.clone(), "read"))
     }
@@ -91,7 +91,7 @@ pub fn read_file(path: String) -> Result[String, IoError] {
 }
 
 /// Creates or replaces a file with `content`.
-pub fn write_file(path: String, content: String) -> Result[(), IoError] {
+pub fn Result[(), IoError] write_file(String path, String content) {
     let code = sys.write_file(path, content.as_ptr(), content.len(), false)
     if code != 0 {
         return Err(io_error(code, path.clone(), "write"))
@@ -100,7 +100,7 @@ pub fn write_file(path: String, content: String) -> Result[(), IoError] {
 }
 
 /// Creates or replaces a file with raw bytes.
-pub fn write_bytes(path: String, content: Vec[u8]) -> Result[(), IoError] {
+pub fn Result[(), IoError] write_bytes(String path, Vec[u8] content) {
     let code = sys.write_file(path, content.as_ptr(), content.len(), false)
     if code != 0 {
         return Err(io_error(code, path.clone(), "write"))
@@ -109,7 +109,7 @@ pub fn write_bytes(path: String, content: Vec[u8]) -> Result[(), IoError] {
 }
 
 /// Appends `content` at the end of a file (created if needed).
-pub fn append_file(path: String, content: String) -> Result[(), IoError] {
+pub fn Result[(), IoError] append_file(String path, String content) {
     let code = sys.write_file(path, content.as_ptr(), content.len(), true)
     if code != 0 {
         return Err(io_error(code, path.clone(), "write"))

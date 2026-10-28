@@ -348,6 +348,14 @@ impl<'a> Migrator<'a> {
         if header.contains("//") || header.contains("/*") {
             self.manual(start, "comment inside a function header: moved out by the rewriting, check it");
         }
+        // A bound on a parameter of the type (`where K: Eq` in `impl Map`): edition 1 has
+        // no place for it in the header of the method, and dropping it would drop a check.
+        if let Some(b) = f.bounds.iter().find(|b| !f.generics.iter().any(|g| g.name == b.param.name)) {
+            self.manual(
+                start,
+                format!("`where {}: …` bounds a parameter of the type: move `{}` to a separate `extend Type[{} is …] {{ … }}`", b.param.name, f.name.name, b.param.name),
+            );
+        }
         let new = match test {
             Some(name) => format!("test \"{}\" ", name),
             None => {

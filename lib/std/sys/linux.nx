@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for Linux (spec §5.3).
 ///
 /// NEXUL programs call the Linux kernel directly (system calls): no C library is needed,
@@ -12,90 +13,90 @@ import std.tzif
 /// A Linux system call with six arguments (unused ones are 0). Returns the result, or
 /// `-errno` (between -4095 and -1) on failure.
 @intrinsic
-unsafe fn syscall6(number: isize, a1: isize, a2: isize, a3: isize, a4: isize, a5: isize, a6: isize) -> isize
+unsafe fn isize syscall6(isize number, isize a1, isize a2, isize a3, isize a4, isize a5, isize a6)
 
 @cfg("x86_64")
-const SYS_READ: isize = 0
+const isize SYS_READ = 0
 @cfg("x86_64")
-const SYS_WRITE: isize = 1
+const isize SYS_WRITE = 1
 @cfg("x86_64")
-const SYS_CLOSE: isize = 3
+const isize SYS_CLOSE = 3
 @cfg("x86_64")
-const SYS_MMAP: isize = 9
+const isize SYS_MMAP = 9
 @cfg("x86_64")
-const SYS_MUNMAP: isize = 11
+const isize SYS_MUNMAP = 11
 @cfg("x86_64")
-const SYS_IOCTL: isize = 16
+const isize SYS_IOCTL = 16
 @cfg("x86_64")
-const SYS_NANOSLEEP: isize = 35
+const isize SYS_NANOSLEEP = 35
 @cfg("x86_64")
-const SYS_EXIT_GROUP: isize = 231
+const isize SYS_EXIT_GROUP = 231
 @cfg("x86_64")
-const SYS_CLOCK_GETTIME: isize = 228
+const isize SYS_CLOCK_GETTIME = 228
 @cfg("x86_64")
-const SYS_OPENAT: isize = 257
+const isize SYS_OPENAT = 257
 @cfg("x86_64")
-const SYS_GETRANDOM: isize = 318
+const isize SYS_GETRANDOM = 318
 @cfg("x86_64")
-const SYS_RT_SIGACTION: isize = 13
+const isize SYS_RT_SIGACTION = 13
 @cfg("x86_64")
-const SYS_SIGALTSTACK: isize = 131
+const isize SYS_SIGALTSTACK = 131
 @cfg("x86_64")
-const SYS_PRLIMIT64: isize = 302
+const isize SYS_PRLIMIT64 = 302
 @cfg("x86_64")
-const SYS_GETPID: isize = 39
+const isize SYS_GETPID = 39
 @cfg("x86_64")
-const SYS_KILL: isize = 62
+const isize SYS_KILL = 62
 
 @cfg("!x86_64")
-const SYS_READ: isize = 63
+const isize SYS_READ = 63
 @cfg("!x86_64")
-const SYS_WRITE: isize = 64
+const isize SYS_WRITE = 64
 @cfg("!x86_64")
-const SYS_CLOSE: isize = 57
+const isize SYS_CLOSE = 57
 @cfg("!x86_64")
-const SYS_MMAP: isize = 222
+const isize SYS_MMAP = 222
 @cfg("!x86_64")
-const SYS_MUNMAP: isize = 215
+const isize SYS_MUNMAP = 215
 @cfg("!x86_64")
-const SYS_IOCTL: isize = 29
+const isize SYS_IOCTL = 29
 @cfg("!x86_64")
-const SYS_NANOSLEEP: isize = 101
+const isize SYS_NANOSLEEP = 101
 @cfg("!x86_64")
-const SYS_EXIT_GROUP: isize = 94
+const isize SYS_EXIT_GROUP = 94
 @cfg("!x86_64")
-const SYS_CLOCK_GETTIME: isize = 113
+const isize SYS_CLOCK_GETTIME = 113
 @cfg("!x86_64")
-const SYS_OPENAT: isize = 56
+const isize SYS_OPENAT = 56
 @cfg("!x86_64")
-const SYS_GETRANDOM: isize = 278
+const isize SYS_GETRANDOM = 278
 @cfg("!x86_64")
-const SYS_RT_SIGACTION: isize = 134
+const isize SYS_RT_SIGACTION = 134
 @cfg("!x86_64")
-const SYS_SIGALTSTACK: isize = 132
+const isize SYS_SIGALTSTACK = 132
 @cfg("!x86_64")
-const SYS_PRLIMIT64: isize = 261
+const isize SYS_PRLIMIT64 = 261
 @cfg("!x86_64")
-const SYS_GETPID: isize = 172
+const isize SYS_GETPID = 172
 @cfg("!x86_64")
-const SYS_KILL: isize = 129
+const isize SYS_KILL = 129
 
-const EINTR: isize = -4
-const AT_FDCWD: isize = -100
+const isize EINTR = -4
+const isize AT_FDCWD = -100
 
-unsafe fn sys1(n: isize, a: isize) -> isize {
+unsafe fn isize sys1(isize n, isize a) {
     return syscall6(n, a, 0, 0, 0, 0, 0)
 }
 
-unsafe fn sys2(n: isize, a: isize, b: isize) -> isize {
+unsafe fn isize sys2(isize n, isize a, isize b) {
     return syscall6(n, a, b, 0, 0, 0, 0)
 }
 
-unsafe fn sys3(n: isize, a: isize, b: isize, c: isize) -> isize {
+unsafe fn isize sys3(isize n, isize a, isize b, isize c) {
     return syscall6(n, a, b, c, 0, 0, 0)
 }
 
-fn addr(p: Ptr[u8]) -> isize {
+fn isize addr(Ptr[u8] p) {
     return p.addr() as isize
 }
 
@@ -103,14 +104,14 @@ fn addr(p: Ptr[u8]) -> isize {
 // Process
 
 /// The initial stack of the process: argc, argv[], NULL, envp[], NULL.
-static var ARGC: usize = 0
-static var ARGV: Ptr[Ptr[u8]] = Ptr.null()
-static var ENVP: Ptr[Ptr[u8]] = Ptr.null()
-static var STDOUT_TERMINAL: bool = false
+static var usize ARGC = 0
+static var Ptr[Ptr[u8]] ARGV = Ptr.null()
+static var Ptr[Ptr[u8]] ENVP = Ptr.null()
+static var bool STDOUT_TERMINAL = false
 
 /// Called by the program entry point with the initial stack pointer.
 @lang("sys_set_stack")
-fn set_stack(sp: Ptr[usize]) {
+fn set_stack(Ptr[usize] sp) {
     unsafe {
         STACK_TOP = sp.addr()
         ARGC = sp.read()
@@ -130,46 +131,46 @@ fn set_stack(sp: Ptr[usize]) {
 
 /// The highest address of the stack (the initial stack pointer) and its lowest allowed
 /// address (from `RLIMIT_STACK`); 0 when unknown.
-static var STACK_TOP: usize = 0
-static var STACK_LOW: usize = 0
+static var usize STACK_TOP = 0
+static var usize STACK_LOW = 0
 /// The stack of the signal handler.
-static var ALT_STACK: [u8; 65536] = [0; 65536]
+static var [u8; 65536] ALT_STACK = [0; 65536]
 
-const SIGBUS: isize = 7
-const SIGSEGV: isize = 11
-const SA_SIGINFO: usize = 0x4
-const SA_RESTORER: usize = 0x0400_0000
-const SA_ONSTACK: usize = 0x0800_0000
-const SA_NODEFER: usize = 0x4000_0000
-const SA_RESETHAND: usize = 0x8000_0000
+const isize SIGBUS = 7
+const isize SIGSEGV = 11
+const usize SA_SIGINFO = 0x4
+const usize SA_RESTORER = 0x0400_0000
+const usize SA_ONSTACK = 0x0800_0000
+const usize SA_NODEFER = 0x4000_0000
+const usize SA_RESETHAND = 0x8000_0000
 /// Faults this far below the lowest address of the stack still count as an overflow: the
 /// guard gap of the kernel (1 MiB by default) and a large frame.
-const GUARD_SPAN: usize = 4_194_304
+const usize GUARD_SPAN = 4_194_304
 
 /// Installs the handler of memory faults. `handler` is the C entry generated by the
 /// compiler (`nx_linux_fault`), which calls `fault`.
 @lang("sys_set_fault_handler")
-fn set_fault_handler(handler: Ptr[u8]) {
+fn set_fault_handler(Ptr[u8] handler) {
     install_fault_handler(handler)
 }
 
-fn install_fault_handler(handler: Ptr[u8]) {
+fn install_fault_handler(Ptr[u8] handler) {
     unsafe {
         // RLIMIT_STACK (3): the size of the main stack.
-        var limit: [u64; 2] = [0, 0]
-        let r = syscall6(SYS_PRLIMIT64, 0, 3, 0, addr(mem.addr_of(&limit).cast[u8]()), 0, 0)
+        var [u64; 2] limit = [0, 0]
+        let r = syscall6(SYS_PRLIMIT64, 0, 3, 0, addr(mem.addr_of(limit!).cast[u8]()), 0, 0)
         if r == 0 and limit[0] < 0x0000_1000_0000_0000 and (limit[0] as usize) < STACK_TOP {
             STACK_LOW = STACK_TOP - (limit[0] as usize)
         }
         // stack_t: ss_sp, ss_flags (int, padded), ss_size.
-        var alt: [usize; 3] = [mem.addr_of(&ALT_STACK).cast[u8]().addr(), 0, 65536]
-        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(&alt).cast[u8]()), 0)
+        var [usize; 3] alt = [mem.addr_of(ALT_STACK!).cast[u8]().addr(), 0, 65536]
+        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(alt!).cast[u8]()), 0)
         // struct sigaction of the kernel (x86-64, AArch64): handler, flags, restorer,
         // mask. The handler never returns, so the restorer is never used; x86-64 still
         // requires one.
         let flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER | SA_RESETHAND
         var action = fault_action(handler, flags)
-        let a = addr(mem.addr_of(&action).cast[u8]())
+        let a = addr(mem.addr_of(action!).cast[u8]())
         let _ = syscall6(SYS_RT_SIGACTION, SIGSEGV, a, 0, 8, 0, 0)
         let _ = syscall6(SYS_RT_SIGACTION, SIGBUS, a, 0, 8, 0, 0)
     }
@@ -178,18 +179,18 @@ fn install_fault_handler(handler: Ptr[u8]) {
 // RISC-V uses asm-generic/signal.h without SA_RESTORER: the mask is the
 // third word, not the fourth. Keep an unused trailing word for a common size.
 @cfg("riscv64")
-fn fault_action(handler: Ptr[u8], flags: usize) -> [usize; 4] {
+fn [usize; 4] fault_action(Ptr[u8] handler, usize flags) {
     return [handler.addr(), flags, 0, 0]
 }
 
 @cfg("!riscv64")
-fn fault_action(handler: Ptr[u8], flags: usize) -> [usize; 4] {
+fn [usize; 4] fault_action(Ptr[u8] handler, usize flags) {
     return [handler.addr(), flags | SA_RESTORER, handler.addr(), 0]
 }
 
 /// Called by `nx_linux_fault` on the alternate stack, with the signal and its `siginfo_t`.
 @lang("sys_fault")
-fn fault(signal: i32, info: Ptr[u8]) -> Never {
+fn Never fault(i32 signal, Ptr[u8] info) {
     unsafe {
         // si_addr is at offset 16 of siginfo_t on 64-bit Linux.
         let at = info.offset(16).cast[usize]().read()
@@ -210,18 +211,18 @@ fn fault(signal: i32, info: Ptr[u8]) -> Never {
 pub fn init() {
     unsafe {
         // TCGETS succeeds on a terminal only.
-        var termios: [u8; 64] = [0; 64]
-        STDOUT_TERMINAL = sys3(SYS_IOCTL, 1, 0x5401, addr(mem.addr_of(&termios).cast[u8]())) == 0
+        var [u8; 64] termios = [0; 64]
+        STDOUT_TERMINAL = sys3(SYS_IOCTL, 1, 0x5401, addr(mem.addr_of(termios!).cast[u8]())) == 0
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+pub fn bool stdout_is_terminal() {
     return unsafe { STDOUT_TERMINAL }
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
-        while true {
+        loop {
             let _ = sys1(SYS_EXIT_GROUP, code as isize)
         }
     }
@@ -230,11 +231,11 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-const PROT_READ_WRITE: isize = 3
-const MAP_PRIVATE_ANONYMOUS: isize = 0x22
+const isize PROT_READ_WRITE = 3
+const isize MAP_PRIVATE_ANONYMOUS = 0x22
 
 /// Pages of zeroed memory from the kernel; null on failure.
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] page_alloc(usize size) {
     let r = syscall6(SYS_MMAP, 0, size as isize, PROT_READ_WRITE, MAP_PRIVATE_ANONYMOUS, -1, 0)
     if r < 0 and r > -4096 {
         return Ptr.null()
@@ -242,27 +243,27 @@ pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
     return Ptr[u8].from_addr(r as usize)
 }
 
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+pub unsafe fn page_free(Ptr[u8] p, usize size) {
     let _ = sys2(SYS_MUNMAP, addr(p), size as isize)
 }
 
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return heap.alloc(size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return heap.realloc(p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     heap.free(p)
 }
 
 // ---------------------------------------------------------------------------
 // Input and output
 
-unsafe fn write_fd(fd: isize, data: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool write_fd(isize fd, Ptr[u8] data, usize len) {
+    var usize done = 0
     while done < len {
         let r = sys3(SYS_WRITE, fd, addr(data.offset(done)), (len - done) as isize)
         if r == EINTR {
@@ -277,18 +278,18 @@ unsafe fn write_fd(fd: isize, data: Ptr[u8], len: usize) -> bool {
 }
 
 /// Writes bytes to standard output (`fd` 1) or standard error (`fd` 2).
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return write_fd(fd as isize, data, len)
 }
 
-static var IN_BUF: [u8; 4096] = [0; 4096]
-static var IN_POS: usize = 0
-static var IN_LEN: usize = 0
+static var [u8; 4096] IN_BUF = [0; 4096]
+static var usize IN_POS = 0
+static var usize IN_LEN = 0
 
-unsafe fn read_byte() -> i32 {
+unsafe fn i32 read_byte() {
     if IN_POS == IN_LEN {
-        while true {
-            let r = sys3(SYS_READ, 0, addr(mem.addr_of(&IN_BUF).cast[u8]()), 4096)
+        loop {
+            let r = sys3(SYS_READ, 0, addr(mem.addr_of(IN_BUF!).cast[u8]()), 4096)
             if r == EINTR {
                 continue
             }
@@ -306,25 +307,25 @@ unsafe fn read_byte() -> i32 {
 }
 
 /// Reads one line of standard input without its terminator; `false` at the end.
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
     let _input = unsafe { input_lock() }
     rt.flush()
-    var bytes: Vec[u8] = Vec.new()
-    var any = false
+    var Vec[u8] bytes = Vec.new()
+    var any_ = false
     unsafe {
-        while true {
+        loop {
             let b = read_byte()
             if b < 0 {
                 break
             }
-            any = true
+            any_ = true
             if b == 10 {
                 break
             }
             bytes.push(b as u8)
         }
     }
-    if not any {
+    if not any_ {
         return false
     }
     if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -337,19 +338,19 @@ pub fn read_line(inout out: String) -> bool {
 // ---------------------------------------------------------------------------
 // Command line and environment
 
-unsafe fn c_len(p: Ptr[u8]) -> usize {
-    var n: usize = 0
+unsafe fn usize c_len(Ptr[u8] p) {
+    var usize n = 0
     while p.offset(n).read() != 0 {
         n += 1
     }
     return n
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return unsafe { ARGC } as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     unsafe {
         if index < 0 or index as usize >= ARGC {
             panic("argument index {index} out of range")
@@ -359,13 +360,13 @@ pub fn arg(index: i32) -> String {
     }
 }
 
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     unsafe {
         if ENVP.is_null() {
             return None
         }
-        var i: usize = 0
-        while true {
+        var usize i = 0
+        loop {
             let e = ENVP.offset(i).read()
             if e.is_null() {
                 break
@@ -390,7 +391,7 @@ pub fn env(name: String) -> Option[String] {
     }
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     return env(name).is_some()
 }
 
@@ -398,15 +399,15 @@ pub fn env_is_set(name: String) -> bool {
 // Files
 
 /// `path` followed by a zero byte, for the kernel.
-fn c_path(path: String) -> Vec[u8] {
+fn Vec[u8] c_path(String path) {
     var v = path.clone().into_bytes()
     v.push(0)
     return v
 }
 
-unsafe fn open(path: String, flags: isize) -> isize {
+unsafe fn isize open(String path, isize flags) {
     let p = c_path(path)
-    while true {
+    loop {
         let fd = syscall6(SYS_OPENAT, AT_FDCWD, addr(p.as_ptr()), flags, 420, 0, 0)
         if fd != EINTR {
             return fd
@@ -415,14 +416,14 @@ unsafe fn open(path: String, flags: isize) -> isize {
 }
 
 /// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
-pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         let fd = open(path, 0x80000)
         if fd < 0 {
             return (-fd) as i32
         }
-        var code: i32 = 0
-        while true {
+        var i32 code = 0
+        loop {
             out.reserve(65536)
             let r = sys3(SYS_READ, fd, addr(out.as_ptr().offset(out.len())), 65536)
             if r == EINTR {
@@ -443,10 +444,10 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
 }
 
 /// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
         // O_WRONLY | O_CREAT | O_CLOEXEC, then O_APPEND or O_TRUNC.
-        let flags: isize = if append { 0x80441 } else { 0x80241 }
+        let isize flags = if append { 0x80441 } else { 0x80241 }
         let fd = open(path, flags)
         if fd < 0 {
             return (-fd) as i32
@@ -466,41 +467,41 @@ pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 
 /// The `std.io` category of an error code returned by `read_file` or `write_file`
 /// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
 /// 0 another error.
-pub fn io_error_kind(code: i32) -> u8 {
-    return match code {
-        2 => 1 // ENOENT
-        1 | 13 => 2 // EPERM, EACCES
-        17 => 3 // EEXIST
-        4 => 4 // EINTR
-        _ => 0
+pub fn u8 io_error_kind(i32 code) {
+    return when code {
+        2 then 1 // ENOENT
+        1 | 13 then 2 // EPERM, EACCES
+        17 then 3 // EEXIST
+        4 then 4 // EINTR
+        _ then 0
     }
 }
 
 // ---------------------------------------------------------------------------
 // Time
 
-unsafe fn clock(id: isize) -> (i64, i64) {
-    var ts: [i64; 2] = [0; 2]
-    let _ = sys2(SYS_CLOCK_GETTIME, id, addr(mem.addr_of(&ts).cast[u8]()))
+unsafe fn (i64, i64) clock(isize id) {
+    var [i64; 2] ts = [0; 2]
+    let _ = sys2(SYS_CLOCK_GETTIME, id, addr(mem.addr_of(ts!).cast[u8]()))
     return (ts[0], ts[1])
 }
 
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     let (s, ns) = unsafe { clock(1) }
     return (s as u64) * 1_000_000_000 + (ns as u64)
 }
 
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     let (s, ns) = unsafe { clock(0) }
     return s * 1_000_000_000 + ns
 }
 
-pub fn sleep_ns(ns: u64) {
-    var req: [i64; 2] = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
-    var rem: [i64; 2] = [0; 2]
+pub fn sleep_ns(u64 ns) {
+    var [i64; 2] req = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
+    var [i64; 2] rem = [0; 2]
     unsafe {
-        while true {
-            let r = sys2(SYS_NANOSLEEP, addr(mem.addr_of(&req).cast[u8]()), addr(mem.addr_of(&rem).cast[u8]()))
+        loop {
+            let r = sys2(SYS_NANOSLEEP, addr(mem.addr_of(req!).cast[u8]()), addr(mem.addr_of(rem!).cast[u8]()))
             if r != EINTR {
                 break
             }
@@ -511,10 +512,10 @@ pub fn sleep_ns(ns: u64) {
 
 /// Offset of local time from UTC at `unix_seconds`, from the time zone database
 /// (`TZ`, else `/etc/localtime`, in TZif format); 0 without time zone information.
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     var path = "/etc/localtime"
-    match env("TZ") {
-        Some(tz) => {
+    when env("TZ") {
+        .Some(tz) then {
             if tz.len() == 0 or tz == "UTC" or tz == "UTC0" or tz == ":UTC" {
                 return 0
             }
@@ -527,10 +528,10 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
                 return tzif.posix_offset(name, unix_seconds)
             }
         }
-        None => {}
+        .None then {}
     }
-    var data: Vec[u8] = Vec.new()
-    if read_file(path, &data) != 0 {
+    var Vec[u8] data = Vec.new()
+    if read_file(path, data!) != 0 {
         return 0
     }
     return tzif.offset_at(data, unix_seconds)
@@ -540,8 +541,8 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
 // Random numbers
 
 /// Fills `buffer` with cryptographically secure random bytes (`getrandom`).
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
+    var usize done = 0
     while done < len {
         let r = sys3(SYS_GETRANDOM, addr(buffer.offset(done)), (len - done) as isize, 0)
         if r == EINTR {
@@ -564,60 +565,60 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
 // the thread ends: that is how `thread_join` waits.
 
 @cfg("x86_64")
-const SYS_MPROTECT: isize = 10
+const isize SYS_MPROTECT = 10
 @cfg("x86_64")
-const SYS_FUTEX: isize = 202
+const isize SYS_FUTEX = 202
 @cfg("x86_64")
-const SYS_GETTID: isize = 186
+const isize SYS_GETTID = 186
 @cfg("x86_64")
-const SYS_SCHED_YIELD: isize = 24
+const isize SYS_SCHED_YIELD = 24
 @cfg("!x86_64")
-const SYS_MPROTECT: isize = 226
+const isize SYS_MPROTECT = 226
 @cfg("!x86_64")
-const SYS_FUTEX: isize = 98
+const isize SYS_FUTEX = 98
 @cfg("!x86_64")
-const SYS_GETTID: isize = 178
+const isize SYS_GETTID = 178
 @cfg("!x86_64")
-const SYS_SCHED_YIELD: isize = 124
+const isize SYS_SCHED_YIELD = 124
 
 /// CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
 /// CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID.
-const CLONE_THREAD_FLAGS: isize = 0x350F00
-const THREAD_GUARD: usize = 65536
-const THREAD_ALT_STACK: usize = 65536
-const THREAD_STACK: usize = 8_388_608
-const THREAD_REGION: usize = 8_519_680
-const MAX_THREADS: usize = 256
+const isize CLONE_THREAD_FLAGS = 0x350F00
+const usize THREAD_GUARD = 65536
+const usize THREAD_ALT_STACK = 65536
+const usize THREAD_STACK = 8_388_608
+const usize THREAD_REGION = 8_519_680
+const usize MAX_THREADS = 256
 
 /// `clone` for a thread: on the new stack, the child calls `entry(arg)` then ends the
 /// thread; the parent receives the id of the child, or minus an error code.
 @intrinsic
-unsafe fn linux_clone(flags: isize, stack: Ptr[u8], tid: Ptr[u32], owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> isize
+unsafe fn isize linux_clone(isize flags, Ptr[u8] stack, Ptr[u32] tid, owned fn(Ptr[u8]) entry, Ptr[u8] arg)
 
 /// A started thread: the word that holds its id, its region, what it runs.
-struct Thread {
-    tid: Ptr[u32]
-    region: Ptr[u8]
-    entry: fn(Ptr[u8])
-    arg: Ptr[u8]
+type Thread {
+    Ptr[u32] tid
+    Ptr[u8] region
+    fn(Ptr[u8]) entry
+    Ptr[u8] arg
 }
 
 /// Set (to 1) before the first thread starts: from then on the runtime locks.
-static var THREADED: u32 = 0
+static var u32 THREADED = 0
 /// The guard regions of the running threads, for the fault handler (0: free slot).
-static var GUARDS: [usize; 256] = [0; 256]
+static var [usize; 256] GUARDS = [0; 256]
 
 /// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
 /// caller then runs `entry(arg)` itself).
 @cfg("linux")
-pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
     let region = page_alloc(THREAD_REGION)
     if region.is_null() {
         return 0
     }
     // PROT_NONE on the lowest pages.
     let _ = sys3(SYS_MPROTECT, addr(region), THREAD_GUARD as isize, 0)
-    mem.atomic_store(mem.addr_of(&THREADED), 1)
+    mem.atomic_store(mem.addr_of(THREADED!), 1)
     let tid = rt.alloc(8).cast[u32]()
     tid.write(0)
     let t = rt.alloc(mem.size_of[Thread]()).cast[Thread]()
@@ -641,29 +642,29 @@ pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
 }
 
 @cfg("!linux")
-pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
     let _ = entry
     let _ = arg
     return 0
 }
 
 /// The first function of a thread: the stack of its signal handler, then its work.
-fn thread_main(arg: Ptr[u8]) {
+fn thread_main(Ptr[u8] arg) {
     unsafe {
         let t = arg.cast[Thread]().read()
         // stack_t: ss_sp, ss_flags, ss_size (the alternate stack is per thread).
-        var alt: [usize; 3] = [t.region.offset(THREAD_GUARD).addr(), 0, THREAD_ALT_STACK]
-        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(&alt).cast[u8]()), 0)
+        var [usize; 3] alt = [t.region.offset(THREAD_GUARD).addr(), 0, THREAD_ALT_STACK]
+        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(alt!).cast[u8]()), 0)
         let entry = t.entry
         entry(t.arg)
     }
 }
 
 /// Waits for the end of a thread started by `thread_start`, then frees its memory.
-pub unsafe fn thread_join(handle: usize) {
+pub unsafe fn thread_join(usize handle) {
     let p = Ptr[Thread].from_addr(handle)
     let t = p.read()
-    while true {
+    loop {
         let v = mem.atomic_load(t.tid)
         if v == 0 {
             break
@@ -678,7 +679,7 @@ pub unsafe fn thread_join(handle: usize) {
 }
 
 /// The id of the calling thread.
-pub fn thread_id() -> u64 {
+pub fn u64 thread_id() {
     return unsafe { sys1(SYS_GETTID, 0) } as u64
 }
 
@@ -687,7 +688,7 @@ pub fn thread_yield() {
     let _ = unsafe { sys1(SYS_SCHED_YIELD, 0) }
 }
 
-unsafe fn register_guard(base: usize) -> bool {
+unsafe fn bool register_guard(usize base) {
     let _critical = rt.critical_section()
     for i in 0..MAX_THREADS {
         if GUARDS[i] == 0 {
@@ -698,7 +699,7 @@ unsafe fn register_guard(base: usize) -> bool {
     return false
 }
 
-unsafe fn unregister_guard(base: usize) {
+unsafe fn unregister_guard(usize base) {
     let _critical = rt.critical_section()
     for i in 0..MAX_THREADS {
         if GUARDS[i] == base {
@@ -708,7 +709,7 @@ unsafe fn unregister_guard(base: usize) {
 }
 
 /// Is `at` in the guard of a thread (its stack overflowed)?
-unsafe fn in_thread_guard(at: usize) -> bool {
+unsafe fn bool in_thread_guard(usize at) {
     for i in 0..MAX_THREADS {
         let b = GUARDS[i]
         if b != 0 and at >= b and at < b + THREAD_GUARD {
@@ -725,33 +726,33 @@ unsafe fn in_thread_guard(at: usize) -> bool {
 // this lock. The runtime calls itself (`print` allocates), so the thread that holds the
 // lock may take it again. Until the first thread starts, nothing is locked.
 
-static var RT_OWNER: u64 = 0
-static var RT_DEPTH: u32 = 0
+static var u64 RT_OWNER = 0
+static var u32 RT_DEPTH = 0
 
-pub struct CriticalSection {
-    locked: bool
+pub type CriticalSection {
+    bool locked
 }
 
-impl CriticalSection {
-    fn drop(inout self) {
+extend CriticalSection {
+    fn drop(self!) {
         if self.locked {
             unsafe {
                 RT_DEPTH -= 1
                 if RT_DEPTH == 0 {
-                    mem.atomic_store(mem.addr_of(&RT_OWNER), 0)
+                    mem.atomic_store(mem.addr_of(RT_OWNER!), 0)
                 }
             }
         }
     }
 }
 
-pub unsafe fn critical_section() -> CriticalSection {
-    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+pub unsafe fn CriticalSection critical_section() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
         return CriticalSection(locked: false)
     }
     let me = thread_id() + 1
-    if mem.atomic_load(mem.addr_of(&RT_OWNER)) != me {
-        while mem.atomic_cas(mem.addr_of(&RT_OWNER), 0, me) != 0 {
+    if mem.atomic_load(mem.addr_of(RT_OWNER!)) != me {
+        while mem.atomic_cas(mem.addr_of(RT_OWNER!), 0, me) != 0 {
             thread_yield()
         }
     }
@@ -761,27 +762,27 @@ pub unsafe fn critical_section() -> CriticalSection {
 
 /// The standard input is read by one thread at a time, with its own lock: a thread that
 /// waits for a line does not hold the lock of the runtime.
-static var IN_LOCK: u32 = 0
+static var u32 IN_LOCK = 0
 
-struct InputLock {
-    locked: bool
+type InputLock {
+    bool locked
 }
 
-impl InputLock {
-    fn drop(inout self) {
+extend InputLock {
+    fn drop(self!) {
         if self.locked {
             unsafe {
-                mem.atomic_store(mem.addr_of(&IN_LOCK), 0)
+                mem.atomic_store(mem.addr_of(IN_LOCK!), 0)
             }
         }
     }
 }
 
-unsafe fn input_lock() -> InputLock {
-    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+unsafe fn InputLock input_lock() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
         return InputLock(locked: false)
     }
-    while mem.atomic_cas(mem.addr_of(&IN_LOCK), 0, 1) != 0 {
+    while mem.atomic_cas(mem.addr_of(IN_LOCK!), 0, 1) != 0 {
         thread_yield()
     }
     return InputLock(locked: true)
@@ -791,13 +792,13 @@ unsafe fn input_lock() -> InputLock {
 /// sleep; it may also end without reason: the caller checks again). Used by the channels
 /// and the locks of `std.tache`.
 @cfg("linux")
-pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
     // FUTEX_WAIT_PRIVATE (128)
     let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 128, expected as isize, 0, 0, 0)
 }
 
 @cfg("!linux")
-pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
     let _ = p
     let _ = expected
     panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
@@ -805,24 +806,24 @@ pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
 
 /// Wakes every thread sleeping in `wait_on` on the word at `p`.
 @cfg("linux")
-pub unsafe fn wake_all(p: Ptr[u32]) {
+pub unsafe fn wake_all(Ptr[u32] p) {
     // FUTEX_WAKE_PRIVATE (129)
     let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 0x7FFF_FFFF, 0, 0, 0)
 }
 
 @cfg("!linux")
-pub unsafe fn wake_all(p: Ptr[u32]) {
+pub unsafe fn wake_all(Ptr[u32] p) {
     let _ = p
 }
 
 /// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
 @cfg("linux")
-pub unsafe fn wake_one(p: Ptr[u32]) {
+pub unsafe fn wake_one(Ptr[u32] p) {
     // FUTEX_WAKE_PRIVATE (129)
     let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 1, 0, 0, 0)
 }
 
 @cfg("!linux")
-pub unsafe fn wake_one(p: Ptr[u32]) {
+pub unsafe fn wake_one(Ptr[u32] p) {
     let _ = p
 }

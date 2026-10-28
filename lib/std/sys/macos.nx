@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for macOS (spec §5.3), x86-64 and Apple silicon (AArch64).
 ///
 /// Apple does not keep the system calls of its kernel stable: programs call the system
@@ -10,56 +11,56 @@ import std.rt
 import std.heap
 import std.tzif
 
-extern "C" fn writev(fd: i32, iov: Ptr[usize], count: i32) -> isize
-extern "C" fn read(fd: i32, buffer: Ptr[u8], len: usize) -> isize
-extern "C" fn open(path: Ptr[u8], flags: i32) -> i32
-extern "C" fn creat(path: Ptr[u8], mode: u16) -> i32
-extern "C" fn close(fd: i32) -> i32
-extern "C" fn isatty(fd: i32) -> i32
-extern "C" fn __error() -> Ptr[i32]
-extern "C" fn _exit(code: i32) -> Never
-extern "C" fn mmap(address: Ptr[u8], len: usize, protection: i32, flags: i32, fd: i32, offset: i64) -> Ptr[u8]
-extern "C" fn munmap(address: Ptr[u8], len: usize) -> i32
-extern "C" fn clock_gettime(clock: i32, time: Ptr[i64]) -> i32
-extern "C" fn nanosleep(request: Ptr[i64], remaining: Ptr[i64]) -> i32
-extern "C" fn getentropy(buffer: Ptr[u8], len: usize) -> i32
-extern "C" fn sigaction(signal: i32, action: Ptr[usize], old: Ptr[usize]) -> i32
-extern "C" fn sigaltstack(stack: Ptr[usize], old: Ptr[usize]) -> i32
-extern "C" fn kill(pid: i32, signal: i32) -> i32
-extern "C" fn getpid() -> i32
-extern "C" fn pthread_self() -> usize
-extern "C" fn pthread_get_stackaddr_np(thread: usize) -> Ptr[u8]
-extern "C" fn pthread_get_stacksize_np(thread: usize) -> usize
-extern "C" fn pthread_attr_init(attributes: Ptr[u64]) -> i32
-extern "C" fn pthread_attr_setstacksize(attributes: Ptr[u64], size: usize) -> i32
-extern "C" fn pthread_attr_destroy(attributes: Ptr[u64]) -> i32
-extern "C" fn pthread_create(thread: Ptr[usize], attributes: Ptr[u64], start: fn(Ptr[u8]) -> Ptr[u8], argument: Ptr[u8]) -> i32
-extern "C" fn pthread_join(thread: usize, result: Ptr[Ptr[u8]]) -> i32
-extern "C" fn pthread_threadid_np(thread: usize, id: Ptr[u64]) -> i32
-extern "C" fn sched_yield() -> i32
+extern "C" fn isize writev(i32 fd, Ptr[usize] iov, i32 count)
+extern "C" fn isize read(i32 fd, Ptr[u8] buffer, usize len)
+extern "C" fn i32 open(Ptr[u8] path, i32 flags)
+extern "C" fn i32 creat(Ptr[u8] path, u16 mode)
+extern "C" fn i32 close(i32 fd)
+extern "C" fn i32 isatty(i32 fd)
+extern "C" fn Ptr[i32] __error()
+extern "C" fn Never _exit(i32 code)
+extern "C" fn Ptr[u8] mmap(Ptr[u8] address, usize len, i32 protection, i32 flags, i32 fd, i64 offset)
+extern "C" fn i32 munmap(Ptr[u8] address, usize len)
+extern "C" fn i32 clock_gettime(i32 clock, Ptr[i64] time)
+extern "C" fn i32 nanosleep(Ptr[i64] request, Ptr[i64] remaining)
+extern "C" fn i32 getentropy(Ptr[u8] buffer, usize len)
+extern "C" fn i32 sigaction(i32 signal, Ptr[usize] action, Ptr[usize] old)
+extern "C" fn i32 sigaltstack(Ptr[usize] stack, Ptr[usize] old)
+extern "C" fn i32 kill(i32 pid, i32 signal)
+extern "C" fn i32 getpid()
+extern "C" fn usize pthread_self()
+extern "C" fn Ptr[u8] pthread_get_stackaddr_np(usize thread)
+extern "C" fn usize pthread_get_stacksize_np(usize thread)
+extern "C" fn i32 pthread_attr_init(Ptr[u64] attributes)
+extern "C" fn i32 pthread_attr_setstacksize(Ptr[u64] attributes, usize size)
+extern "C" fn i32 pthread_attr_destroy(Ptr[u64] attributes)
+extern "C" fn i32 pthread_create(Ptr[usize] thread, Ptr[u64] attributes, fn Ptr[u8](Ptr[u8]) start, Ptr[u8] argument)
+extern "C" fn i32 pthread_join(usize thread, Ptr[Ptr[u8]] result)
+extern "C" fn i32 pthread_threadid_np(usize thread, Ptr[u64] id)
+extern "C" fn i32 sched_yield()
 // The wait on an address of the system library (used by its C++ library and by Rust):
 // sleeps while the word holds the value, until a wake.
-extern "C" fn __ulock_wait(operation: u32, address: Ptr[u32], value: u64, timeout_us: u32) -> i32
-extern "C" fn __ulock_wake(operation: u32, address: Ptr[u32], value: u64) -> i32
+extern "C" fn i32 __ulock_wait(u32 operation, Ptr[u32] address, u64 value, u32 timeout_us)
+extern "C" fn i32 __ulock_wake(u32 operation, Ptr[u32] address, u64 value)
 
-const EINTR: i32 = 4
-const ENOENT: i32 = 2
+const i32 EINTR = 4
+const i32 ENOENT = 2
 
-unsafe fn errno() -> i32 {
+unsafe fn i32 errno() {
     return __error().read()
 }
 
 // ---------------------------------------------------------------------------
 // Process
 
-static var ARGC: usize = 0
-static var ARGV: Ptr[Ptr[u8]] = Ptr.null()
-static var ENVP: Ptr[Ptr[u8]] = Ptr.null()
-static var STDOUT_TERMINAL: bool = false
+static var usize ARGC = 0
+static var Ptr[Ptr[u8]] ARGV = Ptr.null()
+static var Ptr[Ptr[u8]] ENVP = Ptr.null()
+static var bool STDOUT_TERMINAL = false
 
 /// Called by the program entry point (`main`, called by the dynamic loader).
 @lang("sys_set_args")
-fn set_args(argc: i32, argv: Ptr[Ptr[u8]], envp: Ptr[Ptr[u8]]) {
+fn set_args(i32 argc, Ptr[Ptr[u8]] argv, Ptr[Ptr[u8]] envp) {
     unsafe {
         ARGC = argc as usize
         ARGV = argv
@@ -77,42 +78,42 @@ fn set_args(argc: i32, argv: Ptr[Ptr[u8]], envp: Ptr[Ptr[u8]]) {
 // second is raised again with the default action of the system.
 
 /// The stack of the signal handler of the main thread.
-static var ALT_STACK: [u8; 65536] = [0; 65536]
+static var [u8; 65536] ALT_STACK = [0; 65536]
 
-const SIGBUS: i32 = 10
-const SIGSEGV: i32 = 11
-const SA_ONSTACK: usize = 0x1
-const SA_RESETHAND: usize = 0x4
-const SA_NODEFER: usize = 0x10
-const SA_SIGINFO: usize = 0x40
-const SS_DISABLE: usize = 0x4
+const i32 SIGBUS = 10
+const i32 SIGSEGV = 11
+const usize SA_ONSTACK = 0x1
+const usize SA_RESETHAND = 0x4
+const usize SA_NODEFER = 0x10
+const usize SA_SIGINFO = 0x40
+const usize SS_DISABLE = 0x4
 /// Faults this far below the lowest address of a stack still count as an overflow: the
 /// guard and a large frame (stack probes touch every page, ADR 0011 T1).
-const GUARD_SPAN: usize = 4_194_304
+const usize GUARD_SPAN = 4_194_304
 
 /// Installs the handler of memory faults. `handler` is the C entry generated by the
 /// compiler (`nx_macos_fault`), which calls `fault`.
 @lang("sys_set_fault_handler")
-fn set_fault_handler(handler: Ptr[u8]) {
+fn set_fault_handler(Ptr[u8] handler) {
     unsafe {
-        use_alt_stack(mem.addr_of(&ALT_STACK).cast[u8](), 65536)
+        use_alt_stack(mem.addr_of(ALT_STACK!).cast[u8](), 65536)
         // struct sigaction: the handler, then the mask (32 bits) and the flags (32 bits).
         let flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER | SA_RESETHAND
-        var action: [usize; 2] = [handler.addr(), flags << 32]
-        let _ = sigaction(SIGSEGV, mem.addr_of(&action).cast[usize](), Ptr.null())
-        let _ = sigaction(SIGBUS, mem.addr_of(&action).cast[usize](), Ptr.null())
+        var [usize; 2] action = [handler.addr(), flags << 32]
+        let _ = sigaction(SIGSEGV, mem.addr_of(action!).cast[usize](), Ptr.null())
+        let _ = sigaction(SIGBUS, mem.addr_of(action!).cast[usize](), Ptr.null())
     }
 }
 
 /// stack_t of macOS: ss_sp, ss_size, ss_flags.
-unsafe fn use_alt_stack(stack: Ptr[u8], size: usize) {
-    var alt: [usize; 3] = [stack.addr(), size, 0]
-    let _ = sigaltstack(mem.addr_of(&alt).cast[usize](), Ptr.null())
+unsafe fn use_alt_stack(Ptr[u8] stack, usize size) {
+    var [usize; 3] alt = [stack.addr(), size, 0]
+    let _ = sigaltstack(mem.addr_of(alt!).cast[usize](), Ptr.null())
 }
 
 /// Called by `nx_macos_fault` on the alternate stack, with the signal and its `siginfo_t`.
 @lang("sys_fault")
-fn fault(signal: i32, info: Ptr[u8]) -> Never {
+fn Never fault(i32 signal, Ptr[u8] info) {
     unsafe {
         // si_addr is at offset 24 of siginfo_t on macOS.
         let at = info.offset(24).cast[usize]().read()
@@ -139,11 +140,11 @@ pub fn init() {
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+pub fn bool stdout_is_terminal() {
     return unsafe { STDOUT_TERMINAL }
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
         _exit(code)
     }
@@ -152,12 +153,12 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-const PROT_READ_WRITE: i32 = 3
+const i32 PROT_READ_WRITE = 3
 /// MAP_PRIVATE | MAP_ANON
-const MAP_PRIVATE_ANONYMOUS: i32 = 0x1002
+const i32 MAP_PRIVATE_ANONYMOUS = 0x1002
 
 /// Pages of zeroed memory from the system; null on failure.
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] page_alloc(usize size) {
     let p = mmap(Ptr.null(), size, PROT_READ_WRITE, MAP_PRIVATE_ANONYMOUS, -1, 0)
     // MAP_FAILED is the address -1.
     if p.addr() == 0xFFFF_FFFF_FFFF_FFFF {
@@ -166,31 +167,31 @@ pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
     return p
 }
 
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+pub unsafe fn page_free(Ptr[u8] p, usize size) {
     let _ = munmap(p, size)
 }
 
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return heap.alloc(size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return heap.realloc(p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     heap.free(p)
 }
 
 // ---------------------------------------------------------------------------
 // Input and output
 
-unsafe fn write_fd(fd: i32, data: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool write_fd(i32 fd, Ptr[u8] data, usize len) {
+    var usize done = 0
     while done < len {
         // One buffer of `writev` (iovec: base, length).
-        var iov: [usize; 2] = [data.offset(done).addr(), len - done]
-        let r = writev(fd, mem.addr_of(&iov).cast[usize](), 1)
+        var [usize; 2] iov = [data.offset(done).addr(), len - done]
+        let r = writev(fd, mem.addr_of(iov!).cast[usize](), 1)
         if r < 0 and errno() == EINTR {
             continue
         }
@@ -203,18 +204,18 @@ unsafe fn write_fd(fd: i32, data: Ptr[u8], len: usize) -> bool {
 }
 
 /// Writes bytes to standard output (`fd` 1) or standard error (`fd` 2).
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return write_fd(fd, data, len)
 }
 
-static var IN_BUF: [u8; 4096] = [0; 4096]
-static var IN_POS: usize = 0
-static var IN_LEN: usize = 0
+static var [u8; 4096] IN_BUF = [0; 4096]
+static var usize IN_POS = 0
+static var usize IN_LEN = 0
 
-unsafe fn read_byte() -> i32 {
+unsafe fn i32 read_byte() {
     if IN_POS == IN_LEN {
-        while true {
-            let r = read(0, mem.addr_of(&IN_BUF).cast[u8](), 4096)
+        loop {
+            let r = read(0, mem.addr_of(IN_BUF!).cast[u8](), 4096)
             if r < 0 and errno() == EINTR {
                 continue
             }
@@ -232,25 +233,25 @@ unsafe fn read_byte() -> i32 {
 }
 
 /// Reads one line of standard input without its terminator; `false` at the end.
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
     let _input = unsafe { input_lock() }
     rt.flush()
-    var bytes: Vec[u8] = Vec.new()
-    var any = false
+    var Vec[u8] bytes = Vec.new()
+    var any_ = false
     unsafe {
-        while true {
+        loop {
             let b = read_byte()
             if b < 0 {
                 break
             }
-            any = true
+            any_ = true
             if b == 10 {
                 break
             }
             bytes.push(b as u8)
         }
     }
-    if not any {
+    if not any_ {
         return false
     }
     if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -263,19 +264,19 @@ pub fn read_line(inout out: String) -> bool {
 // ---------------------------------------------------------------------------
 // Command line and environment
 
-unsafe fn c_len(p: Ptr[u8]) -> usize {
-    var n: usize = 0
+unsafe fn usize c_len(Ptr[u8] p) {
+    var usize n = 0
     while p.offset(n).read() != 0 {
         n += 1
     }
     return n
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return unsafe { ARGC } as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     unsafe {
         if index < 0 or index as usize >= ARGC {
             panic("argument index {index} out of range")
@@ -285,13 +286,13 @@ pub fn arg(index: i32) -> String {
     }
 }
 
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     unsafe {
         if ENVP.is_null() {
             return None
         }
-        var i: usize = 0
-        while true {
+        var usize i = 0
+        loop {
             let e = ENVP.offset(i).read()
             if e.is_null() {
                 break
@@ -316,29 +317,29 @@ pub fn env(name: String) -> Option[String] {
     }
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     return env(name).is_some()
 }
 
 // ---------------------------------------------------------------------------
 // Files
 
-const O_RDONLY: i32 = 0
-const O_WRONLY: i32 = 1
-const O_APPEND: i32 = 0x8
-const O_CLOEXEC: i32 = 0x0100_0000
+const i32 O_RDONLY = 0
+const i32 O_WRONLY = 1
+const i32 O_APPEND = 0x8
+const i32 O_CLOEXEC = 0x0100_0000
 
 /// `path` followed by a zero byte, for the system.
-fn c_path(path: String) -> Vec[u8] {
+fn Vec[u8] c_path(String path) {
     var v = path.clone().into_bytes()
     v.push(0)
     return v
 }
 
 /// Opens an existing file (`open` without its variadic mode); minus `errno` on failure.
-unsafe fn open_existing(path: String, flags: i32) -> i32 {
+unsafe fn i32 open_existing(String path, i32 flags) {
     let p = c_path(path)
-    while true {
+    loop {
         let fd = open(p.as_ptr(), flags | O_CLOEXEC)
         if fd >= 0 {
             return fd
@@ -352,9 +353,9 @@ unsafe fn open_existing(path: String, flags: i32) -> i32 {
 
 /// Creates or empties a file for writing (`creat`, mode 0666 less the umask); minus
 /// `errno` on failure.
-unsafe fn create(path: String) -> i32 {
+unsafe fn i32 create(String path) {
     let p = c_path(path)
-    while true {
+    loop {
         let fd = creat(p.as_ptr(), 0o666)
         if fd >= 0 {
             return fd
@@ -367,14 +368,14 @@ unsafe fn create(path: String) -> i32 {
 }
 
 /// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
-pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         let fd = open_existing(path, O_RDONLY)
         if fd < 0 {
             return -fd
         }
-        var code: i32 = 0
-        while true {
+        var i32 code = 0
+        loop {
             out.reserve(65536)
             let r = read(fd, out.as_ptr().offset(out.len()), 65536)
             if r < 0 {
@@ -396,9 +397,9 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> i32 {
 }
 
 /// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 {
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
-        var fd: i32 = -ENOENT
+        var i32 fd = -ENOENT
         if append {
             fd = open_existing(path.clone(), O_WRONLY | O_APPEND)
         }
@@ -423,44 +424,44 @@ pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> i32 
 /// The `std.io` category of an error code returned by `read_file` or `write_file`
 /// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
 /// 0 another error.
-pub fn io_error_kind(code: i32) -> u8 {
-    return match code {
-        2 => 1 // ENOENT
-        1 | 13 => 2 // EPERM, EACCES
-        17 => 3 // EEXIST
-        4 => 4 // EINTR
-        _ => 0
+pub fn u8 io_error_kind(i32 code) {
+    return when code {
+        2 then 1 // ENOENT
+        1 | 13 then 2 // EPERM, EACCES
+        17 then 3 // EEXIST
+        4 then 4 // EINTR
+        _ then 0
     }
 }
 
 // ---------------------------------------------------------------------------
 // Time
 
-const CLOCK_REALTIME: i32 = 0
-const CLOCK_MONOTONIC: i32 = 6
+const i32 CLOCK_REALTIME = 0
+const i32 CLOCK_MONOTONIC = 6
 
-unsafe fn clock(id: i32) -> (i64, i64) {
-    var ts: [i64; 2] = [0; 2]
-    let _ = clock_gettime(id, mem.addr_of(&ts).cast[i64]())
+unsafe fn (i64, i64) clock(i32 id) {
+    var [i64; 2] ts = [0; 2]
+    let _ = clock_gettime(id, mem.addr_of(ts!).cast[i64]())
     return (ts[0], ts[1])
 }
 
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     let (s, ns) = unsafe { clock(CLOCK_MONOTONIC) }
     return (s as u64) * 1_000_000_000 + (ns as u64)
 }
 
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     let (s, ns) = unsafe { clock(CLOCK_REALTIME) }
     return s * 1_000_000_000 + ns
 }
 
-pub fn sleep_ns(ns: u64) {
-    var req: [i64; 2] = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
-    var rem: [i64; 2] = [0; 2]
+pub fn sleep_ns(u64 ns) {
+    var [i64; 2] req = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
+    var [i64; 2] rem = [0; 2]
     unsafe {
-        while true {
-            let r = nanosleep(mem.addr_of(&req).cast[i64](), mem.addr_of(&rem).cast[i64]())
+        loop {
+            let r = nanosleep(mem.addr_of(req!).cast[i64](), mem.addr_of(rem!).cast[i64]())
             if r == 0 or errno() != EINTR {
                 break
             }
@@ -471,10 +472,10 @@ pub fn sleep_ns(ns: u64) {
 
 /// Offset of local time from UTC at `unix_seconds`, from the time zone database
 /// (`TZ`, else `/etc/localtime`, in TZif format); 0 without time zone information.
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     var path = "/etc/localtime"
-    match env("TZ") {
-        Some(tz) => {
+    when env("TZ") {
+        .Some(tz) then {
             if tz.len() == 0 or tz == "UTC" or tz == "UTC0" or tz == ":UTC" {
                 return 0
             }
@@ -487,10 +488,10 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
                 return tzif.posix_offset(name, unix_seconds)
             }
         }
-        None => {}
+        .None then {}
     }
-    var data: Vec[u8] = Vec.new()
-    if read_file(path, &data) != 0 {
+    var Vec[u8] data = Vec.new()
+    if read_file(path, data!) != 0 {
         return 0
     }
     return tzif.offset_at(data, unix_seconds)
@@ -501,8 +502,8 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
 
 /// Fills `buffer` with cryptographically secure random bytes (`getentropy`, at most 256
 /// bytes per call).
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
+    var usize done = 0
     while done < len {
         let n = if len - done > 256 { 256 } else { len - done }
         if getentropy(buffer.offset(done), n) != 0 {
@@ -520,32 +521,32 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
 // thread is 512 KiB) and its guard page; each thread gets the alternate stack of its
 // signal handler.
 
-const THREAD_STACK: usize = 8_388_608
-const THREAD_ALT_STACK: usize = 65536
+const usize THREAD_STACK = 8_388_608
+const usize THREAD_ALT_STACK = 65536
 
 /// Set (to 1) before the first thread starts: from then on the runtime locks.
-static var THREADED: u32 = 0
+static var u32 THREADED = 0
 
 /// What a thread runs.
-struct ThreadStart {
-    entry: fn(Ptr[u8])
-    arg: Ptr[u8]
+type ThreadStart {
+    fn(Ptr[u8]) entry
+    Ptr[u8] arg
 }
 
 /// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
 /// caller then runs `entry(arg)` itself).
-pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
-    mem.atomic_store(mem.addr_of(&THREADED), 1)
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    mem.atomic_store(mem.addr_of(THREADED!), 1)
     let s = rt.alloc(mem.size_of[ThreadStart]()).cast[ThreadStart]()
     s.write(ThreadStart(entry: entry, arg: arg))
     // pthread_attr_t: 64 bytes on macOS.
-    var attributes: [u64; 8] = [0; 8]
-    let a = mem.addr_of(&attributes).cast[u64]()
-    var thread: usize = 0
+    var [u64; 8] attributes = [0; 8]
+    let a = mem.addr_of(attributes!).cast[u64]()
+    var usize thread = 0
     var r = pthread_attr_init(a)
     if r == 0 {
         let _ = pthread_attr_setstacksize(a, THREAD_STACK)
-        r = pthread_create(mem.addr_of(&thread), a, thread_main, s.cast[u8]())
+        r = pthread_create(mem.addr_of(thread!), a, thread_main, s.cast[u8]())
         let _ = pthread_attr_destroy(a)
     }
     if r != 0 or thread == 0 {
@@ -556,7 +557,7 @@ pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
 }
 
 /// The first function of a thread (the start routine of `pthread_create`).
-fn thread_main(arg: Ptr[u8]) -> Ptr[u8] {
+fn Ptr[u8] thread_main(Ptr[u8] arg) {
     unsafe {
         let s = arg.cast[ThreadStart]().read()
         rt.free(arg)
@@ -567,8 +568,8 @@ fn thread_main(arg: Ptr[u8]) -> Ptr[u8] {
         let entry = s.entry
         entry(s.arg)
         if not alt.is_null() {
-            var off: [usize; 3] = [0, 0, SS_DISABLE]
-            let _ = sigaltstack(mem.addr_of(&off).cast[usize](), Ptr.null())
+            var [usize; 3] off = [0, 0, SS_DISABLE]
+            let _ = sigaltstack(mem.addr_of(off!).cast[usize](), Ptr.null())
             page_free(alt, THREAD_ALT_STACK)
         }
     }
@@ -576,15 +577,15 @@ fn thread_main(arg: Ptr[u8]) -> Ptr[u8] {
 }
 
 /// Waits for the end of a thread started by `thread_start`.
-pub unsafe fn thread_join(handle: usize) {
+pub unsafe fn thread_join(usize handle) {
     let _ = pthread_join(handle, Ptr.null())
 }
 
 /// The id of the calling thread.
-pub fn thread_id() -> u64 {
-    var id: u64 = 0
+pub fn u64 thread_id() {
+    var u64 id = 0
     unsafe {
-        let _ = pthread_threadid_np(0, mem.addr_of(&id))
+        let _ = pthread_threadid_np(0, mem.addr_of(id!))
     }
     return id
 }
@@ -601,33 +602,33 @@ pub fn thread_yield() {
 // this lock. The runtime calls itself (`print` allocates), so the thread that holds the
 // lock may take it again. Until the first thread starts, nothing is locked.
 
-static var RT_OWNER: u64 = 0
-static var RT_DEPTH: u32 = 0
+static var u64 RT_OWNER = 0
+static var u32 RT_DEPTH = 0
 
-pub struct CriticalSection {
-    locked: bool
+pub type CriticalSection {
+    bool locked
 }
 
-impl CriticalSection {
-    fn drop(inout self) {
+extend CriticalSection {
+    fn drop(self!) {
         if self.locked {
             unsafe {
                 RT_DEPTH -= 1
                 if RT_DEPTH == 0 {
-                    mem.atomic_store(mem.addr_of(&RT_OWNER), 0)
+                    mem.atomic_store(mem.addr_of(RT_OWNER!), 0)
                 }
             }
         }
     }
 }
 
-pub unsafe fn critical_section() -> CriticalSection {
-    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+pub unsafe fn CriticalSection critical_section() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
         return CriticalSection(locked: false)
     }
     let me = thread_id() + 1
-    if mem.atomic_load(mem.addr_of(&RT_OWNER)) != me {
-        while mem.atomic_cas(mem.addr_of(&RT_OWNER), 0, me) != 0 {
+    if mem.atomic_load(mem.addr_of(RT_OWNER!)) != me {
+        while mem.atomic_cas(mem.addr_of(RT_OWNER!), 0, me) != 0 {
             thread_yield()
         }
     }
@@ -637,50 +638,50 @@ pub unsafe fn critical_section() -> CriticalSection {
 
 /// The standard input is read by one thread at a time, with its own lock: a thread that
 /// waits for a line does not hold the lock of the runtime.
-static var IN_LOCK: u32 = 0
+static var u32 IN_LOCK = 0
 
-struct InputLock {
-    locked: bool
+type InputLock {
+    bool locked
 }
 
-impl InputLock {
-    fn drop(inout self) {
+extend InputLock {
+    fn drop(self!) {
         if self.locked {
             unsafe {
-                mem.atomic_store(mem.addr_of(&IN_LOCK), 0)
+                mem.atomic_store(mem.addr_of(IN_LOCK!), 0)
             }
         }
     }
 }
 
-unsafe fn input_lock() -> InputLock {
-    if mem.atomic_load(mem.addr_of(&THREADED)) == 0 {
+unsafe fn InputLock input_lock() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
         return InputLock(locked: false)
     }
-    while mem.atomic_cas(mem.addr_of(&IN_LOCK), 0, 1) != 0 {
+    while mem.atomic_cas(mem.addr_of(IN_LOCK!), 0, 1) != 0 {
         thread_yield()
     }
     return InputLock(locked: true)
 }
 
 /// UL_COMPARE_AND_WAIT, with errors returned rather than written to `errno`.
-const UL_WAIT: u32 = 0x0100_0001
+const u32 UL_WAIT = 0x0100_0001
 /// ULF_WAKE_ALL
-const UL_WAKE_ALL: u32 = 0x100
+const u32 UL_WAKE_ALL = 0x100
 
 /// Sleeps while the word at `p` holds `expected` (a wake or a change of the word ends the
 /// sleep; it may also end without reason: the caller checks again). Used by the channels
 /// and the locks of `std.tache`.
-pub unsafe fn wait_on(p: Ptr[u32], expected: u32) {
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
     let _ = __ulock_wait(UL_WAIT, p, expected as u64, 0)
 }
 
 /// Wakes every thread sleeping in `wait_on` on the word at `p`.
-pub unsafe fn wake_all(p: Ptr[u32]) {
+pub unsafe fn wake_all(Ptr[u32] p) {
     let _ = __ulock_wake(UL_WAIT | UL_WAKE_ALL, p, 0)
 }
 
 /// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
-pub unsafe fn wake_one(p: Ptr[u32]) {
+pub unsafe fn wake_one(Ptr[u32] p) {
     let _ = __ulock_wake(UL_WAIT, p, 0)
 }

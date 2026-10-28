@@ -20,6 +20,11 @@ jobs:
       run: cargo test --release --workspace --exclude nexul-installer --verbose
     - name: Run browser ABI tests (including export validation)
       run: cargo test --release -p nxc --test web -- --ignored
+    - name: Run the programs on other targets (QEMU, Node)
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q qemu-user qemu-system-arm
+        NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test suite run_programs_cross
     # The crates of Studio without GPUI have their own Cargo workspaces.
     - name: Test the crates of Studio (syntax, lsp, terminal, dap, templates)
       timeout-minutes: 15

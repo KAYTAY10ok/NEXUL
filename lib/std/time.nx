@@ -1,3 +1,4 @@
+// edition: 1
 /// Time: clocks, calendar dates and pauses (spec chapter 09).
 ///
 /// Two clocks:
@@ -11,27 +12,27 @@ import std.sys
 
 /// Nanoseconds elapsed since an arbitrary fixed point; never goes backwards.
 /// Use the difference between two calls to measure a duration.
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     return sys.monotonic_ns()
 }
 
-fn rt_unix_time_ns() -> i64 {
+fn i64 rt_unix_time_ns() {
     return sys.unix_time_ns()
 }
 
-fn rt_utc_offset(unix_seconds: i64) -> i32 {
+fn i32 rt_utc_offset(i64 unix_seconds) {
     return sys.utc_offset(unix_seconds)
 }
 
-fn rt_sleep_ns(nanoseconds: u64) {
+fn rt_sleep_ns(u64 nanoseconds) {
     sys.sleep_ns(nanoseconds)
 }
 
-const NS_PER_SECOND: i64 = 1_000_000_000
-const SECONDS_PER_DAY: i64 = 86_400
+const i64 NS_PER_SECOND = 1_000_000_000
+const i64 SECONDS_PER_DAY = 86_400
 
 /// Division rounded towards negative infinity.
-fn floor_div(a: i64, b: i64) -> i64 {
+fn i64 floor_div(i64 a, i64 b) {
     let q = a / b
     if a % b != 0 and (a < 0) != (b < 0) {
         return q - 1
@@ -40,28 +41,28 @@ fn floor_div(a: i64, b: i64) -> i64 {
 }
 
 /// The remainder of `floor_div`: between 0 and `b - 1` when `b > 0`.
-fn floor_mod(a: i64, b: i64) -> i64 {
+fn i64 floor_mod(i64 a, i64 b) {
     return a - floor_div(a, b) * b
 }
 
 /// Nanoseconds since 1970-01-01 00:00:00 UTC, from the system clock.
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     return rt_unix_time_ns()
 }
 
 /// Whole seconds since 1970-01-01 00:00:00 UTC, from the system clock.
-pub fn unix_time() -> i64 {
+pub fn i64 unix_time() {
     return floor_div(rt_unix_time_ns(), NS_PER_SECOND)
 }
 
 /// The offset of local time from UTC at the instant `unix_seconds`, in seconds
 /// (daylight saving time included): `7200` for UTC+2.
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     return rt_utc_offset(unix_seconds)
 }
 
 /// Suspends the program for at least `milliseconds` milliseconds.
-pub fn sleep(milliseconds: u64) {
+pub fn sleep(u64 milliseconds) {
     // Beyond about 584 years, the duration in nanoseconds does not fit in a u64.
     if milliseconds > 18_446_744_073_709 {
         rt_sleep_ns(u64.MAX)
@@ -72,101 +73,93 @@ pub fn sleep(milliseconds: u64) {
 
 /// Suspends the program for at least `nanoseconds` nanoseconds. The precision depends
 /// on the system: better than a millisecond on current systems.
-pub fn sleep_ns(nanoseconds: u64) {
+pub fn sleep_ns(u64 nanoseconds) {
     rt_sleep_ns(nanoseconds)
 }
 
 /// The current local date and time (same as `DateTime.now()`).
-pub fn now() -> DateTime {
+pub fn DateTime now() {
     return DateTime.now()
 }
 
 /// Today's local date (same as `Date.today()`).
-pub fn today() -> Date {
+pub fn Date today() {
     return DateTime.now().on
 }
 
 /// `true` if `year` is a leap year.
-pub fn is_leap_year(year: i32) -> bool {
+pub fn bool is_leap_year(i32 year) {
     return (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
 }
 
 /// The number of days of `month` (1 to 12) in `year`.
 @track_caller
-pub fn days_in_month(year: i32, month: i32) -> i32 {
-    return match month {
-        1 | 3 | 5 | 7 | 8 | 10 | 12 => 31
-        4 | 6 | 9 | 11 => 30
-        2 => if is_leap_year(year) { 29 } else { 28 }
-        _ => panic("invalid month {month}: expected 1 to 12")
+pub fn i32 days_in_month(i32 year, i32 month) {
+    return when month {
+        1 | 3 | 5 | 7 | 8 | 10 | 12 then 31
+        4 | 6 | 9 | 11 then 30
+        2 then if is_leap_year(year) { 29 } else { 28 }
+        _ then panic("invalid month {month}: expected 1 to 12")
     }
 }
 
 /// A day of the week.
 @derive(Copy)
-pub enum Weekday {
-    Monday
-    Tuesday
-    Wednesday
-    Thursday
-    Friday
-    Saturday
-    Sunday
-}
+pub type Weekday = .Monday | .Tuesday | .Wednesday | .Thursday | .Friday | .Saturday | .Sunday
 
-impl Weekday {
+extend Weekday {
     /// 1 for Monday to 7 for Sunday (ISO 8601).
-    pub fn number(self) -> i32 {
-        return match self {
-            Monday => 1
-            Tuesday => 2
-            Wednesday => 3
-            Thursday => 4
-            Friday => 5
-            Saturday => 6
-            Sunday => 7
+    pub fn i32 number(self) {
+        return when self {
+            .Monday then 1
+            .Tuesday then 2
+            .Wednesday then 3
+            .Thursday then 4
+            .Friday then 5
+            .Saturday then 6
+            .Sunday then 7
         }
     }
 
     /// The day numbered `number`: 1 for Monday to 7 for Sunday.
-    pub fn from_number(number: i32) -> Option[Weekday] {
-        return match number {
-            1 => Some(Weekday.Monday)
-            2 => Some(Weekday.Tuesday)
-            3 => Some(Weekday.Wednesday)
-            4 => Some(Weekday.Thursday)
-            5 => Some(Weekday.Friday)
-            6 => Some(Weekday.Saturday)
-            7 => Some(Weekday.Sunday)
-            _ => None
+    pub fn Option[Weekday] from_number(i32 number) {
+        return when number {
+            1 then Some(Weekday.Monday)
+            2 then Some(Weekday.Tuesday)
+            3 then Some(Weekday.Wednesday)
+            4 then Some(Weekday.Thursday)
+            5 then Some(Weekday.Friday)
+            6 then Some(Weekday.Saturday)
+            7 then Some(Weekday.Sunday)
+            _ then None
         }
     }
 
     /// The English name of the day: "Monday" to "Sunday".
-    pub fn name(self) -> String {
-        return match self {
-            Monday => "Monday"
-            Tuesday => "Tuesday"
-            Wednesday => "Wednesday"
-            Thursday => "Thursday"
-            Friday => "Friday"
-            Saturday => "Saturday"
-            Sunday => "Sunday"
+    pub fn String name(self) {
+        return when self {
+            .Monday then "Monday"
+            .Tuesday then "Tuesday"
+            .Wednesday then "Wednesday"
+            .Thursday then "Thursday"
+            .Friday then "Friday"
+            .Saturday then "Saturday"
+            .Sunday then "Sunday"
         }
     }
 }
 
 /// A calendar date, always valid.
 @derive(Copy)
-pub struct Date {
-    year: i32
-    month: i32
-    day: i32
+pub type Date {
+    i32 year
+    i32 month
+    i32 day
 }
 
-impl Date {
+extend Date {
     /// The date `year`-`month`-`day`, or `None` if it does not exist.
-    pub fn new(year: i32, month: i32, day: i32) -> Option[Date] {
+    pub fn Option[Date] new(i32 year, i32 month, i32 day) {
         if month < 1 or month > 12 {
             return None
         }
@@ -177,12 +170,12 @@ impl Date {
     }
 
     /// Today's local date.
-    pub fn today() -> Date {
+    pub fn Date today() {
         return DateTime.now().on
     }
 
     /// The date `days` days after 1970-01-01 (before it when `days` is negative).
-    pub fn from_days(days: i64) -> Date {
+    pub fn Date from_days(i64 days) {
         // "civil_from_days", by Howard Hinnant: years of 400 years ("eras") starting on
         // March 1st, so that the leap day is the last day of the year.
         let z = days + 719_468
@@ -198,7 +191,7 @@ impl Date {
     }
 
     /// The number of days from 1970-01-01 to this date (negative before 1970).
-    pub fn days_since_epoch(self) -> i64 {
+    pub fn i64 days_since_epoch(self) {
         // "days_from_civil", by Howard Hinnant (the inverse of `from_days`).
         let m = self.month as i64
         let y = (self.year as i64) - (if m <= 2 { 1 } else { 0 })
@@ -209,40 +202,40 @@ impl Date {
         return era * 146_097 + day_of_era - 719_468
     }
 
-    pub fn year(self) -> i32 {
+    pub fn i32 year(self) {
         return self.year
     }
 
     /// The month, from 1 (January) to 12 (December).
-    pub fn month(self) -> i32 {
+    pub fn i32 month(self) {
         return self.month
     }
 
     /// The day of the month, from 1.
-    pub fn day(self) -> i32 {
+    pub fn i32 day(self) {
         return self.day
     }
 
     /// The day of the week.
-    pub fn weekday(self) -> Weekday {
+    pub fn Weekday weekday(self) {
         // 1970-01-01 was a Thursday.
         return Weekday.from_number(floor_mod(self.days_since_epoch() + 3, 7) as i32 + 1).unwrap()
     }
 
     /// The day of the year: 1 for January 1st, up to 366.
-    pub fn day_of_year(self) -> i32 {
+    pub fn i32 day_of_year(self) {
         let first = Date(year: self.year, month: 1, day: 1)
         return (self.days_since_epoch() - first.days_since_epoch()) as i32 + 1
     }
 
     /// The date `days` days later (earlier when `days` is negative).
-    pub fn add_days(self, days: i64) -> Date {
+    pub fn Date add_days(self, i64 days) {
         return Date.from_days(self.days_since_epoch() + days)
     }
 
     /// The same day `months` months later (earlier when negative). The day is reduced to
     /// the length of the month: January 31 plus one month is February 28 (or 29).
-    pub fn add_months(self, months: i32) -> Date {
+    pub fn Date add_months(self, i32 months) {
         let total = (self.year as i64) * 12 + (self.month as i64) - 1 + (months as i64)
         let year = floor_div(total, 12) as i32
         let month = floor_mod(total, 12) as i32 + 1
@@ -252,18 +245,18 @@ impl Date {
 
     /// The same day `years` years later (earlier when negative); February 29 becomes
     /// February 28 in a common year.
-    pub fn add_years(self, years: i32) -> Date {
+    pub fn Date add_years(self, i32 years) {
         return self.add_months(years * 12)
     }
 
     /// The number of days from this date to `other` (negative when `other` is earlier).
-    pub fn days_until(self, other: Date) -> i64 {
+    pub fn i64 days_until(self, Date other) {
         return other.days_since_epoch() - self.days_since_epoch()
     }
 
     /// The number of whole years from this date to `other`: the age on `other` of
     /// someone born on this date (negative when `other` is earlier).
-    pub fn years_until(self, other: Date) -> i32 {
+    pub fn i32 years_until(self, Date other) {
         if other.days_since_epoch() < self.days_since_epoch() {
             return -other.years_until(self)
         }
@@ -275,61 +268,61 @@ impl Date {
     }
 
     /// `true` if this date is before `other`.
-    pub fn is_before(self, other: Date) -> bool {
+    pub fn bool is_before(self, Date other) {
         return self.days_since_epoch() < other.days_since_epoch()
     }
 
     /// `true` if both dates are the same day.
-    pub fn equals(self, other: Date) -> bool {
+    pub fn bool equals(self, Date other) {
         return self.year == other.year and self.month == other.month and self.day == other.day
     }
 
     /// The date written `YYYY-MM-DD` (ISO 8601).
-    pub fn to_string(self) -> String {
+    pub fn String to_string(self) {
         return "{self.year:04}-{self.month:02}-{self.day:02}"
     }
 
     /// Reads a date written `YYYY-MM-DD` (ISO 8601).
-    pub fn parse(text: String) -> Option[Date] {
+    pub fn Option[Date] parse(String text) {
         let parts = text.trim().split("-")
         if parts.len() != 3 or parts[0].len() != 4 or parts[1].len() != 2 or parts[2].len() != 2 {
             return None
         }
-        match (parts[0].parse_int(), parts[1].parse_int(), parts[2].parse_int()) {
-            (Some(y), Some(m), Some(d)) => {
+        when (parts[0].parse_int(), parts[1].parse_int(), parts[2].parse_int()) {
+            (.Some(y), .Some(m), .Some(d)) then {
                 if y < 0 or m < 0 or d < 0 {
                     return None
                 }
                 return Date.new(y as i32, m as i32, d as i32)
             }
-            _ => return None
+            _ then return None
         }
     }
 }
 
 /// A date and a time of day, in a time zone given by its offset from UTC.
 @derive(Copy)
-pub struct DateTime {
+pub type DateTime {
     // Not named `date`: a field sharing its name with a method of struct type is not
     // yet supported by the compiler (infinite recursion, to be fixed).
-    on: Date
-    hour: i32
-    minute: i32
-    second: i32
-    nanosecond: i32
-    offset: i32
+    Date on
+    i32 hour
+    i32 minute
+    i32 second
+    i32 nanosecond
+    i32 offset
 }
 
-impl DateTime {
+extend DateTime {
     /// The current date and time in the local time zone.
-    pub fn now() -> DateTime {
+    pub fn DateTime now() {
         let ns = rt_unix_time_ns()
         let seconds = floor_div(ns, NS_PER_SECOND)
         return DateTime.from_unix(seconds, floor_mod(ns, NS_PER_SECOND) as i32, rt_utc_offset(seconds))
     }
 
     /// The current date and time in UTC.
-    pub fn now_utc() -> DateTime {
+    pub fn DateTime now_utc() {
         let ns = rt_unix_time_ns()
         return DateTime.from_unix(floor_div(ns, NS_PER_SECOND), floor_mod(ns, NS_PER_SECOND) as i32, 0)
     }
@@ -337,7 +330,7 @@ impl DateTime {
     /// The instant `unix_seconds` (seconds since 1970-01-01 00:00:00 UTC) plus
     /// `nanosecond`, expressed in the time zone `utc_offset` (seconds east of UTC).
     @track_caller
-    pub fn from_unix(unix_seconds: i64, nanosecond: i32, utc_offset: i32) -> DateTime {
+    pub fn DateTime from_unix(i64 unix_seconds, i32 nanosecond, i32 utc_offset) {
         if nanosecond < 0 or nanosecond >= 1_000_000_000 {
             panic("invalid nanosecond {nanosecond}: expected 0 to 999 999 999")
         }
@@ -355,7 +348,7 @@ impl DateTime {
 
     /// The time `hour:minute:second` of `date` in the local time zone, or `None` if the
     /// time is not valid. Daylight saving time is taken into account.
-    pub fn local(date: Date, hour: i32, minute: i32, second: i32) -> Option[DateTime] {
+    pub fn Option[DateTime] local(Date date, i32 hour, i32 minute, i32 second) {
         if hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59 {
             return None
         }
@@ -368,70 +361,70 @@ impl DateTime {
     }
 
     /// The time `hour:minute:second` (UTC) of `date`, or `None` if the time is not valid.
-    pub fn utc(date: Date, hour: i32, minute: i32, second: i32) -> Option[DateTime] {
+    pub fn Option[DateTime] utc(Date date, i32 hour, i32 minute, i32 second) {
         if hour < 0 or hour > 23 or minute < 0 or minute > 59 or second < 0 or second > 59 {
             return None
         }
         return Some(DateTime(on: date, hour: hour, minute: minute, second: second, nanosecond: 0, offset: 0))
     }
 
-    pub fn date(self) -> Date {
+    pub fn Date date(self) {
         return self.on
     }
 
-    pub fn hour(self) -> i32 {
+    pub fn i32 hour(self) {
         return self.hour
     }
 
-    pub fn minute(self) -> i32 {
+    pub fn i32 minute(self) {
         return self.minute
     }
 
-    pub fn second(self) -> i32 {
+    pub fn i32 second(self) {
         return self.second
     }
 
-    pub fn nanosecond(self) -> i32 {
+    pub fn i32 nanosecond(self) {
         return self.nanosecond
     }
 
     /// The offset of the time zone from UTC, in seconds (east of UTC is positive).
-    pub fn utc_offset(self) -> i32 {
+    pub fn i32 utc_offset(self) {
         return self.offset
     }
 
-    pub fn weekday(self) -> Weekday {
+    pub fn Weekday weekday(self) {
         return self.on.weekday()
     }
 
     /// Seconds since 1970-01-01 00:00:00 UTC.
-    pub fn unix_time(self) -> i64 {
+    pub fn i64 unix_time(self) {
         let of_day = (self.hour * 3600 + self.minute * 60 + self.second) as i64
         return self.on.days_since_epoch() * SECONDS_PER_DAY + of_day - (self.offset as i64)
     }
 
     /// The number of seconds from this instant to `other` (negative when earlier).
-    pub fn seconds_until(self, other: DateTime) -> i64 {
+    pub fn i64 seconds_until(self, DateTime other) {
         return other.unix_time() - self.unix_time()
     }
 
     /// The same instant `seconds` seconds later (earlier when negative).
-    pub fn add_seconds(self, seconds: i64) -> DateTime {
+    pub fn DateTime add_seconds(self, i64 seconds) {
         return DateTime.from_unix(self.unix_time() + seconds, self.nanosecond, self.offset)
     }
 
     /// The same instant, expressed in the time zone `utc_offset`.
-    pub fn with_offset(self, utc_offset: i32) -> DateTime {
+    pub fn DateTime with_offset(self, i32 utc_offset) {
         return DateTime.from_unix(self.unix_time(), self.nanosecond, utc_offset)
     }
 
     /// `YYYY-MM-DD HH:MM:SS`, in the time zone of the value.
-    pub fn to_string(self) -> String {
+    pub fn String to_string(self) {
         return "{self.on.to_string()} {self.hour:02}:{self.minute:02}:{self.second:02}"
     }
 
     /// ISO 8601 with the offset: `2026-10-13T22:41:37+02:00`, or `...Z` in UTC.
-    pub fn to_iso(self) -> String {
+    pub fn String to_iso(self) {
         let time = "{self.on.to_string()}T{self.hour:02}:{self.minute:02}:{self.second:02}"
         if self.offset == 0 {
             return time + "Z"

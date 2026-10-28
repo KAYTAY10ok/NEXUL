@@ -1,3 +1,4 @@
+// edition: 1
 /// Memory utilities (spec chapter 09).
 ///
 /// The `unsafe` functions give raw access to memory: the caller is responsible for
@@ -7,74 +8,74 @@ import std.rt
 
 /// Size in bytes of a value of type `T`.
 @intrinsic
-pub fn size_of[T]() -> usize
+pub fn usize size_of[T]()
 
 /// Alignment in bytes of type `T`.
 @intrinsic
-pub fn align_of[T]() -> usize
+pub fn usize align_of[T]()
 
 /// Allocates `size` bytes on the heap, aligned for any type (never returns null;
 /// panics if out of memory).
-pub unsafe fn alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] alloc(usize size) {
     return rt.alloc(size)
 }
 
 /// Resizes an allocation made by `alloc`.
-pub unsafe fn realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
     return rt.realloc(p, size)
 }
 
 /// Frees an allocation made by `alloc` or `realloc`.
-pub unsafe fn free(p: Ptr[u8]) {
+pub unsafe fn free(Ptr[u8] p) {
     rt.free(p)
 }
 
 /// Copies `count` values from `src` to `dst` (the regions may overlap). The values
 /// are copied bit for bit: ownership is duplicated, not transferred.
 @intrinsic
-pub unsafe fn copy[T](src: Ptr[T], dst: Ptr[T], count: usize)
+pub unsafe fn copy[T](Ptr[T] src, Ptr[T] dst, usize count)
 
 /// Sets `count` bytes at `dst` to `value`.
 @intrinsic
-pub unsafe fn set_bytes(dst: Ptr[u8], value: u8, count: usize)
+pub unsafe fn set_bytes(Ptr[u8] dst, u8 value, usize count)
 
 /// Destroys the value pointed to by `p`, without freeing its memory.
 @intrinsic
-pub unsafe fn drop_in_place[T](p: Ptr[T])
+pub unsafe fn drop_in_place[T](Ptr[T] p)
 
 /// The address of a place (variable, field, element or static variable). The pointer
 /// is only valid while the place exists and is not moved.
 @intrinsic
-pub unsafe fn addr_of[T](inout place: T) -> Ptr[T]
+pub unsafe fn Ptr[T] addr_of[T](T place!)
 
 /// Reads a value without letting the compiler remove or reorder the access (hardware
 /// registers mapped in memory, spec §5.2).
 @intrinsic
-pub unsafe fn read_volatile[T](p: Ptr[T]) -> T
+pub unsafe fn T read_volatile[T](Ptr[T] p)
 
 /// Writes a value without letting the compiler remove or reorder the access.
 @intrinsic
-pub unsafe fn write_volatile[T](p: Ptr[T], owned value: T)
+pub unsafe fn write_volatile[T](Ptr[T] p, owned T value)
 
 /// A value whose bytes are all zero (valid for integers, floats, `bool`, pointers and
 /// aggregates of them).
 @intrinsic
-pub unsafe fn zeroed[T]() -> T
+pub unsafe fn T zeroed[T]()
 
 /// Takes ownership of a value without destroying it (its resources are leaked).
 @intrinsic
-pub fn forget[T](owned value: T)
+pub fn forget[T](owned T value)
 
 /// Exchanges two values.
 @intrinsic
-pub fn swap[T](inout a: T, inout b: T)
+pub fn swap[T](T a!, T b!)
 
 /// Replaces `dest` by `value` and returns the previous value.
 @intrinsic
-pub fn replace[T](inout dest: T, owned value: T) -> T
+pub fn T replace[T](T dest!, owned T value)
 
 /// Destroys a value now instead of at the end of its scope.
-pub fn drop[T](owned value: T) {
+pub fn drop[T](owned T value) {
 }
 
 // ---------------------------------------------------------------------------
@@ -85,24 +86,24 @@ pub fn drop[T](owned value: T) {
 
 /// Reads the integer at `p`.
 @intrinsic
-pub unsafe fn atomic_load[T](p: Ptr[T]) -> T
+pub unsafe fn T atomic_load[T](Ptr[T] p)
 
 /// Writes `value` at `p`.
 @intrinsic
-pub unsafe fn atomic_store[T](p: Ptr[T], owned value: T)
+pub unsafe fn atomic_store[T](Ptr[T] p, owned T value)
 
 /// Writes `value` at `p` and returns the previous value.
 @intrinsic
-pub unsafe fn atomic_swap[T](p: Ptr[T], owned value: T) -> T
+pub unsafe fn T atomic_swap[T](Ptr[T] p, owned T value)
 
 /// Adds `value` (wrapping around) and returns the previous value.
 @intrinsic
-pub unsafe fn atomic_add[T](p: Ptr[T], owned value: T) -> T
+pub unsafe fn T atomic_add[T](Ptr[T] p, owned T value)
 
 /// Writes `new` at `p` if it holds `expected`; returns the previous value (`expected`
 /// when the write took place).
 @intrinsic
-pub unsafe fn atomic_cas[T](p: Ptr[T], owned expected: T, owned new: T) -> T
+pub unsafe fn T atomic_cas[T](Ptr[T] p, owned T expected, owned T new)
 
 /// Orders every memory access before it before every access after it.
 @intrinsic
@@ -110,12 +111,12 @@ pub unsafe fn atomic_fence()
 
 /// The code of an anonymous function (`std.tache`).
 @intrinsic
-pub unsafe fn closure_code(f: fn()) -> Ptr[u8]
+pub unsafe fn Ptr[u8] closure_code(fn() f)
 
 /// The environment of an anonymous function: the addresses of the variables it uses.
 @intrinsic
-pub unsafe fn closure_env(f: fn()) -> Ptr[u8]
+pub unsafe fn Ptr[u8] closure_env(fn() f)
 
 /// Calls an anonymous function given by its code and its environment.
 @intrinsic
-pub unsafe fn call_closure(code: Ptr[u8], env: Ptr[u8])
+pub unsafe fn call_closure(Ptr[u8] code, Ptr[u8] env)

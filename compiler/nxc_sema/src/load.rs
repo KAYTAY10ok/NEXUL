@@ -285,7 +285,9 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         };
         let file = if is_std {
-            sm.add(name.clone(), text)
+            // A module of the standard library says its edition in its header (0.2 without).
+            let edition = nxc_syntax::header_edition(&text).unwrap_or_default();
+            sm.add_with_edition(name.clone(), text, edition)
         } else {
             let edition = src.edition_of(segs, &text);
             sm.add_with_edition(name.clone(), text, edition)

@@ -1,15 +1,16 @@
+// edition: 1
 /// Time zones: TZif files of the time zone database and POSIX `TZ` rules (RFC 8536),
 /// for the system layers of Linux and macOS.
 
 /// The offset of local time from UTC at `unix_seconds` given by the contents of a TZif
 /// file; 0 when `data` is not a TZif file.
-pub fn offset_at(data: Vec[u8], unix_seconds: i64) -> i32 {
+pub fn i32 offset_at(Vec[u8] data, i64 unix_seconds) {
     if data.len() < 44 or data[0] != 'T' as u8 or data[1] != 'Z' as u8 {
         return 0
     }
     // Version 2+ files repeat the data with 64-bit times after the first block.
-    var base: usize = 0
-    var time_size: usize = 4
+    var usize base = 0
+    var usize time_size = 4
     let version = data[4]
     if version >= '2' as u8 {
         let block = tzif_block_len(data, 0, 4)
@@ -31,7 +32,7 @@ pub fn offset_at(data: Vec[u8], unix_seconds: i64) -> i32 {
         return 0
     }
     // The last transition at or before the instant.
-    var current: i64 = -1
+    var i64 current = -1
     for i in 0..timecnt {
         if be(data, times + i * time_size, time_size) <= unix_seconds {
             current = i as i64
@@ -63,8 +64,8 @@ pub fn offset_at(data: Vec[u8], unix_seconds: i64) -> i32 {
 }
 
 /// Reads a big-endian signed 32 or 64-bit number.
-fn be(data: Vec[u8], at: usize, size: usize) -> i64 {
-    var v: u64 = 0
+fn i64 be(Vec[u8] data, usize at, usize size) {
+    var u64 v = 0
     for i in 0..size {
         v = (v << 8) | (data[at + i] as u64)
     }
@@ -81,7 +82,7 @@ fn be(data: Vec[u8], at: usize, size: usize) -> i64 {
 }
 
 
-fn tzif_block_len(data: Vec[u8], base: usize, time_size: usize) -> usize {
+fn usize tzif_block_len(Vec[u8] data, usize base, usize time_size) {
     let isutcnt = be(data, base + 20, 4) as usize
     let isstdcnt = be(data, base + 24, 4) as usize
     let leapcnt = be(data, base + 28, 4) as usize
@@ -92,7 +93,7 @@ fn tzif_block_len(data: Vec[u8], base: usize, time_size: usize) -> usize {
 }
 
 /// Days from 1970-01-01 to a civil date (proleptic Gregorian calendar).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+fn i64 days_from_civil(i64 year, i64 month, i64 day) {
     let y = if month <= 2 { year - 1 } else { year }
     let era = (if y >= 0 { y } else { y - 399 }) / 400
     let yoe = y - era * 400
@@ -101,7 +102,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     return era * 146_097 + doe - 719_468
 }
 
-fn year_of(days: i64) -> i64 {
+fn i64 year_of(i64 days) {
     let z = days + 719_468
     let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097
     let doe = z - era * 146_097
@@ -113,20 +114,20 @@ fn year_of(days: i64) -> i64 {
 }
 
 /// A small cursor over a POSIX TZ rule such as `CET-1CEST,M3.5.0,M10.5.0/3`.
-struct Cursor {
-    text: Vec[u8]
-    pos: usize
+type Cursor {
+    Vec[u8] text
+    usize pos
 }
 
-impl Cursor {
-    fn peek(self) -> u8 {
+extend Cursor {
+    fn u8 peek(self) {
         if self.pos < self.text.len() {
             return self.text[self.pos]
         }
         return 0
     }
 
-    fn skip_name(inout self) {
+    fn skip_name(self!) {
         if self.peek() == '<' as u8 {
             while self.pos < self.text.len() and self.text[self.pos] != '>' as u8 {
                 self.pos += 1
@@ -144,8 +145,8 @@ impl Cursor {
         }
     }
 
-    fn number(inout self) -> i64 {
-        var v: i64 = 0
+    fn i64 number(self!) {
+        var i64 v = 0
         while self.pos < self.text.len() and self.text[self.pos] >= '0' as u8 and self.text[self.pos] <= '9' as u8 {
             v = v * 10 + (self.text[self.pos] - '0' as u8) as i64
             self.pos += 1
@@ -154,8 +155,8 @@ impl Cursor {
     }
 
     /// `[+-]hh[:mm[:ss]]` in seconds.
-    fn time(inout self) -> i64 {
-        var sign: i64 = 1
+    fn i64 time(self!) {
+        var i64 sign = 1
         if self.peek() == '-' as u8 {
             sign = -1
             self.pos += 1
@@ -177,8 +178,8 @@ impl Cursor {
 
 /// The instant (seconds since 1970, local wall clock) a rule `Mm.w.d[/time]`, `Jn` or `n`
 /// designates in `year`.
-fn rule_time(inout c: Cursor, year: i64) -> i64 {
-    var day: i64 = 0
+fn i64 rule_time(Cursor c!, i64 year) {
+    var i64 day = 0
     if c.peek() == 'M' as u8 {
         c.pos += 1
         let month = c.number()
@@ -202,7 +203,7 @@ fn rule_time(inout c: Cursor, year: i64) -> i64 {
     } else {
         day = days_from_civil(year, 1, 1) + c.number()
     }
-    var at: i64 = 7200
+    var i64 at = 7200
     if c.peek() == '/' as u8 {
         c.pos += 1
         at = c.time()
@@ -211,7 +212,7 @@ fn rule_time(inout c: Cursor, year: i64) -> i64 {
 }
 
 /// Offset given by a POSIX TZ rule (the footer of TZif files, or `TZ`).
-pub fn posix_offset(rule: String, unix_seconds: i64) -> i32 {
+pub fn i32 posix_offset(String rule, i64 unix_seconds) {
     var c = Cursor(text: rule.clone().into_bytes(), pos: 0)
     c.skip_name()
     // POSIX offsets are positive west of Greenwich.
@@ -230,9 +231,9 @@ pub fn posix_offset(rule: String, unix_seconds: i64) -> i32 {
     c.pos += 1
     let year = year_of((unix_seconds + std_offset) / 86_400)
     let start_cursor_pos = c.pos
-    let start_local = rule_time(&c, year)
+    let start_local = rule_time(c!, year)
     c.pos += 1
-    let end_local = rule_time(&c, year)
+    let end_local = rule_time(c!, year)
     let _ = start_cursor_pos
     // Transitions in UTC: the start is given in standard time, the end in daylight time.
     let start = start_local - std_offset
