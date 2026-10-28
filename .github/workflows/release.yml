@@ -2,7 +2,7 @@ name: Release
 
 # A tag `vX.Y.Z` builds `NEXUL-Setup.exe` on Windows and publishes the release of that
 # version, its notes taken from the section of CHANGELOG.md. On a pull request that
-# changes this workflow or the installer script, the same build runs without publishing
+# changes this workflow, the installer or its scripts, the same build runs without publishing
 # (the installer is kept as an artifact).
 on:
   push:
@@ -12,6 +12,7 @@ on:
       - ".github/workflows/release.yml"
       - "tools/build_installer.py"
       - "tools/make-python-runtime.py"
+      - "installer/**"
 
 permissions:
   contents: write
