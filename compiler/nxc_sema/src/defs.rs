@@ -92,6 +92,12 @@ pub struct ModuleInfo {
     /// Dotted path, e.g. `std.io` or `geometrie.formes`.
     pub path: String,
     pub file: FileId,
+    /// The edition the file is written in (ADR 0010): a few rules differ, such as the
+    /// conversion of errors to `String` by `?` (edition 0.2 only, ADR 0015).
+    pub edition: nxc_syntax::Edition,
+    /// The distinct and constrained types declared here (ADR 0014), as written; collected
+    /// into `AdtDef::newtype`.
+    pub newtypes: HashMap<String, ast::NewtypeDecl>,
     pub is_std: bool,
     /// Items declared in this module: name -> (item, declaration span, is_pub).
     pub items: HashMap<String, (ItemRef, Span, bool)>,
@@ -160,6 +166,17 @@ pub struct AdtDef {
     pub drop_fn: Option<FnId>,
     pub index_fn: Option<FnId>,
     pub lang: Option<LangItem>,
+    /// A distinct or constrained type (ADR 0014): a structure whose only field, hidden,
+    /// holds a value of its base.
+    pub newtype: Option<NewtypeDef>,
+}
+
+/// What a distinct or constrained type adds to its base (ADR 0014).
+pub struct NewtypeDef {
+    /// No implicit conversion to the base.
+    pub distinct: bool,
+    /// The condition its values satisfy.
+    pub cond: Option<ast::Constraint>,
 }
 
 impl AdtDef {
@@ -413,6 +430,22 @@ pub struct Program {
 }
 
 impl Program {
+    /// Width in bits of an integer type on the target (`isize`/`usize`: the width of a
+    /// pointer, spec §3.1).
+    pub fn int_bits(&self, i: crate::ty::IntTy) -> u32 {
+        i.bits_on(self.cfg.target.ptr_bits)
+    }
+
+    /// Smallest value of an integer type on the target.
+    pub fn int_min(&self, i: crate::ty::IntTy) -> i128 {
+        i.min_on(self.cfg.target.ptr_bits)
+    }
+
+    /// Largest value of an integer type on the target.
+    pub fn int_max(&self, i: crate::ty::IntTy) -> i128 {
+        i.max_on(self.cfg.target.ptr_bits)
+    }
+
     pub fn new() -> Program {
         Program {
             tcx: TyCtx::new(),
@@ -534,18 +567,144 @@ impl Program {
     /// Spec §3.7: a type is copyable when it owns no resource. Generic parameters are
     /// treated as resources.
     pub fn is_copy(&self, t: Ty) -> bool {
-        let mut visiting = Vec::new();
-        self.is_copy_rec(t, &mut visiting)
+        self.is_copy_with(t, &[])
     }
 
-    fn is_copy_rec(&self, t: Ty, visiting: &mut Vec<Ty>) -> bool {
+    /// `is_copy` inside a generic function whose parameters have `bounds`: a parameter
+    /// with the bound `Copy` (`T: Copy`, `T is Copy`) is copyable (spec §3.7).
+    pub fn is_copy_with(&self, t: Ty, bounds: &[Bound]) -> bool {
+        let mut visiting = Vec::new();
+        self.is_copy_rec(t, bounds, &mut visiting)
+    }
+
+    /// ADR 0012: a public type of a module written in edition 1 is copyable only if it
+    /// declares `Copy` (`type T is Copy`); elsewhere its structure decides.
+    pub fn copy_must_be_declared(&self, adt: AdtId) -> bool {
+        let a = &self.adts[adt.idx()];
+        a.is_pub && self.modules[a.module.idx()].edition == nxc_syntax::Edition::V1
+    }
+
+    /// Does the type declare `Copy` (`@derive(Copy)`, `type T is Copy`, `impl Copy for T`)?
+    pub fn declares_copy(&self, adt: AdtId) -> bool {
+        let Some(copy) = self.lang_trait("copy") else { return false };
+        self.impls.iter().any(|i| i.trait_id == copy && matches!(&*self.tcx.kind(i.self_ty), TyKind::Adt(a, _) if *a == adt))
+    }
+
+    /// Why a type that declares `Copy` cannot be copyable (E0250): a destructor,
+    /// `indirect` storage, or a value that is not copyable. Its generic parameters count
+    /// as copyable: the declaration applies when they are.
+    pub fn copy_obstacle(&self, adt: AdtId) -> Option<String> {
+        let a = &self.adts[adt.idx()];
+        if a.drop_fn.is_some() {
+            return Some(format!("`{}` has a destructor (`drop`)", a.name));
+        }
+        let copy = self.lang_trait("copy")?;
+        let bounds: Vec<Bound> = (0..a.generics.len() as u32).map(|param| Bound { param, trait_id: copy }).collect();
+        match &a.kind {
+            AdtKind::Struct { fields } => {
+                for f in fields {
+                    if f.indirect {
+                        return Some(format!("field `{}` is `indirect`", f.name));
+                    }
+                    if !self.is_copy_with(f.ty, &bounds) {
+                        return Some(format!("field `{}` has type `{}`, which is not copyable", f.name, self.ty_str_with(f.ty, &a.generics)));
+                    }
+                }
+            }
+            AdtKind::Enum { variants } => {
+                for v in variants {
+                    if v.indirect {
+                        return Some(format!("variant `{}` is `indirect`", v.name));
+                    }
+                    if let Some(&f) = v.fields.iter().find(|&&f| !self.is_copy_with(f, &bounds)) {
+                        return Some(format!("variant `{}` holds a `{}`, which is not copyable", v.name, self.ty_str_with(f, &a.generics)));
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The public type of edition 1 that `t` names when declaring it `Copy` would make it
+    /// copyable (for the help of E0402).
+    pub fn undeclared_copy(&self, t: Ty) -> Option<String> {
+        let TyKind::Adt(id, args) = &*self.tcx.kind(t) else { return None };
+        if !self.copy_must_be_declared(*id) || self.declares_copy(*id) || self.copy_obstacle(*id).is_some() {
+            return None;
+        }
+        let a = &self.adts[id.idx()];
+        let fields_copy = match &a.kind {
+            AdtKind::Struct { fields } => fields.iter().all(|f| self.is_copy(self.tcx.subst(f.ty, args))),
+            AdtKind::Enum { variants } => variants.iter().all(|v| v.fields.iter().all(|&f| self.is_copy(self.tcx.subst(f, args)))),
+        };
+        fields_copy.then(|| a.name.clone())
+    }
+
+    /// Is `tr` one of the properties of tasks, `Transfer` or `Share` (ADR 0013)?
+    pub fn is_task_property(&self, tr: TraitId) -> bool {
+        self.lang_trait("transfer") == Some(tr) || self.lang_trait("share") == Some(tr)
+    }
+
+    /// Does `t` have the property `tr` (`Transfer` or `Share`, ADR 0013)? By its structure:
+    /// numbers, `bool`, `char`, `()` and function pointers have both; `Ptr` and anonymous
+    /// functions have neither; a `dyn` value has those its interface requires; a struct,
+    /// an enum, a tuple or an array has them when all its values do. A type that declares
+    /// the property (`unsafe impl`) has it when its arguments satisfy the declaration.
+    pub fn has_task_property(&self, t: Ty, tr: TraitId, bounds: &[Bound]) -> bool {
+        let mut visiting = Vec::new();
+        self.task_property_rec(t, tr, bounds, &mut visiting)
+    }
+
+    fn task_property_rec(&self, t: Ty, tr: TraitId, bounds: &[Bound], visiting: &mut Vec<Ty>) -> bool {
+        match &*self.tcx.kind(t) {
+            TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit | TyKind::Never => true,
+            TyKind::IntVar(_) | TyKind::FloatVar(_) | TyKind::Error | TyKind::Fn(..) => true,
+            TyKind::Ptr(_) | TyKind::Closure(..) | TyKind::Infer(_) => false,
+            TyKind::Dyn(d) => self.trait_closure(*d).contains(&tr),
+            TyKind::Param(i) => bounds.iter().any(|b| b.param == *i && self.trait_closure(b.trait_id).contains(&tr)),
+            TyKind::Tuple(elems) => elems.iter().all(|&e| self.task_property_rec(e, tr, bounds, visiting)),
+            TyKind::Array(e, _) => self.task_property_rec(*e, tr, bounds, visiting),
+            TyKind::Adt(id, args) => {
+                if let Some((imp, iargs)) = self.find_impl(tr, t) {
+                    return self.impls[imp.idx()].bounds.iter().all(|b| {
+                        if self.is_task_property(b.trait_id) {
+                            self.task_property_rec(iargs[b.param as usize], b.trait_id, bounds, visiting)
+                        } else {
+                            self.implements_concrete(iargs[b.param as usize], b.trait_id)
+                        }
+                    });
+                }
+                if visiting.contains(&t) {
+                    // A recursive type: its other values decide.
+                    return true;
+                }
+                visiting.push(t);
+                let adt = &self.adts[id.idx()];
+                let r = match &adt.kind {
+                    AdtKind::Struct { fields } => fields.iter().all(|f| self.task_property_rec(self.tcx.subst(f.ty, args), tr, bounds, visiting)),
+                    AdtKind::Enum { variants } => variants.iter().all(|v| v.fields.iter().all(|&f| self.task_property_rec(self.tcx.subst(f, args), tr, bounds, visiting))),
+                };
+                visiting.pop();
+                r
+            }
+        }
+    }
+
+    /// Is a generic parameter declared `Copy` by `bounds`?
+    fn param_is_copy(&self, param: u32, bounds: &[Bound]) -> bool {
+        let Some(copy) = self.lang_trait("copy") else { return false };
+        bounds.iter().any(|b| b.param == param && self.trait_closure(b.trait_id).contains(&copy))
+    }
+
+    fn is_copy_rec(&self, t: Ty, bounds: &[Bound], visiting: &mut Vec<Ty>) -> bool {
         match &*self.tcx.kind(t) {
             TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Unit | TyKind::Never => true,
             TyKind::Ptr(_) | TyKind::Fn(..) => true,
             TyKind::IntVar(_) | TyKind::FloatVar(_) | TyKind::Error => true,
-            TyKind::Param(_) | TyKind::Infer(_) | TyKind::Closure(..) | TyKind::Dyn(_) => false,
-            TyKind::Tuple(elems) => elems.iter().all(|&e| self.is_copy_rec(e, visiting)),
-            TyKind::Array(e, _) => self.is_copy_rec(*e, visiting),
+            TyKind::Param(i) => self.param_is_copy(*i, bounds),
+            TyKind::Infer(_) | TyKind::Closure(..) | TyKind::Dyn(_) => false,
+            TyKind::Tuple(elems) => elems.iter().all(|&e| self.is_copy_rec(e, bounds, visiting)),
+            TyKind::Array(e, _) => self.is_copy_rec(*e, bounds, visiting),
             TyKind::Adt(id, args) => {
                 if visiting.contains(&t) {
                     // Recursive types always contain `indirect` storage.
@@ -555,14 +714,18 @@ impl Program {
                 if adt.drop_fn.is_some() {
                     return false;
                 }
+                // ADR 0012: in edition 1, a public type is copyable only if it says so.
+                if self.copy_must_be_declared(*id) && !self.declares_copy(*id) {
+                    return false;
+                }
                 visiting.push(t);
                 let r = match &adt.kind {
                     AdtKind::Struct { fields } => {
-                        fields.iter().all(|f| !f.indirect && self.is_copy_rec(self.tcx.subst(f.ty, args), visiting))
+                        fields.iter().all(|f| !f.indirect && self.is_copy_rec(self.tcx.subst(f.ty, args), bounds, visiting))
                     }
                     AdtKind::Enum { variants } => variants
                         .iter()
-                        .all(|v| !v.indirect && v.fields.iter().all(|&f| self.is_copy_rec(self.tcx.subst(f, args), visiting))),
+                        .all(|v| !v.indirect && v.fields.iter().all(|&f| self.is_copy_rec(self.tcx.subst(f, args), bounds, visiting))),
                 };
                 visiting.pop();
                 r
@@ -617,6 +780,13 @@ impl Program {
     /// Does the concrete type `ty` implement `trait_id`? (generic parameters must have
     /// been substituted; `dyn` types implement their trait and its supertraits)
     pub fn implements_concrete(&self, ty: Ty, trait_id: TraitId) -> bool {
+        // `Copy` is satisfied by the structure of the type (spec §3.7), not by an `impl`.
+        if self.lang_trait("copy") == Some(trait_id) {
+            return self.is_copy(ty);
+        }
+        if self.is_task_property(trait_id) {
+            return self.has_task_property(ty, trait_id, &[]);
+        }
         if let TyKind::Dyn(d) = &*self.tcx.kind(ty) {
             return self.trait_closure(*d).contains(&trait_id);
         }

@@ -1,0 +1,34 @@
+error[E0402]: use of moved value `s`
+  --> move_same_statement.nx:18:10
+   |
+18 |     show(s, s)
+   |          ^ value used here after move
+   |             - value moved here first
+   |
+   = note: `s` has type `String`, which owns resources and is moved rather than copied
+   = note: a value passed by reference, or assigned to, is taken after every other value of the statement is computed (evaluation order, spec §4.1)
+   = help: use `s.clone()` where the value is moved to keep using `s`
+
+error[E0402]: use of moved value `b`
+  --> move_same_statement.nx:20:5
+   |
+20 |     b.texte = vider(b)
+   |     ^^^^^^^^^^^^^^^^^^ value used here after move
+   |                     - value moved here first
+   |
+   = note: `b` has type `Boite`, which owns resources and is moved rather than copied
+   = note: a value passed by reference, or assigned to, is taken after every other value of the statement is computed (evaluation order, spec §4.1)
+   = help: use `b` before it is moved, or assign it a new value first
+
+error[E0402]: use of moved value `t`
+  --> move_same_statement.nx:23:14
+   |
+23 |         show(t, t)
+   |              ^ value used here after move
+   |                 - value moved here first
+   |
+   = note: `t` has type `String`, which owns resources and is moved rather than copied
+   = note: a value passed by reference, or assigned to, is taken after every other value of the statement is computed (evaluation order, spec §4.1)
+   = help: use `t.clone()` where the value is moved to keep using `t`
+
+error: could not compile due to 3 errors

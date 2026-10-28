@@ -1,0 +1,17 @@
+// edition: 1
+// The guards of `when` borrow the bindings like those of `match` (spec §5.6).
+fn bool take(owned String s) {
+    return s.len() > 1
+}
+
+fn Option[String] make() {
+    return .Some("ab" + "c")
+}
+
+fn main() {
+    when make() {
+        .Some(s) if take(s) then println("long")
+        .Some(s) then println(s)
+        else println("none")
+    }
+}

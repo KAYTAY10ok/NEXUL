@@ -1,0 +1,18 @@
+// `print` and `println` write any value that implements `Display` (spec §4.10), including
+// literals and variables whose type is inferred.
+fn main() {
+    println(7)
+    let x = 40 + 2
+    println(x)
+    println(2.5)
+    println(1.0)
+    println('n')
+    println(true)
+    print(1)
+    print(' ')
+    println(-3)
+    let big: u64 = 18_446_744_073_709_551_615
+    println(big)
+    let total = x * 2
+    println(total)
+}

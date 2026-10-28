@@ -4,7 +4,7 @@
 //! optimizing). The checks required by the language (overflow, division, shifts,
 //! conversions, bounds) are explicit branches to the runtime's panic functions.
 
-use crate::{float_const, int_const, Gen, PKind, RetKind, Sig};
+use crate::{float_const, int_const, quote_name, Gen, PKind, RetKind, Sig};
 use nxc_nir::nir::*;
 use nxc_sema::defs::{AdtKind, ConstValue, FnId, FnKind};
 use nxc_sema::target::{Arch, Os};
@@ -279,9 +279,22 @@ impl<'a> Gen<'a> {
                 let _ = writeln!(entry_code, "    call void @llvm.dbg.declare(metadata ptr {}, metadata !{}, metadata !DIExpression()), !dbg !{}", cx.addr[i], var, loc);
             }
         }
-        // Blocks.
+        // Blocks. A block that cannot be reached from the entry follows an expression of
+        // type `Never` (`f(x, panic("…"))`, `1 + return`): it may use the "value" of that
+        // expression, which has no type the machine knows, and never runs (contract K3.10).
+        let mut reachable = vec![false; body.blocks.len()];
+        let mut work = vec![0 as BlockId];
+        while let Some(b) = work.pop() {
+            if (b as usize) < reachable.len() && !std::mem::replace(&mut reachable[b as usize], true) {
+                work.extend(body.successors(b));
+            }
+        }
         for (bi, b) in body.blocks.iter().enumerate() {
             let _ = writeln!(cx.out, "bb{}:", bi);
+            if !reachable[bi] {
+                let _ = writeln!(cx.out, "  unreachable");
+                continue;
+            }
             for s in &b.stmts {
                 self.set_loc(&mut cx, s.span);
                 self.emit_stmt(&mut cx, s);
@@ -292,7 +305,8 @@ impl<'a> Gen<'a> {
         // Signature and attributes.
         let ret = self.sig_ret(&sig);
         let fd = self.p.func(f);
-        let exported = fd.export.is_some() && targs.is_empty();
+        let checked = fd.export.is_some() && targs.is_empty() && self.export_checks(f);
+        let exported = fd.export.is_some() && targs.is_empty() && !checked;
         let linkage = if exported {
             if self.opts.target.os == Os::Windows {
                 "dllexport "
@@ -333,6 +347,129 @@ impl<'a> Gen<'a> {
         let _ = writeln!(text, "  br label %bb0");
         text.push_str(&cx.out);
         text.push_str("}\n\n");
+        self.fn_defs.push_str(&text);
+        if checked {
+            self.export_wrapper(f, &name, &sig);
+        }
+    }
+
+    /// Checks a scalar received through the host ABI and returns its parameter type,
+    /// normalized value, and NEXUL value type.
+    fn checked_export_scalar(
+        &self,
+        ty: Ty,
+        a: &str,
+        i: usize,
+        code: &mut String,
+        panic_fn: &str,
+        loc: &str,
+    ) -> Option<(String, String, String)> {
+        match &*self.tcx().kind(ty) {
+            TyKind::Bool => {
+                let _ = writeln!(
+                    code,
+                    "  %bad.c{i} = icmp ugt i8 {a}, 1\n  br i1 %bad.c{i}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 15, ptr {loc})\n  unreachable\nok{i}:\n  %v{i} = trunc i8 {a} to i1"
+                );
+                Some(("i8".into(), format!("%v{i}"), "i1".into()))
+            }
+            TyKind::Char => {
+                let _ = writeln!(
+                    code,
+                    "  %s{i} = sub i32 {a}, 55296\n  %sur{i} = icmp ult i32 %s{i}, 2048\n  %big{i} = icmp ugt i32 {a}, 1114111\n  %bad.c{i} = or i1 %sur{i}, %big{i}\n  br i1 %bad.c{i}, label %bad{i}, label %ok{i}\nbad{i}:\n  call void {panic_fn}(i32 13, ptr {loc})\n  unreachable\nok{i}:"
+                );
+                Some(("i32".into(), a.into(), "i32".into()))
+            }
+            _ => None,
+        }
+    }
+
+    /// The exported symbol of a function that receives from C values to check (ADR 0011
+    /// T4, ADR 0014 §2.7): a `bool` must be the byte 0 or 1, a `char` a Unicode scalar
+    /// value, a constrained type must satisfy its condition. Otherwise the program panics
+    /// at the parameter; else the wrapper calls the function with the checked values.
+    fn export_wrapper(&mut self, f: FnId, internal: &str, sig: &Sig) {
+        let tcx = self.tcx();
+        let fd = self.p.func(f);
+        let sym = fd.export.clone().unwrap();
+        if !self.exports.contains(&sym) {
+            self.exports.push(sym.clone());
+        }
+        let (panic_fn, _) = self.lang_fn("panic_arith");
+        let mut params = Vec::new();
+        let mut allocas = String::new();
+        let mut code = String::new();
+        let mut args = Vec::new();
+        for (i, p) in fd.params.iter().enumerate() {
+            let t = p.ty;
+            let loc = self.location(p.span);
+            let a = format!("%a{}", i);
+            // The value in the type the function receives.
+            let (value, lt) = match &*tcx.kind(t) {
+                TyKind::Bool | TyKind::Char => {
+                    let (param_ty, value, lt) = self
+                        .checked_export_scalar(t, &a, i, &mut code, &panic_fn, &loc)
+                        .unwrap();
+                    params.push(format!("{param_ty} {a}"));
+                    (value, lt)
+                }
+                TyKind::Adt(id, _) => {
+                    // A distinct or constrained type crosses the boundary as its base.
+                    let adt = self.p.adt(*id);
+                    let base = adt.fields()[0].ty;
+                    let validate = adt.methods.get(nxc_sema::newtype::VALIDATE_FN).copied();
+                    let blt = self.llty(base);
+                    let (param_ty, base_value) =
+                        match self.checked_export_scalar(base, &a, i, &mut code, &panic_fn, &loc) {
+                            Some((param_ty, value, _)) => (param_ty, value),
+                            None => (blt.clone(), a.clone()),
+                        };
+                    params.push(format!("{param_ty} {a}"));
+                    let v = match validate {
+                        Some(vf) => {
+                            let vname = self.instance(vf, vec![]);
+                            let _ = writeln!(
+                                code,
+                                "  %b{i} = call {blt} {vname}({blt} {base_value}, ptr {loc})"
+                            );
+                            format!("%b{i}")
+                        }
+                        None => base_value,
+                    };
+                    let slt = self.llty(t);
+                    let _ = writeln!(allocas, "  %n{i} = alloca {slt}");
+                    let _ = writeln!(code, "  store {blt} {v}, ptr %n{i}");
+                    (format!("%n{i}"), "ptr".to_string())
+                }
+                _ => {
+                    let lt = self.llty(t);
+                    params.push(format!("{lt} {a}"));
+                    (a.clone(), lt)
+                }
+            };
+            // Passed by value, or by address as the function expects.
+            match (sig.params.get(i), lt.as_str()) {
+                (Some(PKind::Ptr), "ptr") | (Some(PKind::Scalar(_)), _) => args.push(format!("{lt} {value}")),
+                (Some(PKind::Ptr), _) => {
+                    let _ = writeln!(allocas, "  %p{i} = alloca {lt}");
+                    let _ = writeln!(code, "  store {lt} {value}, ptr %p{i}");
+                    args.push(format!("ptr %p{i}"));
+                }
+                (None, _) => args.push(format!("{lt} {value}")),
+            }
+        }
+        let ret = self.sig_ret(sig);
+        let call = format!("{}({})", internal, args.join(", "));
+        if ret == "void" {
+            let _ = writeln!(code, "  call void {call}\n  ret void");
+        } else {
+            let _ = writeln!(code, "  %r = call {ret} {call}\n  ret {ret} %r");
+        }
+        let linkage = if self.opts.target.os == Os::Windows { "dllexport " } else { "" };
+        let mut attrs = String::from("nounwind");
+        if self.opts.target.os == Os::Windows {
+            attrs.push_str(" uwtable");
+        }
+        let text = format!("define {}{} @{}({}) {} {{\nstart:\n{}{}}}\n\n", linkage, ret, quote_name(&sym), params.join(", "), attrs, allocas, code);
         self.fn_defs.push_str(&text);
     }
 
@@ -507,12 +644,9 @@ impl<'a> Gen<'a> {
                 }
             }
             StmtKind::DropIfInit(l) => {
-                // Not reached after drop elaboration; drop unconditionally as a fallback.
-                let t = cx.tys[*l as usize];
-                if let Some(d) = self.drop_fn(t) {
-                    let a = cx.addr[*l as usize].clone();
-                    self.ins(cx, format!("call void {}(ptr {})", d, a));
-                }
+                // Drop elaboration replaces every `DropIfInit` (contract K3.2). Dropping
+                // unconditionally here could destroy a moved value twice: stop instead.
+                panic!("internal: `DropIfInit(_{})` reached code generation; drop elaboration did not run", l);
             }
             StmtKind::MarkMoved(_) | StmtKind::Nop => {}
             StmtKind::BoundsCheck { index, len, dest } => {
@@ -582,13 +716,21 @@ impl<'a> Gen<'a> {
                 let (dst, _) = self.place_addr(cx, place);
                 self.ins(cx, format!("store ptr {}, ptr {}", g, dst));
             }
-            Rvalue::Closure { f, env } => {
+            Rvalue::Closure { f, env, heap } => {
                 let code = self.instance(*f, cx.targs.clone());
                 let envp = if env.is_empty() {
                     "null".to_string()
                 } else {
                     let arr_t = format!("[{} x ptr]", env.len());
-                    let arr = self.alloca_raw(cx, &arr_t);
+                    let arr = if *heap {
+                        // Freed by the task that runs the function (`std.tache`).
+                        let (alloc, _) = self.lang_fn("alloc");
+                        let u = self.usize_ty();
+                        let size = env.len() as u64 * self.lx.ptr_bytes;
+                        self.val(cx, format!("call ptr {}({} {})", alloc, u, size))
+                    } else {
+                        self.alloca_raw(cx, &arr_t)
+                    };
                     for (i, o) in env.iter().enumerate() {
                         let (v, _) = self.operand(cx, o);
                         let slot = self.val(cx, format!("getelementptr inbounds {}, ptr {}, i32 0, i32 {}", arr_t, arr, i));
@@ -1973,6 +2115,85 @@ fail:
                 let r = self.val(cx, format!("call {} asm sideeffect \"{}\", \"{}\"({})", w, insn, regs, argv.join(", ")));
                 self.store_result(cx, dest, w, &r);
             }
+            // Atomic operations on integers, sequentially consistent (ADR 0013): the lock of
+            // the runtime, the end of threads, `std.tache`.
+            "atomic_load" | "atomic_store" | "atomic_swap" | "atomic_add" | "atomic_cas" => {
+                let t = targs[0];
+                let lt = self.llty(t);
+                let al = self.align_of(t);
+                // The integer operands, by value (loaded if one was passed by reference).
+                let ints: Vec<String> = vals
+                    .iter()
+                    .skip(1)
+                    .map(|(v, _)| match v {
+                        Val::Scalar(vt, x) if *vt == lt => x.clone(),
+                        Val::Scalar(_, x) | Val::Mem(x) => self.val(cx, format!("load {lt}, ptr {x}, align {al}")),
+                        Val::Unit => panic!("internal: atomic operand without a value"),
+                    })
+                    .collect();
+                let s = |i: usize| -> String { if i == 0 { vals[0].0.scalar().to_string() } else { ints[i - 1].clone() } };
+                match name {
+                    "atomic_load" => {
+                        let r = self.val(cx, format!("load atomic {lt}, ptr {} seq_cst, align {al}", s(0)));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                    "atomic_store" => self.ins(cx, format!("store atomic {lt} {}, ptr {} seq_cst, align {al}", s(1), s(0))),
+                    "atomic_cas" => {
+                        let pair = self.val(cx, format!("cmpxchg ptr {}, {lt} {}, {lt} {} seq_cst seq_cst, align {al}", s(0), s(1), s(2)));
+                        let r = self.val(cx, format!("extractvalue {{ {lt}, i1 }} {}, 0", pair));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                    _ => {
+                        let op = if name == "atomic_swap" { "xchg" } else { "add" };
+                        let r = self.val(cx, format!("atomicrmw {op} ptr {}, {lt} {} seq_cst, align {al}", s(0), s(1)));
+                        self.store_result(cx, dest, &lt, &r);
+                    }
+                }
+            }
+            "atomic_fence" => self.ins(cx, "fence seq_cst"),
+            // The code and the environment of an anonymous function, and a call of them
+            // (`std.tache` runs the function in another thread).
+            "closure_code" | "closure_env" => {
+                // The pair `{ code, environment }` in memory, or its address when the function
+                // was received by reference.
+                let fat = match &vals[0].0 {
+                    Val::Mem(a) | Val::Scalar(_, a) => a.clone(),
+                    Val::Unit => panic!("internal: `{}` of a value that is not an anonymous function", name),
+                };
+                let at = if name == "closure_code" { fat } else { self.val(cx, format!("getelementptr inbounds {{ ptr, ptr }}, ptr {}, i32 0, i32 1", fat)) };
+                let r = self.val(cx, format!("load ptr, ptr {}", at));
+                self.store_result(cx, dest, "ptr", &r);
+            }
+            "call_closure" => self.ins(cx, format!("call void {}(ptr {})", s(0), s(1))),
+            // A thread of Linux (ADR 0013): `clone` with a new stack; the child calls
+            // `entry(arg)`, then ends the thread. The kernel writes the thread id to `tid` and
+            // clears it (waking a futex) when the thread ends.
+            "linux_clone" => {
+                let w = u;
+                let (insn, regs) = match self.opts.target.arch {
+                    Arch::X86_64 => (
+                        "syscall\\0Atest %rax, %rax\\0Ajnz 1f\\0Axor %ebp, %ebp\\0Amov %r12, %rdi\\0Acall *%r13\\0Amov $$60, %eax\\0Axor %edi, %edi\\0Asyscall\\0Aud2\\0A1:",
+                        // clone(flags, stack, parent_tid, child_tid, tls)
+                        "={rax},{rax},{rdi},{rsi},{rdx},{r10},{r8},{r12},{r13},~{rcx},~{r11},~{memory}",
+                    ),
+                    Arch::Aarch64 => (
+                        "svc #0\\0Acbnz x0, 1f\\0Amov x29, xzr\\0Amov x0, x20\\0Ablr x19\\0Amov x8, #93\\0Amov x0, xzr\\0Asvc #0\\0Abrk #0\\0A1:",
+                        // clone(flags, stack, parent_tid, tls, child_tid)
+                        "={x0},{x8},{x0},{x1},{x2},{x4},{x3},{x20},{x19},~{memory}",
+                    ),
+                    Arch::Riscv64 => (
+                        "ecall\\0Abnez a0, 1f\\0Amv s0, zero\\0Amv a0, s2\\0Ajalr s1\\0Ali a7, 93\\0Ali a0, 0\\0Aecall\\0Aunimp\\0A1:",
+                        // clone(flags, stack, parent_tid, tls, child_tid)
+                        "={x10},{x17},{x10},{x11},{x12},{x14},{x13},{x18},{x9},~{memory}",
+                    ),
+                    _ => panic!("internal: linux_clone on an architecture without Linux threads"),
+                };
+                let number = if self.opts.target.arch == Arch::X86_64 { 56 } else { 220 };
+                // number, flags, stack, parent tid, child tid (the same word), tls, arg, entry
+                let argv = format!("{w} {number}, {w} {}, ptr {}, ptr {}, ptr {}, {w} 0, ptr {}, ptr {}", s(0), s(1), s(2), s(2), s(4), s(3));
+                let r = self.val(cx, format!("call {w} asm sideeffect \"{insn}\", \"{regs}\"({argv})"));
+                self.store_result(cx, dest, w, &r);
+            }
             "wasm_memory_grow" => {
                 self.declare("declare i32 @llvm.wasm.memory.grow.i32(i32, i32)");
                 let r = self.val(cx, format!("call i32 @llvm.wasm.memory.grow.i32(i32 0, i32 {})", s(0)));
@@ -1982,6 +2203,28 @@ fail:
                 self.declare("declare i32 @llvm.wasm.memory.size.i32(i32)");
                 let r = self.val(cx, "call i32 @llvm.wasm.memory.size.i32(i32 0)");
                 self.store_result(cx, dest, "i32", &r);
+            }
+            "irq_save" => {
+                let (insn, regs) = match self.opts.target.arch {
+                    Arch::Arm => ("mrs $0, primask\\0Acpsid i", "=r,~{memory}"),
+                    Arch::Aarch64 => ("mrs $0, daif\\0Amsr daifset, #3", "=r,~{memory}"),
+                    Arch::Riscv32 | Arch::Riscv64 => ("csrrci $0, mstatus, 8", "=r,~{memory}"),
+                    _ => panic!("internal: irq_save on a non-bare architecture"),
+                };
+                let r = self.val(cx, format!("call {u} asm sideeffect \"{}\", \"{}\"()", insn, regs));
+                self.store_result(cx, dest, u, &r);
+            }
+            "irq_restore" => {
+                match self.opts.target.arch {
+                    Arch::Arm => self.ins(cx, format!("call void asm sideeffect \"msr primask, $0\", \"r,~{{memory}}\"({u} {})", s(0))),
+                    Arch::Aarch64 => self.ins(cx, format!("call void asm sideeffect \"msr daif, $0\", \"r,~{{memory}}\"({u} {})", s(0))),
+                    Arch::Riscv32 | Arch::Riscv64 => {
+                        // Only restore MIE, not unrelated status bits (notably MPP).
+                        let enabled = self.val(cx, format!("and {u} {}, 8", s(0)));
+                        self.ins(cx, format!("call void asm sideeffect \"csrs mstatus, $0\", \"r,~{{memory}}\"({u} {})", enabled));
+                    }
+                    _ => panic!("internal: irq_restore on a non-bare architecture"),
+                }
             }
             "semihost" => {
                 let (insn, regs) = match self.opts.target.arch {

@@ -1,0 +1,76 @@
+error[E0420]: `v` is used twice by the same call, once to modify it
+  --> exclusivity_closures.nx:26:15
+   |
+26 |     apply(&v, fn() => v.len() as i32)
+   |               ^^^^^^^^^^^^^^^^^^^^^^ read by this anonymous function, which captures `v`
+   |     --------------------------------- during this call
+   |            - modified here (`inout`)
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: `v` is used twice by the same call, once to modify it
+  --> exclusivity_closures.nx:27:14
+   |
+27 |     v.retain(fn(x) => x < v.len() as i32)
+   |              ^^^^^^^^^^^^^^^^^^^^^^^^^^^ read by this anonymous function, which captures `v`
+   |     - modified here (`inout`)
+   |     ------------------------------------- during this call
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: `v` is used twice by the same call, once to modify it
+  --> exclusivity_closures.nx:32:10
+   |
+32 |     walk(v, fn() {
+   |          ^ accessed here
+   |     -------------- during this call
+   |             ------ modified by this anonymous function, which captures `v`
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: `v` is used twice by the same call, once to modify it
+  --> exclusivity_closures.nx:39:32
+   |
+39 |     both(fn() { v.push("a") }, fn() { v.push("b") })
+   |                                ^^^^^^^^^^^^^^^^^^^^ modified by this anonymous function, which captures `v`
+   |     ------------------------------------------------ during this call
+   |          -------------------- modified by this anonymous function, which captures `v`
+   |
+   = note: a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)
+   = help: copy one of the values into a variable first
+
+error[E0420]: cannot modify `v` while `v` is borrowed
+  --> exclusivity_closures.nx:45:13
+   |
+44 |     for s in v {
+   |              - `v` is borrowed by this `for` loop until its end
+45 |         run(fn() {
+   |             ^^^^^^ modify here
+   |
+   = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `v` while `v` is borrowed
+  --> exclusivity_closures.nx:51:13
+   |
+50 |     for s in &v {
+   |               - `v` is borrowed by this `for` loop until its end
+51 |         run(fn() { v.clear() })
+   |             ^^^^^^^^^^^^^^^^^^ modify here
+   |
+   = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `o` while `o` is borrowed
+  --> exclusivity_closures.nx:60:17
+   |
+58 |     match o {
+   |           - `o` is borrowed by this pattern match until its end
+59 |         Some(s) => {
+60 |             run(fn() { o = None })
+   |                 ^^^^^^^^^^^^^^^^^ modify here
+   |
+   = note: a value cannot change while it is being read (law of exclusivity, spec §5.4)
+
+error: could not compile due to 7 errors

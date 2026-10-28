@@ -399,7 +399,7 @@ fn walk_expr<'a>(e: &'a Expr, f: &mut dyn FnMut(Node<'a>)) {
         T::Unary(_, x)
         | T::Cast(x)
         | T::Field(x, _)
-        | T::Try(x, _)
+        | T::Try(x, _, _)
         | T::Move(x)
         | T::ArrayRepeat(x, _)
         | T::FnToClosure(x)

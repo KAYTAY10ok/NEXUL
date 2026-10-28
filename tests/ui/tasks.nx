@@ -1,0 +1,36 @@
+// Tasks of `std.tache` (ADR 0013): launched directly in the function given to
+// `tache.portee`, as an anonymous function; they use only variables declared before
+// `tache.portee`, never modify the same one, keep what they use until the end of the
+// `portee` (E0420), and read `Share` values (E0249).
+import std.tache
+
+struct Handle {
+    raw: Ptr[u8]
+}
+
+fn travail() {
+}
+
+fn lancer_ailleurs(inout p: tache.Portee) {
+    p.lancer(fn() { travail() })
+}
+
+fn main() {
+    var a = 0
+    var b = 0
+    let h = Handle(raw: Ptr.null())
+    tache.portee(fn(inout p: tache.Portee) {
+        var local = 1
+        p.lancer(fn() { a = 1 })
+        p.lancer(fn() { a = 2 })
+        p.lancer(fn() { b = a })
+        println("{a}")
+        p.lancer(fn() { local = 2 })
+        p.lancer(travail)
+        for i in 0..3 {
+            p.lancer(fn() { b = i })
+        }
+        p.lancer(fn() { let x = h.raw.is_null() })
+    })
+    println("{a} {b}")
+}

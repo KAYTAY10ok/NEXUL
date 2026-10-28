@@ -1,0 +1,59 @@
+// targets: windows, linux, macos, wasi
+// no-migrate: edition 1 refuses these `?` on purpose (tests/ui/edition1_try_string.nx)
+// Transition of ADR 0015, edition 0.2 only: in a function that returns
+// `Result[..., String]`, `?` turns an error that implements `Error` into its text, so the
+// programs written when `std.io` returned `String` errors keep compiling.
+import std.io
+
+enum ParseError {
+    NotANumber(String)
+}
+
+impl Display for ParseError {
+    fn to_string(self) -> String {
+        return match self {
+            NotANumber(t) => "not a number: {t}"
+        }
+    }
+}
+
+impl Error for ParseError {
+}
+
+fn parse(text: String) -> Result[i64, ParseError] {
+    let t = text.trim()
+    match t.parse_int() {
+        Some(n) => return Ok(n)
+        None => return Err(ParseError.NotANumber(t))
+    }
+}
+
+fn load_text(path: String) -> Result[i64, String] {
+    let text = io.read_file(path)?
+    let n = parse(text)?
+    return Ok(n)
+}
+
+fn same_type(path: String) -> Result[i64, String] {
+    let n = load_text(path)?
+    return Ok(n + 1)
+}
+
+fn main() {
+    let path = "nexul_try_convert_text.txt"
+    match load_text("nexul_does_not_exist_text.txt") {
+        Ok(n) => println("{n}")
+        Err(e) => println("error: {e}")
+    }
+    let _ = io.write_file(path, "41")
+    match same_type(path) {
+        Ok(n) => println("{n}")
+        Err(e) => println("error: {e}")
+    }
+    let _ = io.write_file(path, "z")
+    match same_type(path) {
+        Ok(n) => println("{n}")
+        Err(e) => println("error: {e}")
+    }
+    let _ = io.write_file(path, "")
+}

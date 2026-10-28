@@ -4,10 +4,12 @@ on:
   push:
     branches: [ "main" ]
   pull_request:
-    branches: [ "main" ]
+  workflow_dispatch:
 
 env:
   CARGO_TERM_COLOR: always
+  # tests/interop: C and NEXUL calling each other, with the C compiler of the runner.
+  NEXUL_REQUIRE_CC: "1"
 
 jobs:
   linux:
@@ -17,16 +19,107 @@ jobs:
     - name: Build
       run: cargo build --workspace --exclude nexul-installer --verbose
     - name: Run tests
-      run: cargo test --workspace --exclude nexul-installer --verbose
+      run: cargo test --release --workspace --exclude nexul-installer --verbose
+    - name: Run browser ABI tests (including export validation)
+      run: cargo test --release -p nxc --test web -- --ignored
+    - name: Run the programs on other targets (QEMU, Node)
+      run: |
+        sudo apt-get update -q
+        sudo apt-get install -y -q qemu-user qemu-system-arm
+        NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test suite run_programs_cross
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
+    # The crates of Studio without GPUI have their own Cargo workspaces.
+    - name: Test the crates of Studio (syntax, lsp, terminal, dap, templates)
+      timeout-minutes: 15
+      run: |
+        for c in syntax lsp terminal dap templates; do
+          cargo test --manifest-path studio/$c/Cargo.toml
+        done
+
+  macos:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install LLVM 20 and LLD (Homebrew)
+      run: |
+        brew install llvm@20
+        llvm="$(brew --prefix llvm@20)"
+        if [ ! -x "$llvm/bin/ld64.lld" ]; then
+          brew install lld@20 || brew install lld
+        fi
+        tools="$RUNNER_TEMP/llvm"
+        mkdir -p "$tools/bin" "$tools/lib"
+        ln -sf "$llvm/lib/libLLVM.dylib" "$tools/lib/libLLVM.dylib"
+        for t in ld64.lld wasm-ld ld.lld lld; do
+          for d in "$llvm/bin" "$(brew --prefix lld@20 2>/dev/null)/bin" "$(brew --prefix lld 2>/dev/null)/bin"; do
+            if [ -x "$d/$t" ]; then ln -sf "$d/$t" "$tools/bin/$t"; break; fi
+          done
+        done
+        ls -l "$tools/bin" "$tools/lib"
+        test -e "$tools/lib/libLLVM.dylib" && test -e "$tools/bin/ld64.lld"
+        echo "NEXUL_LLVM=$tools" >> "$GITHUB_ENV"
+    - name: Run the compiler tests (O0 and O2 programs, on macOS)
+      run: cargo test --release -p nxc --no-fail-fast --verbose
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
 
   windows:
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Install LLVM 20.1.8 (including the C API library)
+      shell: pwsh
+      run: |
+        $ProgressPreference = 'SilentlyContinue'
+        $archive = Join-Path $env:RUNNER_TEMP 'llvm-20.1.8.tar.xz'
+        $llvm = Join-Path $env:RUNNER_TEMP 'llvm'
+        Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile $archive
+        $expected = 'f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f'
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'LLVM archive checksum mismatch' }
+        New-Item -ItemType Directory -Force $llvm | Out-Null
+        & "$env:WINDIR/System32/tar.exe" -xf $archive -C $llvm --strip-components 1
+        if ($LASTEXITCODE -ne 0) { throw 'LLVM archive extraction failed' }
+        Remove-Item $archive
+        "LLVM_PATH=$llvm" >> $env:GITHUB_ENV
+        "$llvm/bin" >> $env:GITHUB_PATH
+    - name: Verify LLVM and configure nxc
+      shell: pwsh
+      run: |
+        $llvm = $env:LLVM_PATH
+        foreach ($file in @("LLVM-C.dll", "lld-link.exe", "wasm-ld.exe")) {
+          if (!(Test-Path (Join-Path $llvm "bin/$file"))) { throw "LLVM tool missing: $file" }
+        }
+        "NEXUL_LLVM=$llvm" >> $env:GITHUB_ENV
+        & (Join-Path $llvm "bin/lld-link.exe") --version
+        if ($LASTEXITCODE -ne 0) { throw "lld-link failed" }
+    - name: Run the complete compiler tests (O0 and O2 programs)
+      run: cargo test --release -p nxc --no-fail-fast --verbose
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
+    - name: Run browser ABI tests (including export validation)
+      run: cargo test --release -p nxc --test web -- --ignored
     - name: Build
       run: cargo build --workspace --verbose
     - name: Run installer tests in a sandbox
       run: cargo test --verbose --manifest-path installer/Cargo.toml --features test-sandbox --test silent --bins
+    - name: Repeat the C8 registry tree test 20 times
+      shell: pwsh
+      run: |
+        1..20 | ForEach-Object {
+          Write-Host "Registry test repetition $_/20"
+          cargo test --release -p nexul-installer --features test-sandbox --bin NEXUL-Setup win::reg::tests::keys_tree -- --exact
+          if ($LASTEXITCODE -ne 0) { throw "Registry test failed at repetition $_" }
+        }
     # The crates of Studio have their own Cargo workspaces (MSVC on Windows).
     - name: Test studio/syntax
       timeout-minutes: 10

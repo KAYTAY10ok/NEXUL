@@ -1,0 +1,34 @@
+error[E0224]: an `impl` block applies to the whole generic type
+  --> edition1_members.nx:12:8
+   |
+12 | extend Boite[U is Eq] {
+   |        ^^^^^^^^^^^^^^ remove the generic arguments
+   |
+   = note: inside the block, the type's parameters are in scope automatically
+   = help: to bound them, name them as the type declares them: `extend Map[K is Eq, V] { … }`
+
+error[E0240]: `U` is not a type parameter of this function
+  --> edition1_members.nx:12:14
+   |
+12 | extend Boite[U is Eq] {
+   |              ^ unknown type parameter
+   |
+   = help: bounds apply to the type parameters declared in `[...]`
+
+error[E0010]: `repeat` is a keyword in edition 1
+  --> edition1_members.nx:20:8
+   |
+20 | fn i32 repeat(i32 n) = n
+   |        ^^^^^^ reserved word
+   |
+   = help: choose another name, for example `repeat_`
+
+error[E0249]: `Opaque` does not implement `Eq`
+  --> edition1_members.nx:25:15
+   |
+25 |     println("{o.contient(Opaque(n: 1))}")
+   |               ^^^^^^^^^^^^^^^^^^^^^^^^ `Eq` is required by `Boite.contient`
+   |
+   = help: implement it: `impl Eq for Opaque { ... }`
+
+error: could not compile due to 4 errors

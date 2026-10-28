@@ -1,0 +1,18 @@
+// edition: 1
+// Constrained types (ADR 0014 §2): a constant is checked at compile time, a computation
+// returns the base, and a condition only compares `it` with literal constants.
+type Pourcent = i32 where it in 0..=100
+type Age = distinct u8 is Copy and Add where it <= 150
+type Drapeau = bool where it == true
+type Bizarre = i32 where it < longueur()
+type Double = i32 where it == it
+
+fn i32 longueur() = 3
+
+fn main() {
+    let Pourcent p = 101
+    let q = -1 as Pourcent
+    let Pourcent r = p + 1
+    let i32 brut = p + 1
+    println("{p} {q} {r} {brut}")
+}

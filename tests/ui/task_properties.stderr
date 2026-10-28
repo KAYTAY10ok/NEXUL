@@ -1,0 +1,58 @@
+error[E0253]: declaring `Share` is a promise the compiler cannot check
+  --> task_properties.nx:20:1
+   |
+20 | impl Share for Owned {
+   | ^^^^^^^^^^^^^^^^^^^^^^ without `unsafe`
+   |
+   = note: a type has `Share` by its structure; a type that holds a `Ptr` declares it after a review of its code
+   = help: write `unsafe impl Share for …` (`unsafe extend … is Share` in edition 1)
+
+error[E0253]: `unsafe` cannot declare `Display`
+  --> task_properties.nx:23:1
+   |
+23 | unsafe impl Display for Owned {
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ remove `unsafe`
+   |
+   = note: only `Transfer` and `Share` are declared with `unsafe`
+
+error[E0253]: `unsafe` only declares `Transfer` or `Share`
+  --> task_properties.nx:29:1
+   |
+29 | unsafe impl Owned {
+   | ^^^^^^^^^^^^^^^^^^^ methods are declared without `unsafe`
+
+error[E0249]: `Handle` does not implement `Transfer`
+  --> task_properties.nx:43:24
+   |
+43 |     let not_declared = send(Handle(raw: Ptr.null()))
+   |                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Transfer` is required by `send`
+   |
+   = note: `Handle` cannot be moved to another task: it holds a `Ptr`, an anonymous function or a `dyn` value without `Transfer`
+   = help: if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe impl Transfer for Handle {}`
+
+error[E0249]: `Declared` does not implement `Share`
+  --> task_properties.nx:44:25
+   |
+44 |     let only_transfer = read_together(Declared(raw: Ptr.null()))
+   |                         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Share` is required by `read_together`
+   |
+   = note: `Declared` cannot be read by several tasks at once: it holds a `Ptr`, an anonymous function or a `dyn` value without `Share`
+   = help: if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe impl Share for Declared {}`
+
+error[E0249]: `Ptr[i32]` does not implement `Transfer`
+  --> task_properties.nx:46:15
+   |
+46 |     let raw = send(p)
+   |               ^^^^^^^ `Transfer` is required by `send`
+   |
+   = note: `Ptr[i32]` cannot be moved to another task: it holds a `Ptr`, an anonymous function or a `dyn` value without `Transfer`
+
+error[E0249]: `Vec[Ptr[u8]]` does not implement `Transfer`
+  --> task_properties.nx:48:16
+   |
+48 |     let raws = send(v)
+   |                ^^^^^^^ `Transfer` is required by `send`
+   |
+   = note: `Vec[Ptr[u8]]` cannot be moved to another task: it holds a `Ptr`, an anonymous function or a `dyn` value without `Transfer`
+
+error: could not compile due to 7 errors

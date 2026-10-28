@@ -11,7 +11,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-const DIAGNOSTIC_DELAY: Duration = Duration::from_millis(200);
+/// The wait after the last change before the diagnostics are computed (ADR 0009 §5, 150 ms
+/// since 28/10/2026: the analysis of a standard library that grows needs the rest of the
+/// 300 ms of §8).
+const DIAGNOSTIC_DELAY: Duration = Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Json {
@@ -1584,7 +1587,17 @@ fn analyze_and_publish(
         });
         if let Some((project, error)) = dependency_failure {
             let manifest_path = project.join(crate::pkg::MANIFEST);
-            let manifest_uri = file_uri_from_path(&manifest_path);
+            let manifest_document = documents.iter().find_map(|DocumentSnapshot(candidate)| {
+                same_path(&candidate.path, &manifest_path).then_some(candidate)
+            });
+            // find_project canonicalizes its result. Keep the client's alias (8.3
+            // paths on Windows, directory symlinks on Unix) when publishing a
+            // diagnostic on a manifest that the client has not opened.
+            let client_project = doc.path.ancestors()
+                .find(|ancestor| same_path(ancestor, &project))
+                .unwrap_or(&project);
+            let manifest_uri = manifest_document.map(|document| document.uri.clone())
+                .unwrap_or_else(|| file_uri_from_path(&client_project.join(crate::pkg::MANIFEST)));
             let mut group = Vec::new();
             for candidate in documents {
                 let DocumentSnapshot(candidate_doc) = candidate;
@@ -1604,10 +1617,6 @@ fn analyze_and_publish(
                     diagnostics: Json::Array(Vec::new()),
                 });
             }
-            let manifest_document = documents.iter().find_map(|candidate| {
-                let DocumentSnapshot(candidate_doc) = candidate;
-                (candidate_doc.uri == manifest_uri).then_some(candidate_doc)
-            });
             publications.push(Publication {
                 uri: manifest_uri,
                 generation: manifest_document.map(|document| document.generation),
@@ -1685,8 +1694,17 @@ fn analyze_and_publish(
                         if let Some((uri, diagnostic)) =
                             diagnostic_from_v1(item, &text_by_uri, encoding)
                         {
-                            if let Some(bucket) = diagnostics_by_uri.get_mut(&uri) {
-                                bucket.push(diagnostic);
+                            // Compiler JSON uses canonical paths, whereas LSP must
+                            // publish on the exact URI supplied by didOpen. Route by
+                            // physical file identity instead of dropping aliases.
+                            let path = path_from_file_uri(&uri);
+                            for DocumentSnapshot(document) in &group {
+                                if uri == document.uri || path.as_ref()
+                                    .is_some_and(|path| same_path(path, &document.path))
+                                {
+                                    diagnostics_by_uri.get_mut(&document.uri).unwrap()
+                                        .push(diagnostic.clone());
+                                }
                             }
                         }
                     }

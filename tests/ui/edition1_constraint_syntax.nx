@@ -1,0 +1,13 @@
+// edition: 1
+// The syntax of a condition (ADR 0014 §2.2): `it` compared with a constant, `it in a..b`
+// or `it in a..=b`, combined with `and`, `or`, `not` and parentheses. A generic distinct
+// or constrained type is not supported yet.
+type Paire[T] = distinct T
+
+type Calcul = i32 where it + 1 > 0
+
+type Intervalle = i32 where it in 0 to 9
+
+type Ouvert = i32 where (it > 0 and it < 9
+
+fn main() {}

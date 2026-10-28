@@ -166,6 +166,13 @@ impl<'a> Parser<'a> {
         let mut attrs = self.attrs()?;
         let is_pub = self.eat(&TokenKind::Pub);
         let kind = match self.peek().clone() {
+            // `unsafe extend T is Transfer`: a declaration the compiler cannot check (ADR 0013).
+            TokenKind::Unsafe if matches!(self.peek_at(1), TokenKind::Ident(w) if w == "extend") => {
+                self.bump();
+                let mut decl = self.extend1()?;
+                decl.is_unsafe = true;
+                ItemKind::Impl(decl)
+            }
             TokenKind::Fn | TokenKind::Unsafe => ItemKind::Fn(self.fn_decl1()?),
             TokenKind::Type => return self.type_decl1(attrs, is_pub, start),
             TokenKind::Const => {
@@ -260,11 +267,12 @@ impl<'a> Parser<'a> {
 
     /// `[unsafe] fn [Type] name[generics](params) body`
     pub(super) fn fn_decl1(&mut self) -> PResult<FnDecl> {
+        let member = std::mem::take(&mut self.member_fn);
         let start = self.span();
         let is_unsafe = self.eat(&TokenKind::Unsafe);
         self.expect(TokenKind::Fn, "`fn`")?;
         let ret = if self.typed_name_here() { Some(self.type_expr()?) } else { None };
-        let name = self.ident("a function name")?;
+        let name = if member { self.member_ident("a function name")? } else { self.ident("a function name")? };
         let (generics, bounds) = self.generics1()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut params = Vec::new();
@@ -361,7 +369,8 @@ impl<'a> Parser<'a> {
     }
 
     /// `type Name[T] { fields and functions }`, `type Name is I { … }`, `type Name = .A | .B(T)`,
-    /// `type Name = Type`.
+    /// `type Name is I = .A | .B` (an enumeration that declares interfaces without functions,
+    /// such as `Copy`), `type Name = Type`.
     fn type_decl1(&mut self, attrs: Vec<Attr>, is_pub: bool, start: Span) -> PResult<Vec<Item>> {
         self.bump(); // type
         let name = self.ident("a type name")?;
@@ -378,25 +387,43 @@ impl<'a> Parser<'a> {
                 let variants = self.variants1()?;
                 return Ok(vec![Item { attrs, is_pub, kind: ItemKind::Enum(EnumDecl { name, generics, variants }), span: item_span(self) }]);
             }
-            if self.is_word("distinct") {
-                let span = self.span();
-                self.not_yet(span, "a distinct type (`distinct`)");
-                return Err(());
-            }
+            // `distinct` and `where` (ADR 0014): a new type over `ty`.
+            let distinct = self.eat_word("distinct");
             let ty = self.type_expr()?;
-            if self.is(&TokenKind::Where) {
-                let span = self.span();
-                self.not_yet(span, "a constrained type (`where`)");
-                return Err(());
+            let mut interfaces = Vec::new();
+            if distinct && self.eat_word("is") {
+                interfaces.push(self.type_expr()?);
+                while self.eat(&TokenKind::And) {
+                    interfaces.push(self.type_expr()?);
+                }
+            }
+            let cond = if self.eat(&TokenKind::Where) { Some(self.constraint1()?) } else { None };
+            if distinct || cond.is_some() {
+                if !generics.is_empty() {
+                    self.not_yet(name.span, "a generic distinct or constrained type");
+                    return Err(());
+                }
+                let decl = NewtypeDecl { name, base: ty, distinct, interfaces, cond };
+                return Ok(vec![Item { attrs, is_pub, kind: ItemKind::Newtype(decl), span: item_span(self) }]);
             }
             return Ok(vec![Item { attrs, is_pub, kind: ItemKind::TypeAlias(TypeAliasDecl { name, ty }), span: item_span(self) }]);
         }
-        let mut interfaces = Vec::new();
+        let mut interfaces: Vec<TypeExpr> = Vec::new();
         if self.eat_word("is") {
             interfaces.push(self.type_expr()?);
             while self.eat(&TokenKind::And) {
                 interfaces.push(self.type_expr()?);
             }
+        }
+        if !interfaces.is_empty() && self.is(&TokenKind::Eq) && matches!(self.peek_at(1), TokenKind::Dot | TokenKind::Pipe | TokenKind::Indirect) {
+            self.bump(); // =
+            let variants = self.variants1()?;
+            let span = start.to(self.prev_span());
+            let mut items = vec![Item { attrs, is_pub, kind: ItemKind::Enum(EnumDecl { name, generics, variants }), span }];
+            for i in interfaces {
+                items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![], is_unsafe: false }), span });
+            }
+            return Ok(items);
         }
         let open = self.expect(TokenKind::LBrace, "`{`, `=` or `is`")?;
         self.skip_newlines();
@@ -416,6 +443,7 @@ impl<'a> Parser<'a> {
                 let mpub = self.eat(&TokenKind::Pub);
                 // `fn i32(i32) f` is a field whose type is a function; `fn i32 f(…)` a function.
                 if matches!(self.peek(), TokenKind::Fn | TokenKind::Unsafe) && !self.typed_name_here() {
+                    self.member_fn = true;
                     let f = self.fn_decl1()?;
                     fns.push(Item { attrs: mattrs, is_pub: mpub, kind: ItemKind::Fn(f), span: mstart.to(self.prev_span()) });
                 } else {
@@ -425,7 +453,7 @@ impl<'a> Parser<'a> {
                         return Err(());
                     }
                     let ty = self.type_expr()?;
-                    let fname = self.ident("a field name")?;
+                    let fname = self.member_ident("a field name")?;
                     fields.push(FieldDecl { is_pub: mpub, indirect, name: fname, ty, span: mstart.to(self.prev_span()) });
                 }
                 Ok(())
@@ -443,20 +471,108 @@ impl<'a> Parser<'a> {
         }
         let span = start.to(self.prev_span());
         let mut items = vec![Item { attrs, is_pub, kind: ItemKind::Struct(StructDecl { name, generics, fields }), span }];
+        // `Copy` has no function (ADR 0012): `type P is Copy { … fn … }` keeps its functions
+        // for the type, or for its other interface.
+        let is_copy = |t: &TypeExpr| matches!(&t.kind, TypeExprKind::Path { segments, args } if args.is_empty() && segments.last().is_some_and(|s| s.name == "Copy"));
+        let (copy, mut interfaces): (Vec<TypeExpr>, Vec<TypeExpr>) = interfaces.into_iter().partition(is_copy);
+        for c in copy {
+            items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(c), bounds: vec![], items: vec![], is_unsafe: false }), span });
+        }
         match interfaces.len() {
-            0 if !fns.is_empty() => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: None, bounds: vec![], items: fns }), span }),
+            0 if !fns.is_empty() => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: None, bounds: vec![], items: fns, is_unsafe: false }), span }),
             0 => {}
-            1 => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: interfaces.pop(), bounds: vec![], items: fns }), span }),
+            1 => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: interfaces.pop(), bounds: vec![], items: fns, is_unsafe: false }), span }),
             _ => {
+                // The functions go to the interface that declares them, decided once the
+                // interfaces are known (`type body`, a name no program can write).
                 if !fns.is_empty() {
-                    self.not_yet(span, "functions in a type that declares several interfaces (write them in `extend Type is I { … }`)");
+                    let marker = Attr { name: Ident { name: "type body".into(), span }, args: vec![], span };
+                    items.push(Item { attrs: vec![marker], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: None, bounds: vec![], items: fns, is_unsafe: false }), span });
                 }
                 for i in interfaces {
-                    items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![] }), span });
+                    items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![], is_unsafe: false }), span });
                 }
             }
         }
         Ok(items)
+    }
+
+    /// The condition of a constrained type (ADR 0014 §2.2): `or` of `and` of `not` of
+    /// comparisons of `it` with a constant, `it in a..b` / `it in a..=b`, or parentheses.
+    fn constraint1(&mut self) -> PResult<Constraint> {
+        let mut c = self.constraint_and1()?;
+        while self.eat(&TokenKind::Or) {
+            let r = self.constraint_and1()?;
+            let span = c.span.to(r.span);
+            c = Constraint { kind: ConstraintKind::Or(Box::new(c), Box::new(r)), span };
+        }
+        Ok(c)
+    }
+
+    fn constraint_and1(&mut self) -> PResult<Constraint> {
+        let mut c = self.constraint_not1()?;
+        while self.eat(&TokenKind::And) {
+            let r = self.constraint_not1()?;
+            let span = c.span.to(r.span);
+            c = Constraint { kind: ConstraintKind::And(Box::new(c), Box::new(r)), span };
+        }
+        Ok(c)
+    }
+
+    fn constraint_not1(&mut self) -> PResult<Constraint> {
+        let start = self.span();
+        if self.eat(&TokenKind::Not) {
+            let c = self.constraint_not1()?;
+            let span = start.to(c.span);
+            return Ok(Constraint { kind: ConstraintKind::Not(Box::new(c)), span });
+        }
+        if self.eat(&TokenKind::LParen) {
+            let c = self.constraint1()?;
+            self.expect(TokenKind::RParen, "`)`")?;
+            return Ok(Constraint { kind: c.kind, span: start.to(self.prev_span()) });
+        }
+        // `it` on one side of a comparison, a constant on the other.
+        let left_it = self.eat_word("it");
+        let left = if left_it { None } else { Some(self.unary()?) };
+        if left_it && self.eat(&TokenKind::In) {
+            let lo = self.unary()?;
+            let inclusive = if self.eat(&TokenKind::DotDotEq) {
+                true
+            } else {
+                self.expect(TokenKind::DotDot, "`..` or `..=`")?;
+                false
+            };
+            let hi = self.unary()?;
+            return Ok(Constraint { kind: ConstraintKind::In { lo, hi, inclusive }, span: start.to(self.prev_span()) });
+        }
+        let op = match self.peek() {
+            TokenKind::EqEq => BinOp::Eq,
+            TokenKind::NotEq => BinOp::Ne,
+            TokenKind::Lt => BinOp::Lt,
+            TokenKind::Le => BinOp::Le,
+            TokenKind::Gt => BinOp::Gt,
+            TokenKind::Ge => BinOp::Ge,
+            _ => {
+                self.expected("a comparison of `it` with a constant (`it >= 0`, `it in 1..=9`)");
+                return Err(());
+            }
+        };
+        self.bump();
+        let right_it = self.eat_word("it");
+        let right = if right_it { None } else { Some(self.unary()?) };
+        let span = start.to(self.prev_span());
+        match (left, right) {
+            (None, Some(value)) => Ok(Constraint { kind: ConstraintKind::Cmp { op, value, it_left: true }, span }),
+            (Some(value), None) => Ok(Constraint { kind: ConstraintKind::Cmp { op, value, it_left: false }, span }),
+            _ => {
+                self.diags.emit(
+                    Diagnostic::error("E0251", "a condition compares `it` with a constant")
+                        .primary(span, if left_it { "`it` on both sides" } else { "`it` is missing" })
+                        .help("write `it >= 0`, `it < 100` or `it in 0..=100`"),
+                );
+                Err(())
+            }
+        }
     }
 
     /// `.A | .B(T, U name) | indirect .C(Self)`, possibly over several lines starting with `|`.
@@ -527,7 +643,7 @@ impl<'a> Parser<'a> {
         };
         let trait_ = if self.eat_word("is") { Some(self.type_expr()?) } else { None };
         let items = self.fn_body_items("a function")?;
-        Ok(ImplDecl { ty, trait_, bounds, items })
+        Ok(ImplDecl { ty, trait_, bounds, items, is_unsafe: false })
     }
 
     /// `{ [attributes] [pub] fn … }`
@@ -551,6 +667,7 @@ impl<'a> Parser<'a> {
                     self.expected(what);
                     return Err(());
                 }
+                self.member_fn = true;
                 let f = self.fn_decl1()?;
                 Ok(Item { attrs, is_pub, kind: ItemKind::Fn(f), span: start.to(self.prev_span()) })
             })();
@@ -731,13 +848,16 @@ impl<'a> Parser<'a> {
         Ok(Some(match self.peek().clone() {
             TokenKind::For => {
                 self.bump();
-                if self.typed_name_here() {
-                    let span = self.span();
-                    self.not_yet(span, "a type on the variable of a `for` loop");
-                    return Err(());
-                }
+                // `for T x in e { … }`: the type is checked by `let T x = x` at the start of
+                // the body (it also gives its type to a range: `for i64 i in 0..n`).
+                let typed = if self.typed_name_here() { Some(self.type_expr()?) } else { None };
                 let pat = self.pattern()?;
                 let mutable = self.eat(&TokenKind::Bang);
+                if typed.is_some() && (mutable || !matches!(pat.kind, PatKind::Ident(_))) {
+                    let span = pat.span;
+                    self.not_yet(span, "a type on the variable of a `for` loop that modifies the elements or destructures them");
+                    return Err(());
+                }
                 self.expect(TokenKind::In, "`in`")?;
                 if self.is(&TokenKind::Amp) {
                     let span = self.span();
@@ -752,7 +872,12 @@ impl<'a> Parser<'a> {
                 } else {
                     ForIter::Expr { expr: first, mutable }
                 };
-                let body = self.block()?;
+                let mut body = self.block()?;
+                if let (Some(ty), PatKind::Ident(name)) = (typed, &pat.kind) {
+                    let init = Expr { kind: ExprKind::Ident(name.clone()), span: pat.span };
+                    let span = ty.span.to(pat.span);
+                    body.stmts.insert(0, Stmt { kind: StmtKind::Let { pat: pat.clone(), ty: Some(ty), init }, span });
+                }
                 StmtKind::For { label, pat, iter, body }
             }
             TokenKind::While => {

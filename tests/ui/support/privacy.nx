@@ -1,0 +1,23 @@
+// Helper module for tests/ui (not a test itself): private items and a trait.
+pub struct Account {
+    pub owner: String
+    balance: i64
+}
+
+pub trait Describe {
+    fn describe(self) -> String
+}
+
+fn secret() -> i32 {
+    return 1
+}
+
+pub fn open(owned owner: String) -> Account {
+    return Account(owner: owner, balance: 0)
+}
+
+impl Account {
+    fn audit(self) -> i64 {
+        return self.balance
+    }
+}

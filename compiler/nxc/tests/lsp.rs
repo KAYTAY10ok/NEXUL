@@ -460,7 +460,7 @@ fn lsp_requests_cover_open_project_documents_and_standard_library() {
     client.request(13, "nexul/stdSource", "{\"uri\":\"nexul-std:///vec.nx\"}");
     let std_source = client.response(13);
     assert!(
-        std_source.contains("\"text\"") && std_source.contains("struct Vec"),
+        std_source.contains("\"text\"") && std_source.contains("type Vec"),
         "{std_source}"
     );
 
@@ -525,6 +525,205 @@ fn lsp_requests_cover_open_project_documents_and_standard_library() {
         &format!("{{\"textDocument\":{{\"uri\":{}}}}}", quote(&calc_uri)),
     );
     assert!(client.response(15).contains("\"name\":\"value\""));
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
+fn lsp_uses_each_open_project_module_edition_for_diagnostics() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    std::fs::create_dir_all(scratch.path().join("src/tools")).unwrap();
+    std::fs::write(
+        scratch.path().join("nexul.toml"),
+        "[package]\nname = \"lsp-mixed-module-editions\"\nedition = \"1\"\n",
+    )
+    .unwrap();
+
+    let main_path = scratch.path().join("src/main.nx");
+    let module_path = scratch.path().join("src/tools/calc.nx");
+    let main = "// edition: 1\nimport tools.calc\nfn main() {\n    let i32 answer = calc.carre(4)\n    println(\"{answer}\")\n}\n";
+    let module = "// edition: 0.2\npub fn carre(x: i32) -> i32 { return x * x }\n";
+    std::fs::write(&main_path, main).unwrap();
+    std::fs::write(&module_path, module).unwrap();
+    let main_uri = uri(&main_path);
+    let module_uri = uri(&module_path);
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&main_uri),
+            quote(main)
+        ),
+    );
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&module_uri),
+            quote(module)
+        ),
+    );
+
+    let main_diagnostics = client.diagnostics(&main_uri, 1);
+    let module_diagnostics = client.diagnostics(&module_uri, 1);
+    assert!(
+        main_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-1 project diagnostics: {main_diagnostics}"
+    );
+    assert!(
+        module_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-0.2 module diagnostics: {module_diagnostics}"
+    );
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
+fn lsp_uses_cached_dependency_package_edition_in_edition_one_project() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    std::fs::create_dir_all(scratch.path().join("legacy/src")).unwrap();
+    std::fs::create_dir_all(scratch.path().join("app/src")).unwrap();
+    std::fs::write(
+        scratch.path().join("legacy/nexul.toml"),
+        "[package]\nname = \"legacy\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.path().join("legacy/src/lib.nx"),
+        "pub fn carre(x: i32) -> i32 { return x * x }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        scratch.path().join("app/nexul.toml"),
+        "[package]\nname = \"lsp-edition-one-app\"\nedition = \"1\"\n\n[dependencies]\nlegacy = { path = \"../legacy\" }\n",
+    )
+    .unwrap();
+
+    let main_path = scratch.path().join("app/src/main.nx");
+    let dependency_path = scratch.path().join("legacy/src/lib.nx");
+    let main = "// edition: 1\nimport legacy\nfn main() {\n    let i32 answer = legacy.carre(5)\n    println(\"{answer}\")\n}\n";
+    let dependency = std::fs::read_to_string(&dependency_path).unwrap();
+    std::fs::write(&main_path, main).unwrap();
+    let main_uri = uri(&main_path);
+    let dependency_uri = uri(&dependency_path);
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&main_uri),
+            quote(main)
+        ),
+    );
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&dependency_uri),
+            quote(&dependency)
+        ),
+    );
+
+    let main_diagnostics = client.diagnostics(&main_uri, 1);
+    let dependency_diagnostics = client.diagnostics(&dependency_uri, 1);
+    assert!(
+        main_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-1 app diagnostics with edition-0.2 dependency: {main_diagnostics}"
+    );
+    assert!(
+        dependency_diagnostics.contains("\"diagnostics\":[]"),
+        "edition-0.2 dependency diagnostics: {dependency_diagnostics}"
+    );
+    assert_eq!(client.exit(true), 0);
+}
+
+#[test]
+fn lsp_header_edition_changes_recompute_diagnostics() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    let path = scratch.path().join("changing-edition.nx");
+    let document_uri = uri(&path);
+    let edition_02 = "fn answer() -> i32 { return 42 }\n";
+    let edition_1_with_old_syntax = format!("// edition: 1\n{edition_02}");
+    let edition_1 = "// edition: 1\nfn i32 answer() = 42\n";
+    let edition_1_without_header = "fn i32 answer() = 42\n";
+
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("initialized", "{}");
+    client.notification(
+        "textDocument/didOpen",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"languageId\":\"nexul\",\"version\":1,\"text\":{}}}}}",
+            quote(&document_uri),
+            quote(edition_02)
+        ),
+    );
+    let initial = client.diagnostics(&document_uri, 1);
+    assert!(initial.contains("\"diagnostics\":[]"), "{initial}");
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(&edition_1_with_old_syntax)
+        ),
+    );
+    let added_header = client.diagnostics(&document_uri, 2);
+    assert!(
+        !added_header.contains("\"diagnostics\":[]"),
+        "adding an edition-1 header did not switch editions: {added_header}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":3}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_1)
+        ),
+    );
+    let fixed_edition_1 = client.diagnostics(&document_uri, 3);
+    assert!(
+        fixed_edition_1.contains("\"diagnostics\":[]"),
+        "{fixed_edition_1}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":4}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_1_without_header)
+        ),
+    );
+    let removed_header = client.diagnostics(&document_uri, 4);
+    assert!(
+        !removed_header.contains("\"diagnostics\":[]"),
+        "removing the edition-1 header did not restore edition 0.2: {removed_header}"
+    );
+
+    client.notification(
+        "textDocument/didChange",
+        &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":5}},\"contentChanges\":[{{\"text\":{}}}]}}",
+            quote(&document_uri),
+            quote(edition_02)
+        ),
+    );
+    let fixed_edition_02 = client.diagnostics(&document_uri, 5);
+    assert!(
+        fixed_edition_02.contains("\"diagnostics\":[]"),
+        "{fixed_edition_02}"
+    );
     assert_eq!(client.exit(true), 0);
 }
 
@@ -631,6 +830,49 @@ fn lsp_reports_missing_cached_dependency_on_manifest_without_fetching() {
     assert_eq!(client.exit(true), 0);
 }
 
+#[cfg(unix)]
+#[test]
+fn diagnostics_keep_the_client_uri_through_a_directory_alias() {
+    let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
+    let scratch = Scratch::new();
+    let project = scratch.path().join("real");
+    std::fs::create_dir_all(project.join("src/tools")).unwrap();
+    let main = "import tools.calc\nfn main() { let answer: i32 = calc.value(); println(answer) }\n";
+    let calc = "pub fn value() -> i32 { return 42 }\n";
+    std::fs::write(project.join("nexul.toml"), "[package]\nname = \"alias\"\nversion = \"0.1.0\"\n").unwrap();
+    std::fs::write(project.join("src/main.nx"), main).unwrap();
+    std::fs::write(project.join("src/tools/calc.nx"), calc).unwrap();
+    let alias = scratch.path().join("alias");
+    std::os::unix::fs::symlink(&project, &alias).unwrap();
+    let main_uri = uri(&alias.join("src/main.nx"));
+    let calc_uri = uri(&alias.join("src/tools/calc.nx"));
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    for (uri, text) in [(&main_uri, main), (&calc_uri, calc)] {
+        client.notification("textDocument/didOpen", &format!(
+            "{{\"textDocument\":{{\"uri\":{},\"version\":1,\"text\":{}}}}}", quote(uri), quote(text)));
+    }
+    assert!(client.diagnostics(&main_uri, 1).contains("\"diagnostics\":[]"));
+    assert!(client.diagnostics(&calc_uri, 1).contains("\"diagnostics\":[]"));
+    client.notification("textDocument/didChange", &format!(
+        "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
+        quote(&calc_uri), quote("pub fn value() -> String { return \"wrong\" }\n")));
+    let diagnostics = client.diagnostics(&main_uri, 1);
+    assert!(diagnostics.contains("\"diagnostics\":[{"), "{diagnostics}");
+    assert_eq!(client.exit(true), 0);
+
+    std::fs::write(project.join("nexul.toml"),
+        "[package]\nname = \"alias\"\nversion = \"0.1.0\"\n\n[dependencies]\nremote = { git = \"https://example.invalid/remote.git\", tag = \"v1\" }\n").unwrap();
+    let mut client = Client::start();
+    initialize(&mut client, 1, "[]");
+    client.notification("textDocument/didOpen", &format!(
+        "{{\"textDocument\":{{\"uri\":{},\"version\":1,\"text\":{}}}}}", quote(&main_uri), quote(main)));
+    let diagnostics = client.diagnostics_without_version(&uri(&alias.join("nexul.toml")));
+    assert!(diagnostics.contains("dependency `remote`"), "{diagnostics}");
+    assert!(!project.join("nexul.lock").exists());
+    assert_eq!(client.exit(true), 0);
+}
+
 #[test]
 fn lsp_hot_requests_and_diagnostics_meet_the_latency_targets() {
     let _serial = SERIAL.lock().unwrap_or_else(|error| error.into_inner());
@@ -704,18 +946,26 @@ fn lsp_hot_requests_and_diagnostics_meet_the_latency_targets() {
         }
     }
 
-    let changed = format!("// revision 2\n{}", text);
-    let started = Instant::now();
-    client.notification(
-        "textDocument/didChange",
-        &format!(
-            "{{\"textDocument\":{{\"uri\":{},\"version\":2}},\"contentChanges\":[{{\"text\":{}}}]}}",
-            quote(&uri), quote(&changed)
-        ),
-    );
-    client.diagnostics(&uri, 2);
-    let diagnostics_latency = started.elapsed();
-    eprintln!("nxc lsp diagnostics latency: {diagnostics_latency:.2?}; warmup {warmup:.2?}");
+    // Five successive changes: the median is compared with the target of ADR 0009 §8, so
+    // that one pause of a shared machine (CI) does not decide alone.
+    let mut latencies = Vec::new();
+    for version in 2..=6 {
+        let changed = format!("// revision {version}\n{}", text);
+        let started = Instant::now();
+        client.notification(
+            "textDocument/didChange",
+            &format!(
+                "{{\"textDocument\":{{\"uri\":{},\"version\":{version}}},\"contentChanges\":[{{\"text\":{}}}]}}",
+                quote(&uri), quote(&changed)
+            ),
+        );
+        client.diagnostics(&uri, version);
+        latencies.push(started.elapsed());
+    }
+    let mut sorted = latencies.clone();
+    sorted.sort();
+    let diagnostics_latency = sorted[sorted.len() / 2];
+    eprintln!("nxc lsp diagnostics latency: median {diagnostics_latency:.2?} of {latencies:.2?}; warmup {warmup:.2?}");
     if !cfg!(debug_assertions) {
         assert!(
             diagnostics_latency < Duration::from_millis(300),

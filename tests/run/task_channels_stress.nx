@@ -1,0 +1,83 @@
+// targets: linux, windows, macos
+// Stress of the channels (ADR 0013): 8 producers, 3 receivers that share a `Recepteur`,
+// a channel of 2 places; every value is received exactly once. Then a receiver destroyed
+// while its sender waits: the sender gets `false`.
+import std.tache
+import std.mem
+
+fn produire(owned e: tache.Emetteur[i64]) -> i64 {
+    var n: i64 = 0
+    for i in 0..20000 {
+        if e.envoyer(i as i64) {
+            n += 1
+        }
+    }
+    e.fermer()
+    return n
+}
+
+fn main() {
+    let (e, r) = tache.canal[i64](2)
+    var producteurs: Vec[tache.Tache[i64]] = Vec.new()
+    for k in 0..8 {
+        let _ = k
+        producteurs.push(tache.lancer_detachee(produire, e.clone()))
+    }
+    e.fermer()
+    var s1: i64 = 0
+    var s2: i64 = 0
+    var s3: i64 = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() {
+            while true {
+                match r.recevoir() {
+                    Some(x) => s1 += x + 1
+                    None => break
+                }
+            }
+        })
+        p.lancer(fn() {
+            while true {
+                match r.recevoir() {
+                    Some(x) => s2 += x + 1
+                    None => break
+                }
+            }
+        })
+        p.lancer(fn() {
+            while true {
+                match r.recevoir() {
+                    Some(x) => s3 += x + 1
+                    None => break
+                }
+            }
+        })
+    })
+    var envoyes: i64 = 0
+    while true {
+        match producteurs.pop() {
+            Some(t) => envoyes += t.rejoindre()
+            None => break
+        }
+    }
+    println("{envoyes} {s1 + s2 + s3}")
+    // A receiver destroyed while senders wait: they return `false`.
+    let (e2, r2) = tache.canal[String](1)
+    let t = tache.lancer_detachee(produire_texte, e2)
+    match r2.recevoir() {
+        Some(x) => println(x)
+        None => println("rien")
+    }
+    mem.drop(r2)
+    println("{t.rejoindre() >= 1}")
+}
+
+fn produire_texte(owned e: tache.Emetteur[String]) -> i64 {
+    var n: i64 = 0
+    for i in 0..1000 {
+        if e.envoyer("valeur {i}") {
+            n += 1
+        }
+    }
+    return n
+}

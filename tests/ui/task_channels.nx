@@ -1,0 +1,14 @@
+// Channels, shared memory and detached tasks (ADR 0013): the values that cross tasks are
+// `Transfer`, a detached task is a named function, `Atomique` holds an integer.
+import std.tache
+
+fn main() {
+    let raw: Ptr[u8] = Ptr.null()
+    let (e, r) = tache.canal[Ptr[u8]](1)
+    let t = tache.lancer_detachee(fn(owned x: i64) -> i64 => x * 2, 1)
+    let a = tache.Atomique.nouveau(1.5)
+    let v = tache.Verrou.nouveau(raw)
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { v.avec(fn(inout x: Ptr[u8]) { x = Ptr.null() }) })
+    })
+}

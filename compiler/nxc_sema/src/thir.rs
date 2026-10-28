@@ -164,6 +164,15 @@ pub enum TryKind {
     Result,
 }
 
+/// How `?` converts the error of its operand into the function's error (ADR 0015):
+/// the error is stored in `local`, then `expr`, which uses it, gives the function's
+/// error (a variant that holds it, a `dyn Error` value, or its text in edition 0.2).
+#[derive(Clone, Debug)]
+pub struct TryConv {
+    pub local: LocalId,
+    pub expr: Box<Expr>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Arm {
     pub pat: Pat,
@@ -208,7 +217,7 @@ pub enum ExprKind {
     Return(Option<Box<Expr>>),
     Break(LoopId),
     Continue(LoopId),
-    Try(Box<Expr>, TryKind),
+    Try(Box<Expr>, TryKind, Option<TryConv>),
     Move(Box<Expr>),
     Interp(Vec<InterpPart>),
     /// An anonymous function: its code (`f`, whose first parameters receive the

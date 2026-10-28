@@ -1,0 +1,21 @@
+// targets: linux, windows, macos
+// A stack overflow in a thread of `std.tache` also ends like a panic (ADR 0011 T2,
+// ADR 0013): the thread has its own guard and the stack of its signal handler.
+import std.tache
+
+fn deep(n: u64) -> u64 {
+    var buf: [u64; 32] = [n; 32]
+    buf[(n % 32) as usize] = n *% 3
+    let r = deep(n + 1)
+    return r ^ buf[((r +% n) % 32) as usize]
+}
+
+fn travail(owned n: u64) -> u64 {
+    return deep(n)
+}
+
+fn main() {
+    println("before")
+    let t = tache.lancer_detachee(travail, 0 as u64)
+    println(t.rejoindre())
+}

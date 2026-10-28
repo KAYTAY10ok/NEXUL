@@ -1,0 +1,13 @@
+a/b.txt a/b /b b
+c.txt c b
+Some(a/b) Some(/) Some() None
+Some(gz) None None
+exists before: false
+created
+dir: true true file: true
+entries: [a.txt, b.txt, x]
+size 5, file true, dated true
+renamed: false Ok(hello)
+not empty: refused
+missing: true
+all removed: true

@@ -28,11 +28,18 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.web", include_str!("../../../lib/std/web.nx"), true),
     ("std.wasm", include_str!("../../../lib/std/wasm.nx"), true),
     ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
+    ("std.tache", include_str!("../../../lib/std/tache.nx"), false),
+    ("std.tzif", include_str!("../../../lib/std/tzif.nx"), true),
+    ("std.fs", include_str!("../../../lib/std/fs.nx"), false),
+    ("std.process", include_str!("../../../lib/std/process.nx"), false),
+    ("std.net", include_str!("../../../lib/std/net.nx"), false),
+    ("std.strview", include_str!("../../../lib/std/strview.nx"), false),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.
 const SYS_WINDOWS: &str = include_str!("../../../lib/std/sys/windows.nx");
 const SYS_LINUX: &str = include_str!("../../../lib/std/sys/linux.nx");
+const SYS_MACOS: &str = include_str!("../../../lib/std/sys/macos.nx");
 const SYS_WASI: &str = include_str!("../../../lib/std/sys/wasi.nx");
 const SYS_BARE: &str = include_str!("../../../lib/std/sys/bare.nx");
 
@@ -41,7 +48,8 @@ pub fn std_source(path: &str, cfg: &Cfg) -> Option<&'static str> {
     if path == "std.sys" {
         return Some(match cfg.target.os {
             Os::Windows => SYS_WINDOWS,
-            Os::Linux | Os::MacOs => SYS_LINUX,
+            Os::Linux => SYS_LINUX,
+            Os::MacOs => SYS_MACOS,
             Os::Wasi => SYS_WASI,
             Os::Web => include_str!("../../../lib/std/sys/web.nx"),
             Os::None => SYS_BARE,
@@ -214,19 +222,31 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
     let root_file = sm.add_with_edition(src.root_name.clone(), src.root_text.clone(), src.edition);
     let mut root_ast = nxc_syntax::parse_file(sm, root_file, diags);
     apply_cfg(&mut root_ast, &src.cfg, diags);
+    let root_newtypes = crate::newtype::expand(&mut root_ast, sm, &src.root_name, diags);
     crate::derive::expand(&mut root_ast, sm, &src.root_name, diags);
     let stem = std::path::Path::new(&src.root_name)
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "main".into());
-    let root_path = match &root_ast.decl {
-        Some((p, _)) => p.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join("."),
-        None => stem,
-    };
+    // The root module is named by its file (spec §6.1); a `module` declaration documents
+    // that name and cannot change it (E0220, as for the other modules).
+    if let Some((decl, dspan)) = &root_ast.decl {
+        let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
+        if declared != stem {
+            diags.emit(
+                Diagnostic::error("E0220", format!("module declaration `{}` does not match the file path", declared))
+                    .primary(*dspan, format!("this file is module `{}`", stem))
+                    .help(format!("write `module {}` or remove the declaration", stem)),
+            );
+        }
+    }
+    let root_path = stem;
     let root = ModId(0);
     prog.modules.push(ModuleInfo {
         path: root_path.clone(),
         file: root_file,
+        edition: sm.get(root_file).edition,
+        newtypes: root_newtypes,
         is_std: false,
         items: HashMap::new(),
         imports: HashMap::new(),
@@ -269,13 +289,16 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         };
         let file = if is_std {
-            sm.add(name.clone(), text)
+            // A module of the standard library says its edition in its header (0.2 without).
+            let edition = nxc_syntax::header_edition(&text).unwrap_or_default();
+            sm.add_with_edition(name.clone(), text, edition)
         } else {
             let edition = src.edition_of(segs, &text);
             sm.add_with_edition(name.clone(), text, edition)
         };
         let mut ast = nxc_syntax::parse_file(sm, file, diags);
         apply_cfg(&mut ast, &src.cfg, diags);
+        let newtypes = crate::newtype::expand(&mut ast, sm, &name, diags);
         crate::derive::expand(&mut ast, sm, &name, diags);
         if let Some((decl, dspan)) = &ast.decl {
             let declared = decl.iter().map(|i| i.name.clone()).collect::<Vec<_>>().join(".");
@@ -289,7 +312,7 @@ pub fn load(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Program
             }
         }
         let id = ModId(prog.modules.len() as u32);
-        prog.modules.push(ModuleInfo { path: path.clone(), file, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
+        prog.modules.push(ModuleInfo { path: path.clone(), file, edition: sm.get(file).edition, newtypes, is_std, items: HashMap::new(), imports: HashMap::new(), ast: Some(ast) });
         by_path.insert(path, id);
         queue.push_back(id);
         Some(id)

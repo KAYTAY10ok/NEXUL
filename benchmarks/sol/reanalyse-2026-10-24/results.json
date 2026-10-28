@@ -1,0 +1,170 @@
+{
+  "observations": [
+    {
+      "case": "f32 constraint",
+      "opt": "-O0",
+      "compile_exit": 0,
+      "diagnostics": "",
+      "exit": 0,
+      "stdout": "false\n",
+      "stderr": ""
+    },
+    {
+      "name": "letter_code",
+      "input": 127757,
+      "result": 127757,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "letter_code",
+      "input": 55296,
+      "result": 55296,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "letter_code",
+      "input": 1114112,
+      "result": 1114112,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "flag_value",
+      "input": 0,
+      "result": 0,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "flag_value",
+      "input": 1,
+      "result": 1,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "flag_value",
+      "input": 2,
+      "result": 0,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "name": "flag_value",
+      "input": 255,
+      "result": 1,
+      "panic": false,
+      "opt": "-O0"
+    },
+    {
+      "case": "f32 constraint",
+      "opt": "-O2",
+      "compile_exit": 0,
+      "diagnostics": "",
+      "exit": 0,
+      "stdout": "false\n",
+      "stderr": ""
+    },
+    {
+      "name": "letter_code",
+      "input": 127757,
+      "result": 127757,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "letter_code",
+      "input": 55296,
+      "result": 55296,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "letter_code",
+      "input": 1114112,
+      "result": 1114112,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "flag_value",
+      "input": 0,
+      "result": 0,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "flag_value",
+      "input": 1,
+      "result": 1,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "flag_value",
+      "input": 2,
+      "result": 2,
+      "panic": false,
+      "opt": "-O2"
+    },
+    {
+      "name": "flag_value",
+      "input": 255,
+      "result": 255,
+      "panic": false,
+      "opt": "-O2"
+    }
+  ],
+  "violations": [
+    {
+      "case": "f32 compile/runtime predicate disagreement",
+      "opt": "-O0"
+    },
+    {
+      "case": "letter_code",
+      "input": 55296,
+      "opt": "-O0"
+    },
+    {
+      "case": "letter_code",
+      "input": 1114112,
+      "opt": "-O0"
+    },
+    {
+      "case": "flag_value",
+      "input": 2,
+      "opt": "-O0"
+    },
+    {
+      "case": "flag_value",
+      "input": 255,
+      "opt": "-O0"
+    },
+    {
+      "case": "f32 compile/runtime predicate disagreement",
+      "opt": "-O2"
+    },
+    {
+      "case": "letter_code",
+      "input": 55296,
+      "opt": "-O2"
+    },
+    {
+      "case": "letter_code",
+      "input": 1114112,
+      "opt": "-O2"
+    },
+    {
+      "case": "flag_value",
+      "input": 2,
+      "opt": "-O2"
+    },
+    {
+      "case": "flag_value",
+      "input": 255,
+      "opt": "-O2"
+    }
+  ]
+}

@@ -1,0 +1,58 @@
+// edition: 1
+// targets: windows, linux, macos, wasi
+// `?` in edition 1 (ADR 0015): into the only variant that holds the error, or into
+// `any Error`. The conversion to `String` of edition 0.2 does not exist here.
+import std.io
+
+type ParseError = .Empty | .NotANumber(String text)
+
+extend ParseError is Display {
+    fn String to_string(self) = when self {
+        .Empty then "empty file"
+        .NotANumber(t) then "not a number: {t}"
+    }
+}
+
+extend ParseError is Error {}
+
+type AppError = .Io(io.IoError e) | .Parse(ParseError e)
+
+fn Result[i64, ParseError] parse(String text) {
+    let t = text.trim()
+    if t.len() == 0 { return .Err(.Empty) }
+    if t.parse_int() is .Some(n) { return .Ok(n) }
+    return .Err(.NotANumber(t))
+}
+
+fn Result[i64, AppError] load(String path) {
+    let text = io.read_file(path)?
+    return .Ok(parse(text)?)
+}
+
+fn Result[i64, any Error] load_any(String path) {
+    let text = io.read_file(path)?
+    return .Ok(parse(text)?)
+}
+
+fn show(String path) {
+    when load(path) {
+        .Ok(n) then println("load: {n}")
+        .Err(.Io(e)) then println("load: io: {e}")
+        .Err(.Parse(e)) then println("load: parse: {e}")
+    }
+    when load_any(path) {
+        .Ok(n) then println("load_any: {n}")
+        .Err(e) then println("load_any: {e}")
+    }
+}
+
+fn main() {
+    let path = "nexul_try_convert_ed1.txt"
+    show("nexul_does_not_exist_ed1.txt")
+    let _ = io.write_file(path, "7")
+    show(path)
+    let _ = io.write_file(path, "x7")
+    show(path)
+    let _ = io.write_file(path, " ")
+    show(path)
+}

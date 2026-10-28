@@ -1,0 +1,22 @@
+// edition: 1
+// Distinct types (ADR 0014 §1): no implicit conversion in either direction, a literal
+// takes the expected type, and only the interfaces of the base that the type names.
+type Secondes = distinct f64 is Copy and Add and Display
+type Millisecondes = distinct f64 is Copy and Add
+type Compte = distinct i64 is Copy
+
+fn main() {
+    let Secondes s = 1.5
+    let Millisecondes ms = 20.0
+    let total = s + ms
+    let f64 brut = 2.0
+    let Secondes t = brut
+    let f64 retour = s
+    let c = 3 as Compte
+    let d = c + c
+    let e = Secondes(1.0)
+    println("{total} {t} {retour} {d} {e}")
+}
+
+type Mot = distinct String
+type Joli = distinct i32 is Iterator

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
 const USAGE: &str = "\
-nxc — the NEXUL compiler, version 0.2
+nxc — the NEXUL compiler, version 0.3
 
 usage:
     nxc run    <file.nx> [options] [-- program arguments]   compile and run
@@ -147,6 +147,17 @@ fn color() -> bool {
 }
 
 fn main() {
+    // A closed output (`nxc check x.nx 2>&1 | head`) makes `print!` panic: that is not a
+    // crash of the compiler, so stop quietly instead of reporting one (spec §7.4).
+    let report_panic = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let payload = info.payload();
+        let msg = payload.downcast_ref::<String>().map(|s| s.as_str()).or_else(|| payload.downcast_ref::<&str>().copied()).unwrap_or("");
+        if msg.starts_with("failed printing to std") {
+            exit(1);
+        }
+        report_panic(info);
+    }));
     // The analyses are recursive: give them a large stack (the main thread of a Windows
     // program only has 1 MiB).
     let worker = std::thread::Builder::new()
@@ -172,8 +183,9 @@ fn real_main() {
         "version" | "--version" | "-V" => {
             if args.json_version.is_some() {
                 println!(
-                    "{{\"nxc\":{},\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}}",
-                    nxc_driver::json_str(env!("CARGO_PKG_VERSION"))
+                    "{{\"nxc\":{},\"nexul\":{},\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}}",
+                    nxc_driver::json_str(env!("CARGO_PKG_VERSION")),
+                    nxc_driver::json_str(&env!("CARGO_PKG_VERSION")[..3])
                 );
             } else {
                 println!(

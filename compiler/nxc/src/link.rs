@@ -67,7 +67,7 @@ fn link_windows(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
             cmd.arg("/subsystem:console").arg("/entry:mainCRTStartup").arg("/stack:8388608");
         }
         _ => {
-            cmd.arg("/dll").arg("/noentry");
+            cmd.arg("/dll").arg("/noentry").arg(format!("/implib:{}", job.out.with_extension("lib").display()));
             for e in job.exports {
                 cmd.arg(format!("/export:{}", e));
             }
@@ -135,7 +135,9 @@ fn link_elf(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
 fn link_wasm(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     let lld = tc.linker("wasm-ld")?;
     let mut cmd = Command::new(lld);
-    cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("-z").arg("stack-size=8388608");
+    // A downward-growing stack must underflow out of linear memory before it
+    // can overwrite static data (ADR 0011, T3). Applies to WASI and the browser.
+    cmd.arg("-o").arg(&job.out).arg("--gc-sections").arg("--stack-first").arg("-z").arg("stack-size=8388608");
     if job.target.os == Os::Web {
         cmd.arg("--export-memory");
     }
@@ -164,6 +166,8 @@ fn link_macos(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     // A text stub of the system library lists the functions used: no SDK is needed.
     let stub = job.work_dir.join("libSystem.nx.tbd");
     let mut syms: Vec<String> = job.imports.iter().map(|(_, s)| format!("_{}", s)).collect();
+    // The lazy binding of the imports goes through this function of the loader.
+    syms.push("dyld_stub_binder".into());
     syms.sort();
     syms.dedup();
     let tbd = format!(
@@ -176,9 +180,14 @@ fn link_macos(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     let mut cmd = Command::new(lld);
     cmd.arg("-arch").arg(arch).arg("-platform_version").arg("macos").arg("11.0.0").arg("11.0.0").arg("-o").arg(&job.out);
     if job.kind == OutputKind::Executable {
-        cmd.arg("-e").arg("_start");
+        cmd.arg("-e").arg("_main");
     } else {
         cmd.arg("-dylib");
+        // Found through the run paths of the program that uses it, not at the place where
+        // it was linked.
+        if let Some(name) = job.out.file_name() {
+            cmd.arg("-install_name").arg(format!("@rpath/{}", name.to_string_lossy()));
+        }
     }
     for o in &job.objects {
         cmd.arg(o);
@@ -342,7 +351,6 @@ pub fn import_library(dll: &str, symbols: &[String], arch: Arch) -> Vec<u8> {
 
 /// A static library (`ar` archive) of object files, readable by every linker.
 fn write_static_library(objects: &[PathBuf], out: &Path, target: &Target) -> Result<(), String> {
-    let _ = target;
     let mut members = Vec::new();
     for o in objects {
         let data = std::fs::read(o).map_err(|e| format!("cannot read `{}`: {}", o.display(), e))?;
@@ -351,5 +359,119 @@ fn write_static_library(objects: &[PathBuf], out: &Path, target: &Target) -> Res
         let syms = crate::objsyms::defined_symbols(&data);
         members.push((name, data, syms));
     }
-    std::fs::write(out, write_archive(&members)).map_err(|e| format!("cannot write `{}`: {}", out.display(), e))
+    // The linker of Apple reads only the BSD format of archives.
+    let archive = if target.os == Os::MacOs { write_bsd_archive(&members) } else { write_archive(&members) };
+    std::fs::write(out, archive).map_err(|e| format!("cannot write `{}`: {}", out.display(), e))
+}
+
+/// An archive in the BSD format of Apple: names written as `#1/<length>` at the start of
+/// the member, a `__.SYMDEF` symbol table (little-endian `ranlib` entries), and the content
+/// of each member at an offset that is a multiple of 8 (the linker requires it).
+fn write_bsd_archive(members: &[(String, Vec<u8>, Vec<String>)]) -> Vec<u8> {
+    // A member at `at`: the length of its padded name, its size (padded name, content
+    // padded to 8 bytes), and its whole length with the header.
+    fn layout(at: usize, name: &str, content: usize) -> (usize, usize, usize) {
+        let mut name_len = name.len() + 1;
+        while (at + 60 + name_len) % 8 != 0 {
+            name_len += 1;
+        }
+        let mut size = name_len + content;
+        while size % 8 != 0 {
+            size += 1;
+        }
+        (name_len, size, 60 + size)
+    }
+    fn push(out: &mut Vec<u8>, name: &str, content: &[u8]) {
+        let (name_len, size, _) = layout(out.len(), name, content.len());
+        let header = format!("{:<16}{:<12}{:<6}{:<6}{:<8}{:<10}`\n", format!("#1/{}", name_len), "0", "0", "0", "644", size);
+        debug_assert_eq!(header.len(), 60);
+        out.extend(header.as_bytes());
+        let start = out.len();
+        out.extend(name.as_bytes());
+        out.resize(start + name_len, 0);
+        out.extend(content);
+        out.resize(start + size, 0);
+    }
+    let symdef = "__.SYMDEF";
+    let mut strtab = Vec::new();
+    let mut entries = Vec::new();
+    for (i, m) in members.iter().enumerate() {
+        for s in &m.2 {
+            entries.push((strtab.len() as u32, i));
+            strtab.extend_from_slice(s.as_bytes());
+            strtab.push(0);
+        }
+    }
+    while strtab.len() % 8 != 0 {
+        strtab.push(0);
+    }
+    let table_len = 4 + 8 * entries.len() + 4 + strtab.len();
+    let mut at = 8 + layout(8, symdef, table_len).2;
+    let mut offsets = Vec::new();
+    for (n, data, _) in members {
+        offsets.push(at);
+        at += layout(at, n, data.len()).2;
+    }
+    let mut table = Vec::new();
+    table.extend(((8 * entries.len()) as u32).to_le_bytes());
+    for (strx, member) in &entries {
+        table.extend(strx.to_le_bytes());
+        table.extend((offsets[*member] as u32).to_le_bytes());
+    }
+    table.extend((strtab.len() as u32).to_le_bytes());
+    table.extend(&strtab);
+    let mut out = b"!<arch>\n".to_vec();
+    push(&mut out, symdef, &table);
+    for (n, data, _) in members {
+        push(&mut out, n, data);
+    }
+    debug_assert_eq!(out.len(), at);
+    out
+}
+
+#[cfg(test)]
+mod bsd_archive_tests {
+    use super::write_bsd_archive;
+
+    /// Each member: its header, its name, then its content at a multiple of 8; the symbol
+    /// table points at the header of the member that defines each symbol.
+    #[test]
+    fn members_are_aligned_and_indexed() {
+        let members = vec![
+            ("a.o".to_string(), vec![1u8; 13], vec!["_f".to_string(), "_g".to_string()]),
+            ("a_much_longer_name.o".to_string(), vec![2u8; 8], vec!["_h".to_string()]),
+        ];
+        let ar = write_bsd_archive(&members);
+        assert_eq!(&ar[..8], b"!<arch>\n");
+        let mut at = 8;
+        let mut found = Vec::new();
+        while at < ar.len() {
+            let header = std::str::from_utf8(&ar[at..at + 60]).unwrap();
+            assert_eq!(&header[58..], "`\n");
+            let name_len: usize = header[3..16].trim().parse().unwrap();
+            let size: usize = header[48..58].trim().parse().unwrap();
+            let name = &ar[at + 60..at + 60 + name_len];
+            let name = std::str::from_utf8(name).unwrap().trim_end_matches('\0').to_string();
+            assert_eq!((at + 60 + name_len) % 8, 0, "content of {} not on 8 bytes", name);
+            found.push((name, at, name_len));
+            at += 60 + size;
+            assert_eq!(at % 2, 0);
+        }
+        assert_eq!(at, ar.len());
+        let names: Vec<&str> = found.iter().map(|(n, _, _)| n.as_str()).collect();
+        assert_eq!(names, ["__.SYMDEF", "a.o", "a_much_longer_name.o"]);
+        // The table: ranlib entries (string index, member offset), then the strings.
+        let t = found[0].1 + 60 + found[0].2;
+        let u = |o: usize| u32::from_le_bytes(ar[o..o + 4].try_into().unwrap()) as usize;
+        assert_eq!(u(t), 24);
+        let strings = t + 4 + 24 + 4;
+        let entries: Vec<(String, usize)> = (0..3)
+            .map(|i| {
+                let s = strings + u(t + 4 + 8 * i);
+                let end = ar[s..].iter().position(|&c| c == 0).unwrap();
+                (String::from_utf8(ar[s..s + end].to_vec()).unwrap(), u(t + 8 + 8 * i))
+            })
+            .collect();
+        assert_eq!(entries, [("_f".to_string(), found[1].1), ("_g".to_string(), found[1].1), ("_h".to_string(), found[2].1)]);
+    }
 }

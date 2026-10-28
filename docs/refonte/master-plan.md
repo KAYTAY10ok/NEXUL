@@ -6,27 +6,32 @@ Tenu par **Claude Main** (voir [AGENTS.md](AGENTS.md)). Source des exigences :
 preuve (commande, test, PR). Un résultat déclaré par un agent et non revérifié par Main est
 marqué « déclaré ».
 
-Dernière mise à jour : 15 octobre 2026, `main` à `e57380c` (PR #14 à #17 fusionnées : assistant de l'installateur, audit G0, extension VS Code, QA de Gemma). Codex Astral devient **Codex Luna 2** (terminal, débogueur, mesures).
+Dernière mise à jour : 28 octobre 2026 — PR #29 à #67 relues et intégrées sur `claude/pensive-darwin-3e2tye` ([revues-main.md](revues-main.md), section du 28/10). Historique : le 15/10, `main` à `e57380c`.
+
+**Cap validé par l'utilisateur le 28/10/2026** : la **1.0** est la version majeure complète (édition 1 figée, concurrence sûre, profil temps réel prouvé sur sa cible, performances mesurées, compilateur auto-hébergé stage0 → stage1 → stage2). La **0.3.0** sort d'abord ; puis 0.4 à 0.9 selon la [trajectoire de la feuille de route](../roadmap.md#trajectoire-vers-la-100-proposition-du-17102026).
 
 Sommaire : §1 lots · §1.1 scénarios de fin et responsables · §2 **ordres de mission par agent** · §3 **toutes les améliorations
 (refonte et création)** · §4 composants existants · §5 vérifications de Main · §6 décisions
 de l'utilisateur · §7 intégration.
 
-## 0.3.0 — première version de la refonte (objectif du 16/10)
+## 0.3.0 — première version de la refonte
 
 Contenu : ce qui est intégré et prouvé, rien de plus. Statuts au §1 et au §3.
 
-| Domaine | Dans la 0.3.0 | Propriétaire | Statut |
+| Domaine | Dans la 0.3.0 | Propriétaire | Statut (28/10) |
 |---|---|---|---|
-| Langage | édition 1 (ADR 0010) : tranches 1–3 + repli `else`, `in`, `expects panic` ; édition propre à chaque fichier et paquet ; `nxc migrate` | Main | tranches 1–4 INTÉGRÉES (repli `else`, `in`, `expects panic` le 16/10) ; éditions par fichier et par paquet |
-| Outils | `nxc lsp` (ADR 0009), `version --json` avec éditions, formateur compatible édition 1 | Sol (P9), Main | INTÉGRÉ (PR #24) ; tests d'éditions mélangées : Sol |
-| Studio natif | P1 (essai manuel passé), coloration 0.2/1, nouveau projet, recherche, exécuter/construire/tester, avertissement `nxc` trop ancien | Main | INTÉGRÉ ; paramètres et raccourcis (M9) en cours ; terminal (M6) et débogueur (M7) après fusion de #20/#21 |
-| VS Code | extension 0.3.0 (édition 1, LSP, format) prête pour la Marketplace | Sol | publication par l'utilisateur |
-| Distribution | installateur 0.3.0 avec Studio natif, mise à niveau depuis 0.2 | Sol (#25) | revue Main en cours |
-| Version | `nxc`, `nxpm`, Studio, extension, installateur en 0.3.0 ; `CHANGELOG.md` ; étiquette `v0.3.0` posée par l'utilisateur | Main | à faire en dernier |
+| Langage | édition 1 (ADR 0010), éditions par fichier et paquet, `nxc migrate` ; ADR 0012 (`Copy`), 0014 (types distincts et contraints), 0015 (erreurs), 0013 (concurrence, `std.tache`) | Main (ex-Core) | INTÉGRÉ sur la branche d'intégration ; `main` après fusion de sa PR |
+| Sûreté | ADR 0011 : sondes de pile (C1), dépassement de pile → panique Linux/Windows/RISC-V (C2, T2), pile WASM avant les données (C3), `@export` vérifiés (C4), runtime réentrant sans système (C5) | Main, Sol | TESTÉ_UNITAIREMENT (Linux ici ; Windows par la CI de Sol) |
+| Outils | `nxc lsp` (ADR 0009), `version --json`, formateur édition 1, tests d'éditions mélangées (#34) | Sol, Main | INTÉGRÉ |
+| Studio natif | P1, coloration 0.2/1, nouveau projet, recherche, exécuter/construire/tester ; crates terminal/DAP corrigées (#31, #32) | Main, Sol | INTÉGRÉ ; M6/M7 (vues terminal et débogueur), M9 restent pour la 0.4 |
+| VS Code | extension 0.3.0 (#30) | Sol | publication par l'utilisateur |
+| Distribution | installateur 0.3.0, Studio natif, migration 0.2, versions alignées (#33) | Sol | INTÉGRÉ ; construction complète MSVC : non testée ici (pas de Windows) |
+| Version | `nxc`, `nxpm`, Studio, installateur en 0.3.0 ; `CHANGELOG.md` | Main | FAIT ; étiquette `v0.3.0` : **l'utilisateur**, après fusion et CI verte |
 
-Hors 0.3.0 (versions suivantes) : `===`, types distincts et contraints, concurrence, temps
-réel, auto-hébergement, compilation séparée (ancienne feuille de route « 0.3 Système »).
+Plus tôt que prévu : la concurrence (prévue en 0.5.0) et les ADR de la 0.4.0 sont déjà
+intégrées ; leurs **critères de sortie** (feuille de route) restent à prouver avant que
+ces versions soient déclarées.
+
 ## 1. Lots
 
 | Lot | Urgence | Travail et preuve de sortie | Propriétaire | Dépend de | Statut |
@@ -62,7 +67,7 @@ n'est « passé » qu'avec sa preuve datée (commande, sortie, capture si utile)
 |---|---|---|---|
 | A — Premier programme : installer, Studio, projet, erreurs, construire, exécuter, interrompre, déboguer, fermer et rouvrir sans perte | Main (Studio) ; Luna (installateur) ; Luna 2 (débogueur) | en partie maintenant (sans nouvel installateur ni débogueur) ; complet après L3, L2, M7 | À FAIRE |
 | B — Bibliothèque OOP forte | Outils | après P5, P6 | À FAIRE |
-| C — Concurrence | Outils | après P7 | À FAIRE |
+| C — Concurrence | Main (ex-Outils) | oui | **PASSÉ le 28/10** ([fiche](../scenarios/C-concurrence.md)) ; ThreadSanitizer non testé (raison dans la fiche) |
 | D — Temps réel sur la cible choisie | Outils | après P8 et la décision 3 | À FAIRE |
 | E — Auto-hébergement stage0 → stage1 → stage2 | Outils | après P12 | À FAIRE |
 | F — VS Code : VSIX propre, diagnostics, format, build, test, run, débogage, outil absent | Luna | maintenant avec `nxc` 0.2 (sauf LSP et débogage) | À FAIRE |
@@ -109,7 +114,7 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | O3 | 1 | P9 — contrat `nxc lsp` (capacités, version, texte non enregistré) puis implémentation : `initialize`, `didOpen`/`didChange`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `documentSymbol`, `formatting` ; champ `version` dans `check --json` et `ide` ; vérification depuis l'entrée standard | contrat approuvé par Main, puis tests stdio réels | À FAIRE |
 | O4 | 1 | Formateur : l'accolade fermante reste en fin de ligne (`fn main(){⏎ println("ok")}`) | comportement décidé, test de non-régression | À FAIRE |
 | O5 | 2 | P5 — conception : types distincts, sous-types contraints, invariants, contrats, effets, OOP, modèle mémoire et concurrence ; corpus de tests d'acceptation (positifs et négatifs) | ADR relues par Main ; corpus prêt à exécuter | À FAIRE |
-| O6 | 2 | P8-G0 — étude comparée de la première cible temps réel (Cortex-M nu, Cortex-M + RTOS, Linux PREEMPT_RT) : contraintes, instrumentation, matériel nécessaire | étude ; Main propose, l'utilisateur choisit (décision 3) | À FAIRE |
+| O6 | 2 | P8-G0 — étude comparée de la première cible temps réel (Cortex-M nu, Cortex-M + RTOS, Linux PREEMPT_RT) : contraintes, instrumentation, matériel nécessaire | étude ; Main propose, l'utilisateur choisit (décision 3) | FAIT : Cortex-M4 sans système (28/10) |
 | O7 | 2 | Couche système macOS du runtime (défaut relevé dans [audit-core.md](audit-core.md)) | correctif + tests, ou BLOQUÉ documenté (pas de Mac) | À FAIRE |
 | O8 | 2 | P12-SH0 — inventaire de ce qui manque à NEXUL pour écrire son compilateur (chaînes UTF-8, collections, fichiers, diagnostics, appels LLVM) | `docs/adr/selfhost-sh0.md` | À FAIRE |
 | O9 | continu | WebAssembly, LLVM, précision numérique, cibles : aucune régression ; tests navigateur supplémentaires | suites vertes à chaque PR | continu |
@@ -259,7 +264,7 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 
 | ID | Amélioration | Statut |
 |---|---|---|
-| R1 | G0 : étude et choix de la première cible (décision 3) | À FAIRE (O6) |
+| R1 | G0 : étude et choix de la première cible (décision 3) | FAIT : étude PR #38 ; l'utilisateur a choisi le Cortex-M4 sans système le 28/10/2026 |
 | R2 | Profil RT : allocation interdite ou bornée après initialisation, pools, budgets d'objets | À FAIRE |
 | R3 | Boucles, récursions et attentes bornées là où une preuve est exigée ; annotations vérifiées | À FAIRE |
 | R4 | Classement des fonctions : ISR-safe, non bloquant, sans allocation, déterministe, matériel, I/O | À FAIRE |
@@ -427,12 +432,13 @@ PC de Main.
 |---|---|---|---|
 | 1 | Gouvernance V3 et transferts | appliquer | **validée le 15/10** |
 | 2 | Édition du langage : nouvelle syntaxe incompatible ou édition opt-in avec migrateur | version majeure + outil de migration, pas de casse silencieuse | **décidée le 16/10** : syntaxe de l'ADR 0010 (édition 1), 0.2 gardée sous `--edition 0.2`, `nxc migrate` |
-| 3 | Première cible temps réel | à proposer après l'étude O6 | à décider |
+| 3 | Première cible temps réel | Cortex-M4 sans système (étude P8-G0, PR #38) | **décidée le 28/10** : Cortex-M4 sans système |
 | 4 | Niveau des contrats (partout ou profil strict) | à proposer avec O5 | à décider |
 | 5 | Concurrence par cible | natif d'abord | à décider |
 | 6 | Périmètre initial de l'auto-hébergement | à proposer avec O8 | à décider |
 | 7 | Extension VS Code : nom, éditeur, publication Marketplace | publication seulement sur action explicite de l'utilisateur | à décider |
-| 8 | CI de confiance (Windows, Linux, cibles embarquées) | GitHub Actions Windows + Linux pour commencer | à décider |
+| 8 | CI de confiance (Windows, Linux, cibles embarquées) | GitHub Actions Windows + Linux pour commencer | appliquée : Linux, Windows, macOS, plus AArch64/RISC-V/Cortex-M4 sous QEMU et WASI (28/10) |
+| 9 | Édition 1 : méthodes contraintes (Q1), mots réservés comme noms de membres (Q2) | `extend Type[P is …]` ; membres autorisés | **décidée le 28/10** (ADR 0010) |
 
 ## 7. Intégration
 

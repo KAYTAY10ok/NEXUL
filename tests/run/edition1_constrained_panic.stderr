@@ -1,0 +1,2 @@
+panic: 140 does not satisfy the condition of `Pourcent`: it in 0..=100
+  --> edition1_constrained_panic.nx:11:13

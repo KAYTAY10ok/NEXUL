@@ -1,3 +1,4 @@
+// edition: 1
 /// Interface with the operating system (spec chapter 09).
 
 import std.sys
@@ -5,13 +6,13 @@ import std.rt
 
 /// Ends the program immediately with an exit code (0 means success). The standard
 /// output is flushed first.
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     rt.exit(code)
 }
 
 /// The command-line arguments; the first one is the program name.
-pub fn args() -> Vec[String] {
-    var all: Vec[String] = Vec.new()
+pub fn Vec[String] args() {
+    var Vec[String] all = Vec.new()
     for i in 0..sys.arg_count() {
         all.push(sys.arg(i))
     }
@@ -19,6 +20,6 @@ pub fn args() -> Vec[String] {
 }
 
 /// The value of an environment variable.
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     return sys.env(name)
 }

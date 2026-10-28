@@ -1,0 +1,13 @@
+error[E0402]: use of moved value `c`
+  --> edition1_copy_declaration.nx:31:15
+   |
+30 |     let k = c
+   |             - value moved here
+31 |     println("{c.n} {k.n}")
+   |               ^^^ value used here after move
+   |
+   = note: `c` has type `Counter`, a public type: it is moved rather than copied unless it declares `Copy`
+   = help: declare it copyable: `type Counter is Copy { … }`
+   = help: use `c` before it is moved, or assign it a new value first
+
+error: could not compile due to 1 error

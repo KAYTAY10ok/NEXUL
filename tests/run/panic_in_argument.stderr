@@ -1,0 +1,2 @@
+panic: stopped in an argument
+  --> panic_in_argument.nx:22:21

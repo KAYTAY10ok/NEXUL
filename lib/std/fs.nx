@@ -1,0 +1,233 @@
+// edition: 1
+/// The file system: what is at a path, directories, renaming, and paths (spec chapter 09).
+///
+/// Reading and writing whole files is in `std.io`. A path is a `String`; `/` separates its
+/// components on every system (Windows also accepts `\`).
+
+import std.sys
+import std.io
+import std.io.{IoError}
+
+/// What is at a path.
+@derive(Eq, Clone)
+pub type Kind = .File | .Dir | .Other
+
+/// What `metadata` knows about a path.
+@derive(Eq, Clone)
+pub type Metadata {
+    pub Kind kind
+    /// The size in bytes (that of the content for a file).
+    pub u64 size
+    /// The time of the last modification, in nanoseconds since 1970-01-01 UTC.
+    pub u64 modified_ns
+}
+
+extend Metadata {
+    pub fn bool is_file(self) {
+        return self.kind == Kind.File
+    }
+
+    pub fn bool is_dir(self) {
+        return self.kind == Kind.Dir
+    }
+}
+
+/// The error for a code returned by the system layer.
+fn IoError error(i32 code, String path, String action) {
+    return when sys.io_error_kind(code) {
+        1 then IoError.NotFound(path.clone())
+        2 then IoError.PermissionDenied(path.clone())
+        3 then IoError.AlreadyExists(path.clone())
+        4 then IoError.Interrupted
+        _ then IoError.Other(code, "cannot {action}: {path}")
+    }
+}
+
+fn Result[(), IoError] check(i32 code, String path, String action) {
+    if code != 0 {
+        return Err(error(code, path, action))
+    }
+    return Ok(())
+}
+
+/// What is at `path` (symbolic links are followed).
+pub fn Result[Metadata, IoError] metadata(String path) {
+    var [u64; 3] info = [0; 3]
+    let code = sys.file_info(path, info!)
+    if code != 0 {
+        return Err(error(code, path, "read the metadata of"))
+    }
+    let kind = when info[1] {
+        1 then Kind.File
+        2 then Kind.Dir
+        _ then Kind.Other
+    }
+    return Ok(Metadata(kind: kind, size: info[0], modified_ns: info[2]))
+}
+
+/// Whether something exists at `path`.
+pub fn bool exists(String path) {
+    return metadata(path).is_ok()
+}
+
+/// Whether `path` is a directory.
+pub fn bool is_dir(String path) {
+    return when metadata(path) {
+        .Ok(m) then m.is_dir()
+        .Err(_) then false
+    }
+}
+
+/// Whether `path` is a file.
+pub fn bool is_file(String path) {
+    return when metadata(path) {
+        .Ok(m) then m.is_file()
+        .Err(_) then false
+    }
+}
+
+/// The names of the entries of the directory `path` (without `.` and `..`), sorted.
+pub fn Result[Vec[String], IoError] list_dir(String path) {
+    var Vec[String] names = Vec.new()
+    let code = sys.list_dir(path, names!)
+    if code != 0 {
+        return Err(error(code, path, "list the directory"))
+    }
+    names.sort()
+    return Ok(names)
+}
+
+/// Creates the directory `path`; its parent must exist.
+pub fn Result[(), IoError] create_dir(String path) {
+    return check(sys.make_dir(path), path, "create the directory")
+}
+
+/// Creates the directory `path` and the missing directories above it. Nothing is done if
+/// it already exists.
+pub fn Result[(), IoError] create_dir_all(String path) {
+    if is_dir(path) {
+        return Ok(())
+    }
+    if parent(path) is .Some(p) {
+        if p.len() > 0 and not is_dir(p) {
+            create_dir_all(p)?
+        }
+    }
+    let code = sys.make_dir(path)
+    // Created meanwhile by someone else: that is what was wanted.
+    if code != 0 and is_dir(path) {
+        return Ok(())
+    }
+    return check(code, path, "create the directory")
+}
+
+/// Removes the file `path`.
+pub fn Result[(), IoError] remove_file(String path) {
+    return check(sys.remove(path, false), path, "remove the file")
+}
+
+/// Removes the directory `path`, which must be empty.
+pub fn Result[(), IoError] remove_dir(String path) {
+    return check(sys.remove(path, true), path, "remove the directory")
+}
+
+/// Removes the directory `path` and everything it holds.
+pub fn Result[(), IoError] remove_dir_all(String path) {
+    for name in list_dir(path)? {
+        let child = join(path, name)
+        if is_dir(child) {
+            remove_dir_all(child)?
+        } else {
+            remove_file(child)?
+        }
+    }
+    return remove_dir(path)
+}
+
+/// Renames (moves) `from` to `to`; a file at `to` is replaced.
+pub fn Result[(), IoError] rename(String from, String to) {
+    return check(sys.rename_path(from, to), from, "rename")
+}
+
+/// Copies the file `from` to `to` (created or replaced).
+pub fn Result[(), IoError] copy(String from, String to) {
+    let bytes = io.read_bytes(from)?
+    return io.write_bytes(to, bytes)
+}
+
+// ---------------------------------------------------------------------------
+// Paths
+
+/// Whether `\` also separates components.
+@cfg("windows")
+const bool BACKSLASH = true
+@cfg("!windows")
+const bool BACKSLASH = false
+
+fn bool separator(u8 b) {
+    return b == 47 or (BACKSLASH and b == 92)
+}
+
+/// `base` and `name` separated by `/` (`name` alone when it is absolute).
+pub fn String join(String base, String name) {
+    if base.len() == 0 or (name.len() > 0 and separator(name.byte_at(0))) {
+        return name.clone()
+    }
+    if separator(base.byte_at(base.len() - 1)) {
+        return base + name
+    }
+    return base + "/" + name
+}
+
+/// The position of the last separator of `path`, if there is one.
+fn Option[usize] last_separator(String path) {
+    var i = path.len()
+    while i > 0 {
+        i -= 1
+        if separator(path.byte_at(i)) {
+            return Some(i)
+        }
+    }
+    return None
+}
+
+/// `path` without its last component: `a/b` for `a/b/c`, `/` for `/a`, none for `a` or `/`.
+pub fn Option[String] parent(String path) {
+    var end = path.len()
+    while end > 1 and separator(path.byte_at(end - 1)) {
+        end -= 1
+    }
+    let trimmed = path.substring(0, end)
+    return when last_separator(trimmed) {
+        .Some(0) then if trimmed.len() > 1 { Some("/") } else { None }
+        .Some(i) then Some(trimmed.substring(0, i))
+        .None then if trimmed.len() > 0 { Some("") } else { None }
+    }
+}
+
+/// The last component of `path`: `c.txt` for `a/b/c.txt`.
+pub fn String file_name(String path) {
+    var end = path.len()
+    while end > 0 and separator(path.byte_at(end - 1)) {
+        end -= 1
+    }
+    let trimmed = path.substring(0, end)
+    return when last_separator(trimmed) {
+        .Some(i) then trimmed.substring(i + 1, trimmed.len())
+        .None then trimmed
+    }
+}
+
+/// The extension of the last component, without its dot: `txt` for `a/b.txt`, none for
+/// `a/b` or `a/.profile`.
+pub fn Option[String] extension(String path) {
+    let name = file_name(path)
+    var i = name.len()
+    while i > 1 {
+        i -= 1
+        if name.byte_at(i) == 46 {
+            return Some(name.substring(i + 1, name.len()))
+        }
+    }
+    return None
+}

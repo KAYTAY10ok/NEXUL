@@ -1,0 +1,19 @@
+error[E0253]: declaring `Transfer` is a promise the compiler cannot check
+  --> edition1_task_properties.nx:14:1
+   |
+14 | extend Handle is Transfer {}
+   | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^ without `unsafe`
+   |
+   = note: a type has `Transfer` by its structure; a type that holds a `Ptr` declares it after a review of its code
+   = help: write `unsafe impl Transfer for …` (`unsafe extend … is Transfer` in edition 1)
+
+error[E0249]: `Handle` does not implement `Share`
+  --> edition1_task_properties.nx:21:13
+   |
+21 |     let c = both(Handle(raw: Ptr.null()))
+   |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Share` is required by `both`
+   |
+   = note: `Handle` cannot be read by several tasks at once: it holds a `Ptr`, an anonymous function or a `dyn` value without `Share`
+   = help: if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe extend Handle is Share {}`
+
+error: could not compile due to 2 errors

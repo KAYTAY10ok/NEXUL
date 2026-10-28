@@ -10,6 +10,11 @@ fn system() -> String {
     return "linux"
 }
 
+@cfg("macos")
+fn system() -> String {
+    return "macos"
+}
+
 @cfg("wasi")
 fn system() -> String {
     return "wasi"
@@ -20,15 +25,15 @@ fn system() -> String {
     return "bare"
 }
 
-@cfg("!windows", "!linux", "!wasi", "!bare")
+@cfg("!windows", "!linux", "!macos", "!wasi", "!bare")
 fn system() -> String {
     return "other"
 }
 
-@cfg("windows|linux|wasi|bare")
+@cfg("windows|linux|macos|wasi|bare")
 const KNOWN: bool = true
 
-@cfg("!windows", "!linux", "!wasi", "!bare")
+@cfg("!windows", "!linux", "!macos", "!wasi", "!bare")
 const KNOWN: bool = false
 
 struct Counter {

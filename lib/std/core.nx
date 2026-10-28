@@ -1,129 +1,126 @@
+// edition: 1
 /// Core types of NEXUL: `Option` and `Result` (spec chapter 07).
 
 import std.mem
 
 /// An optional value: either `Some(value)` or `None`.
 @lang("option")
-pub enum Option[T] {
-    Some(T)
-    None
-}
+@derive(Copy)
+pub type Option[T] = .Some(T) | .None
 
-impl Option {
+extend Option {
     /// `true` if the option contains a value.
-    pub fn is_some(self) -> bool {
-        match self {
-            Some(_) => return true
-            None => return false
+    pub fn bool is_some(self) {
+        when self {
+            .Some(_) then return true
+            .None then return false
         }
     }
 
     /// `true` if the option is `None`.
-    pub fn is_none(self) -> bool {
+    pub fn bool is_none(self) {
         return not self.is_some()
     }
 
     /// The contained value; panics if the option is `None`.
     @track_caller
-    pub fn unwrap(owned self) -> T {
-        match move self {
-            Some(value) => return value
-            None => panic("called `Option.unwrap()` on a `None` value")
+    pub fn T unwrap(owned self) {
+        when move self {
+            .Some(value) then return value
+            .None then panic("called `Option.unwrap()` on a `None` value")
         }
     }
 
     /// The contained value; panics with `message` if the option is `None`.
     @track_caller
-    pub fn expect(owned self, message: String) -> T {
-        match move self {
-            Some(value) => return value
-            None => panic(message)
+    pub fn T expect(owned self, String message) {
+        when move self {
+            .Some(value) then return value
+            .None then panic(message)
         }
     }
 
     /// The contained value, or `default` if the option is `None`.
-    pub fn unwrap_or(owned self, owned default: T) -> T {
-        match move self {
-            Some(value) => return value
-            None => return default
+    pub fn T unwrap_or(owned self, owned T default) {
+        when move self {
+            .Some(value) then return value
+            .None then return default
         }
     }
 
     /// Takes the value out of the option, leaving `None` in its place.
-    pub fn take(inout self) -> Option[T] {
-        return mem.replace(&self, None)
+    pub fn Option[T] take(self!) {
+        return mem.replace(self!, None)
     }
 }
 
 /// The result of an operation that can fail: `Ok(value)` or `Err(error)`.
 @lang("result")
-pub enum Result[T, E] {
-    Ok(T)
-    Err(E)
-}
+@derive(Copy)
+pub type Result[T, E] = .Ok(T) | .Err(E)
 
-impl Result {
+extend Result {
     /// `true` if the result is `Ok`.
-    pub fn is_ok(self) -> bool {
-        match self {
-            Ok(_) => return true
-            Err(_) => return false
+    pub fn bool is_ok(self) {
+        when self {
+            .Ok(_) then return true
+            .Err(_) then return false
         }
     }
 
     /// `true` if the result is `Err`.
-    pub fn is_err(self) -> bool {
+    pub fn bool is_err(self) {
         return not self.is_ok()
     }
 
     /// The success value; panics if the result is an error.
     @track_caller
-    pub fn unwrap(owned self) -> T {
-        match move self {
-            Ok(value) => return value
-            Err(_) => panic("called `Result.unwrap()` on an `Err` value")
+    pub fn T unwrap(owned self) {
+        when move self {
+            .Ok(value) then return value
+            .Err(_) then panic("called `Result.unwrap()` on an `Err` value")
         }
     }
 
     /// The error value; panics if the result is a success.
     @track_caller
-    pub fn unwrap_err(owned self) -> E {
-        match move self {
-            Ok(_) => panic("called `Result.unwrap_err()` on an `Ok` value")
-            Err(error) => return error
+    pub fn E unwrap_err(owned self) {
+        when move self {
+            .Ok(_) then panic("called `Result.unwrap_err()` on an `Ok` value")
+            .Err(error) then return error
         }
     }
 
     /// The success value; panics with `message` if the result is an error.
     @track_caller
-    pub fn expect(owned self, message: String) -> T {
-        match move self {
-            Ok(value) => return value
-            Err(_) => panic(message)
+    pub fn T expect(owned self, String message) {
+        when move self {
+            .Ok(value) then return value
+            .Err(_) then panic(message)
         }
     }
 
     /// The success value, or `default` if the result is an error.
-    pub fn unwrap_or(owned self, owned default: T) -> T {
-        match move self {
-            Ok(value) => return value
-            Err(_) => return default
+    pub fn T unwrap_or(owned self, owned T default) {
+        when move self {
+            .Ok(value) then return value
+            .Err(_) then return default
         }
     }
 
     /// Converts into an `Option`, discarding the error.
-    pub fn ok(owned self) -> Option[T] {
-        match move self {
-            Ok(value) => return Some(value)
-            Err(_) => return None
+    pub fn Option[T] ok(owned self) {
+        when move self {
+            .Ok(value) then return Some(value)
+            .Err(_) then return None
         }
     }
 
     /// Converts into an `Option` of the error, discarding the success value.
-    pub fn err(owned self) -> Option[E] {
-        match move self {
-            Ok(_) => return None
-            Err(error) => return Some(error)
+    pub fn Option[E] err(owned self) {
+        when move self {
+            .Ok(_) then return None
+            .Err(error) then return Some(error)
         }
     }
 }
@@ -135,98 +132,125 @@ impl Result {
 
 /// Equality: `a == b` and `a != b`.
 @lang("eq")
-pub trait Eq {
-    fn eq(self, other: Self) -> bool
+pub interface Eq {
+    fn bool eq(self, Self other)
 }
 
 /// The result of a comparison.
 @lang("ordering")
-pub enum Ordering {
-    Less
-    Equal
-    Greater
-}
+@derive(Copy)
+pub type Ordering = .Less | .Equal | .Greater
 
-impl Ordering {
+extend Ordering {
     /// The opposite order: `Less` becomes `Greater`.
-    pub fn reverse(self) -> Ordering {
-        return match self {
-            Less => Ordering.Greater
-            Equal => Ordering.Equal
-            Greater => Ordering.Less
+    pub fn Ordering reverse(self) {
+        return when self {
+            .Less then Ordering.Greater
+            .Equal then Ordering.Equal
+            .Greater then Ordering.Less
         }
     }
 }
 
 /// Total order: `<`, `<=`, `>`, `>=`, sorting and binary search.
 @lang("ord")
-pub trait Ord: Eq {
-    fn cmp(self, other: Self) -> Ordering
+pub interface Ord is Eq {
+    fn Ordering cmp(self, Self other)
 }
 
 /// An independent copy of a value.
 @lang("clone")
-pub trait Clone {
-    fn clone(self) -> Self
+pub interface Clone {
+    fn Self clone(self)
+}
+
+/// Values duplicated bit for bit instead of moved (spec §3.7). A type is `Copy` by its
+/// structure (primitive types, `Ptr`, function types, and compositions of them without
+/// `drop` or `indirect`); the interface has no method and needs no `impl`. As a bound,
+/// `T: Copy` (`T is Copy` in edition 1) lets a generic function copy its values.
+@lang("copy")
+pub interface Copy {
+}
+
+/// A value that can be moved to another task (ADR 0013). Satisfied by the structure of
+/// the type, like `Copy`: every value it holds is `Transfer`. `Ptr` and anonymous
+/// functions are not; a type that holds a `Ptr` declares it in reviewed code
+/// (`unsafe impl Transfer for T {}`), as `String` and `Vec` do.
+@lang("transfer")
+pub interface Transfer {
+}
+
+/// A value that several tasks can read at the same time through borrows (ADR 0013).
+/// Satisfied by the structure of the type: in safe code a read borrow never modifies
+/// anything (no interior mutability). `Ptr` and anonymous functions are not `Share`.
+@lang("share")
+pub interface Share {
 }
 
 /// Text for users: `{x}` in a string, `print(x)`.
 @lang("display")
-pub trait Display {
-    fn to_string(self) -> String
+pub interface Display {
+    fn String to_string(self)
+}
+
+/// An error that can be shown to users (ADR 0015): the errors of `std` (`io.IoError`)
+/// implement it. In a function that returns `Result[T, dyn Error]`, `?` stores any
+/// such error in the `dyn Error` value (an allocation).
+@lang("error")
+pub interface Error is Display {
 }
 
 /// A 64-bit summary of the value, equal for equal values (hash tables).
 @lang("hash")
-pub trait Hash {
-    fn hash(self) -> u64
+pub interface Hash {
+    fn u64 hash(self)
 }
 
 /// The default value of a type: zero, empty, `false`, `None`.
 @lang("default")
-pub trait Default {
-    fn default() -> Self
+pub interface Default {
+    fn Self default()
 }
 
 /// `a + b`
 @lang("add")
-pub trait Add {
-    fn add(self, other: Self) -> Self
+pub interface Add {
+    fn Self add(self, Self other)
 }
 
 /// `a - b`
 @lang("sub")
-pub trait Sub {
-    fn sub(self, other: Self) -> Self
+pub interface Sub {
+    fn Self sub(self, Self other)
 }
 
 /// `a * b`
 @lang("mul")
-pub trait Mul {
-    fn mul(self, other: Self) -> Self
+pub interface Mul {
+    fn Self mul(self, Self other)
 }
 
 /// `a / b`
 @lang("div")
-pub trait Div {
-    fn div(self, other: Self) -> Self
+pub interface Div {
+    fn Self div(self, Self other)
 }
 
 /// `a % b`
 @lang("rem")
-pub trait Rem {
-    fn rem(self, other: Self) -> Self
+pub interface Rem {
+    fn Self rem(self, Self other)
 }
 
 /// `-a`
 @lang("neg")
-pub trait Neg {
-    fn neg(self) -> Self
+pub interface Neg {
+    fn Self neg(self)
 }
 
 /// Mixes the bits of a 64-bit value (SplitMix64 finalizer): every input bit changes
 /// about half of the output bits.
-pub fn hash_mix(x: u64) -> u64 {
+pub fn u64 hash_mix(u64 x) {
     var z = x +% 0x9E37_79B9_7F4A_7C15
     z = (z ^ (z >> 30)) *% 0xBF58_476D_1CE4_E5B9
     z = (z ^ (z >> 27)) *% 0x94D0_49BB_1331_11EB
@@ -234,30 +258,30 @@ pub fn hash_mix(x: u64) -> u64 {
 }
 
 /// Combines two hashes (order matters).
-pub fn hash_combine(h: u64, x: u64) -> u64 {
+pub fn u64 hash_combine(u64 h, u64 x) {
     return hash_mix(h ^ (x +% 0x9E37_79B9_7F4A_7C15 +% (h << 6) +% (h >> 2)))
 }
 
-impl Eq for i8 {
-    fn eq(self, other: i8) -> bool {
+extend i8 is Eq {
+    fn bool eq(self, i8 other) {
         return self == other
     }
 }
 
-impl Clone for i8 {
-    fn clone(self) -> i8 {
+extend i8 is Clone {
+    fn i8 clone(self) {
         return self
     }
 }
 
-impl Display for i8 {
-    fn to_string(self) -> String {
+extend i8 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for i8 {
-    fn cmp(self, other: i8) -> Ordering {
+extend i8 is Ord {
+    fn Ordering cmp(self, i8 other) {
         if self < other {
             return Ordering.Less
         }
@@ -268,40 +292,40 @@ impl Ord for i8 {
     }
 }
 
-impl Hash for i8 {
-    fn hash(self) -> u64 {
+extend i8 is Hash {
+    fn u64 hash(self) {
         let x = self as i64
         let bits = if x < 0 { ~((0 - (x + 1)) as u64) } else { x as u64 }
         return hash_mix(bits)
     }
 }
 
-impl Default for i8 {
-    fn default() -> i8 {
+extend i8 is Default {
+    fn i8 default() {
         return 0
     }
 }
 
-impl Eq for i16 {
-    fn eq(self, other: i16) -> bool {
+extend i16 is Eq {
+    fn bool eq(self, i16 other) {
         return self == other
     }
 }
 
-impl Clone for i16 {
-    fn clone(self) -> i16 {
+extend i16 is Clone {
+    fn i16 clone(self) {
         return self
     }
 }
 
-impl Display for i16 {
-    fn to_string(self) -> String {
+extend i16 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for i16 {
-    fn cmp(self, other: i16) -> Ordering {
+extend i16 is Ord {
+    fn Ordering cmp(self, i16 other) {
         if self < other {
             return Ordering.Less
         }
@@ -312,40 +336,40 @@ impl Ord for i16 {
     }
 }
 
-impl Hash for i16 {
-    fn hash(self) -> u64 {
+extend i16 is Hash {
+    fn u64 hash(self) {
         let x = self as i64
         let bits = if x < 0 { ~((0 - (x + 1)) as u64) } else { x as u64 }
         return hash_mix(bits)
     }
 }
 
-impl Default for i16 {
-    fn default() -> i16 {
+extend i16 is Default {
+    fn i16 default() {
         return 0
     }
 }
 
-impl Eq for i32 {
-    fn eq(self, other: i32) -> bool {
+extend i32 is Eq {
+    fn bool eq(self, i32 other) {
         return self == other
     }
 }
 
-impl Clone for i32 {
-    fn clone(self) -> i32 {
+extend i32 is Clone {
+    fn i32 clone(self) {
         return self
     }
 }
 
-impl Display for i32 {
-    fn to_string(self) -> String {
+extend i32 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for i32 {
-    fn cmp(self, other: i32) -> Ordering {
+extend i32 is Ord {
+    fn Ordering cmp(self, i32 other) {
         if self < other {
             return Ordering.Less
         }
@@ -356,40 +380,40 @@ impl Ord for i32 {
     }
 }
 
-impl Hash for i32 {
-    fn hash(self) -> u64 {
+extend i32 is Hash {
+    fn u64 hash(self) {
         let x = self as i64
         let bits = if x < 0 { ~((0 - (x + 1)) as u64) } else { x as u64 }
         return hash_mix(bits)
     }
 }
 
-impl Default for i32 {
-    fn default() -> i32 {
+extend i32 is Default {
+    fn i32 default() {
         return 0
     }
 }
 
-impl Eq for i64 {
-    fn eq(self, other: i64) -> bool {
+extend i64 is Eq {
+    fn bool eq(self, i64 other) {
         return self == other
     }
 }
 
-impl Clone for i64 {
-    fn clone(self) -> i64 {
+extend i64 is Clone {
+    fn i64 clone(self) {
         return self
     }
 }
 
-impl Display for i64 {
-    fn to_string(self) -> String {
+extend i64 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for i64 {
-    fn cmp(self, other: i64) -> Ordering {
+extend i64 is Ord {
+    fn Ordering cmp(self, i64 other) {
         if self < other {
             return Ordering.Less
         }
@@ -400,40 +424,40 @@ impl Ord for i64 {
     }
 }
 
-impl Hash for i64 {
-    fn hash(self) -> u64 {
+extend i64 is Hash {
+    fn u64 hash(self) {
         let x = self
         let bits = if x < 0 { ~((0 - (x + 1)) as u64) } else { x as u64 }
         return hash_mix(bits)
     }
 }
 
-impl Default for i64 {
-    fn default() -> i64 {
+extend i64 is Default {
+    fn i64 default() {
         return 0
     }
 }
 
-impl Eq for isize {
-    fn eq(self, other: isize) -> bool {
+extend isize is Eq {
+    fn bool eq(self, isize other) {
         return self == other
     }
 }
 
-impl Clone for isize {
-    fn clone(self) -> isize {
+extend isize is Clone {
+    fn isize clone(self) {
         return self
     }
 }
 
-impl Display for isize {
-    fn to_string(self) -> String {
+extend isize is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for isize {
-    fn cmp(self, other: isize) -> Ordering {
+extend isize is Ord {
+    fn Ordering cmp(self, isize other) {
         if self < other {
             return Ordering.Less
         }
@@ -444,40 +468,40 @@ impl Ord for isize {
     }
 }
 
-impl Hash for isize {
-    fn hash(self) -> u64 {
+extend isize is Hash {
+    fn u64 hash(self) {
         let x = self as i64
         let bits = if x < 0 { ~((0 - (x + 1)) as u64) } else { x as u64 }
         return hash_mix(bits)
     }
 }
 
-impl Default for isize {
-    fn default() -> isize {
+extend isize is Default {
+    fn isize default() {
         return 0
     }
 }
 
-impl Eq for u8 {
-    fn eq(self, other: u8) -> bool {
+extend u8 is Eq {
+    fn bool eq(self, u8 other) {
         return self == other
     }
 }
 
-impl Clone for u8 {
-    fn clone(self) -> u8 {
+extend u8 is Clone {
+    fn u8 clone(self) {
         return self
     }
 }
 
-impl Display for u8 {
-    fn to_string(self) -> String {
+extend u8 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for u8 {
-    fn cmp(self, other: u8) -> Ordering {
+extend u8 is Ord {
+    fn Ordering cmp(self, u8 other) {
         if self < other {
             return Ordering.Less
         }
@@ -488,38 +512,38 @@ impl Ord for u8 {
     }
 }
 
-impl Hash for u8 {
-    fn hash(self) -> u64 {
+extend u8 is Hash {
+    fn u64 hash(self) {
         return hash_mix(self as u64)
     }
 }
 
-impl Default for u8 {
-    fn default() -> u8 {
+extend u8 is Default {
+    fn u8 default() {
         return 0
     }
 }
 
-impl Eq for u16 {
-    fn eq(self, other: u16) -> bool {
+extend u16 is Eq {
+    fn bool eq(self, u16 other) {
         return self == other
     }
 }
 
-impl Clone for u16 {
-    fn clone(self) -> u16 {
+extend u16 is Clone {
+    fn u16 clone(self) {
         return self
     }
 }
 
-impl Display for u16 {
-    fn to_string(self) -> String {
+extend u16 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for u16 {
-    fn cmp(self, other: u16) -> Ordering {
+extend u16 is Ord {
+    fn Ordering cmp(self, u16 other) {
         if self < other {
             return Ordering.Less
         }
@@ -530,38 +554,38 @@ impl Ord for u16 {
     }
 }
 
-impl Hash for u16 {
-    fn hash(self) -> u64 {
+extend u16 is Hash {
+    fn u64 hash(self) {
         return hash_mix(self as u64)
     }
 }
 
-impl Default for u16 {
-    fn default() -> u16 {
+extend u16 is Default {
+    fn u16 default() {
         return 0
     }
 }
 
-impl Eq for u32 {
-    fn eq(self, other: u32) -> bool {
+extend u32 is Eq {
+    fn bool eq(self, u32 other) {
         return self == other
     }
 }
 
-impl Clone for u32 {
-    fn clone(self) -> u32 {
+extend u32 is Clone {
+    fn u32 clone(self) {
         return self
     }
 }
 
-impl Display for u32 {
-    fn to_string(self) -> String {
+extend u32 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for u32 {
-    fn cmp(self, other: u32) -> Ordering {
+extend u32 is Ord {
+    fn Ordering cmp(self, u32 other) {
         if self < other {
             return Ordering.Less
         }
@@ -572,38 +596,38 @@ impl Ord for u32 {
     }
 }
 
-impl Hash for u32 {
-    fn hash(self) -> u64 {
+extend u32 is Hash {
+    fn u64 hash(self) {
         return hash_mix(self as u64)
     }
 }
 
-impl Default for u32 {
-    fn default() -> u32 {
+extend u32 is Default {
+    fn u32 default() {
         return 0
     }
 }
 
-impl Eq for u64 {
-    fn eq(self, other: u64) -> bool {
+extend u64 is Eq {
+    fn bool eq(self, u64 other) {
         return self == other
     }
 }
 
-impl Clone for u64 {
-    fn clone(self) -> u64 {
+extend u64 is Clone {
+    fn u64 clone(self) {
         return self
     }
 }
 
-impl Display for u64 {
-    fn to_string(self) -> String {
+extend u64 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for u64 {
-    fn cmp(self, other: u64) -> Ordering {
+extend u64 is Ord {
+    fn Ordering cmp(self, u64 other) {
         if self < other {
             return Ordering.Less
         }
@@ -614,38 +638,38 @@ impl Ord for u64 {
     }
 }
 
-impl Hash for u64 {
-    fn hash(self) -> u64 {
+extend u64 is Hash {
+    fn u64 hash(self) {
         return hash_mix(self)
     }
 }
 
-impl Default for u64 {
-    fn default() -> u64 {
+extend u64 is Default {
+    fn u64 default() {
         return 0
     }
 }
 
-impl Eq for usize {
-    fn eq(self, other: usize) -> bool {
+extend usize is Eq {
+    fn bool eq(self, usize other) {
         return self == other
     }
 }
 
-impl Clone for usize {
-    fn clone(self) -> usize {
+extend usize is Clone {
+    fn usize clone(self) {
         return self
     }
 }
 
-impl Display for usize {
-    fn to_string(self) -> String {
+extend usize is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for usize {
-    fn cmp(self, other: usize) -> Ordering {
+extend usize is Ord {
+    fn Ordering cmp(self, usize other) {
         if self < other {
             return Ordering.Less
         }
@@ -656,38 +680,38 @@ impl Ord for usize {
     }
 }
 
-impl Hash for usize {
-    fn hash(self) -> u64 {
+extend usize is Hash {
+    fn u64 hash(self) {
         return hash_mix(self as u64)
     }
 }
 
-impl Default for usize {
-    fn default() -> usize {
+extend usize is Default {
+    fn usize default() {
         return 0
     }
 }
 
-impl Eq for f32 {
-    fn eq(self, other: f32) -> bool {
+extend f32 is Eq {
+    fn bool eq(self, f32 other) {
         return self == other
     }
 }
 
-impl Clone for f32 {
-    fn clone(self) -> f32 {
+extend f32 is Clone {
+    fn f32 clone(self) {
         return self
     }
 }
 
-impl Display for f32 {
-    fn to_string(self) -> String {
+extend f32 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for f32 {
-    fn cmp(self, other: f32) -> Ordering {
+extend f32 is Ord {
+    fn Ordering cmp(self, f32 other) {
         if self < other {
             return Ordering.Less
         }
@@ -698,38 +722,38 @@ impl Ord for f32 {
     }
 }
 
-impl Hash for f32 {
-    fn hash(self) -> u64 {
+extend f32 is Hash {
+    fn u64 hash(self) {
         return hash_mix(if self == 0.0 { 0 } else { self.to_bits() as u64 })
     }
 }
 
-impl Default for f32 {
-    fn default() -> f32 {
+extend f32 is Default {
+    fn f32 default() {
         return 0.0
     }
 }
 
-impl Eq for f64 {
-    fn eq(self, other: f64) -> bool {
+extend f64 is Eq {
+    fn bool eq(self, f64 other) {
         return self == other
     }
 }
 
-impl Clone for f64 {
-    fn clone(self) -> f64 {
+extend f64 is Clone {
+    fn f64 clone(self) {
         return self
     }
 }
 
-impl Display for f64 {
-    fn to_string(self) -> String {
+extend f64 is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for f64 {
-    fn cmp(self, other: f64) -> Ordering {
+extend f64 is Ord {
+    fn Ordering cmp(self, f64 other) {
         if self < other {
             return Ordering.Less
         }
@@ -740,38 +764,38 @@ impl Ord for f64 {
     }
 }
 
-impl Hash for f64 {
-    fn hash(self) -> u64 {
+extend f64 is Hash {
+    fn u64 hash(self) {
         return hash_mix(if self == 0.0 { 0 } else { self.to_bits() })
     }
 }
 
-impl Default for f64 {
-    fn default() -> f64 {
+extend f64 is Default {
+    fn f64 default() {
         return 0.0
     }
 }
 
-impl Eq for bool {
-    fn eq(self, other: bool) -> bool {
+extend bool is Eq {
+    fn bool eq(self, bool other) {
         return self == other
     }
 }
 
-impl Clone for bool {
-    fn clone(self) -> bool {
+extend bool is Clone {
+    fn bool clone(self) {
         return self
     }
 }
 
-impl Display for bool {
-    fn to_string(self) -> String {
+extend bool is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for bool {
-    fn cmp(self, other: bool) -> Ordering {
+extend bool is Ord {
+    fn Ordering cmp(self, bool other) {
         if self == other {
             return Ordering.Equal
         }
@@ -779,38 +803,38 @@ impl Ord for bool {
     }
 }
 
-impl Hash for bool {
-    fn hash(self) -> u64 {
+extend bool is Hash {
+    fn u64 hash(self) {
         return hash_mix(if self { 1 } else { 0 })
     }
 }
 
-impl Default for bool {
-    fn default() -> bool {
+extend bool is Default {
+    fn bool default() {
         return false
     }
 }
 
-impl Eq for char {
-    fn eq(self, other: char) -> bool {
+extend char is Eq {
+    fn bool eq(self, char other) {
         return self == other
     }
 }
 
-impl Clone for char {
-    fn clone(self) -> char {
+extend char is Clone {
+    fn char clone(self) {
         return self
     }
 }
 
-impl Display for char {
-    fn to_string(self) -> String {
+extend char is Display {
+    fn String to_string(self) {
         return self.to_string()
     }
 }
 
-impl Ord for char {
-    fn cmp(self, other: char) -> Ordering {
+extend char is Ord {
+    fn Ordering cmp(self, char other) {
         if self < other {
             return Ordering.Less
         }
@@ -821,514 +845,514 @@ impl Ord for char {
     }
 }
 
-impl Hash for char {
-    fn hash(self) -> u64 {
+extend char is Hash {
+    fn u64 hash(self) {
         return hash_mix((self as u32) as u64)
     }
 }
 
-impl Default for char {
-    fn default() -> char {
+extend char is Default {
+    fn char default() {
         return (0 as u32) as char
     }
 }
 
-impl Add for i8 {
-    fn add(self, other: i8) -> i8 {
+extend i8 is Add {
+    fn i8 add(self, i8 other) {
         return self + other
     }
 }
 
-impl Sub for i8 {
-    fn sub(self, other: i8) -> i8 {
+extend i8 is Sub {
+    fn i8 sub(self, i8 other) {
         return self - other
     }
 }
 
-impl Mul for i8 {
-    fn mul(self, other: i8) -> i8 {
+extend i8 is Mul {
+    fn i8 mul(self, i8 other) {
         return self * other
     }
 }
 
-impl Div for i8 {
-    fn div(self, other: i8) -> i8 {
+extend i8 is Div {
+    fn i8 div(self, i8 other) {
         return self / other
     }
 }
 
-impl Rem for i8 {
-    fn rem(self, other: i8) -> i8 {
+extend i8 is Rem {
+    fn i8 rem(self, i8 other) {
         return self % other
     }
 }
 
-impl Neg for i8 {
-    fn neg(self) -> i8 {
+extend i8 is Neg {
+    fn i8 neg(self) {
         return -self
     }
 }
 
-impl Add for i16 {
-    fn add(self, other: i16) -> i16 {
+extend i16 is Add {
+    fn i16 add(self, i16 other) {
         return self + other
     }
 }
 
-impl Sub for i16 {
-    fn sub(self, other: i16) -> i16 {
+extend i16 is Sub {
+    fn i16 sub(self, i16 other) {
         return self - other
     }
 }
 
-impl Mul for i16 {
-    fn mul(self, other: i16) -> i16 {
+extend i16 is Mul {
+    fn i16 mul(self, i16 other) {
         return self * other
     }
 }
 
-impl Div for i16 {
-    fn div(self, other: i16) -> i16 {
+extend i16 is Div {
+    fn i16 div(self, i16 other) {
         return self / other
     }
 }
 
-impl Rem for i16 {
-    fn rem(self, other: i16) -> i16 {
+extend i16 is Rem {
+    fn i16 rem(self, i16 other) {
         return self % other
     }
 }
 
-impl Neg for i16 {
-    fn neg(self) -> i16 {
+extend i16 is Neg {
+    fn i16 neg(self) {
         return -self
     }
 }
 
-impl Add for i32 {
-    fn add(self, other: i32) -> i32 {
+extend i32 is Add {
+    fn i32 add(self, i32 other) {
         return self + other
     }
 }
 
-impl Sub for i32 {
-    fn sub(self, other: i32) -> i32 {
+extend i32 is Sub {
+    fn i32 sub(self, i32 other) {
         return self - other
     }
 }
 
-impl Mul for i32 {
-    fn mul(self, other: i32) -> i32 {
+extend i32 is Mul {
+    fn i32 mul(self, i32 other) {
         return self * other
     }
 }
 
-impl Div for i32 {
-    fn div(self, other: i32) -> i32 {
+extend i32 is Div {
+    fn i32 div(self, i32 other) {
         return self / other
     }
 }
 
-impl Rem for i32 {
-    fn rem(self, other: i32) -> i32 {
+extend i32 is Rem {
+    fn i32 rem(self, i32 other) {
         return self % other
     }
 }
 
-impl Neg for i32 {
-    fn neg(self) -> i32 {
+extend i32 is Neg {
+    fn i32 neg(self) {
         return -self
     }
 }
 
-impl Add for i64 {
-    fn add(self, other: i64) -> i64 {
+extend i64 is Add {
+    fn i64 add(self, i64 other) {
         return self + other
     }
 }
 
-impl Sub for i64 {
-    fn sub(self, other: i64) -> i64 {
+extend i64 is Sub {
+    fn i64 sub(self, i64 other) {
         return self - other
     }
 }
 
-impl Mul for i64 {
-    fn mul(self, other: i64) -> i64 {
+extend i64 is Mul {
+    fn i64 mul(self, i64 other) {
         return self * other
     }
 }
 
-impl Div for i64 {
-    fn div(self, other: i64) -> i64 {
+extend i64 is Div {
+    fn i64 div(self, i64 other) {
         return self / other
     }
 }
 
-impl Rem for i64 {
-    fn rem(self, other: i64) -> i64 {
+extend i64 is Rem {
+    fn i64 rem(self, i64 other) {
         return self % other
     }
 }
 
-impl Neg for i64 {
-    fn neg(self) -> i64 {
+extend i64 is Neg {
+    fn i64 neg(self) {
         return -self
     }
 }
 
-impl Add for isize {
-    fn add(self, other: isize) -> isize {
+extend isize is Add {
+    fn isize add(self, isize other) {
         return self + other
     }
 }
 
-impl Sub for isize {
-    fn sub(self, other: isize) -> isize {
+extend isize is Sub {
+    fn isize sub(self, isize other) {
         return self - other
     }
 }
 
-impl Mul for isize {
-    fn mul(self, other: isize) -> isize {
+extend isize is Mul {
+    fn isize mul(self, isize other) {
         return self * other
     }
 }
 
-impl Div for isize {
-    fn div(self, other: isize) -> isize {
+extend isize is Div {
+    fn isize div(self, isize other) {
         return self / other
     }
 }
 
-impl Rem for isize {
-    fn rem(self, other: isize) -> isize {
+extend isize is Rem {
+    fn isize rem(self, isize other) {
         return self % other
     }
 }
 
-impl Neg for isize {
-    fn neg(self) -> isize {
+extend isize is Neg {
+    fn isize neg(self) {
         return -self
     }
 }
 
-impl Add for u8 {
-    fn add(self, other: u8) -> u8 {
+extend u8 is Add {
+    fn u8 add(self, u8 other) {
         return self + other
     }
 }
 
-impl Sub for u8 {
-    fn sub(self, other: u8) -> u8 {
+extend u8 is Sub {
+    fn u8 sub(self, u8 other) {
         return self - other
     }
 }
 
-impl Mul for u8 {
-    fn mul(self, other: u8) -> u8 {
+extend u8 is Mul {
+    fn u8 mul(self, u8 other) {
         return self * other
     }
 }
 
-impl Div for u8 {
-    fn div(self, other: u8) -> u8 {
+extend u8 is Div {
+    fn u8 div(self, u8 other) {
         return self / other
     }
 }
 
-impl Rem for u8 {
-    fn rem(self, other: u8) -> u8 {
+extend u8 is Rem {
+    fn u8 rem(self, u8 other) {
         return self % other
     }
 }
 
-impl Add for u16 {
-    fn add(self, other: u16) -> u16 {
+extend u16 is Add {
+    fn u16 add(self, u16 other) {
         return self + other
     }
 }
 
-impl Sub for u16 {
-    fn sub(self, other: u16) -> u16 {
+extend u16 is Sub {
+    fn u16 sub(self, u16 other) {
         return self - other
     }
 }
 
-impl Mul for u16 {
-    fn mul(self, other: u16) -> u16 {
+extend u16 is Mul {
+    fn u16 mul(self, u16 other) {
         return self * other
     }
 }
 
-impl Div for u16 {
-    fn div(self, other: u16) -> u16 {
+extend u16 is Div {
+    fn u16 div(self, u16 other) {
         return self / other
     }
 }
 
-impl Rem for u16 {
-    fn rem(self, other: u16) -> u16 {
+extend u16 is Rem {
+    fn u16 rem(self, u16 other) {
         return self % other
     }
 }
 
-impl Add for u32 {
-    fn add(self, other: u32) -> u32 {
+extend u32 is Add {
+    fn u32 add(self, u32 other) {
         return self + other
     }
 }
 
-impl Sub for u32 {
-    fn sub(self, other: u32) -> u32 {
+extend u32 is Sub {
+    fn u32 sub(self, u32 other) {
         return self - other
     }
 }
 
-impl Mul for u32 {
-    fn mul(self, other: u32) -> u32 {
+extend u32 is Mul {
+    fn u32 mul(self, u32 other) {
         return self * other
     }
 }
 
-impl Div for u32 {
-    fn div(self, other: u32) -> u32 {
+extend u32 is Div {
+    fn u32 div(self, u32 other) {
         return self / other
     }
 }
 
-impl Rem for u32 {
-    fn rem(self, other: u32) -> u32 {
+extend u32 is Rem {
+    fn u32 rem(self, u32 other) {
         return self % other
     }
 }
 
-impl Add for u64 {
-    fn add(self, other: u64) -> u64 {
+extend u64 is Add {
+    fn u64 add(self, u64 other) {
         return self + other
     }
 }
 
-impl Sub for u64 {
-    fn sub(self, other: u64) -> u64 {
+extend u64 is Sub {
+    fn u64 sub(self, u64 other) {
         return self - other
     }
 }
 
-impl Mul for u64 {
-    fn mul(self, other: u64) -> u64 {
+extend u64 is Mul {
+    fn u64 mul(self, u64 other) {
         return self * other
     }
 }
 
-impl Div for u64 {
-    fn div(self, other: u64) -> u64 {
+extend u64 is Div {
+    fn u64 div(self, u64 other) {
         return self / other
     }
 }
 
-impl Rem for u64 {
-    fn rem(self, other: u64) -> u64 {
+extend u64 is Rem {
+    fn u64 rem(self, u64 other) {
         return self % other
     }
 }
 
-impl Add for usize {
-    fn add(self, other: usize) -> usize {
+extend usize is Add {
+    fn usize add(self, usize other) {
         return self + other
     }
 }
 
-impl Sub for usize {
-    fn sub(self, other: usize) -> usize {
+extend usize is Sub {
+    fn usize sub(self, usize other) {
         return self - other
     }
 }
 
-impl Mul for usize {
-    fn mul(self, other: usize) -> usize {
+extend usize is Mul {
+    fn usize mul(self, usize other) {
         return self * other
     }
 }
 
-impl Div for usize {
-    fn div(self, other: usize) -> usize {
+extend usize is Div {
+    fn usize div(self, usize other) {
         return self / other
     }
 }
 
-impl Rem for usize {
-    fn rem(self, other: usize) -> usize {
+extend usize is Rem {
+    fn usize rem(self, usize other) {
         return self % other
     }
 }
 
-impl Add for f32 {
-    fn add(self, other: f32) -> f32 {
+extend f32 is Add {
+    fn f32 add(self, f32 other) {
         return self + other
     }
 }
 
-impl Sub for f32 {
-    fn sub(self, other: f32) -> f32 {
+extend f32 is Sub {
+    fn f32 sub(self, f32 other) {
         return self - other
     }
 }
 
-impl Mul for f32 {
-    fn mul(self, other: f32) -> f32 {
+extend f32 is Mul {
+    fn f32 mul(self, f32 other) {
         return self * other
     }
 }
 
-impl Div for f32 {
-    fn div(self, other: f32) -> f32 {
+extend f32 is Div {
+    fn f32 div(self, f32 other) {
         return self / other
     }
 }
 
-impl Rem for f32 {
-    fn rem(self, other: f32) -> f32 {
+extend f32 is Rem {
+    fn f32 rem(self, f32 other) {
         return self % other
     }
 }
 
-impl Neg for f32 {
-    fn neg(self) -> f32 {
+extend f32 is Neg {
+    fn f32 neg(self) {
         return -self
     }
 }
 
-impl Add for f64 {
-    fn add(self, other: f64) -> f64 {
+extend f64 is Add {
+    fn f64 add(self, f64 other) {
         return self + other
     }
 }
 
-impl Sub for f64 {
-    fn sub(self, other: f64) -> f64 {
+extend f64 is Sub {
+    fn f64 sub(self, f64 other) {
         return self - other
     }
 }
 
-impl Mul for f64 {
-    fn mul(self, other: f64) -> f64 {
+extend f64 is Mul {
+    fn f64 mul(self, f64 other) {
         return self * other
     }
 }
 
-impl Div for f64 {
-    fn div(self, other: f64) -> f64 {
+extend f64 is Div {
+    fn f64 div(self, f64 other) {
         return self / other
     }
 }
 
-impl Rem for f64 {
-    fn rem(self, other: f64) -> f64 {
+extend f64 is Rem {
+    fn f64 rem(self, f64 other) {
         return self % other
     }
 }
 
-impl Neg for f64 {
-    fn neg(self) -> f64 {
+extend f64 is Neg {
+    fn f64 neg(self) {
         return -self
     }
 }
 
-impl Eq for Option[T: Eq] {
-    fn eq(self, other: Self) -> bool {
-        match self {
-            Some(a) => {
-                match other {
-                    Some(b) => { return a == b }
-                    None => { return false }
+extend Option[T is Eq] is Eq {
+    fn bool eq(self, Self other) {
+        when self {
+            .Some(a) then {
+                when other {
+                    .Some(b) then { return a == b }
+                    .None then { return false }
                 }
             }
-            None => { return other.is_none() }
+            .None then { return other.is_none() }
         }
     }
 }
 
-impl Ord for Option[T: Ord] {
-    fn cmp(self, other: Self) -> Ordering {
-        match self {
-            Some(a) => {
-                match other {
-                    Some(b) => { return a.cmp(b) }
-                    None => { return Ordering.Greater }
+extend Option[T is Ord] is Ord {
+    fn Ordering cmp(self, Self other) {
+        when self {
+            .Some(a) then {
+                when other {
+                    .Some(b) then { return a.cmp(b) }
+                    .None then { return Ordering.Greater }
                 }
             }
-            None => { return if other.is_none() { Ordering.Equal } else { Ordering.Less } }
+            .None then { return if other.is_none() { Ordering.Equal } else { Ordering.Less } }
         }
     }
 }
 
-impl Clone for Option[T: Clone] {
-    fn clone(self) -> Self {
-        match self {
-            Some(a) => { return Some(a.clone()) }
-            None => { return None }
+extend Option[T is Clone] is Clone {
+    fn Self clone(self) {
+        when self {
+            .Some(a) then { return Some(a.clone()) }
+            .None then { return None }
         }
     }
 }
 
-impl Display for Option[T: Display] {
-    fn to_string(self) -> String {
-        match self {
-            Some(a) => { return "Some({a})" }
-            None => { return "None" }
+extend Option[T is Display] is Display {
+    fn String to_string(self) {
+        when self {
+            .Some(a) then { return "Some({a})" }
+            .None then { return "None" }
         }
     }
 }
 
-impl Hash for Option[T: Hash] {
-    fn hash(self) -> u64 {
-        match self {
-            Some(a) => { return hash_combine(1, a.hash()) }
-            None => { return hash_mix(0) }
+extend Option[T is Hash] is Hash {
+    fn u64 hash(self) {
+        when self {
+            .Some(a) then { return hash_combine(1, a.hash()) }
+            .None then { return hash_mix(0) }
         }
     }
 }
 
-impl Default for Option[T] {
-    fn default() -> Self {
+extend Option[T] is Default {
+    fn Self default() {
         return None
     }
 }
 
-impl Eq for Result[T: Eq, E: Eq] {
-    fn eq(self, other: Self) -> bool {
-        match self {
-            Ok(a) => {
-                match other {
-                    Ok(b) => { return a == b }
-                    Err(_) => { return false }
+extend Result[T is Eq, E is Eq] is Eq {
+    fn bool eq(self, Self other) {
+        when self {
+            .Ok(a) then {
+                when other {
+                    .Ok(b) then { return a == b }
+                    .Err(_) then { return false }
                 }
             }
-            Err(a) => {
-                match other {
-                    Ok(_) => { return false }
-                    Err(b) => { return a == b }
+            .Err(a) then {
+                when other {
+                    .Ok(_) then { return false }
+                    .Err(b) then { return a == b }
                 }
             }
         }
     }
 }
 
-impl Clone for Result[T: Clone, E: Clone] {
-    fn clone(self) -> Self {
-        match self {
-            Ok(a) => { return Ok(a.clone()) }
-            Err(e) => { return Err(e.clone()) }
+extend Result[T is Clone, E is Clone] is Clone {
+    fn Self clone(self) {
+        when self {
+            .Ok(a) then { return Ok(a.clone()) }
+            .Err(e) then { return Err(e.clone()) }
         }
     }
 }
 
-impl Display for Result[T: Display, E: Display] {
-    fn to_string(self) -> String {
-        match self {
-            Ok(a) => { return "Ok({a})" }
-            Err(e) => { return "Err({e})" }
+extend Result[T is Display, E is Display] is Display {
+    fn String to_string(self) {
+        when self {
+            .Ok(a) then { return "Ok({a})" }
+            .Err(e) then { return "Err({e})" }
         }
     }
 }

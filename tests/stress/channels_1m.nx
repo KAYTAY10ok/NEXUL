@@ -1,0 +1,62 @@
+// targets: linux, windows, macos
+// Exit criterion of 0.5.0 (roadmap): 10^6 messages, 64 tasks, a deterministic result.
+// 64 detached producers send 15 625 values each through a channel of 64 places; two tasks
+// of a scope receive them; every value is received exactly once.
+import std.tache
+import std.mem
+
+fn produire(owned e: tache.Emetteur[i64]) -> i64 {
+    var n: i64 = 0
+    for i in 0..15625 {
+        if e.envoyer(i as i64) {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn main() {
+    let (e, r) = tache.canal[i64](64)
+    var producteurs: Vec[tache.Tache[i64]] = Vec.new()
+    for k in 0..64 {
+        let _ = k
+        producteurs.push(tache.lancer_detachee(produire, e.clone()))
+    }
+    mem.drop(e)
+    var s1: i64 = 0
+    var n1: i64 = 0
+    var s2: i64 = 0
+    var n2: i64 = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() {
+            while true {
+                match r.recevoir() {
+                    Some(x) => {
+                        s1 += x
+                        n1 += 1
+                    }
+                    None => break
+                }
+            }
+        })
+        p.lancer(fn() {
+            while true {
+                match r.recevoir() {
+                    Some(x) => {
+                        s2 += x
+                        n2 += 1
+                    }
+                    None => break
+                }
+            }
+        })
+    })
+    var envoyes: i64 = 0
+    while true {
+        match producteurs.pop() {
+            Some(t) => envoyes += t.rejoindre()
+            None => break
+        }
+    }
+    println("{envoyes} {n1 + n2} {s1 + s2}")
+}

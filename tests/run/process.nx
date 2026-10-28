@@ -1,0 +1,57 @@
+// edition: 1
+// targets: linux, windows, macos
+// std.process: this program run again as a child, its output captured, then shared; a
+// program that does not exist.
+import std.io
+import std.process
+import std.system
+
+/// 1 when run as the child whose output is captured, 2 when it shares it, else 0. (Its
+/// own function: nothing allocated remains when the child exits.)
+fn i32 mode() {
+    let args = system.args()
+    if args.len() < 3 {
+        return 0
+    }
+    return if args[2] == "child" { 1 } else { 2 }
+}
+
+fn child(i32 mode) {
+    if mode == 1 {
+        println("child out")
+        eprintln("child err")
+        system.exit(3)
+    }
+    println("child shares the output")
+    system.exit(0)
+}
+
+fn Vec[String] words(String text) {
+    return if text.len() == 0 { Vec.new() } else { text.split(" ") }
+}
+
+fn main() {
+    let m = mode()
+    if m != 0 {
+        child(m)
+    }
+    let args = system.args()
+
+    // Under QEMU in user mode, this program runs again through QEMU.
+    let (program, prefix) = when system.env("NEXUL_TEST_RUNNER") {
+        .Some(runner) then (runner, args[0].clone() + " ")
+        .None then (args[0].clone(), "")
+    }
+    when process.run(program, words(prefix + "first-argument child")) {
+        .Ok(out) then println("code {out.code}, success {out.success()}, output {out.output.lines()}")
+        .Err(e) then println("error: {e}")
+    }
+    when process.status(program, words(prefix + "first-argument shared")) {
+        .Ok(code) then println("status {code}")
+        .Err(e) then println("error: {e}")
+    }
+    when process.run("nexul-no-such-program", words("")) {
+        .Ok(_) then println("found?")
+        .Err(e) then println("not found: {e == io.IoError.NotFound("nexul-no-such-program")}")
+    }
+}

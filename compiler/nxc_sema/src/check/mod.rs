@@ -5,6 +5,7 @@ mod call;
 mod closure;
 mod expr;
 mod finalize;
+mod newtype;
 mod pat;
 mod stmt;
 mod traits;
@@ -85,6 +86,8 @@ pub(crate) struct PendingClosure {
 pub(crate) struct ClosureFrame {
     pub first_local: LocalId,
     pub captures: Vec<(LocalId, bool)>,
+    /// The function given to `tache.portee`: its `Portee` parameter (ADR 0013).
+    pub scope_param: Option<LocalId>,
 }
 
 pub(crate) struct LoopCtx {
@@ -118,6 +121,8 @@ pub struct FnCtxt<'a> {
     pub(crate) bounds: Vec<Bound>,
     pub(crate) closures: Vec<PendingClosure>,
     pub(crate) closure_frames: Vec<ClosureFrame>,
+    /// The next anonymous function is the argument of `tache.portee` (ADR 0013).
+    pub(crate) next_closure_scope: bool,
     /// The id the next anonymous function will receive.
     pub(crate) next_fn_id: u32,
 }
@@ -142,6 +147,7 @@ impl<'a> FnCtxt<'a> {
             bounds: Vec::new(),
             closures: Vec::new(),
             closure_frames: Vec::new(),
+            next_closure_scope: false,
             next_fn_id: p.fns.len() as u32,
         }
     }
@@ -341,6 +347,14 @@ impl<'a> FnCtxt<'a> {
             return;
         }
         let exp = self.shallow(expected);
+        // A constrained type that is not distinct converts to its base (ADR 0014 §2.4).
+        if let Some((_, base, false)) = self.newtype_of(found) {
+            if self.resolve(exp) == base {
+                let inner = std::mem::replace(e, self.error_expr(e.span));
+                *e = self.unwrap_newtype(inner, base);
+                return;
+            }
+        }
         match (&*tcx.kind(exp), &*tcx.kind(found)) {
             (TyKind::Dyn(tr), k) if !matches!(k, TyKind::Dyn(_) | TyKind::Infer(_) | TyKind::Error) => {
                 let tr = *tr;
@@ -390,6 +404,13 @@ impl<'a> FnCtxt<'a> {
             }
         } else if self.p.is_string(re) && matches!(&*tcx.kind(rf), TyKind::Char) {
             d = d.help("a `char` is not a `String`; use `c.to_string()` or double quotes");
+        } else if let Some((id, base, _)) = self.newtype_of(re).filter(|&(_, base, _)| self.unify_probe(base, rf)) {
+            // ADR 0014: a value of the base becomes a distinct or constrained type with `as`.
+            let a = self.p.adt(id);
+            let checked = if a.newtype.as_ref().is_some_and(|n| n.cond.is_some()) { ", which checks its condition" } else { "" };
+            d = d.help(format!("convert it with `… as {}`{} (from `{}`)", a.name, checked, self.ty_str(base)));
+        } else if let Some((_, base, true)) = self.newtype_of(rf).filter(|&(_, base, _)| self.unify_probe(base, re)) {
+            d = d.help(format!("a distinct type converts to its base with `… as {}`", self.ty_str(base)));
         } else if let (Some((oa, oargs)), true) = (tcx.as_adt(re), true) {
             if Some(oa) == self.p.lang.option && oargs.len() == 1 && self.unify_probe(oargs[0], rf) {
                 d = d.help("wrap the value in `Some(...)`");
@@ -418,6 +439,7 @@ impl<'a> FnCtxt<'a> {
             bounds: Vec::new(),
             closures: Vec::new(),
             closure_frames: Vec::new(),
+            next_closure_scope: false,
             next_fn_id: 0,
         };
         copy.unify(a, b)

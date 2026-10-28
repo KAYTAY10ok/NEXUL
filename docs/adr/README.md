@@ -15,6 +15,11 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0008](0008-backend-llvm-et-runtime-nexul.md) | Backend LLVM et runtime écrit en NEXUL, sans C |
 | [0009](0009-contrat-nxc-lsp.md) | Contrat de `nxc lsp`, des sorties JSON versionnées et du texte non enregistré (acceptée par Claude Main) |
 | [0010](0010-syntaxe-nexul-1.md) | Syntaxe de NEXUL 1, édition 1 (acceptée par l'utilisateur le 16/10/2026) |
+| [0011](0011-perimetre-des-garanties.md) | Périmètre des garanties de sûreté et modèle d'échec (acceptée le 24/10/2026) |
+| [0012](0012-copiabilite-explicite.md) | Copiabilité explicite des types publics, `Copy` (acceptée le 24/10/2026, mise en œuvre au lot 12) |
+| [0013](0013-fondations-de-la-concurrence.md) | Fondations de la concurrence : invariants, concurrence structurée, `Transfer`/`Share` (acceptée le 24/10/2026) |
+| [0014](0014-types-distincts-et-contraints.md) | Types distincts, types contraints et orientation des contrats (acceptée le 24/10/2026, mise en œuvre au lot 13) |
+| [0015](0015-erreurs-et-conversion.md) | Erreurs de la bibliothèque standard (`IoError`) et conversion par `?` (acceptée le 24/10/2026, mise en œuvre au lot 11) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
 
@@ -24,3 +29,11 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 |---|---|
 | G0 | [Audit des usages de la syntaxe 0.2](syntaxe/g0-audit.md) et son [recensement](syntaxe/g0-recensement.md) |
 | G1 | [Trois propositions](syntaxe/g1-propositions.md) ; l'utilisateur a choisi un mélange → ADR 0010 |
+
+## Études
+
+| Lot | Document |
+|---|---|
+| P12 — SH0 | [Auto-hébergement : inventaire et trajectoire](selfhost-sh0.md) |
+| P8 — G0 | [Temps réel : choix de la première cible](temps-reel-g0.md) (décision 3) |
+| Contrats | [Contrats entre les composants du compilateur](../spec/contrats-composants.md) (proposés) |

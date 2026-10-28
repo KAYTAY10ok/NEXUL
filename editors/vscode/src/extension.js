@@ -106,6 +106,33 @@ function activate(context) {
     ));
   }
 
+  function formatDocumentOnSave(event) {
+    const document = event.document;
+    if (!vscode.workspace.isTrusted || !isNexul(document)) return;
+    if (!vscode.workspace.getConfiguration('nexul', document.uri).get('formatOnSave', true)) return;
+
+    event.waitUntil((async () => {
+      try {
+        const text = document.getText();
+        const result = await runNxc(executable(), [
+          'ide', 'format', document.uri.fsPath, '--stdin'
+        ], {
+          cwd: workingDirectory(document),
+          input: text
+        });
+        // Never replace a document with an empty output (an `nxc` that failed silently).
+        if (result.stdout === text || (result.stdout === '' && text !== '')) return [];
+        return [vscode.TextEdit.replace(
+          new vscode.Range(new vscode.Position(0, 0), document.positionAt(text.length)),
+          result.stdout
+        )];
+      } catch (error) {
+        reportFailure('formatage à l’enregistrement', error);
+        return [];
+      }
+    })());
+  }
+
   async function checkCurrentFile() {
     if (!vscode.workspace.isTrusted) return;
     const editor = vscode.window.activeTextEditor;
@@ -333,6 +360,7 @@ function activate(context) {
       codeLensEmitter.fire();
       void startLanguageClient();
     }),
+    vscode.workspace.onWillSaveTextDocument(formatDocumentOnSave),
     vscode.workspace.onDidOpenTextDocument((document) => {
       void updateEditionLanguage(document)
         .catch((error) => reportFailure('détection de l’édition', error));

@@ -1,0 +1,6 @@
+// edition: 1
+type Cut = f32 where it < 16777217.0
+fn main() {
+    let Cut value = 16777216.0
+    println(Cut.check(value as f32).is_some())
+}

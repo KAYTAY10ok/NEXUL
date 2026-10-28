@@ -1,0 +1,49 @@
+error[E0504]: an `@export` function must be a free function without generic parameters
+ --> arrays_and_export.nx:3:4
+  |
+3 | fn exported_generic[T](owned x: T) -> i32 {
+  |    ^^^^^^^^^^^^^^^^ cannot be exported
+
+error[E0503]: parameter `x` of an exported function cannot cross the C boundary
+ --> arrays_and_export.nx:3:30
+  |
+3 | fn exported_generic[T](owned x: T) -> i32 {
+  |                              ^ type `T0`
+  |
+  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)
+
+error[E0504]: an `@export` function must be a free function without generic parameters
+  --> arrays_and_export.nx:13:8
+   |
+13 |     fn exported_method(self) -> i32 {
+   |        ^^^^^^^^^^^^^^^ cannot be exported
+
+error[E0503]: parameter `self` of an exported function cannot cross the C boundary
+  --> arrays_and_export.nx:13:24
+   |
+13 |     fn exported_method(self) -> i32 {
+   |                        ^^^^ type `Counter`
+   |
+   = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)
+
+error[E0313]: the element of an array repeat expression `[x; n]` must be copyable
+  --> arrays_and_export.nx:20:19
+   |
+20 |     let copies = [s; 3]
+   |                   ^ `String` owns resources and cannot be duplicated
+   |
+   = help: build the array element by element, or use a `Vec`
+
+error[E0373]: array length is out of range
+  --> arrays_and_export.nx:22:24
+   |
+22 |     let too_long: [u8; 5_000_000_000] = [0; 5_000_000_000]
+   |                        ^^^^^^^^^^^^^ must be between 0 and 4294967295
+
+error[E0373]: array length is out of range
+  --> arrays_and_export.nx:22:45
+   |
+22 |     let too_long: [u8; 5_000_000_000] = [0; 5_000_000_000]
+   |                                             ^^^^^^^^^^^^^ must be between 0 and 4294967295
+
+error: could not compile due to 7 errors

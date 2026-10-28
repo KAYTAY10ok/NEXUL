@@ -84,6 +84,16 @@ for (const name of ['fail', 'sleep']) {
   assert.throws(() => failed.call(name), e => e instanceof NexulExit && e.code === 101);
   assert.throws(() => failed.alloc(1), /terminated/);
 }
+// ADR 0011 T4 (task C4): an export checks the `char` and `bool` values the host passes.
+const values = await make();
+assert.equal(values.call('char_code', 0x1F30D), 0x1F30D);
+assert.equal(values.call('bool_flip', 1), 0);
+for (const [name, bad, message] of [['char_code', 0xD800, /not a valid `char`/], ['char_code', 0x110000, /not a valid `char`/], ['bool_flip', 2, /not a valid `bool`/]]) {
+  const checked = await make();
+  stderr = '';
+  assert.throws(() => checked.call(name, bad), e => e instanceof NexulExit && e.code === 101);
+  assert.match(stderr, message);
+}
 const trap = await make();
 assert.throws(() => trap.call('print_text', 0xfffffff0, 16), WebAssembly.RuntimeError);
 assert.throws(() => trap.call('clock'), /terminated/);

@@ -1,5 +1,5 @@
-//! Global symbols defined by an object file (COFF, ELF), for the symbol table of static
-//! libraries.
+//! Global symbols defined by an object file (COFF, ELF, Mach-O), for the symbol table of
+//! static libraries.
 
 fn u16le(b: &[u8], o: usize) -> u16 {
     u16::from_le_bytes([b[o], b[o + 1]])
@@ -21,6 +21,9 @@ fn cstr(b: &[u8], o: usize) -> String {
 pub fn defined_symbols(obj: &[u8]) -> Vec<String> {
     if obj.len() > 64 && &obj[0..4] == b"\x7fELF" {
         return elf_symbols(obj).unwrap_or_default();
+    }
+    if obj.len() > 32 && obj[0..4] == [0xcf, 0xfa, 0xed, 0xfe] {
+        return macho_symbols(obj).unwrap_or_default();
     }
     coff_symbols(obj).unwrap_or_default()
 }
@@ -79,4 +82,39 @@ fn elf_symbols(b: &[u8]) -> Option<Vec<String>> {
         }
     }
     Some(out)
+}
+
+/// A 64-bit Mach-O object: the external symbols defined in a section, from `LC_SYMTAB`.
+fn macho_symbols(b: &[u8]) -> Option<Vec<String>> {
+    let ncmds = u32le(b, 16) as usize;
+    let mut at = 32;
+    for _ in 0..ncmds {
+        if at + 24 > b.len() {
+            return None;
+        }
+        let cmd = u32le(b, at);
+        let size = u32le(b, at + 4) as usize;
+        if cmd == 0x2 {
+            // LC_SYMTAB: symoff, nsyms, stroff; entries are `nlist_64` (16 bytes).
+            let (symoff, nsyms, stroff) = (u32le(b, at + 8) as usize, u32le(b, at + 12) as usize, u32le(b, at + 16) as usize);
+            let mut out = Vec::new();
+            for i in 0..nsyms {
+                let e = symoff + i * 16;
+                if e + 16 > b.len() {
+                    break;
+                }
+                let kind = b[e + 4];
+                // Not a debugging entry, external (N_EXT), defined in a section (N_SECT).
+                if kind & 0xe0 == 0 && kind & 0x01 != 0 && kind & 0x0e == 0x0e {
+                    out.push(cstr(b, stroff + u32le(b, e) as usize));
+                }
+            }
+            return Some(out);
+        }
+        if size == 0 {
+            return None;
+        }
+        at += size;
+    }
+    None
 }

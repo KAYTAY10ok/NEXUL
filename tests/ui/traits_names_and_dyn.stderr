@@ -1,0 +1,20 @@
+error[E0245]: `name` is ambiguous: it is declared by several traits
+  --> traits_names_and_dyn.nx:38:25
+   |
+38 |     println(Item(id: 1).name())
+   |                         ^^^^ ambiguous method
+   |
+   = note: declared by `Name` and `Label`
+
+error[E0246]: `Builder` cannot be used as `dyn Builder`
+  --> traits_names_and_dyn.nx:40:26
+   |
+11 |     fn build() -> Self
+   |        ----- method `build` cannot be called through `dyn` because it has no `self` parameter
+...
+40 |     let b: dyn Builder = Item(id: 2)
+   |                          ^^^^^^^^^^^ not usable through `dyn`
+   |
+   = help: use a generic parameter `[T: Trait]` instead, or change the method
+
+error: could not compile due to 2 errors

@@ -486,7 +486,7 @@ impl<'a> Gen<'a> {
         }
         let fd = self.p.func(f);
         let name = match &fd.export {
-            Some(sym) if key.1.is_empty() => format!("@{}", quote_name(sym)),
+            Some(sym) if key.1.is_empty() && !self.export_checks(f) => format!("@{}", quote_name(sym)),
             _ => {
                 let module = &self.p.modules[fd.module.idx()].path;
                 let mut label = format!("{}.{}", module, fd.qualified_name(self.p));
@@ -501,6 +501,19 @@ impl<'a> Gen<'a> {
         self.instances.insert(key.clone(), name.clone());
         self.fn_queue.push(key);
         name
+    }
+
+    /// Does C pass to this `@export` function a parameter whose values are not all valid
+    /// in NEXUL (`bool`, `char`, a constrained type)? Its symbol is then a wrapper that
+    /// checks them before calling the function (ADR 0011 T4, ADR 0014 §2.7).
+    pub fn export_checks(&self, f: FnId) -> bool {
+        let fd = self.p.func(f);
+        fd.export.is_some()
+            && fd.params.iter().any(|p| match &*self.tcx().kind(p.ty) {
+                TyKind::Bool | TyKind::Char => true,
+                TyKind::Adt(id, _) => self.p.adt(*id).newtype.is_some(),
+                _ => false,
+            })
     }
 
     /// A runtime function of the standard library.
@@ -547,6 +560,9 @@ impl<'a> Gen<'a> {
                 let dll = l.clone().unwrap_or_else(|| "ucrtbase".into());
                 self.imports.push((dll, fd.name.clone()));
             }
+            // macOS: the functions of the system library (libSystem), linked through a
+            // text stub that lists them.
+            (Os::MacOs, None) => self.imports.push(("System".into(), fd.name.clone())),
             (_, Some(l)) if target.arch == Arch::Wasm32 => {
                 attrs.push_str(&format!(" \"wasm-import-module\"=\"{}\" \"wasm-import-name\"=\"{}\"", l, fd.name));
                 self.imports.push((l.clone(), fd.name.clone()));
@@ -979,14 +995,43 @@ impl<'a> Gen<'a> {
         let target = self.opts.target.clone();
         match target.os {
             Os::Windows => {
-                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr {})\n  unreachable\n}}\n\n", entry_fn, main_ptr);
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
+                let _ = write!(self.fn_defs, "define i32 @nx_windows_fault(ptr %exception) nounwind {{\nstart:\n  %r = call i32 {}(ptr %exception)\n  ret i32 %r\n}}\n\n", fault);
+                let _ = write!(self.fn_defs, "define void @mainCRTStartup() nounwind {{\nstart:\n  call void {}(ptr @nx_windows_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n", set_handler, entry_fn, main_ptr);
             }
-            Os::Linux | Os::MacOs => {
-                let (set_stack, _) = self.lang_fn("sys_set_stack");
+            Os::MacOs => {
+                // The dynamic loader calls `main(argc, argv, envp)`; memory faults reach the
+                // runtime through a C entry, on an alternate stack (ADR 0011, T2).
+                let (set_args, _) = self.lang_fn("sys_set_args");
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
                 let _ = write!(
                     self.fn_defs,
-                    "define void @nx_linux_start(ptr %sp) nounwind {{\nstart:\n  call void {}(ptr %sp)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
-                    set_stack, entry_fn, main_ptr
+                    "define void @nx_macos_fault(i32 %sig, ptr %info, ptr %ctx) nounwind {{\nstart:\n  call void {}(i32 %sig, ptr %info)\n  unreachable\n}}\n\n",
+                    fault
+                );
+                let _ = write!(
+                    self.fn_defs,
+                    "define i32 @main(i32 %argc, ptr %argv, ptr %envp) nounwind {{\nstart:\n  call void {}(i32 %argc, ptr %argv, ptr %envp)\n  call void {}(ptr @nx_macos_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    set_args, set_handler, entry_fn, main_ptr
+                );
+            }
+            Os::Linux => {
+                let (set_stack, _) = self.lang_fn("sys_set_stack");
+                // Memory faults (SIGSEGV, SIGBUS) reach the runtime through a C entry, on
+                // an alternate stack: a stack overflow ends like a panic (ADR 0011, T2).
+                let (set_handler, _) = self.lang_fn("sys_set_fault_handler");
+                let (fault, _) = self.lang_fn("sys_fault");
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_linux_fault(i32 %sig, ptr %info, ptr %ctx) nounwind {{\nstart:\n  call void {}(i32 %sig, ptr %info)\n  unreachable\n}}\n\n",
+                    fault
+                );
+                let _ = write!(
+                    self.fn_defs,
+                    "define void @nx_linux_start(ptr %sp) nounwind {{\nstart:\n  call void {}(ptr %sp)\n  call void {}(ptr @nx_linux_fault)\n  call void {}(ptr {})\n  unreachable\n}}\n\n",
+                    set_stack, set_handler, entry_fn, main_ptr
                 );
                 let asm = match target.arch {
                     Arch::X86_64 => ".text\n.globl _start\n.type _start,@function\n_start:\n  xorl %ebp, %ebp\n  movq %rsp, %rdi\n  andq $-16, %rsp\n  callq nx_linux_start\n  hlt\n",
@@ -1309,7 +1354,26 @@ start:
         out.push('\n');
         out.push_str(&self.decls);
         out.push('\n');
-        out.push_str(&self.fn_defs);
+        // Apply this to every definition, including drop glue, ABI shims and compiler
+        // helpers: those can acquire large frames after inlining too. Declarations
+        // and module assembly are deliberately excluded. Windows uses __chkstk.
+        if matches!(self.opts.target.os, Os::Linux | Os::MacOs)
+            && matches!(self.opts.target.arch, Arch::X86_64 | Arch::Aarch64)
+        {
+            for line in self.fn_defs.lines() {
+                if line.starts_with("define ") {
+                    // Function attributes precede debug metadata. All definitions
+                    // have their complete signature on one line, ending in ` {`.
+                    let at = line.find(" !dbg ").unwrap_or_else(|| line.rfind(" {").expect("function header"));
+                    let _ = writeln!(out, "{} #0{}", &line[..at], &line[at..]);
+                } else {
+                    let _ = writeln!(out, "{}", line);
+                }
+            }
+            out.push_str("\nattributes #0 = { \"probe-stack\"=\"inline-asm\" }\n");
+        } else {
+            out.push_str(&self.fn_defs);
+        }
         if let Some(di) = self.di.take() {
             out.push_str(&di.module_tail(&[]));
             out.push_str(&di.defs);

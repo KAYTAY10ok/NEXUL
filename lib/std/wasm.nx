@@ -1,18 +1,19 @@
+// edition: 1
 /// Internal single-threaded Wasm page allocator, shared by WASI and web.
 import std.mem
 
 @intrinsic
-unsafe fn wasm_memory_grow(pages: usize) -> isize
+unsafe fn isize wasm_memory_grow(usize pages)
 
-const PAGE: usize = 65536
+const usize PAGE = 65536
 
 /// Freed large regions, reused first (linear memory cannot shrink): each region starts
 /// with [size, next].
-static var FREE_REGIONS: Ptr[u8] = Ptr.null()
+static var Ptr[u8] FREE_REGIONS = Ptr.null()
 
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] page_alloc(usize size) {
     // First fit among the freed regions.
-    var prev: Ptr[u8] = Ptr.null()
+    var Ptr[u8] prev = Ptr.null()
     var r = FREE_REGIONS
     while not r.is_null() {
         let rsize = r.cast[usize]().read()
@@ -37,7 +38,7 @@ pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
     return Ptr[u8].from_addr((old as usize) * PAGE)
 }
 
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+pub unsafe fn page_free(Ptr[u8] p, usize size) {
     p.cast[usize]().write(size)
     p.offset(4).cast[Ptr[u8]]().write(FREE_REGIONS)
     FREE_REGIONS = p

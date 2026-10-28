@@ -1,3 +1,4 @@
+// edition: 1
 /// Software floating point (IEEE 754) for processors without a double-precision
 /// floating-point unit: Cortex-M0/M3/M4, RISC-V without the F/D extensions (spec §7.1).
 ///
@@ -12,34 +13,34 @@
 
 import std.math
 
-const SIGN: u64 = 0x8000_0000_0000_0000
-const FRAC: u64 = 0x000F_FFFF_FFFF_FFFF
-const IMPLICIT: u64 = 0x0010_0000_0000_0000
-const QUIET_NAN: u64 = 0x7FF8_0000_0000_0000
+const u64 SIGN = 0x8000_0000_0000_0000
+const u64 FRAC = 0x000F_FFFF_FFFF_FFFF
+const u64 IMPLICIT = 0x0010_0000_0000_0000
+const u64 QUIET_NAN = 0x7FF8_0000_0000_0000
 
-fn bits(x: f64) -> u64 {
+fn u64 bits(f64 x) {
     return x.to_bits()
 }
 
-fn float(b: u64) -> f64 {
+fn f64 float(u64 b) {
     return math.f64_from_bits(b)
 }
 
-fn pack(sign: u64, exp: u64, sig: u64) -> u64 {
+fn u64 pack(u64 sign, u64 exp, u64 sig) {
     // `sig` may carry into the exponent (the leading bit of a normal significand).
     return (sign << 63) +% (exp << 52) +% sig
 }
 
-fn exp_of(a: u64) -> i32 {
+fn i32 exp_of(u64 a) {
     return ((a >> 52) & 0x7FF) as i32
 }
 
-fn is_nan(a: u64) -> bool {
+fn bool is_nan(u64 a) {
     return (a & 0x7FFF_FFFF_FFFF_FFFF) > 0x7FF0_0000_0000_0000
 }
 
 /// The quiet NaN to return when an operand is a NaN.
-fn propagate_nan(a: u64, b: u64) -> u64 {
+fn u64 propagate_nan(u64 a, u64 b) {
     if is_nan(a) {
         return a | 0x0008_0000_0000_0000
     }
@@ -47,7 +48,7 @@ fn propagate_nan(a: u64, b: u64) -> u64 {
 }
 
 /// `a >> dist`, with the lowest bit set if a nonzero bit was shifted out ("sticky").
-fn shift_right_jam(a: u64, dist: u32) -> u64 {
+fn u64 shift_right_jam(u64 a, u32 dist) {
     if dist == 0 {
         return a
     }
@@ -60,7 +61,7 @@ fn shift_right_jam(a: u64, dist: u32) -> u64 {
 
 /// Rounds and packs a result: `sig` has its leading bit at bit 62, `exp` is the biased
 /// exponent minus one (SoftFloat's convention).
-fn round_pack(sign: u64, exp0: i32, sig0: u64) -> u64 {
+fn u64 round_pack(u64 sign, i32 exp0, u64 sig0) {
     var exp = exp0
     var sig = sig0
     var round_bits = sig & 0x3FF
@@ -83,7 +84,7 @@ fn round_pack(sign: u64, exp0: i32, sig0: u64) -> u64 {
     return pack(sign, exp as u64, sig)
 }
 
-fn norm_round_pack(sign: u64, exp: i32, sig: u64) -> u64 {
+fn u64 norm_round_pack(u64 sign, i32 exp, u64 sig) {
     let shift = sig.leading_zeros() as i32 - 1
     let e = exp - shift
     if shift >= 10 and e >= 0 and e < 0x7FD {
@@ -92,7 +93,7 @@ fn norm_round_pack(sign: u64, exp: i32, sig: u64) -> u64 {
     return round_pack(sign, e, sig << (shift as u64))
 }
 
-fn add_mags(a: u64, b: u64, sign: u64) -> u64 {
+fn u64 add_mags(u64 a, u64 b, u64 sign) {
     let exp_a = exp_of(a)
     let exp_b = exp_of(b)
     var sig_a = a & FRAC
@@ -112,7 +113,7 @@ fn add_mags(a: u64, b: u64, sign: u64) -> u64 {
     }
     sig_a <<= 9
     sig_b <<= 9
-    var exp_z: i32 = 0
+    var i32 exp_z = 0
     if diff < 0 {
         if exp_b == 0x7FF {
             if sig_b != 0 {
@@ -150,7 +151,7 @@ fn add_mags(a: u64, b: u64, sign: u64) -> u64 {
     return round_pack(sign, exp_z, sig_z)
 }
 
-fn sub_mags(a: u64, b: u64, sign0: u64) -> u64 {
+fn u64 sub_mags(u64 a, u64 b, u64 sign0) {
     var sign = sign0
     let exp_a = exp_of(a)
     let exp_b = exp_of(b)
@@ -168,7 +169,7 @@ fn sub_mags(a: u64, b: u64, sign0: u64) -> u64 {
             return 0
         }
         let e = if exp_a != 0 { exp_a - 1 } else { 0 }
-        var d: u64 = 0
+        var u64 d = 0
         if sig_a < sig_b {
             sign = 1 - sign
             d = sig_b - sig_a
@@ -185,8 +186,8 @@ fn sub_mags(a: u64, b: u64, sign0: u64) -> u64 {
     }
     sig_a <<= 10
     sig_b <<= 10
-    var sig_z: u64 = 0
-    var exp_z: i32 = 0
+    var u64 sig_z = 0
+    var i32 exp_z = 0
     if diff < 0 {
         sign = 1 - sign
         if exp_b == 0x7FF {
@@ -216,7 +217,7 @@ fn sub_mags(a: u64, b: u64, sign0: u64) -> u64 {
     return norm_round_pack(sign, exp_z - 1, sig_z)
 }
 
-pub fn f64_add(a: u64, b: u64) -> u64 {
+pub fn u64 f64_add(u64 a, u64 b) {
     let sa = a >> 63
     if sa == b >> 63 {
         return add_mags(a, b, sa)
@@ -224,7 +225,7 @@ pub fn f64_add(a: u64, b: u64) -> u64 {
     return sub_mags(a, b, sa)
 }
 
-pub fn f64_sub(a: u64, b: u64) -> u64 {
+pub fn u64 f64_sub(u64 a, u64 b) {
     let sa = a >> 63
     if sa == b >> 63 {
         return sub_mags(a, b, sa)
@@ -233,7 +234,7 @@ pub fn f64_sub(a: u64, b: u64) -> u64 {
 }
 
 /// The full 128-bit product of two 64-bit numbers: (high, low).
-fn mul_wide(a: u64, b: u64) -> (u64, u64) {
+fn (u64, u64) mul_wide(u64 a, u64 b) {
     let a0 = a & 0xFFFF_FFFF
     let a1 = a >> 32
     let b0 = b & 0xFFFF_FFFF
@@ -249,12 +250,12 @@ fn mul_wide(a: u64, b: u64) -> (u64, u64) {
 }
 
 /// A subnormal significand normalized: (exponent, significand with bit 52 set).
-fn normalize(sig: u64) -> (i32, u64) {
+fn (i32, u64) normalize(u64 sig) {
     let shift = sig.leading_zeros() as i32 - 11
     return (1 - shift, sig << (shift as u64))
 }
 
-pub fn f64_mul(a: u64, b: u64) -> u64 {
+pub fn u64 f64_mul(u64 a, u64 b) {
     let sign = (a ^ b) >> 63
     var exp_a = exp_of(a)
     var exp_b = exp_of(b)
@@ -304,7 +305,7 @@ pub fn f64_mul(a: u64, b: u64) -> u64 {
     return round_pack(sign, exp_z, sig_z)
 }
 
-pub fn f64_div(a: u64, b: u64) -> u64 {
+pub fn u64 f64_div(u64 a, u64 b) {
     let sign = (a ^ b) >> 63
     var exp_a = exp_of(a)
     var exp_b = exp_of(b)
@@ -355,7 +356,7 @@ pub fn f64_div(a: u64, b: u64) -> u64 {
         rem <<= 1
     }
     // Long division: 63 quotient bits, then a sticky bit for the remainder.
-    var q: u64 = 0
+    var u64 q = 0
     for _ in 0..63 {
         q <<= 1
         if rem >= d {
@@ -370,7 +371,7 @@ pub fn f64_div(a: u64, b: u64) -> u64 {
     return round_pack(sign, exp_z, q)
 }
 
-pub fn f64_sqrt(a: u64) -> u64 {
+pub fn u64 f64_sqrt(u64 a) {
     let sign = a >> 63
     var exp = exp_of(a)
     var sig = a & FRAC
@@ -407,8 +408,8 @@ pub fn f64_sqrt(a: u64) -> u64 {
     // root = floor(sqrt(m * 2^56)): 55 bits, by pairs of bits of the 110-bit radicand.
     let hi = m >> 8
     let lo = (m & 0xFF) << 56
-    var rem: u64 = 0
-    var root: u64 = 0
+    var u64 rem = 0
+    var u64 root = 0
     for i in 0..55 {
         let p = 109 - 2 * (i as u32)
         let b1 = if p >= 64 { (hi >> ((p - 64) as u64)) & 1 } else { (lo >> (p as u64)) & 1 }
@@ -428,7 +429,7 @@ pub fn f64_sqrt(a: u64) -> u64 {
 }
 
 /// -1 less, 0 equal, 1 greater, 2 unordered.
-pub fn f64_compare(a: u64, b: u64) -> i32 {
+pub fn i32 f64_compare(u64 a, u64 b) {
     if is_nan(a) or is_nan(b) {
         return 2
     }
@@ -448,7 +449,7 @@ pub fn f64_compare(a: u64, b: u64) -> i32 {
 }
 
 /// Truncation toward zero; saturates outside of the range (callers check the range).
-fn f64_to_int(a: u64, max_bits: u32, signed: bool) -> u64 {
+fn u64 f64_to_int(u64 a, u32 max_bits, bool signed) {
     let sign = a >> 63
     let exp = exp_of(a)
     if is_nan(a) {
@@ -478,7 +479,7 @@ fn f64_to_int(a: u64, max_bits: u32, signed: bool) -> u64 {
 }
 
 /// The `f64` nearest to `sign * mag`.
-fn f64_from_magnitude(sign: u64, mag: u64) -> u64 {
+fn u64 f64_from_magnitude(u64 sign, u64 mag) {
     if mag == 0 {
         return pack(sign, 0, 0)
     }
@@ -491,7 +492,7 @@ fn f64_from_magnitude(sign: u64, mag: u64) -> u64 {
 // Single precision
 
 /// Rounds and packs an `f32`: `sig` has its leading bit at bit 30.
-fn round_pack32(sign: u64, exp0: i32, sig0: u64) -> u32 {
+fn u32 round_pack32(u64 sign, i32 exp0, u64 sig0) {
     var exp = exp0
     var sig = sig0
     var round_bits = sig & 0x7F
@@ -514,7 +515,7 @@ fn round_pack32(sign: u64, exp0: i32, sig0: u64) -> u32 {
     return ((sign << 31) +% ((exp as u64) << 23) +% sig) as u32
 }
 
-pub fn f32_to_f64(a: u32) -> u64 {
+pub fn u64 f32_to_f64(u32 a) {
     let sign = (a >> 31) as u64
     let exp = ((a >> 23) & 0xFF) as i32
     var frac = (a & 0x7F_FFFF) as u64
@@ -536,7 +537,7 @@ pub fn f32_to_f64(a: u32) -> u64 {
     return pack(sign, (exp + 1023 - 127) as u64, frac << 29)
 }
 
-pub fn f64_to_f32(a: u64) -> u32 {
+pub fn u32 f64_to_f32(u64 a) {
     let sign = a >> 63
     let exp = exp_of(a)
     let frac = a & FRAC
@@ -553,7 +554,7 @@ pub fn f64_to_f32(a: u64) -> u32 {
     return round_pack32(sign, exp - 0x381, frac32 | 0x4000_0000)
 }
 
-fn f32_from_magnitude(sign: u64, mag: u64) -> u32 {
+fn u32 f32_from_magnitude(u64 sign, u64 mag) {
     if mag == 0 {
         return (sign << 31) as u32
     }
@@ -562,23 +563,23 @@ fn f32_from_magnitude(sign: u64, mag: u64) -> u32 {
     return round_pack32(sign, 189 - shift as i32, sig)
 }
 
-fn f32_bits(x: f32) -> u32 {
+fn u32 f32_bits(f32 x) {
     return x.to_bits()
 }
 
-fn f32_float(b: u32) -> f32 {
+fn f32 f32_float(u32 b) {
     return math.f32_from_bits(b)
 }
 
 /// An `f32` operation computed in `f64`, rounded once.
-fn f32_via_f64(a: f32, b: f32, op: i32) -> f32 {
+fn f32 f32_via_f64(f32 a, f32 b, i32 op) {
     let x = f32_to_f64(f32_bits(a))
     let y = f32_to_f64(f32_bits(b))
-    let r = match op {
-        0 => f64_add(x, y)
-        1 => f64_sub(x, y)
-        2 => f64_mul(x, y)
-        _ => f64_div(x, y)
+    let r = when op {
+        0 then f64_add(x, y)
+        1 then f64_sub(x, y)
+        2 then f64_mul(x, y)
+        _ then f64_div(x, y)
     }
     return f32_float(f64_to_f32(r))
 }
@@ -588,43 +589,43 @@ fn f32_via_f64(a: f32, b: f32, op: i32) -> f32 {
 
 @cfg("soft_float")
 @export("__adddf3")
-pub fn adddf3(a: f64, b: f64) -> f64 {
+pub fn f64 adddf3(f64 a, f64 b) {
     return float(f64_add(bits(a), bits(b)))
 }
 
 @cfg("soft_float")
 @export("__subdf3")
-pub fn subdf3(a: f64, b: f64) -> f64 {
+pub fn f64 subdf3(f64 a, f64 b) {
     return float(f64_sub(bits(a), bits(b)))
 }
 
 @cfg("soft_float")
 @export("__muldf3")
-pub fn muldf3(a: f64, b: f64) -> f64 {
+pub fn f64 muldf3(f64 a, f64 b) {
     return float(f64_mul(bits(a), bits(b)))
 }
 
 @cfg("soft_float")
 @export("__divdf3")
-pub fn divdf3(a: f64, b: f64) -> f64 {
+pub fn f64 divdf3(f64 a, f64 b) {
     return float(f64_div(bits(a), bits(b)))
 }
 
 @cfg("soft_float")
 @export("__negdf2")
-pub fn negdf2(a: f64) -> f64 {
+pub fn f64 negdf2(f64 a) {
     return float(bits(a) ^ SIGN)
 }
 
 @cfg("soft_float")
 @export("sqrt")
-pub fn sqrt(a: f64) -> f64 {
+pub fn f64 sqrt(f64 a) {
     return float(f64_sqrt(bits(a)))
 }
 
 @cfg("soft_float")
 @export("fmin")
-pub fn fmin(a: f64, b: f64) -> f64 {
+pub fn f64 fmin(f64 a, f64 b) {
     let (x, y) = (bits(a), bits(b))
     if is_nan(x) {
         return b
@@ -637,7 +638,7 @@ pub fn fmin(a: f64, b: f64) -> f64 {
 
 @cfg("soft_float")
 @export("fmax")
-pub fn fmax(a: f64, b: f64) -> f64 {
+pub fn f64 fmax(f64 a, f64 b) {
     let (x, y) = (bits(a), bits(b))
     if is_nan(x) {
         return b
@@ -653,54 +654,54 @@ pub fn fmax(a: f64, b: f64) -> f64 {
 
 @cfg("soft_float")
 @export("__eqdf2")
-pub fn eqdf2(a: f64, b: f64) -> i32 {
+pub fn i32 eqdf2(f64 a, f64 b) {
     return if f64_compare(bits(a), bits(b)) == 0 { 0 } else { 1 }
 }
 
 @cfg("soft_float")
 @export("__nedf2")
-pub fn nedf2(a: f64, b: f64) -> i32 {
+pub fn i32 nedf2(f64 a, f64 b) {
     return if f64_compare(bits(a), bits(b)) == 0 { 0 } else { 1 }
 }
 
 @cfg("soft_float")
 @export("__ltdf2")
-pub fn ltdf2(a: f64, b: f64) -> i32 {
+pub fn i32 ltdf2(f64 a, f64 b) {
     let c = f64_compare(bits(a), bits(b))
     return if c == 2 { 1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__ledf2")
-pub fn ledf2(a: f64, b: f64) -> i32 {
+pub fn i32 ledf2(f64 a, f64 b) {
     let c = f64_compare(bits(a), bits(b))
     return if c == 2 { 1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__cmpdf2")
-pub fn cmpdf2(a: f64, b: f64) -> i32 {
+pub fn i32 cmpdf2(f64 a, f64 b) {
     let c = f64_compare(bits(a), bits(b))
     return if c == 2 { 1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__gtdf2")
-pub fn gtdf2(a: f64, b: f64) -> i32 {
+pub fn i32 gtdf2(f64 a, f64 b) {
     let c = f64_compare(bits(a), bits(b))
     return if c == 2 { -1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__gedf2")
-pub fn gedf2(a: f64, b: f64) -> i32 {
+pub fn i32 gedf2(f64 a, f64 b) {
     let c = f64_compare(bits(a), bits(b))
     return if c == 2 { -1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__unorddf2")
-pub fn unorddf2(a: f64, b: f64) -> i32 {
+pub fn i32 unorddf2(f64 a, f64 b) {
     return if f64_compare(bits(a), bits(b)) == 2 { 1 } else { 0 }
 }
 
@@ -708,7 +709,7 @@ pub fn unorddf2(a: f64, b: f64) -> i32 {
 
 @cfg("soft_float")
 @export("__fixdfsi")
-pub fn fixdfsi(a: f64) -> i32 {
+pub fn i32 fixdfsi(f64 a) {
     let v = f64_to_int(bits(a), 32, true)
     let low = v & 0xFFFF_FFFF
     if low >= 0x8000_0000 {
@@ -719,13 +720,13 @@ pub fn fixdfsi(a: f64) -> i32 {
 
 @cfg("soft_float")
 @export("__fixunsdfsi")
-pub fn fixunsdfsi(a: f64) -> u32 {
+pub fn u32 fixunsdfsi(f64 a) {
     return (f64_to_int(bits(a), 32, false) & 0xFFFF_FFFF) as u32
 }
 
 @cfg("soft_float")
 @export("__fixdfdi")
-pub fn fixdfdi(a: f64) -> i64 {
+pub fn i64 fixdfdi(f64 a) {
     let v = f64_to_int(bits(a), 64, true)
     if v >= SIGN {
         return 0 - ((0 -% v) - 1) as i64 - 1
@@ -735,13 +736,13 @@ pub fn fixdfdi(a: f64) -> i64 {
 
 @cfg("soft_float")
 @export("__fixunsdfdi")
-pub fn fixunsdfdi(a: f64) -> u64 {
+pub fn u64 fixunsdfdi(f64 a) {
     return f64_to_int(bits(a), 64, false)
 }
 
 @cfg("soft_float")
 @export("__floatsidf")
-pub fn floatsidf(a: i32) -> f64 {
+pub fn f64 floatsidf(i32 a) {
     if a < 0 {
         return float(f64_from_magnitude(1, ((0 - (a as i64)) as u64)))
     }
@@ -750,13 +751,13 @@ pub fn floatsidf(a: i32) -> f64 {
 
 @cfg("soft_float")
 @export("__floatunsidf")
-pub fn floatunsidf(a: u32) -> f64 {
+pub fn f64 floatunsidf(u32 a) {
     return float(f64_from_magnitude(0, a as u64))
 }
 
 @cfg("soft_float")
 @export("__floatdidf")
-pub fn floatdidf(a: i64) -> f64 {
+pub fn f64 floatdidf(i64 a) {
     if a < 0 {
         return float(f64_from_magnitude(1, ((0 - (a + 1)) as u64) + 1))
     }
@@ -765,19 +766,19 @@ pub fn floatdidf(a: i64) -> f64 {
 
 @cfg("soft_float")
 @export("__floatundidf")
-pub fn floatundidf(a: u64) -> f64 {
+pub fn f64 floatundidf(u64 a) {
     return float(f64_from_magnitude(0, a))
 }
 
 @cfg("soft_float")
 @export("__extendsfdf2")
-pub fn extendsfdf2(a: f32) -> f64 {
+pub fn f64 extendsfdf2(f32 a) {
     return float(f32_to_f64(f32_bits(a)))
 }
 
 @cfg("soft_float")
 @export("__truncdfsf2")
-pub fn truncdfsf2(a: f64) -> f32 {
+pub fn f32 truncdfsf2(f64 a) {
     return f32_float(f64_to_f32(bits(a)))
 }
 
@@ -785,117 +786,117 @@ pub fn truncdfsf2(a: f64) -> f32 {
 
 @cfg("soft_float")
 @export("__addsf3")
-pub fn addsf3(a: f32, b: f32) -> f32 {
+pub fn f32 addsf3(f32 a, f32 b) {
     return f32_via_f64(a, b, 0)
 }
 
 @cfg("soft_float")
 @export("__subsf3")
-pub fn subsf3(a: f32, b: f32) -> f32 {
+pub fn f32 subsf3(f32 a, f32 b) {
     return f32_via_f64(a, b, 1)
 }
 
 @cfg("soft_float")
 @export("__mulsf3")
-pub fn mulsf3(a: f32, b: f32) -> f32 {
+pub fn f32 mulsf3(f32 a, f32 b) {
     return f32_via_f64(a, b, 2)
 }
 
 @cfg("soft_float")
 @export("__divsf3")
-pub fn divsf3(a: f32, b: f32) -> f32 {
+pub fn f32 divsf3(f32 a, f32 b) {
     return f32_via_f64(a, b, 3)
 }
 
 @cfg("soft_float")
 @export("__negsf2")
-pub fn negsf2(a: f32) -> f32 {
+pub fn f32 negsf2(f32 a) {
     return f32_float(f32_bits(a) ^ 0x8000_0000)
 }
 
 @cfg("soft_float")
 @export("sqrtf")
-pub fn sqrtf(a: f32) -> f32 {
+pub fn f32 sqrtf(f32 a) {
     return f32_float(f64_to_f32(f64_sqrt(f32_to_f64(f32_bits(a)))))
 }
 
-fn f32_compare(a: f32, b: f32) -> i32 {
+fn i32 f32_compare(f32 a, f32 b) {
     return f64_compare(f32_to_f64(f32_bits(a)), f32_to_f64(f32_bits(b)))
 }
 
 @cfg("soft_float")
 @export("__eqsf2")
-pub fn eqsf2(a: f32, b: f32) -> i32 {
+pub fn i32 eqsf2(f32 a, f32 b) {
     return if f32_compare(a, b) == 0 { 0 } else { 1 }
 }
 
 @cfg("soft_float")
 @export("__nesf2")
-pub fn nesf2(a: f32, b: f32) -> i32 {
+pub fn i32 nesf2(f32 a, f32 b) {
     return if f32_compare(a, b) == 0 { 0 } else { 1 }
 }
 
 @cfg("soft_float")
 @export("__ltsf2")
-pub fn ltsf2(a: f32, b: f32) -> i32 {
+pub fn i32 ltsf2(f32 a, f32 b) {
     let c = f32_compare(a, b)
     return if c == 2 { 1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__lesf2")
-pub fn lesf2(a: f32, b: f32) -> i32 {
+pub fn i32 lesf2(f32 a, f32 b) {
     let c = f32_compare(a, b)
     return if c == 2 { 1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__gtsf2")
-pub fn gtsf2(a: f32, b: f32) -> i32 {
+pub fn i32 gtsf2(f32 a, f32 b) {
     let c = f32_compare(a, b)
     return if c == 2 { -1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__gesf2")
-pub fn gesf2(a: f32, b: f32) -> i32 {
+pub fn i32 gesf2(f32 a, f32 b) {
     let c = f32_compare(a, b)
     return if c == 2 { -1 } else { c }
 }
 
 @cfg("soft_float")
 @export("__unordsf2")
-pub fn unordsf2(a: f32, b: f32) -> i32 {
+pub fn i32 unordsf2(f32 a, f32 b) {
     return if f32_compare(a, b) == 2 { 1 } else { 0 }
 }
 
 @cfg("soft_float")
 @export("__fixsfsi")
-pub fn fixsfsi(a: f32) -> i32 {
+pub fn i32 fixsfsi(f32 a) {
     return fixdfsi(extendsfdf2(a))
 }
 
 @cfg("soft_float")
 @export("__fixunssfsi")
-pub fn fixunssfsi(a: f32) -> u32 {
+pub fn u32 fixunssfsi(f32 a) {
     return fixunsdfsi(extendsfdf2(a))
 }
 
 @cfg("soft_float")
 @export("__fixsfdi")
-pub fn fixsfdi(a: f32) -> i64 {
+pub fn i64 fixsfdi(f32 a) {
     return fixdfdi(extendsfdf2(a))
 }
 
 @cfg("soft_float")
 @export("__fixunssfdi")
-pub fn fixunssfdi(a: f32) -> u64 {
+pub fn u64 fixunssfdi(f32 a) {
     return fixunsdfdi(extendsfdf2(a))
 }
 
 @cfg("soft_float")
 @export("__floatsisf")
-pub fn floatsisf(a: i32) -> f32 {
+pub fn f32 floatsisf(i32 a) {
     if a < 0 {
         return f32_float(f32_from_magnitude(1, (0 - (a as i64)) as u64))
     }
@@ -904,13 +905,13 @@ pub fn floatsisf(a: i32) -> f32 {
 
 @cfg("soft_float")
 @export("__floatunsisf")
-pub fn floatunsisf(a: u32) -> f32 {
+pub fn f32 floatunsisf(u32 a) {
     return f32_float(f32_from_magnitude(0, a as u64))
 }
 
 @cfg("soft_float")
 @export("__floatdisf")
-pub fn floatdisf(a: i64) -> f32 {
+pub fn f32 floatdisf(i64 a) {
     if a < 0 {
         return f32_float(f32_from_magnitude(1, ((0 - (a + 1)) as u64) + 1))
     }
@@ -919,6 +920,6 @@ pub fn floatdisf(a: i64) -> f32 {
 
 @cfg("soft_float")
 @export("__floatundisf")
-pub fn floatundisf(a: u64) -> f32 {
+pub fn f32 floatundisf(u64 a) {
     return f32_float(f32_from_magnitude(0, a))
 }

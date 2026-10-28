@@ -40,6 +40,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0109` | A pattern was expected. |
 | `E0111` | A form of edition 1 is planned but not implemented yet. |
 | `E0112` | A form of NEXUL 0.2 does not exist in edition 1. |
+| `E0113` | A construction is too deeply nested or too long. |
 | `E0110` | An expression is computed, then its value is lost. |
 
 ## Noms, modules et attributs (chapitres 04 et 06)
@@ -74,6 +75,11 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0247` | An `impl Trait for Type` block is in an unrelated module. |
 | `E0248` | An anonymous function is used where it could outlive the call that receives it. |
 | `E0249` | A type does not implement a trait required by a bound. |
+| `E0250` | A type declared `Copy` cannot be copied bit for bit. |
+| `E0251` | Invalid distinct or constrained type (edition 1, ADR 0014). |
+| `E0252` | A constant does not satisfy the condition of its constrained type. |
+| `E0253` | `unsafe impl` declares exactly `Transfer` and `Share` (ADR 0013). |
+| `E0254` | A task of `std.tache` is launched where it could outlive what it uses (ADR 0013). |
 
 ## Types, motifs et constantes (chapitres 03 et 04)
 
@@ -115,7 +121,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0349` | `else` after a value (edition 1) gives a fallback for an `Option` that is empty or a `Result` that is an error. |
 | `E0350` | This value cannot be formatted. |
 | `E0351` | This format specification does not apply to the value's type. |
-| `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or the error |
+| `E0360` | The `?` operator is applied to a value that is not `Option` or `Result`, or its error |
 | `E0361` | The `?` operator is used in a function that does not return `Option` or `Result`. |
 | `E0370` | Arithmetic overflow or division by zero while evaluating a constant. |
 | `E0371` | This expression cannot be evaluated at compile time. |

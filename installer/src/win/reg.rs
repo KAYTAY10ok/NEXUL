@@ -66,8 +66,11 @@ fn open(key: &str, access: u32) -> Option<Key> {
 fn create(key: &str) -> Result<Key, String> {
     let (root, sub) = resolve(key)?;
     let mut h: HKEY = 0;
-    let r = unsafe {
-        RegCreateKeyExW(
+    // A concurrent deletion of an ancestor can temporarily leave it marked for
+    // deletion (1018). Retry only that transient error, with a bounded delay.
+    let mut r = ERROR_SUCCESS;
+    for attempt in 0..20 {
+        r = unsafe { RegCreateKeyExW(
             root,
             wide(&sub).as_ptr(),
             0,
@@ -77,8 +80,12 @@ fn create(key: &str) -> Result<Key, String> {
             std::ptr::null(),
             &mut h,
             std::ptr::null_mut(),
-        )
-    };
+        ) };
+        if r != 1018 || attempt == 19 {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
     if r == ERROR_SUCCESS {
         Ok(Key(h))
     } else {
@@ -213,30 +220,59 @@ pub fn long_name(key: &str) -> String {
     }
 }
 
-/// The parent of the keys of the tests, `HKCU\Software\NEXUL-Tests`, removed once no test
-/// uses it any more (a key with subkeys is not removed: other tests may be running).
+/// The number of tests of this process that use a key under `HKCU\Software\NEXUL-Tests`.
 #[cfg(test)]
-pub fn remove_tests_root_if_empty() {
-    unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide(r"Software\NEXUL-Tests").as_ptr()) };
+static TESTS_ROOT_USERS: std::sync::Mutex<usize> = std::sync::Mutex::new(0);
+
+/// A test's use of `HKCU\Software\NEXUL-Tests`, the parent of the keys of the tests: the
+/// last one to end removes it if it is empty. Taken before the test creates its key, and
+/// counted under the same lock as the removal: otherwise a test that ends could remove the
+/// parent just after another test created it, before that one created its own key below
+/// (`keys_tree` failed so, "file not found", when run with the other tests).
+#[cfg(test)]
+pub struct TestsRootUse(());
+
+#[cfg(test)]
+impl TestsRootUse {
+    pub fn new() -> TestsRootUse {
+        *TESTS_ROOT_USERS.lock().unwrap_or_else(|e| e.into_inner()) += 1;
+        TestsRootUse(())
+    }
+}
+
+#[cfg(test)]
+impl Drop for TestsRootUse {
+    fn drop(&mut self) {
+        let mut users = TESTS_ROOT_USERS.lock().unwrap_or_else(|e| e.into_inner());
+        *users -= 1;
+        if *users == 0 {
+            // Not removed if it still has subkeys (an earlier run, another process).
+            unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, wide(r"Software\NEXUL-Tests").as_ptr()) };
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// A key of the tests, removed at the end (never a setting of the user).
-    struct TestKey(String);
+    /// A key of the tests, removed at the end (never a setting of the user); its use of
+    /// the parent is released after the key is removed (fields are dropped after `drop`).
+    struct TestKey(String, TestsRootUse);
 
     impl TestKey {
         fn new(name: &str) -> TestKey {
-            TestKey(format!(r"HKCU\Software\NEXUL-Tests\unit-{}-{name}", std::process::id()))
+            static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let sequence = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let timestamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+            let root = TestsRootUse::new();
+            TestKey(format!(r"HKCU\Software\NEXUL-Tests\unit-{}-{timestamp}-{sequence}-{name}", std::process::id()), root)
         }
     }
 
     impl Drop for TestKey {
         fn drop(&mut self) {
             let _ = delete_tree(&self.0);
-            remove_tests_root_if_empty();
         }
     }
 

@@ -1,0 +1,4 @@
+code 3, success false, output [child out, child err]
+child shares the output
+status 0
+not found: true

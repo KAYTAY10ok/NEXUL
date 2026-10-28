@@ -227,11 +227,11 @@ corps          = bloc | "=" expression FIN ;
 type_decl      = "type" nom [ generiques ] ( [ "is" bornes ] corps_type | "=" definition FIN ) ;
 corps_type     = "{" { champ | { attribut } [ visibilite ] fonction } "}" ;
 champ          = [ visibilite ] type nom ( FIN | "," ) ;
-definition     = variantes | "distinct" type [ restriction ] | type [ restriction ] ;
+definition     = variantes | "distinct" type [ "is" bornes ] [ restriction ] | type [ restriction ] ;  (* ADR 0014 *)
 variantes      = [ "|" ] variante { "|" variante } ;
 variante       = [ "indirect" ] "." nom [ "(" champ_v { "," champ_v } ")" ] ;
 champ_v        = type [ nom ] ;
-restriction    = "where" expression ;                 (* « it » désigne la valeur *)
+restriction    = "where" condition ;                  (* « it » désigne la valeur ; condition : ADR 0014 §2.2 *)
 interface      = "interface" nom [ generiques ] [ "is" bornes ] "{" { { attribut } signature } "}" ;
 signature      = "fn" [ type ] nom [ generiques ] "(" [ parametres ] ")" { clause } [ corps ] FIN ;
 extension      = "extend" type [ "is" bornes ] "{" { { attribut } [ visibilite ] fonction } "}" ;
@@ -643,3 +643,44 @@ Reste : `===`/`!==` (avec les valeurs partagées), types distincts et contraints
 - **Type après le nom** (`x: i32`, `-> i32`) : écarté à la demande de l'utilisateur.
 - **Indentation significative** : écartée (passation §3.1 : pas de règle dépendant
   d'espaces mal définis ; copier-coller fragile).
+
+## Questions du 28/10/2026 — **décidées par l'utilisateur le 28/10/2026** (A pour Q1, la proposition pour Q2)
+
+Constatées en migrant la bibliothèque standard (Claude Main). **Mises en œuvre le
+28/10/2026** : `extend Type[P is …] { … }` sans interface est accepté quand il nomme les
+paramètres du type dans l'ordre (sinon E0224) ; ses contraintes s'ajoutent à chacune de ses
+méthodes ; un mot réservé peut nommer une méthode (dans `extend`, `interface` ou un type),
+un champ ou un argument nommé, jamais une fonction libre (E0010). `nxc migrate` regroupe
+les méthodes à `where` par jeu de contraintes et ne renomme plus les membres. Toute la
+bibliothèque standard est écrite en édition 1. Tests : `tests/run/edition1_members.nx`,
+`tests/ui/edition1_members.nx`.
+
+**Q1. Une méthode contrainte sur un paramètre de son type.** En 0.2,
+`impl Vec { fn contains(self, value: T) -> bool where T: Eq { … } }` ; en édition 1, ni
+l'en-tête de la méthode ni `extend Vec[T is Eq] { … }` (refusé : E0224) ne peuvent l'écrire.
+Un programme en édition 1 ne peut donc pas définir un conteneur générique complet.
+
+- **Proposition A (recommandée)** : `extend Vec[T is Eq] { pub fn bool contains(self, T value) … }`
+  — un bloc conditionnel, comme les `extend … is Interface` existants ; une seule règle à
+  apprendre ; les méthodes n'existent que si la contrainte est satisfaite (message clair
+  sinon). `nxc migrate` regroupe les méthodes par contrainte.
+- **Proposition B** : `pub fn bool contains(self, T value) where T is Eq { … }` — plus
+  proche de la 0.2, migration ligne à ligne, mais `where` y prend un second sens (il
+  désigne déjà la condition d'un type contraint, ADR 0014).
+
+**Q2. Une méthode publique dont le nom devient réservé** (`repeat`, `any`, `extend`,
+`test`) : `v.any(f)` s'écrit déjà en édition 1 (un nom après un point n'est jamais un mot
+clé), mais `fn bool any(…)` ne se déclare pas.
+
+- **Proposition (recommandée)** : accepter un mot réservé comme **nom de méthode ou de
+  champ** dans sa déclaration (le mot suit `fn T` ou un type, jamais en tête
+  d'instruction), sans le permettre ailleurs. Aucun renommage de l'API, aucune rupture.
+
+**Formes complétées le 28/10/2026 (Claude Main, critère « édition 1 complète » de la 0.4.0)** :
+`for T x in e { … }` (le type est vérifié comme celui d'un `let`, et type un intervalle :
+`for i64 i in 0..n` ; pas encore avec `x!` ni un motif) ; des fonctions dans un `type` qui
+déclare plusieurs interfaces (chacune va à l'interface qui la déclare, les autres restent des
+méthodes du type). Tests : `tests/run/edition1_forms.nx`. Restent refusées (E0111), hors formes
+réservées du §8 : une contrainte sur le paramètre d'un type (`type Map[K is Hash]`, que l'on écrit
+sur les blocs `extend`), un type distinct ou contraint générique (ADR 0014), `===`/`!==` (avec
+les valeurs partagées).

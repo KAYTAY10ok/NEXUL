@@ -1,0 +1,48 @@
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_convert_errors.nx:30:13
+   |
+30 |     let n = text()?
+   |             ^^^^^^^ error type `String`
+   |
+   = note: the function returns errors of type `Twice`
+   = note: `?` cannot choose: several variants of `Twice` hold a `String` (`First`, `Second`)
+   = help: keep one variant per error type, or convert the error with `match`
+
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_convert_errors.nx:35:13
+   |
+35 |     let n = text()?
+   |             ^^^^^^^ error type `String`
+   |
+   = note: the function returns errors of type `Unrelated`
+   = help: add a variant that holds the error to `Unrelated`, such as `Message(String)`: `?` then wraps the error in it
+
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_convert_errors.nx:40:13
+   |
+40 |     let n = mine()?
+   |             ^^^^^^^ error type `Mine`
+   |
+   = note: the function returns errors of type `dyn Error`
+   = note: `Mine` does not implement `Error`
+   = help: implement it: `impl Error for Mine {}` (it needs `Display`)
+
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_convert_errors.nx:45:13
+   |
+45 |     let n = text()?
+   |             ^^^^^^^ error type `String`
+   |
+   = note: the function returns errors of type `Plain`
+   = help: return `Result[..., String]`, or convert the error with `match`
+
+error[E0360]: the error type of `?` does not match the function's error type
+  --> try_convert_errors.nx:50:13
+   |
+50 |     let n = mine()?
+   |             ^^^^^^^ error type `Mine`
+   |
+   = note: the function returns errors of type `String`
+   = help: return `Result[..., Mine]`, or convert the error with `match`
+
+error: could not compile due to 5 errors

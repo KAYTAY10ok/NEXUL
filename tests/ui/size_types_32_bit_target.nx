@@ -1,0 +1,15 @@
+// target: wasm32-wasi
+// `isize` and `usize` have the width of a pointer of the target (spec §3.1): on a 32-bit
+// target, a value that only fits in 64 bits is rejected instead of being truncated.
+const BIG: usize = 4_000_000_000 + 1_000_000_000
+const SHIFTED: usize = 1 << 40
+const FITS: usize = 4_294_967_295
+const NEXT: isize = isize.MAX + 1
+
+fn main() {
+    let a: usize = 5_000_000_000
+    let b: isize = -3_000_000_000
+    let d = usize.MAX +% 1
+    let e: u64 = 5_000_000_000
+    println("{a} {b} {NEXT} {d} {e} {FITS} {usize.BITS} {isize.MIN}")
+}

@@ -1,0 +1,49 @@
+// edition: 1
+// std.strview: views that share their text (no copy), across tasks too.
+import std.strview.{StrView}
+import std.tache
+import std.collections.{Map}
+
+fn usize count_words(owned StrView text) {
+    var usize n = 0
+    for w in text.split(" ") {
+        if not w.trim().is_empty() {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn main() {
+    let source = StrView.new("fn main() \{\r\n    let x = 42\n  é ü \n\}\n")
+    let lines = source.lines()
+    println("{lines.len()} lines")
+    for l in lines {
+        println("[{l}] trimmed [{l.trim()}] len {l.len()}")
+    }
+    let second = lines[1].trim()
+    let parts = second.split(" ")
+    println("{parts.len()} parts, last {parts[3].parse_int()}, first is let: {parts[0].equals("let")}")
+    println("starts {source.starts_with("fn")} ends {source.ends_with("\}\n")} find {source.find("let")} contains {source.contains("é")}")
+    let sub = source.slice(3, 7)
+    println("slice [{sub}] = copy: {sub.to_string() == "main"} eq {sub == StrView.of("main")} chars {sub.chars().len()}")
+    // The text lives as long as one of its views.
+    let kept = when lines.len() {
+        _ then lines[2].clone()
+    }
+    println("kept [{kept}]")
+
+    // A view as a key, and across a task.
+    var Map[StrView, i32] counts = Map.new()
+    for w in StrView.of("a b a c b a").split(" ") {
+        let n = when counts.get(w) {
+            .Some(v) then v + 1
+            .None then 1
+        }
+        counts.insert(w.clone(), n)
+    }
+    println("a: {counts.get(StrView.of("a"))}, c: {counts.get(StrView.of("c"))}")
+    let t = tache.lancer_detachee(count_words, StrView.of("  un deux   trois quatre "))
+    println("words in a task: {t.rejoindre()}")
+    println("empty: {StrView.of("   ").trim().is_empty()} {StrView.of("").lines().len()} split none {StrView.of("ab").split("").len()}")
+}

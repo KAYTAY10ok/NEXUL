@@ -1,0 +1,259 @@
+// edition: 1
+/// String views (spec chapter 09): `StrView` is a part of a text that shares its bytes with
+/// the other views of the same text, so taking a part (`slice`, `split`, `lines`, `trim`)
+/// copies nothing.
+///
+/// References cannot be stored in NEXUL yet: a view does not borrow a `String`, it owns a
+/// share of an immutable text (an atomic counter of the views). The text is freed with
+/// its last view; a view can go to another task (`Transfer`, `Share`).
+
+import std.mem
+
+/// The shared text: its counter of views, then the bytes of the string it was made from.
+type Shared {
+    isize views
+    Ptr[u8] data
+    usize len
+    usize cap
+}
+
+/// A part of a shared, immutable UTF-8 text.
+pub type StrView {
+    Ptr[Shared] shared
+    usize start
+    usize len
+}
+
+/// The number of bytes of `c` in UTF-8.
+fn usize utf8_len(char c) {
+    let v = c as u32
+    return if v < 0x80 { 1 } else if v < 0x800 { 2 } else if v < 0x10000 { 3 } else { 4 }
+}
+
+extend StrView {
+    /// A view of the whole of `text`, which it takes without copying.
+    pub fn StrView new(owned String text) {
+        unsafe {
+            let shared = mem.alloc(mem.size_of[Shared]()).cast[Shared]()
+            shared.write(Shared(views: 1, data: text.as_ptr(), len: text.len(), cap: text.capacity()))
+            let len = text.len()
+            mem.forget(text)
+            return StrView(shared: shared, start: 0, len: len)
+        }
+    }
+
+    /// A view of a copy of `text`.
+    pub fn StrView of(String text) {
+        return StrView.new(text.clone())
+    }
+
+    pub fn usize len(self) {
+        return self.len
+    }
+
+    pub fn bool is_empty(self) {
+        return self.len == 0
+    }
+
+    fn Ptr[u8] data(self) {
+        return unsafe { self.shared.read().data.offset(self.start) }
+    }
+
+    /// The bytes of the view as a `String` that does not own them, for the methods of
+    /// `String`; it must not outlive the view.
+    unsafe fn String text(self) {
+        return String.borrowed_from(self.data(), self.len)
+    }
+
+    /// The byte at `index`.
+    @track_caller
+    pub fn u8 byte_at(self, usize index) {
+        if index >= self.len {
+            panic("index {index} is out of bounds of a view of length {self.len}")
+        }
+        return unsafe { self.data().offset(index).read() }
+    }
+
+    fn bool boundary(self, usize index) {
+        return index == 0 or index == self.len or (index < self.len and (self.byte_at(index) & 0xC0) != 0x80)
+    }
+
+    /// The bytes `start..end` of the view, as a view of the same text (no copy).
+    @track_caller
+    pub fn StrView slice(self, usize start, usize end) {
+        if start > end or end > self.len {
+            panic("slice {start}..{end} is out of bounds of a view of length {self.len}")
+        }
+        if not self.boundary(start) or not self.boundary(end) {
+            panic("slice {start}..{end} does not fall on character boundaries")
+        }
+        unsafe {
+            let _ = mem.atomic_add(self.shared.cast[isize](), 1)
+        }
+        return StrView(shared: self.shared, start: self.start + start, len: end - start)
+    }
+
+    /// A copy of the view as a `String`.
+    pub fn String to_string(self) {
+        return unsafe { self.text() }.clone()
+    }
+
+    /// Whether the view holds exactly `text`.
+    pub fn bool equals(self, String text) {
+        return unsafe { self.text() } == text
+    }
+
+    pub fn Option[usize] find(self, String needle) {
+        return unsafe { self.text() }.find(needle)
+    }
+
+    pub fn bool contains(self, String needle) {
+        return self.find(needle).is_some()
+    }
+
+    pub fn bool starts_with(self, String prefix) {
+        return unsafe { self.text() }.starts_with(prefix)
+    }
+
+    pub fn bool ends_with(self, String suffix) {
+        return unsafe { self.text() }.ends_with(suffix)
+    }
+
+    /// The characters of the view.
+    pub fn Vec[char] chars(self) {
+        return unsafe { self.text() }.chars()
+    }
+
+    /// The view without leading and trailing whitespace.
+    pub fn StrView trim(self) {
+        let t = unsafe { self.text() }
+        var usize start = self.len
+        var usize end = 0
+        var usize pos = 0
+        for c in t {
+            let n = utf8_len(c)
+            if not c.is_whitespace() {
+                if start == self.len {
+                    start = pos
+                }
+                end = pos + n
+            }
+            pos += n
+        }
+        if start == self.len {
+            return self.slice(0, 0)
+        }
+        return self.slice(start, end)
+    }
+
+    /// The parts separated by `separator` (as `String.split`), as views.
+    pub fn Vec[StrView] split(self, String separator) {
+        var Vec[StrView] parts = Vec.new()
+        let t = unsafe { self.text() }
+        let n = separator.len()
+        if n == 0 {
+            var usize pos = 0
+            for c in t {
+                let l = utf8_len(c)
+                parts.push(self.slice(pos, pos + l))
+                pos += l
+            }
+            return parts
+        }
+        var usize start = 0
+        var usize i = 0
+        while i + n <= self.len {
+            if self.slice_equals(i, separator) {
+                parts.push(self.slice(start, i))
+                i += n
+                start = i
+            } else {
+                i += 1
+            }
+        }
+        parts.push(self.slice(start, self.len))
+        return parts
+    }
+
+    fn bool slice_equals(self, usize at, String text) {
+        for k in 0..text.len() {
+            if self.byte_at(at + k) != text.byte_at(k) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The lines (without `\n` or `\r\n`), as `String.lines`.
+    pub fn Vec[StrView] lines(self) {
+        var Vec[StrView] out = Vec.new()
+        var usize start = 0
+        var usize i = 0
+        while i < self.len {
+            if self.byte_at(i) == 10 {
+                let end = if i > start and self.byte_at(i - 1) == 13 { i - 1 } else { i }
+                out.push(self.slice(start, end))
+                start = i + 1
+            }
+            i += 1
+        }
+        if start < self.len {
+            let end = if self.byte_at(self.len - 1) == 13 { self.len - 1 } else { self.len }
+            out.push(self.slice(start, end))
+        }
+        return out
+    }
+
+    pub fn Option[i64] parse_int(self) {
+        return unsafe { self.text() }.parse_int()
+    }
+
+    pub fn Option[f64] parse_float(self) {
+        return unsafe { self.text() }.parse_float()
+    }
+
+    fn drop(self!) {
+        unsafe {
+            if mem.atomic_add(self.shared.cast[isize](), -1) == 1 {
+                let s = self.shared.read()
+                if s.cap > 0 {
+                    mem.free(s.data)
+                }
+                mem.free(self.shared.cast[u8]())
+            }
+        }
+    }
+}
+
+extend StrView is Clone {
+    fn StrView clone(self) {
+        return self.slice(0, self.len)
+    }
+}
+
+extend StrView is Eq {
+    fn bool eq(self, StrView other) {
+        return unsafe { self.text() == other.text() }
+    }
+}
+
+extend StrView is Display {
+    fn String to_string(self) {
+        return unsafe { self.text() }.clone()
+    }
+}
+
+extend StrView is Hash {
+    /// The hash of the same text as a `String`: a view and a string of the same bytes
+    /// hash alike.
+    fn u64 hash(self) {
+        return unsafe { self.text() }.hash()
+    }
+}
+
+// The text never changes and its counter is atomic.
+unsafe extend StrView is Transfer {
+}
+
+unsafe extend StrView is Share {
+}

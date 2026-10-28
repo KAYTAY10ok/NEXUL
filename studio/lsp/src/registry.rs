@@ -574,7 +574,19 @@ pub fn run_probe(program: &Path, args: &[&str], timeout: Duration) -> Option<(bo
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
-    let mut child = cmd.spawn().ok()?;
+    // Linux refuses to run a file that another process still holds open for writing
+    // (ETXTBSY, 26): a tool copied while another thread forks is briefly in that state.
+    let mut attempt = 0;
+    let mut child = loop {
+        match cmd.spawn() {
+            Ok(child) => break child,
+            Err(e) if e.raw_os_error() == Some(26) && cfg!(unix) && attempt < 20 => {
+                attempt += 1;
+                thread::sleep(Duration::from_millis(10));
+            }
+            Err(_) => return None,
+        }
+    };
     let read = |r: Option<Box<dyn Read + Send>>| {
         thread::spawn(move || {
             let mut buf = Vec::new();

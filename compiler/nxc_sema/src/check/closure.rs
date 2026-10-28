@@ -71,12 +71,16 @@ impl<'a> FnCtxt<'a> {
         // enclosing loops, and a frame recording the captured variables.
         let saved_ret = std::mem::replace(&mut self.ret_ty, ret);
         let saved_loops = std::mem::take(&mut self.loops);
-        self.closure_frames.push(ClosureFrame { first_local: self.locals.len() as LocalId, captures: Vec::new() });
+        let scope = std::mem::take(&mut self.next_closure_scope);
+        self.closure_frames.push(ClosureFrame { first_local: self.locals.len() as LocalId, captures: Vec::new(), scope_param: None });
         self.push_scope();
         let mut params = Vec::new();
         for (cp, &(conv, ty)) in c.params.iter().zip(sig.iter()) {
             let l = self.declare_local(&cp.name.name, ty, LocalKind::Param(conv), cp.name.span);
             params.push((l, conv));
+        }
+        if scope {
+            self.closure_frames.last_mut().unwrap().scope_param = params.first().map(|p| p.0);
         }
         let block = match &c.body {
             ClosureBody::Block(b) => {

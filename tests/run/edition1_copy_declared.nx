@@ -1,0 +1,53 @@
+// edition: 1
+// ADR 0012: public types copied because they declare `Copy` (struct, enumeration,
+// generic type), a private type copied by its structure, and `T is Copy`.
+pub type Point is Copy {
+    i32 x
+    i32 y
+    fn Point moved(self, i32 dx) = Point(x: self.x + dx, y: self.y)
+}
+
+pub type Direction is Copy = .North | .South | .Angle(i32 degrees)
+
+pub type Pair[A, B] is Copy {
+    A first
+    B second
+}
+
+type Cell {
+    i64 value
+}
+
+fn T twice[T is Copy](T x) {
+    let a = x
+    let b = x
+    return if true { a } else { b }
+}
+
+fn String name(Direction d) = when d {
+    .North then "north"
+    .South then "south"
+    .Angle(n) then "angle {n}"
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let q = p
+    let r = p.moved(10)
+    println("{p.x} {q.y} {r.x}")
+
+    let d = Direction.Angle(90)
+    let e = d
+    println("{name(d)} {name(e)} {name(.North)}")
+
+    let pair = Pair(first: 3, second: 'z')
+    let copy = pair
+    println("{pair.first} {copy.second}")
+
+    let c = Cell(value: 7)
+    let c2 = c
+    println("{c.value + c2.value}")
+
+    let t = twice(p)
+    println("{t.x} {p.x}")
+}

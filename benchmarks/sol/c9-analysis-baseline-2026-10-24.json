@@ -1,0 +1,37 @@
+{
+  "base": "a824c766a321fa87255c2ea01d7fb7ca98362948",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.39",
+  "profile": "release, LTO=false",
+  "rows": [
+    {
+      "case": "ifs",
+      "samples": [
+        {
+          "seconds": 8.764643861999957,
+          "exit": 0,
+          "diagnostics": ""
+        },
+        {
+          "seconds": 4.926675671999874,
+          "exit": 0,
+          "diagnostics": ""
+        },
+        {
+          "seconds": 5.307180256000265,
+          "exit": 0,
+          "diagnostics": ""
+        }
+      ]
+    },
+    {
+      "case": "arms",
+      "samples": [
+        {
+          "seconds": 27.126437274999716,
+          "exit": -9,
+          "diagnostics": ""
+        }
+      ]
+    }
+  ]
+}

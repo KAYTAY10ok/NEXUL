@@ -65,6 +65,15 @@ struct Cx<'a> {
     body: &'a Body,
     diags: &'a DiagSink,
     frozen: Vec<Frozen>,
+    /// The bindings of the arms whose guard is being checked. In a guard they are
+    /// borrowed views, even when the scrutinee is a value: the parts are moved into them
+    /// only once the guard is true (spec §5.6).
+    guard_bindings: Vec<thir::LocalId>,
+    /// The trait bounds of the function: a parameter `T: Copy` is copyable.
+    bounds: &'a [crate::defs::Bound],
+    /// What the tasks launched by `Portee.lancer` use, until the end of the function given
+    /// to `tache.portee` (ADR 0013): read (shared) or modified (exclusive).
+    tasks: Vec<Frozen>,
 }
 
 pub fn check_program(prog: &Program, diags: &DiagSink) {
@@ -72,7 +81,7 @@ pub fn check_program(prog: &Program, diags: &DiagSink) {
     ids.sort();
     for id in ids {
         let body = &prog.bodies[&id];
-        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new() };
+        let mut cx = Cx { p: prog, body, diags, frozen: Vec::new(), guard_bindings: Vec::new(), bounds: &prog.func(id).bounds, tasks: Vec::new() };
         cx.block(&body.block);
     }
 }
@@ -112,6 +121,9 @@ impl<'a> Cx<'a> {
             return;
         }
         let Some(path) = place_path(e) else { return };
+        if self.task_conflict(e, &path, true, action, span) {
+            return;
+        }
         for f in self.frozen.iter().rev() {
             if overlaps(&f.path, &path) {
                 let root = self.local_name(path.root);
@@ -147,6 +159,26 @@ impl<'a> Cx<'a> {
         self.diags.emit(d);
     }
 
+    /// A binding moved in the guard of its own arm (E0403). The guard only borrows the
+    /// matched parts: if it moved one and then failed, the next arms would see a value
+    /// already destroyed (use after free, double destruction).
+    fn moved_in_guard(&self, l: thir::LocalId, e: &Expr) -> bool {
+        let decl = &self.body.locals[l as usize];
+        if !self.guard_bindings.contains(&l) || decl.is_ref() || self.p.is_copy_with(decl.ty, self.bounds) {
+            return false;
+        }
+        let mut d = Diagnostic::error("E0403", format!("cannot move `{}` in the guard of its arm", decl.name))
+            .primary(e.span, format!("`{}` is a resource and the guard only borrows it", self.p.ty_str(decl.ty)))
+            .secondary(decl.span, "bound here")
+            .note("the matched value is moved into the bindings only once the guard is true (spec §5.6)")
+            .help("move it in the body of the arm instead");
+        if self.p.is_string(decl.ty) {
+            d = d.help("or use `.clone()` to make a copy");
+        }
+        self.diags.emit(d);
+        true
+    }
+
     /// An expression in an owned position: a resource stored in a place must be a
     /// whole owned variable to be moved (E0403).
     fn consume(&self, e: &Expr) {
@@ -174,7 +206,7 @@ impl<'a> Cx<'a> {
             }
             _ => {}
         }
-        if self.p.is_copy(e.ty) {
+        if self.p.is_copy_with(e.ty, self.bounds) {
             return;
         }
         if !e.is_place() {
@@ -197,6 +229,9 @@ impl<'a> Cx<'a> {
         match &e.kind {
             T::Local(l) => {
                 let decl = &self.body.locals[*l as usize];
+                if self.moved_in_guard(*l, e) {
+                    return;
+                }
                 if decl.is_ref() {
                     let mut d = Diagnostic::error("E0403", format!("cannot move out of `{}`, which is borrowed", decl.name))
                         .primary(e.span, format!("`{}` is a resource and only a borrowed view is available here", tname));
@@ -320,7 +355,7 @@ impl<'a> Cx<'a> {
         let moves_resource = |q: &Pat| {
             let mut bs = Vec::new();
             q.bindings(&mut bs);
-            bs.iter().any(|&l| !self.p.is_copy(self.body.locals[l as usize].ty))
+            bs.iter().any(|&l| !self.p.is_copy_with(self.body.locals[l as usize].ty, self.bounds))
         };
         match &p.kind {
             PatKind::Struct { adt, fields, .. } | PatKind::Variant { adt, fields, .. } => {
@@ -346,7 +381,7 @@ impl<'a> Cx<'a> {
         p.bindings(&mut v);
         v.iter().any(|&l| {
             let d = &self.body.locals[l as usize];
-            d.kind == LocalKind::Ref && !self.p.is_copy(d.ty)
+            d.kind == LocalKind::Ref && !self.p.is_copy_with(d.ty, self.bounds)
         })
     }
 
@@ -398,34 +433,46 @@ impl<'a> Cx<'a> {
         }
         // Law of exclusivity between the arguments of one call. An anonymous function
         // accesses the variables it captures during the call.
-        let mut places: Vec<(usize, PlacePath, Convention)> = Vec::new();
+        // The last field tells whether the access is a capture of an anonymous function.
+        let mut places: Vec<(usize, PlacePath, Convention, bool)> = Vec::new();
         for (i, a) in args.iter().enumerate() {
             if a.conv != Convention::Owned {
                 if let Some(p) = place_path(&a.expr) {
-                    places.push((i, p, a.conv));
+                    places.push((i, p, a.conv, false));
                 }
             }
             if let T::Closure { captures, .. } = &a.expr.kind {
                 for &(l, mutated) in captures {
-                    places.push((i, PlacePath { root: l, projs: vec![] }, if mutated { Convention::Inout } else { Convention::Borrow }));
+                    places.push((i, PlacePath { root: l, projs: vec![] }, if mutated { Convention::Inout } else { Convention::Borrow }, true));
                 }
             }
         }
-        for (i, pi, ci) in &places {
+        for (i, pi, ci, cap_i) in &places {
             if *ci != Convention::Inout {
                 continue;
             }
-            for (j, pj, cj) in &places {
+            for (j, pj, cj, cap_j) in &places {
                 if i == j || !overlaps(pi, pj) {
                     continue;
                 }
                 if *cj == Convention::Inout && j < i {
                     continue; // reported once for the pair
                 }
+                let root = self.local_name(pi.root);
+                let (title, accessed, modified) = if *cap_i || *cap_j {
+                    let by_fn = |what: &str| format!("{} by this anonymous function, which captures `{}`", what, root);
+                    (
+                        format!("`{}` is used twice by the same call, once to modify it", root),
+                        if *cap_j { by_fn(if *cj == Convention::Inout { "modified" } else { "read" }) } else { "accessed here".to_string() },
+                        if *cap_i { by_fn("modified") } else { "modified here (`inout`)".to_string() },
+                    )
+                } else {
+                    (format!("{} is passed twice to the same call, once as `inout`", self.describe(&args[*i].expr)), "accessed here".to_string(), "modified here (`inout`)".to_string())
+                };
                 self.diags.emit(
-                    Diagnostic::error("E0420", format!("{} is passed twice to the same call, once as `inout`", self.describe(&args[*i].expr)))
-                        .primary(args[*j].expr.span, "accessed here")
-                        .secondary(args[*i].expr.span, "modified here (`inout`)")
+                    Diagnostic::error("E0420", title)
+                        .primary(args[*j].expr.span, accessed)
+                        .secondary(args[*i].expr.span, modified)
                         .secondary(span, "during this call")
                         .note("a value cannot be modified while it is also read or modified elsewhere (law of exclusivity, spec §5.4)")
                         .help(if matches!(pi.projs.last(), Some(Proj::Index)) { "to exchange two elements, use `v.swap(i, j)`" } else { "copy one of the values into a variable first" }),
@@ -435,8 +482,34 @@ impl<'a> Cx<'a> {
     }
 
     /// A read of a place: forbidden while the place is borrowed for writing.
+    /// E0420 for a place that a running task uses: no write to it, and no read when the
+    /// task modifies it (ADR 0013).
+    fn task_conflict(&self, e: &Expr, path: &PlacePath, write: bool, action: &str, span: Span) -> bool {
+        for t in self.tasks.iter().rev() {
+            if (write || t.exclusive) && overlaps(&t.path, path) {
+                let root = self.local_name(path.root);
+                let (msg, label) = if t.exclusive {
+                    (format!("cannot {} {} while a task modifies `{}`", action, self.describe(e), root), format!("this task modifies `{}` until the end of `tache.portee`", root))
+                } else {
+                    (format!("cannot {} {} while a task reads `{}`", action, self.describe(e), root), format!("this task reads `{}` until the end of `tache.portee`", root))
+                };
+                self.diags.emit(
+                    Diagnostic::error("E0420", msg)
+                        .primary(span, format!("{} here", action))
+                        .secondary(t.span, label)
+                        .note("two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)"),
+                );
+                return true;
+            }
+        }
+        false
+    }
+
     fn read(&self, e: &Expr) {
         let Some(path) = place_path(e) else { return };
+        if self.task_conflict(e, &path, false, "use", e.span) {
+            return;
+        }
         for f in self.frozen.iter().rev() {
             if f.exclusive && overlaps(&f.path, &path) {
                 let root = self.local_name(path.root);
@@ -461,11 +534,23 @@ impl<'a> Cx<'a> {
         }
         match &e.kind {
             T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) => {}
-            T::Unary(_, x) | T::Field(x, _) | T::Cast(x) | T::Try(x, _) => self.expr(x),
+            T::Unary(_, x) | T::Field(x, _) | T::Cast(x) => self.expr(x),
+            // `x?` takes the value of `x` (its payload or its error leaves it): `x` is in an
+            // owned position. Only checked as a read, `r?` on a borrowed parameter, `s.f?` or
+            // `v[i]?` moved a resource out of a place they did not own (double destruction).
+            T::Try(x, _, _) => {
+                self.expr(x);
+                self.consume(x);
+            }
             T::ArrayRepeat(x, _) => {
                 self.expr(x);
             }
             T::Move(x) => {
+                if let T::Local(l) = &x.kind {
+                    if self.moved_in_guard(*l, x) {
+                        return;
+                    }
+                }
                 self.write(x, e.span, "move", false);
             }
             T::Binary(_, a, b) | T::Index(a, b) => {
@@ -482,6 +567,16 @@ impl<'a> Cx<'a> {
                 }
                 let method_call = matches!(callee, Callee::Fn(f, _) if self.p.func(*f).has_self);
                 self.call_args(args, e.span, method_call);
+                // A launched task keeps what it uses until the end of the `portee` (ADR 0013).
+                if matches!(callee, Callee::Fn(f, _) if self.p.lang_fn("task_launch") == Some(*f)) {
+                    for a in args {
+                        if let T::Closure { captures, .. } = &a.expr.kind {
+                            for &(l, mutated) in captures {
+                                self.tasks.push(Frozen { path: PlacePath { root: l, projs: vec![] }, span: a.expr.span, why: "task", exclusive: mutated });
+                            }
+                        }
+                    }
+                }
             }
             T::Adt { fields: xs, .. } | T::Tuple(xs) | T::Array(xs) => {
                 for x in xs {
@@ -530,7 +625,10 @@ impl<'a> Cx<'a> {
                             }
                             None => false,
                         };
+                        let mark = self.guard_bindings.len();
+                        a.pat.bindings(&mut self.guard_bindings);
                         self.expr(g);
+                        self.guard_bindings.truncate(mark);
                         if pushed {
                             self.frozen.pop();
                         }

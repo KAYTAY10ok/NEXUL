@@ -1,0 +1,6 @@
+// A `module` declaration must match the path of its file (spec §6.1, E0220).
+import support.badmodule
+
+fn main() {
+    println(badmodule.value())
+}

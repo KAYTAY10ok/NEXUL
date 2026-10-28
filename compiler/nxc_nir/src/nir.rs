@@ -99,7 +99,10 @@ pub enum Rvalue {
     StaticAddr(StaticId),
     /// An anonymous function value: its code and an environment holding the addresses
     /// of the captured variables (pointers, in order).
-    Closure { f: FnId, env: Vec<Operand> },
+    /// An anonymous function: its code and the addresses of its captured variables. With
+    /// `heap`, the array of addresses is allocated on the heap (a task launched by
+    /// `std.tache`, which outlives the frame that creates it, frees it, ADR 0013).
+    Closure { f: FnId, env: Vec<Operand>, heap: bool },
     /// A function pointer used as an anonymous function value.
     FnToClosure(Operand),
     /// A value of the given type moved to the heap as a `dyn Trait`.
@@ -249,7 +252,7 @@ pub fn pretty(body: &Body) -> String {
                     Rvalue::Repeat(o, n) => format!("[{}; {}]", o, n),
                     Rvalue::Discriminant(p) => format!("discriminant({})", p),
                     Rvalue::StaticAddr(st) => format!("&static#{}", st.0),
-                    Rvalue::Closure { f, env } => format!("closure fn#{}({})", f.0, env.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")),
+                    Rvalue::Closure { f, env, heap } => format!("closure{} fn#{}({})", if *heap { " heap" } else { "" }, f.0, env.iter().map(|o| o.to_string()).collect::<Vec<_>>().join(", ")),
                     Rvalue::FnToClosure(o) => format!("closure_of({})", o),
                     Rvalue::ToDyn(o, t) => format!("to_dyn({}: ty#{})", o, t.0),
                 }),

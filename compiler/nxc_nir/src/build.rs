@@ -55,6 +55,10 @@ pub struct Builder<'a> {
     map: Vec<Option<Mapped>>,
     scopes: Vec<Vec<Local>>,
     loops: Vec<LoopInfo>,
+    /// The trait bounds of the function: a parameter `T: Copy` is copyable.
+    bounds: Vec<nxc_sema::defs::Bound>,
+    /// The next anonymous function is the task of `Portee.lancer` (ADR 0013).
+    task_closure: bool,
 }
 
 pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
@@ -70,6 +74,8 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
         map: vec![None; thir.locals.len()],
         scopes: vec![Vec::new()],
         loops: Vec::new(),
+        bounds: fd.bounds.clone(),
+        task_closure: false,
     };
     b.locals.push(LocalDecl { ty: thir.ret_ty, name: None, kind: LocalKind::Return, span: thir.span });
     let entry = b.new_block();
@@ -82,7 +88,7 @@ pub fn build(p: &Program, sm: &SourceMap, f: FnId, thir: &thir::Body) -> Body {
         let l = b.locals.len() as Local;
         b.locals.push(LocalDecl { ty, name: Some(decl.name.clone()), kind: LocalKind::Arg { by_ref }, span: decl.span });
         b.map[tl as usize] = Some(Mapped { local: l, by_ref });
-        if !by_ref && !p.is_copy(decl.ty) {
+        if !by_ref && !b.is_copy(decl.ty) {
             b.scopes[0].push(l);
         }
     }
@@ -148,7 +154,7 @@ impl<'a> Builder<'a> {
     /// A temporary destroyed at the end of the enclosing statement.
     fn scheduled_temp(&mut self, ty: Ty, span: Span) -> Local {
         let l = self.temp(ty, span);
-        if !self.p.is_copy(ty) {
+        if !self.is_copy(ty) {
             self.scopes.last_mut().unwrap().push(l);
         }
         l
@@ -159,7 +165,7 @@ impl<'a> Builder<'a> {
         let l = self.locals.len() as Local;
         self.locals.push(LocalDecl { ty: d.ty, name: Some(d.name.clone()), kind: LocalKind::User, span: d.span });
         self.map[tl as usize] = Some(Mapped { local: l, by_ref: false });
-        if !self.p.is_copy(d.ty) {
+        if !self.is_copy(d.ty) {
             self.scopes.last_mut().unwrap().push(l);
         }
         l
@@ -223,7 +229,7 @@ impl<'a> Builder<'a> {
     }
 
     fn is_copy(&self, t: Ty) -> bool {
-        self.p.is_copy(t)
+        self.p.is_copy_with(t, &self.bounds)
     }
 
     // -----------------------------------------------------------------------
@@ -468,6 +474,11 @@ impl<'a> Builder<'a> {
     fn lower_call(&mut self, e: &Expr, callee: &TCallee, args: &[thir::CallArg], dest: Option<Place>) {
         let tcx = self.tcx();
         let span = e.span;
+        // The anonymous function given to `Portee.lancer` runs in another thread after the
+        // call: its environment goes to the heap (ADR 0013).
+        if let TCallee::Fn(f, _) = callee {
+            self.task_closure = self.p.lang_fn("task_launch") == Some(*f) && args.iter().any(|a| matches!(a.expr.kind, T::Closure { .. }));
+        }
         let ret_ty = e.ty;
         let diverges = tcx.is_never(ret_ty);
         let unit_ret = ret_ty == tcx.unit || diverges;
@@ -648,7 +659,7 @@ impl<'a> Builder<'a> {
                 self.exit_scopes(depth, span);
                 self.terminate(Terminator::Goto(target), span);
             }
-            T::Try(x, kind) => self.lower_try(dest, x, *kind, span),
+            T::Try(x, kind, conv) => self.lower_try(dest, x, *kind, conv.as_ref(), span),
             T::Interp(parts) => self.lower_interp(dest, parts, span),
             T::Closure { f, captures } => {
                 let mut env = Vec::new();
@@ -656,7 +667,8 @@ impl<'a> Builder<'a> {
                     let place = self.local_place(l);
                     env.push(self.ref_place(place, span));
                 }
-                self.assign(dest, Rvalue::Closure { f: *f, env }, span);
+                let heap = std::mem::take(&mut self.task_closure);
+                self.assign(dest, Rvalue::Closure { f: *f, env, heap }, span);
             }
             T::FnToClosure(x) => {
                 let o = self.operand_read(x);
@@ -738,7 +750,7 @@ impl<'a> Builder<'a> {
         }
     }
 
-    fn lower_try(&mut self, dest: Place, x: &Expr, kind: TryKind, span: Span) {
+    fn lower_try(&mut self, dest: Place, x: &Expr, kind: TryKind, conv: Option<&thir::TryConv>, span: Span) {
         let tcx = self.tcx();
         let h = self.scheduled_temp(x.ty, x.span);
         self.expr_into(Place::local(h), x);
@@ -755,16 +767,28 @@ impl<'a> Builder<'a> {
         self.cur = err_bb;
         let ret_ty = self.thir.ret_ty;
         let (ret_adt, ret_args) = tcx.as_adt(ret_ty).unwrap_or((adt, targs.clone()));
-        let ops = if kind == TryKind::Result {
-            vec![Operand::Move(Place::local(h).project(Proj::VariantField(err_v, 0)))]
-        } else {
-            vec![]
+        // The conversion (ADR 0015) runs in its own scope: the error moves into its
+        // variable, which the conversion moves (variant, `dyn Error`) or reads (text).
+        self.push_scope();
+        let err = Place::local(h).project(Proj::VariantField(err_v, 0));
+        let ops = match conv {
+            Some(c) => {
+                let l = self.user_local(c.local);
+                self.assign(Place::local(l), Rvalue::Use(Operand::Move(err)), span);
+                self.emit(StmtKind::MarkMoved(h), span);
+                vec![self.operand_owned(&c.expr)]
+            }
+            None if kind == TryKind::Result => vec![Operand::Move(err)],
+            None => vec![],
         };
         let ret_err_v = self.p.adt(ret_adt).variant_index(if kind == TryKind::Option { "None" } else { "Err" }).unwrap_or(1);
         self.assign(Place::local(RETURN), Rvalue::Aggregate(AggKind::Adt { adt: ret_adt, variant: Some(ret_err_v), type_args: ret_args }, ops), span);
-        self.emit(StmtKind::MarkMoved(h), span);
+        if conv.is_none() {
+            self.emit(StmtKind::MarkMoved(h), span);
+        }
         self.exit_scopes(0, span);
         self.terminate(Terminator::Return, span);
+        self.pop_scope(span);
         // Success path: take the payload.
         self.cur = ok_bb;
         let payload = Place::local(h).project(Proj::VariantField(ok_v, 0));

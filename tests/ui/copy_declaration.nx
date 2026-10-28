@@ -1,0 +1,45 @@
+// A declaration of `Copy` (`@derive(Copy)`, `impl Copy for T`) is checked against the
+// type (ADR 0012): every value must be copyable, without `drop` or `indirect`.
+@derive(Copy)
+pub struct Name {
+    text: String
+}
+
+@derive(Copy)
+struct Handle {
+    fd: i32
+}
+
+impl Handle {
+    fn drop(inout self) {
+    }
+}
+
+@derive(Copy)
+enum List {
+    Empty
+    indirect Cons(i32, List)
+}
+
+struct Holder {
+    names: Vec[i32]
+}
+
+impl Copy for Holder {
+}
+
+// Correct declarations: copyable values; a generic type is copyable when its
+// arguments are.
+@derive(Copy)
+pub struct Point {
+    x: i32
+    y: i32
+}
+
+@derive(Copy)
+pub struct Pair[A, B] {
+    a: A
+    b: B
+}
+
+fn main() {}

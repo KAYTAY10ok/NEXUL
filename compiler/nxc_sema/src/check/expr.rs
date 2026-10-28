@@ -3,7 +3,7 @@
 use super::{Deferred, Expect, FnCtxt, VarKind};
 use crate::check::call::{PathLookup, PathRes};
 use crate::defs::{AdtKind, ConstValue};
-use crate::thir::{self, ExprKind as T, InterpPart, LocalKind, TryKind};
+use crate::thir::{self, CallArg, Callee, ExprKind as T, InterpPart, LocalKind, TryKind};
 use crate::ty::{Ty, TyKind};
 use crate::util::best_match;
 use nxc_syntax::ast::{self, BinOp, Cond, ExprKind as A, Lit, UnOp};
@@ -154,7 +154,14 @@ impl<'a> FnCtxt<'a> {
                     self.coerce(&mut x, to);
                     return x;
                 }
+                // A distinct or constrained type converts from and to its base (ADR 0014).
+                if let Some((id, base, _)) = self.newtype_of(to) {
+                    return self.cast_to_newtype(inner, id, base, span);
+                }
                 let x = self.check_expr(inner, Expect::None);
+                if self.newtype_of(x.ty).is_some() {
+                    return self.to_base(x, to, span);
+                }
                 if matches!(&*tcx.kind(self.shallow(x.ty)), TyKind::Ptr(_)) || matches!(&*tcx.kind(to), TyKind::Ptr(_)) {
                     self.require_unsafe(span, "a pointer conversion");
                 }
@@ -282,6 +289,9 @@ impl<'a> FnCtxt<'a> {
 
     pub(crate) fn check_lit(&mut self, lit: &Lit, expect: Expect, span: Span, negated: bool) -> thir::Expr {
         let tcx = self.tcx();
+        if let Some(x) = expect.ty().and_then(|t| self.newtype_literal(lit, t, span, negated)) {
+            return x;
+        }
         match lit {
             Lit::Int(v) => {
                 let v = if negated { -(*v as i128) } else { *v as i128 };
@@ -331,6 +341,7 @@ impl<'a> FnCtxt<'a> {
                     Some(t) => self.check_expr(inner, Expect::Has(t)),
                     None => self.check_expr(inner, Expect::None),
                 };
+                let x = self.widen_constrained(x);
                 self.deferred.push(Deferred::Unary { op, ty: x.ty, span });
                 let ty = x.ty;
                 self.mk(T::Unary(op, Box::new(x)), ty, span)
@@ -344,6 +355,7 @@ impl<'a> FnCtxt<'a> {
                     Some(t) => self.check_expr(inner, Expect::Has(t)),
                     None => self.check_expr(inner, Expect::None),
                 };
+                let x = self.widen_constrained(x);
                 self.deferred.push(Deferred::Unary { op, ty: x.ty, span });
                 let ty = x.ty;
                 self.mk(T::Unary(op, Box::new(x)), ty, span)
@@ -375,20 +387,24 @@ impl<'a> FnCtxt<'a> {
         let hint = if op.is_comparison() { None } else { expect.ty() };
         // Between two literals, the float one decides (`2 * 3.0` is a float product).
         let right_first = (is_literal(l) && !is_literal(r)) || (is_literal(l) && is_float_literal(r) && !is_float_literal(l));
+        // A constrained type that is not distinct computes on its base (ADR 0014 §2.5): it
+        // is widened before it gives its type to the other operand (`p < 200` is valid).
         let (a, b) = if right_first {
             let b = match hint {
                 Some(t) => self.check_expr(r, Expect::Has(t)),
                 None => self.check_expr(r, Expect::None),
             };
+            let b = self.widen_constrained(b);
             let a = self.check_expr(l, Expect::Has(b.ty));
-            (a, b)
+            (self.widen_constrained(a), b)
         } else {
             let a = match hint {
                 Some(t) => self.check_expr(l, Expect::Has(t)),
                 None => self.check_expr(l, Expect::None),
             };
+            let a = self.widen_constrained(a);
             let b = self.check_expr(r, Expect::Has(a.ty));
-            (a, b)
+            (a, self.widen_constrained(b))
         };
         let never_a = tcx.is_never(self.shallow(a.ty));
         let never_b = tcx.is_never(self.shallow(b.ty));
@@ -523,20 +539,118 @@ impl<'a> FnCtxt<'a> {
                         .help("handle the value with `match` or `if let` instead"),
                 );
             }
-            return self.mk(T::Try(Box::new(x), kind), xargs[0], span);
+            return self.mk(T::Try(Box::new(x), kind, None), xargs[0], span);
         }
-        if kind == TryKind::Result {
-            let ret_err = ret_adt.unwrap().1[1];
-            if !self.unify(xargs[1], ret_err) {
-                self.err(
-                    Diagnostic::error("E0360", "the error type of `?` does not match the function's error type")
-                        .primary(span, format!("error type `{}`", self.ty_str(xargs[1])))
-                        .note(format!("the function returns errors of type `{}`", self.ty_str(ret_err)))
-                        .note("NEXUL 0.1 does not convert error types automatically"),
-                );
+        let conv = if kind == TryKind::Result { self.try_conversion(xargs[1], ret_adt.unwrap().1[1], span) } else { None };
+        self.mk(T::Try(Box::new(x), kind, conv), xargs[0], span)
+    }
+
+    /// The conversion by `?` of the error `e` of its operand into the error `f` of the
+    /// function (ADR 0015): none when the types are the same; otherwise the only variant
+    /// of `f` that holds exactly an `e`, a `dyn Error` value, or, in edition 0.2 only, the
+    /// text of the error when `f` is `String`. Anything else is E0360.
+    fn try_conversion(&mut self, e: Ty, f: Ty, span: Span) -> Option<thir::TryConv> {
+        let tcx = self.tcx();
+        let (er, fr) = (self.resolve(e), self.resolve(f));
+        if er == fr || tcx.has_infer(er) || tcx.has_infer(fr) || tcx.has_error(er) || tcx.has_error(fr) {
+            if !self.unify(e, f) {
+                let (er, fr) = (self.resolve(e), self.resolve(f));
+                self.try_mismatch(er, fr, span, &[]);
+            }
+            return None;
+        }
+        let error_trait = self.p.lang_trait("error");
+        // The variants of `f` that hold exactly one value, of type `e`.
+        let mut holders: Vec<(u32, String)> = Vec::new();
+        if let Some((fid, fargs)) = tcx.as_adt(fr) {
+            for (i, v) in self.p.adt(fid).variants().iter().enumerate() {
+                if v.fields.len() == 1 && self.resolve(tcx.subst(v.fields[0], &fargs)) == er {
+                    holders.push((i as u32, v.name.clone()));
+                }
+            }
+            if holders.len() == 1 {
+                let (l, value) = self.try_error_local(er, span);
+                let wrap = self.mk(T::Adt { adt: fid, variant: Some(holders[0].0), type_args: fargs, fields: vec![value] }, fr, span);
+                return Some(thir::TryConv { local: l, expr: Box::new(wrap) });
             }
         }
-        self.mk(T::Try(Box::new(x), kind), xargs[0], span)
+        let dyn_trait = match &*tcx.kind(fr) {
+            TyKind::Dyn(tr) => Some(*tr),
+            _ => None,
+        };
+        if let Some(et) = error_trait {
+            if dyn_trait == Some(et) && self.implements(er, et) {
+                self.check_dyn_compatible(et, span);
+                let (l, value) = self.try_error_local(er, span);
+                let boxed = self.mk(T::ToDyn(Box::new(value)), fr, span);
+                return Some(thir::TryConv { local: l, expr: Box::new(boxed) });
+            }
+            // Transition (edition 0.2 only): `?` turns an `Error` into its text, so that
+            // the programs written when `std.io` returned `String` errors keep compiling.
+            let display = self.p.lang_trait("display").and_then(|d| self.p.traits[d.idx()].method("to_string")).map(|m| m.decl);
+            if let Some(to_string) = display {
+                if self.p.is_string(fr) && self.edition() == nxc_syntax::Edition::V0_2 && self.implements(er, et) {
+                    let (l, value) = self.try_error_local(er, span);
+                    let text = self.mk(
+                        T::Call { callee: Callee::Fn(to_string, vec![er]), args: vec![CallArg { conv: ast::Convention::Borrow, expr: value }] },
+                        fr,
+                        span,
+                    );
+                    return Some(thir::TryConv { local: l, expr: Box::new(text) });
+                }
+            }
+        }
+        self.try_mismatch(er, fr, span, &holders);
+        None
+    }
+
+    /// The hidden variable that receives the error converted by `?`, and a use of it.
+    fn try_error_local(&mut self, ty: Ty, span: Span) -> (thir::LocalId, thir::Expr) {
+        let l = self.declare_local("_", ty, LocalKind::Hidden, span);
+        (l, self.mk(T::Local(l), ty, span))
+    }
+
+    /// The edition of the file being checked (ADR 0010).
+    pub(crate) fn edition(&self) -> nxc_syntax::Edition {
+        self.p.modules[self.module.idx()].edition
+    }
+
+    /// E0360: no conversion of `e` into `f` for `?`, with what would make one.
+    fn try_mismatch(&mut self, e: Ty, f: Ty, span: Span, holders: &[(u32, String)]) {
+        let (es, fs) = (self.ty_str(e), self.ty_str(f));
+        let mut d = Diagnostic::error("E0360", "the error type of `?` does not match the function's error type")
+            .primary(span, format!("error type `{}`", es))
+            .note(format!("the function returns errors of type `{}`", fs));
+        let tcx = self.tcx();
+        let error_trait = self.p.lang_trait("error");
+        let is_error = error_trait.map_or(false, |et| self.implements(e, et));
+        let user_enum = tcx.as_adt(f).map_or(false, |(id, _)| self.p.adt(id).is_enum() && Some(id) != self.p.lang.option && Some(id) != self.p.lang.result);
+        let is_dyn_error = matches!(&*tcx.kind(f), TyKind::Dyn(tr) if Some(*tr) == error_trait);
+        let ed1 = self.edition() == nxc_syntax::Edition::V1;
+        if holders.len() > 1 {
+            let names: Vec<String> = holders.iter().map(|(_, n)| format!("`{}`", n)).collect();
+            d = d
+                .note(format!("`?` cannot choose: several variants of `{}` hold a `{}` ({})", fs, es, names.join(", ")))
+                .help("keep one variant per error type, or convert the error with `match`");
+        } else if user_enum {
+            let base = es.split('[').next().unwrap_or(&es);
+            let name = match base.strip_suffix("Error") {
+                Some(n) if !n.is_empty() => n.to_string(),
+                _ if self.p.is_string(e) => "Message".to_string(),
+                _ => base.to_string(),
+            };
+            d = d.help(format!("add a variant that holds the error to `{}`, such as `{}({})`: `?` then wraps the error in it", fs, name, es));
+        } else if is_dyn_error {
+            let decl = if ed1 { format!("extend {} is Error {{}}", es) } else { format!("impl Error for {} {{}}", es) };
+            d = d.note(format!("`{}` does not implement `Error`", es)).help(format!("implement it: `{}` (it needs `Display`)", decl));
+        } else if self.p.is_string(f) && is_error {
+            d = d
+                .note("since edition 1, `?` no longer turns errors into their text (ADR 0015)")
+                .help(format!("return `Result[..., {}]` or `Result[..., any Error]`, or convert with `match`", es));
+        } else {
+            d = d.help(format!("return `Result[..., {}]`, or convert the error with `match`", es));
+        }
+        self.err(d);
     }
 
     // -----------------------------------------------------------------------

@@ -1,53 +1,201 @@
+// edition: 1
 /// Browser host ABI v1. No WASI, implicit files, environment or DOM access.
 import std.heap
 import std.wasm
 
 @link("nexul_v1")
-extern "C" fn nx_write(fd: i32, data: Ptr[u8], len: usize) -> i32
+extern "C" fn i32 nx_write(i32 fd, Ptr[u8] data, usize len)
 @link("nexul_v1")
-extern "C" fn nx_exit(code: i32) -> Never
+extern "C" fn Never nx_exit(i32 code)
 @link("nexul_v1")
-extern "C" fn nx_now_ns(monotonic: i32) -> i64
+extern "C" fn i64 nx_now_ns(i32 monotonic)
 @link("nexul_v1")
-extern "C" fn nx_random(data: Ptr[u8], len: usize) -> i32
+extern "C" fn i32 nx_random(Ptr[u8] data, usize len)
 
 pub fn init() {}
-pub fn stdout_is_terminal() -> bool { return true }
-pub fn exit(code: i32) -> Never { unsafe { nx_exit(code) } }
+pub fn bool stdout_is_terminal() { return true }
+pub fn Never exit(i32 code) { unsafe { nx_exit(code) } }
 
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] { return wasm.page_alloc(size) }
-pub unsafe fn page_free(p: Ptr[u8], size: usize) { wasm.page_free(p, size) }
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] { return heap.alloc(size) }
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] { return heap.realloc(p, size) }
-pub unsafe fn heap_free(p: Ptr[u8]) { heap.free(p) }
+pub unsafe fn Ptr[u8] page_alloc(usize size) { return wasm.page_alloc(size) }
+pub unsafe fn page_free(Ptr[u8] p, usize size) { wasm.page_free(p, size) }
+pub unsafe fn Ptr[u8] heap_alloc(usize size) { return heap.alloc(size) }
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) { return heap.realloc(p, size) }
+pub unsafe fn heap_free(Ptr[u8] p) { heap.free(p) }
 
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return nx_write(fd, data, len) == 0
 }
 
-pub fn read_line(inout out: String) -> bool { let _ = out; return false }
-pub fn arg_count() -> i32 { return 0 }
-pub fn arg(index: i32) -> String { panic("no command-line arguments on wasm32-web: {index}") }
-pub fn env(name: String) -> Option[String] { let _ = name; return None }
-pub fn env_is_set(name: String) -> bool { let _ = name; return false }
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+pub fn bool read_line(String out!) { let _ = out; return false }
+pub fn i32 arg_count() { return 0 }
+pub fn String arg(i32 index) { panic("no command-line arguments on wasm32-web: {index}") }
+pub fn Option[String] env(String name) { let _ = name; return None }
+pub fn bool env_is_set(String name) { let _ = name; return false }
+/// No file system on wasm32-web: always the error code -1.
+pub fn i32 read_file(String path, Vec[u8] out!) {
     let _ = path
     let _ = out
-    return false
+    return -1
 }
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     let _ = path
     let _ = data
     let _ = len
     let _ = append
-    return false
+    return -1
 }
-pub fn monotonic_ns() -> u64 { return unsafe { nx_now_ns(1) } as u64 }
-pub fn unix_time_ns() -> i64 { return unsafe { nx_now_ns(0) } }
-pub fn utc_offset(unix_seconds: i64) -> i32 { let _ = unix_seconds; return 0 }
-pub fn sleep_ns(ns: u64) {
+pub fn u8 io_error_kind(i32 code) { let _ = code; return 0 }
+pub fn u64 monotonic_ns() { return unsafe { nx_now_ns(1) } as u64 }
+pub fn i64 unix_time_ns() { return unsafe { nx_now_ns(0) } }
+pub fn i32 utc_offset(i64 unix_seconds) { let _ = unix_seconds; return 0 }
+pub fn sleep_ns(u64 ns) {
     if ns != 0 { panic("blocking sleep is unavailable on wasm32-web; schedule from the host") }
 }
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
     return nx_random(buffer, len) == 0
+}
+
+/// The lock of the runtime (ADR 0013, task C5): nothing to lock on a target without
+/// threads or interrupts.
+pub type CriticalSection is Copy {
+    bool unused
+}
+
+pub unsafe fn CriticalSection critical_section() {
+    return CriticalSection(unused: false)
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013): none on this target. `std.tache` runs each task when it is
+// launched, which is one of the orders allowed by its rules.
+
+/// Returns 0: the caller runs `entry(arg)` itself.
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+pub unsafe fn thread_join(usize handle) {
+    let _ = handle
+}
+
+pub fn u64 thread_id() {
+    return 0
+}
+
+pub fn thread_yield() {
+}
+
+/// Without threads, a task that waits can never be woken: the other tasks have already run
+/// or run after it.
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
+    let _ = p
+    let _ = expected
+    panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
+}
+
+pub unsafe fn wake_all(Ptr[u32] p) {
+    let _ = p
+}
+
+pub unsafe fn wake_one(Ptr[u32] p) {
+    let _ = p
+}
+
+// ---------------------------------------------------------------------------
+// File system and processes (std.fs, std.process): unavailable on this target (-1).
+
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    let _ = path
+    let _ = out
+    return -1
+}
+
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    let _ = path
+    let _ = out
+    return -1
+}
+
+pub fn i32 make_dir(String path) {
+    let _ = path
+    return -1
+}
+
+pub fn i32 remove(String path, bool dir) {
+    let _ = path
+    let _ = dir
+    return -1
+}
+
+pub fn i32 rename_path(String from, String to) {
+    let _ = from
+    let _ = to
+    return -1
+}
+
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    let _ = program
+    let _ = args
+    let _ = capture
+    let _ = out
+    let _ = code
+    return -1
+}
+
+// ---------------------------------------------------------------------------
+// TCP (std.net): unavailable on this target (-1).
+
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    let _ = listener
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn u16 socket_port(i64 handle) {
+    let _ = handle
+    return 0
+}
+
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    let _ = handle
+    let _ = buffer
+    let _ = len
+    let _ = got
+    return -1
+}
+
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    let _ = handle
+    let _ = data
+    let _ = len
+    return -1
+}
+
+pub fn socket_shutdown(i64 handle) {
+    let _ = handle
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = handle
+}
+
+pub fn u8 net_error_kind(i32 code) {
+    let _ = code
+    return 0
 }

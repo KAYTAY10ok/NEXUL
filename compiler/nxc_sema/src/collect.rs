@@ -21,6 +21,9 @@ struct PendingImpl {
     module: ModId,
     decl: ast::ImplDecl,
     span: Span,
+    /// The functions written in the body of a type that declares several interfaces
+    /// (`type P is A and B { … }`): each goes to the interface that declares it.
+    type_body: bool,
 }
 
 /// What a function signature is resolved inside of: an `impl` block or a `trait`.
@@ -53,6 +56,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 ItemKind::Enum(e) => Some(e.name.clone()),
                 ItemKind::Const(c) => Some(c.name.clone()),
                 ItemKind::TypeAlias(t) => Some(t.name.clone()),
+                ItemKind::Newtype(n) => Some(n.name.clone()),
                 ItemKind::ExternFn(e) => Some(e.name.clone()),
                 ItemKind::Static(st) => Some(st.name.clone()),
                 ItemKind::Trait(t) => Some(t.name.clone()),
@@ -68,7 +72,8 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
             }
             let item_ref = match item.kind {
                 ItemKind::Impl(decl) => {
-                    impls.push(PendingImpl { module: mid, decl, span: item.span });
+                    let type_body = item.attrs.iter().any(|a| a.name.name == "type body");
+                    impls.push(PendingImpl { module: mid, decl, span: item.span, type_body });
                     continue;
                 }
                 ItemKind::Fn(f) => {
@@ -112,6 +117,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 }
                 ItemKind::Struct(s) => {
                     let id = AdtId(prog.adts.len() as u32);
+                    let newtype = prog.modules[m].newtypes.get(&s.name.name).map(|d| NewtypeDef { distinct: d.distinct, cond: d.cond.clone() });
                     prog.adts.push(AdtDef {
                         name: s.name.name.clone(),
                         module: mid,
@@ -123,6 +129,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         drop_fn: None,
                         index_fn: None,
                         lang,
+                        newtype,
                     });
                     check_generic_names(&s.generics, diags);
                     pending_structs.push((id, s));
@@ -141,6 +148,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         drop_fn: None,
                         index_fn: None,
                         lang,
+                        newtype: None,
                     });
                     check_generic_names(&e.generics, diags);
                     pending_enums.push((id, e));
@@ -180,6 +188,8 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                     pending_traits.push((id, t));
                     ItemRef::Trait(id)
                 }
+                // Replaced by a structure before the analysis (`newtype::expand`).
+                ItemKind::Newtype(_) => continue,
                 ItemKind::TypeAlias(t) => {
                     let id = AliasId(prog.aliases.len() as u32);
                     prog.aliases.push(AliasDef { name: t.name.name.clone(), module: mid, span: t.name.span, is_pub: item.is_pub, ty: prog.tcx.error });
@@ -304,10 +314,14 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
     for (id, decl, attrs) in &pending_fns {
         resolve_fn_sig(prog, *id, decl, attrs, None, diags);
     }
+    let impls = distribute_type_body(prog, impls);
     for imp in impls {
         if imp.decl.trait_.is_some() {
             collect_trait_impl(prog, imp, diags);
         } else {
+            if imp.decl.is_unsafe {
+                diags.emit(Diagnostic::error("E0253", "`unsafe` only declares `Transfer` or `Share`").primary(imp.span, "methods are declared without `unsafe`"));
+            }
             collect_impl(prog, imp, diags);
         }
     }
@@ -393,9 +407,11 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" => {}
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" | "type body" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
-                if !is_std {
+                // The validation of a constrained type panics where `as` is written (ADR 0014).
+                let validation = name == "track_caller" && matches!(&item.kind, ItemKind::Fn(f) if f.name.name == crate::newtype::VALIDATE_FN);
+                if !is_std && !validation {
                     diags.emit(
                         Diagnostic::error("E0231", format!("the attribute `@{}` is reserved for the standard library", name))
                             .primary(a.span, "not allowed here"),
@@ -910,11 +926,13 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
             diags.emit(Diagnostic::error("E0504", format!("invalid exported symbol name `{}`", sym)).primary(decl.name.span, "letters, digits and `_` only"));
         }
         for p in &params {
-            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !is_ffi_safe(prog, p.ty, false) {
+            // A distinct or constrained type crosses as its base, checked on entry (ADR 0014).
+            let newtype = matches!(&*prog.tcx.kind(p.ty), TyKind::Adt(id, _) if prog.adts[id.idx()].newtype.is_some());
+            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !(newtype || is_ffi_safe(prog, p.ty, false)) {
                 diags.emit(
                     Diagnostic::error("E0503", format!("parameter `{}` of an exported function cannot cross the C boundary", p.name))
                         .primary(p.span, format!("type `{}`", prog.ty_str(p.ty)))
-                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, passed by value (see spec §8.2)"),
+                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)"),
                 );
             }
         }
@@ -1024,9 +1042,52 @@ fn collect_trait(prog: &mut Program, id: TraitId, decl: &ast::TraitDecl, diags: 
 }
 
 /// `impl Trait for Type { ... }`
+/// `type P is A and B { fn … }` (edition 1): each function goes to the block of the
+/// interface that declares a function of that name; the others stay methods of the type.
+fn distribute_type_body(prog: &Program, mut impls: Vec<PendingImpl>) -> Vec<PendingImpl> {
+    for b in 0..impls.len() {
+        if !impls[b].type_body {
+            continue;
+        }
+        let fns = std::mem::take(&mut impls[b].decl.items);
+        let mut kept = Vec::new();
+        for item in fns {
+            let ItemKind::Fn(f) = &item.kind else { continue };
+            let target = (0..impls.len()).find(|&t| {
+                impls[t].span == impls[b].span
+                    && impls[t].decl.trait_.as_ref().is_some_and(|tr| {
+                        resolve_trait_ref(prog, impls[t].module, tr, &DiagSink::new())
+                            .is_some_and(|id| prog.traits[id.idx()].methods.iter().any(|m| m.name == f.name.name))
+                    })
+            });
+            match target {
+                Some(t) => impls[t].decl.items.push(item),
+                None => kept.push(item),
+            }
+        }
+        impls[b].decl.items = kept;
+    }
+    impls
+}
+
 fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     let trait_expr = imp.decl.trait_.clone().unwrap();
     let Some(tr) = resolve_trait_ref(prog, imp.module, &trait_expr, diags) else { return };
+    // `Transfer` and `Share` are promises the compiler cannot check for a type that holds a
+    // `Ptr`: they are declared with `unsafe`, and `unsafe` declares nothing else (ADR 0013).
+    let property = prog.is_task_property(tr);
+    if property != imp.decl.is_unsafe {
+        let name = prog.traits[tr.idx()].name.clone();
+        let d = if property {
+            Diagnostic::error("E0253", format!("declaring `{}` is a promise the compiler cannot check", name))
+                .primary(imp.span, "without `unsafe`")
+                .note(format!("a type has `{}` by its structure; a type that holds a `Ptr` declares it after a review of its code", name))
+                .help(format!("write `unsafe impl {} for …` (`unsafe extend … is {}` in edition 1)", name, name))
+        } else {
+            Diagnostic::error("E0253", format!("`unsafe` cannot declare `{}`", name)).primary(imp.span, "remove `unsafe`").note("only `Transfer` and `Share` are declared with `unsafe`")
+        };
+        diags.emit(d);
+    }
     let TypeExprKind::Path { segments, args } = &imp.decl.ty.kind else { return };
     // The implementing type: a primitive type or a struct/enum, generic parameters
     // listed (optionally) with their bounds.
@@ -1172,7 +1233,22 @@ fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
 /// Every trait method without a default must be implemented, and the supertraits
 /// must be implemented for the same type.
 fn check_impls(prog: &Program, diags: &DiagSink) {
+    let copy = prog.lang_trait("copy");
     for imp in &prog.impls {
+        // A declaration of `Copy` is checked against the structure of the type (ADR 0012).
+        if Some(imp.trait_id) == copy {
+            if let TyKind::Adt(id, _) = &*prog.tcx.kind(imp.self_ty) {
+                if let Some(why) = prog.copy_obstacle(*id) {
+                    let a = prog.adt(*id);
+                    diags.emit(
+                        Diagnostic::error("E0250", format!("`{}` cannot be `Copy`", a.name))
+                            .primary(a.span, "declared `Copy`")
+                            .note(why)
+                            .help("remove the declaration, or keep only copyable values in the type (`.clone()` copies the others explicitly)"),
+                    );
+                }
+            }
+        }
         let tdef = &prog.traits[imp.trait_id.idx()];
         let missing: Vec<&str> = tdef.methods.iter().filter(|m| m.default.is_none() && !imp.methods.contains_key(&m.name)).map(|m| m.name.as_str()).collect();
         if !missing.is_empty() {
@@ -1198,11 +1274,20 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     // The target must be a type declared in the same module (spec §6.3).
     let target = match &imp.decl.ty.kind {
         TypeExprKind::Path { segments, args } if segments.len() == 1 => {
-            if !args.is_empty() {
+            // Edition 1 (ADR 0010, Q1): `extend Map[K is Hash and Eq, V] { … }` names the
+            // parameters of the type, in order, to bound them for the methods of the block.
+            let names_params = |prog: &Program| -> bool {
+                let Some(ItemRef::Adt(a)) = lookup_item(prog, imp.module, &segments[0].name) else { return false };
+                let generics = &prog.adts[a.idx()].generics;
+                args.len() == generics.len()
+                    && args.iter().zip(generics.iter()).all(|(t, g)| matches!(&t.kind, TypeExprKind::Path { segments, args } if segments.len() == 1 && args.is_empty() && segments[0].name == *g))
+            };
+            if !args.is_empty() && !names_params(prog) {
                 diags.emit(
                     Diagnostic::error("E0224", "an `impl` block applies to the whole generic type")
                         .primary(imp.decl.ty.span, "remove the generic arguments")
-                        .note("inside the block, the type's parameters are in scope automatically"),
+                        .note("inside the block, the type's parameters are in scope automatically")
+                        .help("to bound them, name them as the type declares them: `extend Map[K is Eq, V] { … }`"),
                 );
             }
             if primitive_type(prog, &segments[0].name).is_some() || segments[0].name == "Ptr" {
@@ -1262,12 +1347,24 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         return;
     }
     let owner_generics = prog.adts[adt_id.idx()].generics.clone();
+    let block_bounds = imp.decl.bounds.clone();
     for item in imp.decl.items {
-        let ItemKind::Fn(f) = item.kind else { continue };
+        let ItemKind::Fn(mut f) = item.kind else { continue };
+        // The bounds of the block (`extend Vec[T is Eq]`) bound each of its methods, as a
+        // `where T: Eq` of the method would in edition 0.2.
+        if !block_bounds.is_empty() {
+            let mut bounds = block_bounds.clone();
+            bounds.extend(f.bounds.drain(..));
+            f.bounds = bounds;
+        }
         check_attrs(&ast::Item { attrs: item.attrs.clone(), is_pub: item.is_pub, kind: ItemKind::Fn(f.clone()), span: item.span }, prog.modules[imp.module.idx()].is_std, diags);
         let f = Rc::new(f);
         let id = FnId(prog.fns.len() as u32);
         prog.fns.push(new_fn_def(&f, imp.module, item.is_pub, Some(adt_id), &item.attrs));
+        // A method known to the compiler (`Portee.lancer`, ADR 0013).
+        if let Some(name) = lang_name(&item.attrs) {
+            prog.lang_fns.insert(name, id);
+        }
         let self_ty = prog.tcx.adt(adt_id, (0..owner_generics.len() as u32).map(|i| prog.tcx.param(i)).collect());
         let owner = SigOwner { generics: owner_generics.clone(), self_ty: Some(self_ty), bounds: vec![], trait_id: None };
         resolve_fn_sig(prog, id, &f, &item.attrs, Some(owner), diags);

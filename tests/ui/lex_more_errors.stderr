@@ -1,0 +1,49 @@
+error[E0004]: unexpected control character U+0007
+ --> lex_more_errors.nx:3:14
+  |
+3 |     let a = 1�
+  |              ^ not valid here
+
+error[E0002]: carriage return not followed by a line feed
+ --> lex_more_errors.nx:4:14
+  |
+4 |     let b = 2�    let c = 3
+  |              ^ lone `\r`
+
+error[E0101]: expected end of line, found `let`
+ --> lex_more_errors.nx:4:19
+  |
+4 |     let b = 2�    let c = 3
+  |                   ^^^ unexpected token
+  |
+  = help: put each statement on its own line, or separate them with `;`
+
+error[E0009]: invalid format specification
+ --> lex_more_errors.nx:5:17
+  |
+5 |     println("{a:q}")
+  |                 ^ cannot parse this format
+  |
+  = note: format: [[fill]align][+][0][width][.precision][x|X|o|b|e], for example `{x:>8.2}`
+
+error[E0011]: float literal is out of range
+ --> lex_more_errors.nx:6:15
+  |
+6 |     let big = 1e999
+  |               ^^^^^ too large for `f64`
+
+error[E0013]: unterminated interpolation in string
+ --> lex_more_errors.nx:7:14
+  |
+7 |     println("{a")
+  |              ^^ `{` is never closed
+  |
+  = help: write `\{` for a literal brace
+
+error[E0005]: unterminated block comment
+ --> lex_more_errors.nx:9:1
+  |
+9 | /* not closed
+  | ^^ comment starts here
+
+error: could not compile due to 7 errors

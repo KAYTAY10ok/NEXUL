@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for WebAssembly with WASI (spec §5.3, §8.2).
 ///
 /// The program imports the functions of `wasi_snapshot_preview1` from its host (a browser
@@ -10,44 +11,44 @@ import std.heap
 import std.wasm
 
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_write(fd: i32, iovs: Ptr[u8], iovs_len: i32, written: Ptr[i32]) -> i32
+extern "C" fn i32 fd_write(i32 fd, Ptr[u8] iovs, i32 iovs_len, Ptr[i32] written)
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_read(fd: i32, iovs: Ptr[u8], iovs_len: i32, read: Ptr[i32]) -> i32
+extern "C" fn i32 fd_read(i32 fd, Ptr[u8] iovs, i32 iovs_len, Ptr[i32] read)
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_close(fd: i32) -> i32
+extern "C" fn i32 fd_close(i32 fd)
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_fdstat_get(fd: i32, stat: Ptr[u8]) -> i32
+extern "C" fn i32 fd_fdstat_get(i32 fd, Ptr[u8] stat)
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_prestat_get(fd: i32, prestat: Ptr[u8]) -> i32
+extern "C" fn i32 fd_prestat_get(i32 fd, Ptr[u8] prestat)
 @link("wasi_snapshot_preview1")
-extern "C" fn fd_prestat_dir_name(fd: i32, path: Ptr[u8], len: i32) -> i32
+extern "C" fn i32 fd_prestat_dir_name(i32 fd, Ptr[u8] path, i32 len)
 @link("wasi_snapshot_preview1")
-extern "C" fn path_open(dirfd: i32, dirflags: i32, path: Ptr[u8], path_len: i32, oflags: i32, rights_base: i64, rights_inheriting: i64, fdflags: i32, fd: Ptr[i32]) -> i32
+extern "C" fn i32 path_open(i32 dirfd, i32 dirflags, Ptr[u8] path, i32 path_len, i32 oflags, i64 rights_base, i64 rights_inheriting, i32 fdflags, Ptr[i32] fd)
 @link("wasi_snapshot_preview1")
-extern "C" fn args_sizes_get(argc: Ptr[i32], buf_size: Ptr[i32]) -> i32
+extern "C" fn i32 args_sizes_get(Ptr[i32] argc, Ptr[i32] buf_size)
 @link("wasi_snapshot_preview1")
-extern "C" fn args_get(argv: Ptr[Ptr[u8]], buf: Ptr[u8]) -> i32
+extern "C" fn i32 args_get(Ptr[Ptr[u8]] argv, Ptr[u8] buf)
 @link("wasi_snapshot_preview1")
-extern "C" fn environ_sizes_get(count: Ptr[i32], buf_size: Ptr[i32]) -> i32
+extern "C" fn i32 environ_sizes_get(Ptr[i32] count, Ptr[i32] buf_size)
 @link("wasi_snapshot_preview1")
-extern "C" fn environ_get(env: Ptr[Ptr[u8]], buf: Ptr[u8]) -> i32
+extern "C" fn i32 environ_get(Ptr[Ptr[u8]] env, Ptr[u8] buf)
 @link("wasi_snapshot_preview1")
-extern "C" fn clock_time_get(id: i32, precision: i64, time: Ptr[i64]) -> i32
+extern "C" fn i32 clock_time_get(i32 id, i64 precision, Ptr[i64] time)
 @link("wasi_snapshot_preview1")
-extern "C" fn random_get(buf: Ptr[u8], len: i32) -> i32
+extern "C" fn i32 random_get(Ptr[u8] buf, i32 len)
 @link("wasi_snapshot_preview1")
-extern "C" fn poll_oneoff(subscriptions: Ptr[u8], events: Ptr[u8], count: i32, nevents: Ptr[i32]) -> i32
+extern "C" fn i32 poll_oneoff(Ptr[u8] subscriptions, Ptr[u8] events, i32 count, Ptr[i32] nevents)
 @link("wasi_snapshot_preview1")
-extern "C" fn proc_exit(code: i32) -> Never
+extern "C" fn Never proc_exit(i32 code)
 
 // ---------------------------------------------------------------------------
 // Process
 
-static var STDOUT_TERMINAL: bool = false
+static var bool STDOUT_TERMINAL = false
 
-unsafe fn is_terminal(fd: i32) -> bool {
-    var stat: [u8; 24] = [0; 24]
-    if fd_fdstat_get(fd, mem.addr_of(&stat).cast[u8]()) != 0 {
+unsafe fn bool is_terminal(i32 fd) {
+    var [u8; 24] stat = [0; 24]
+    if fd_fdstat_get(fd, mem.addr_of(stat!).cast[u8]()) != 0 {
         return false
     }
     // filetype 2: character device
@@ -60,11 +61,11 @@ pub fn init() {
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+pub fn bool stdout_is_terminal() {
     return unsafe { STDOUT_TERMINAL }
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
         proc_exit(code)
     }
@@ -73,30 +74,30 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] { return wasm.page_alloc(size) }
-pub unsafe fn page_free(p: Ptr[u8], size: usize) { wasm.page_free(p, size) }
+pub unsafe fn Ptr[u8] page_alloc(usize size) { return wasm.page_alloc(size) }
+pub unsafe fn page_free(Ptr[u8] p, usize size) { wasm.page_free(p, size) }
 
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return heap.alloc(size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return heap.realloc(p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     heap.free(p)
 }
 
 // ---------------------------------------------------------------------------
 // Input and output
 
-unsafe fn write_fd(fd: i32, data: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool write_fd(i32 fd, Ptr[u8] data, usize len) {
+    var usize done = 0
     while done < len {
-        var iov: [usize; 2] = [data.offset(done).addr(), len - done]
-        var written: i32 = 0
-        if fd_write(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&written)) != 0 or written <= 0 {
+        var [usize; 2] iov = [data.offset(done).addr(), len - done]
+        var i32 written = 0
+        if fd_write(fd, mem.addr_of(iov!).cast[u8](), 1, mem.addr_of(written!)) != 0 or written <= 0 {
             return false
         }
         done += written as usize
@@ -104,19 +105,19 @@ unsafe fn write_fd(fd: i32, data: Ptr[u8], len: usize) -> bool {
     return true
 }
 
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return write_fd(fd, data, len)
 }
 
-static var IN_BUF: [u8; 4096] = [0; 4096]
-static var IN_POS: usize = 0
-static var IN_LEN: usize = 0
+static var [u8; 4096] IN_BUF = [0; 4096]
+static var usize IN_POS = 0
+static var usize IN_LEN = 0
 
-unsafe fn read_byte() -> i32 {
+unsafe fn i32 read_byte() {
     if IN_POS == IN_LEN {
-        var iov: [usize; 2] = [mem.addr_of(&IN_BUF).cast[u8]().addr(), 4096]
-        var got: i32 = 0
-        if fd_read(0, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got)) != 0 or got <= 0 {
+        var [usize; 2] iov = [mem.addr_of(IN_BUF!).cast[u8]().addr(), 4096]
+        var i32 got = 0
+        if fd_read(0, mem.addr_of(iov!).cast[u8](), 1, mem.addr_of(got!)) != 0 or got <= 0 {
             return -1
         }
         IN_POS = 0
@@ -127,24 +128,24 @@ unsafe fn read_byte() -> i32 {
     return b as i32
 }
 
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
     rt.flush()
-    var bytes: Vec[u8] = Vec.new()
-    var any = false
+    var Vec[u8] bytes = Vec.new()
+    var any_ = false
     unsafe {
-        while true {
+        loop {
             let b = read_byte()
             if b < 0 {
                 break
             }
-            any = true
+            any_ = true
             if b == 10 {
                 break
             }
             bytes.push(b as u8)
         }
     }
-    if not any {
+    if not any_ {
         return false
     }
     if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -157,8 +158,8 @@ pub fn read_line(inout out: String) -> bool {
 // ---------------------------------------------------------------------------
 // Command line and environment
 
-unsafe fn c_len(p: Ptr[u8]) -> usize {
-    var n: usize = 0
+unsafe fn usize c_len(Ptr[u8] p) {
+    var usize n = 0
     while p.offset(n).read() != 0 {
         n += 1
     }
@@ -166,12 +167,12 @@ unsafe fn c_len(p: Ptr[u8]) -> usize {
 }
 
 /// The arguments or the environment as strings.
-fn strings(environment: bool) -> Vec[String] {
-    var out: Vec[String] = Vec.new()
+fn Vec[String] strings(bool environment) {
+    var Vec[String] out = Vec.new()
     unsafe {
-        var count: i32 = 0
-        var size: i32 = 0
-        let r = if environment { environ_sizes_get(mem.addr_of(&count), mem.addr_of(&size)) } else { args_sizes_get(mem.addr_of(&count), mem.addr_of(&size)) }
+        var i32 count = 0
+        var i32 size = 0
+        let r = if environment { environ_sizes_get(mem.addr_of(count!), mem.addr_of(size!)) } else { args_sizes_get(mem.addr_of(count!), mem.addr_of(size!)) }
         if r != 0 or count == 0 {
             return out
         }
@@ -190,11 +191,11 @@ fn strings(environment: bool) -> Vec[String] {
     return out
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return strings(false).len() as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     let all = strings(false)
     if index < 0 or index as usize >= all.len() {
         panic("argument index {index} out of range")
@@ -202,7 +203,7 @@ pub fn arg(index: i32) -> String {
     return all[index as usize].clone()
 }
 
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     let prefix = name + "="
     for e in strings(true) {
         if e.starts_with(prefix) {
@@ -212,7 +213,7 @@ pub fn env(name: String) -> Option[String] {
     return None
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     return env(name).is_some()
 }
 
@@ -220,15 +221,15 @@ pub fn env_is_set(name: String) -> bool {
 // Files
 
 /// A preopened directory for `path`, and the path relative to it.
-fn resolve(path: String) -> (i32, String) {
-    var best: i32 = -1
-    var best_len: usize = 0
+fn (i32, String) resolve(String path) {
+    var i32 best = -1
+    var usize best_len = 0
     var rel = path.clone()
     unsafe {
-        var fd: i32 = 3
+        var i32 fd = 3
         while fd < 64 {
-            var pre: [u32; 2] = [0; 2]
-            if fd_prestat_get(fd, mem.addr_of(&pre).cast[u8]()) != 0 {
+            var [u32; 2] pre = [0; 2]
+            if fd_prestat_get(fd, mem.addr_of(pre!).cast[u8]()) != 0 {
                 break
             }
             let n = pre[1] as usize
@@ -261,29 +262,33 @@ fn resolve(path: String) -> (i32, String) {
     return (best, rel)
 }
 
-unsafe fn open(path: String, oflags: i32, rights: i64, fdflags: i32) -> i32 {
+/// A file descriptor, or minus the error code (`errno`).
+unsafe fn i32 open(String path, i32 oflags, i64 rights, i32 fdflags) {
     let (dir, rel) = resolve(path)
-    var fd: i32 = -1
-    if path_open(dir, 1, rel.as_ptr(), rel.len() as i32, oflags, rights, rights, fdflags, mem.addr_of(&fd)) != 0 {
-        return -1
+    var i32 fd = -1
+    let errno = path_open(dir, 1, rel.as_ptr(), rel.len() as i32, oflags, rights, rights, fdflags, mem.addr_of(fd!))
+    if errno != 0 {
+        return -errno
     }
     return fd
 }
 
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         // Rights: fd_read (2) | fd_seek (4) | fd_tell (32) | fd_filestat_get (2097152)
         let fd = open(path, 0, 2097190, 0)
         if fd < 0 {
-            return false
+            return -fd
         }
-        var ok = true
-        while true {
+        var i32 code = 0
+        loop {
             out.reserve(65536)
-            var iov: [usize; 2] = [out.as_ptr().offset(out.len()).addr(), 65536]
-            var got: i32 = 0
-            if fd_read(fd, mem.addr_of(&iov).cast[u8](), 1, mem.addr_of(&got)) != 0 {
-                ok = false
+            var [usize; 2] iov = [out.as_ptr().offset(out.len()).addr(), 65536]
+            var i32 got = 0
+            let errno = fd_read(fd, mem.addr_of(iov!).cast[u8](), 1, mem.addr_of(got!))
+            if errno != 0 {
+                code = errno
                 break
             }
             if got <= 0 {
@@ -292,64 +297,312 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + got as usize)
         }
         let _ = fd_close(fd)
-        return ok
+        return code
     }
 }
 
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
         // oflags: creat (1) | trunc (8); fdflags: append (1); rights: fd_write (64)
         let fd = if append { open(path, 1, 64, 1) } else { open(path, 9, 64, 0) }
         if fd < 0 {
-            return false
+            return -fd
         }
         let ok = write_fd(fd, data, len)
-        let closed = fd_close(fd) == 0
-        return ok and closed
+        let closed = fd_close(fd)
+        if not ok {
+            return 29 // EIO: `write_fd` does not keep the code
+        }
+        return closed
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn u8 io_error_kind(i32 code) {
+    return when code {
+        44 then 1 // ENOENT
+        2 | 63 then 2 // EACCES, EPERM
+        20 then 3 // EEXIST
+        27 then 4 // EINTR
+        _ then 0
     }
 }
 
 // ---------------------------------------------------------------------------
 // Time
 
-unsafe fn clock(id: i32) -> i64 {
-    var t: i64 = 0
-    let _ = clock_time_get(id, 1, mem.addr_of(&t))
+unsafe fn i64 clock(i32 id) {
+    var i64 t = 0
+    let _ = clock_time_get(id, 1, mem.addr_of(t!))
     return t
 }
 
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     return unsafe { clock(1) } as u64
 }
 
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     return unsafe { clock(0) }
 }
 
 /// WASI has no time zones: local time is UTC.
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     let _ = unix_seconds
     return 0
 }
 
-pub fn sleep_ns(ns: u64) {
+pub fn sleep_ns(u64 ns) {
     if ns == 0 {
         return
     }
     unsafe {
         // One clock subscription: relative timeout on the monotonic clock.
-        var sub: [u64; 6] = [0; 6]
+        var [u64; 6] sub = [0; 6]
         sub[2] = 1
         sub[3] = ns
-        var events: [u64; 4] = [0; 4]
-        var n: i32 = 0
-        let _ = poll_oneoff(mem.addr_of(&sub).cast[u8](), mem.addr_of(&events).cast[u8](), 1, mem.addr_of(&n))
+        var [u64; 4] events = [0; 4]
+        var i32 n = 0
+        let _ = poll_oneoff(mem.addr_of(sub!).cast[u8](), mem.addr_of(events!).cast[u8](), 1, mem.addr_of(n!))
     }
 }
 
 // ---------------------------------------------------------------------------
 // Random numbers
 
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
     return random_get(buffer, len as i32) == 0
+}
+
+/// The lock of the runtime (ADR 0013, task C5): nothing to lock on a target without
+/// threads or interrupts.
+pub type CriticalSection is Copy {
+    bool unused
+}
+
+pub unsafe fn CriticalSection critical_section() {
+    return CriticalSection(unused: false)
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013): none on this target. `std.tache` runs each task when it is
+// launched, which is one of the orders allowed by its rules.
+
+/// Returns 0: the caller runs `entry(arg)` itself.
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+pub unsafe fn thread_join(usize handle) {
+    let _ = handle
+}
+
+pub fn u64 thread_id() {
+    return 0
+}
+
+pub fn thread_yield() {
+}
+
+/// Without threads, a task that waits can never be woken: the other tasks have already run
+/// or run after it.
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
+    let _ = p
+    let _ = expected
+    panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
+}
+
+pub unsafe fn wake_all(Ptr[u32] p) {
+    let _ = p
+}
+
+pub unsafe fn wake_one(Ptr[u32] p) {
+    let _ = p
+}
+
+// ---------------------------------------------------------------------------
+// File system (std.fs); no processes
+
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 path_filestat_get(i32 dirfd, i32 flags, Ptr[u8] path, i32 path_len, Ptr[u8] stat)
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 fd_readdir(i32 fd, Ptr[u8] buf, i32 buf_len, i64 cookie, Ptr[i32] used)
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 path_create_directory(i32 dirfd, Ptr[u8] path, i32 path_len)
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 path_unlink_file(i32 dirfd, Ptr[u8] path, i32 path_len)
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 path_remove_directory(i32 dirfd, Ptr[u8] path, i32 path_len)
+@link("wasi_snapshot_preview1")
+extern "C" fn i32 path_rename(i32 old_dirfd, Ptr[u8] old_path, i32 old_len, i32 new_dirfd, Ptr[u8] new_path, i32 new_len)
+
+/// What is at `path`: `out` receives its size, its kind (1 file, 2 directory, 3 other) and
+/// its time of last modification (nanoseconds since 1970). Returns 0, or the error code.
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    let (dir, rel) = resolve(path)
+    unsafe {
+        // filestat (64 bytes): the file type at 16, the size at 32, mtim at 48.
+        var [u64; 8] stat = [0; 8]
+        let s = mem.addr_of(stat!).cast[u8]()
+        // lookupflags: symlink_follow
+        let errno = path_filestat_get(dir, 1, rel.as_ptr(), rel.len() as i32, s)
+        if errno != 0 {
+            return errno
+        }
+        let kind = s.offset(16).read()
+        out[0] = stat[4]
+        out[1] = if kind == 4 { 1 } else if kind == 3 { 2 } else { 3 }
+        out[2] = stat[6]
+        return 0
+    }
+}
+
+/// The names in the directory `path` (without `.` and `..`), appended to `out`. Returns 0,
+/// or the error code.
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    unsafe {
+        // oflags: directory (2); rights: fd_readdir (16384)
+        let fd = open(path, 2, 16384, 0)
+        if fd < 0 {
+            return -fd
+        }
+        var usize size = 4096
+        var Vec[u8] buf = Vec.with_capacity(size)
+        var i64 cookie = 0
+        var i32 code = 0
+        loop {
+            buf.reserve(size)
+            var i32 used = 0
+            let errno = fd_readdir(fd, buf.as_ptr(), size as i32, cookie, mem.addr_of(used!))
+            if errno != 0 {
+                code = errno
+                break
+            }
+            // dirent (24 bytes): d_next at 0, d_namlen at 16, then the name.
+            var usize at = 0
+            var bool whole = false
+            while at + 24 <= used as usize {
+                let entry = buf.as_ptr().offset(at)
+                let len = entry.offset(16).cast[u32]().read() as usize
+                if at + 24 + len > used as usize {
+                    whole = true
+                    break
+                }
+                let name = entry.offset(24)
+                let dot = len == 1 and name.read() == 46
+                let dotdot = len == 2 and name.read() == 46 and name.offset(1).read() == 46
+                if not dot and not dotdot {
+                    out.push(String.from_bytes_lossy(name, len))
+                }
+                cookie = entry.cast[i64]().read()
+                at += 24 + len
+            }
+            if whole and at == 0 {
+                // One entry larger than the buffer: read it again with more room.
+                size *= 2
+                continue
+            }
+            if (used as usize) < size {
+                break
+            }
+        }
+        let _ = fd_close(fd)
+        return code
+    }
+}
+
+/// Creates the directory `path` (its parent must exist). Returns 0, or the error code.
+pub fn i32 make_dir(String path) {
+    let (dir, rel) = resolve(path)
+    return unsafe { path_create_directory(dir, rel.as_ptr(), rel.len() as i32) }
+}
+
+/// Removes the file `path`, or the empty directory `path` when `dir`. Returns 0, or the
+/// error code.
+pub fn i32 remove(String path, bool dir) {
+    let (fd, rel) = resolve(path)
+    unsafe {
+        return if dir {
+            path_remove_directory(fd, rel.as_ptr(), rel.len() as i32)
+        } else {
+            path_unlink_file(fd, rel.as_ptr(), rel.len() as i32)
+        }
+    }
+}
+
+/// Renames `from` to `to` (replacing `to` if it is a file). Returns 0, or the error code.
+pub fn i32 rename_path(String from, String to) {
+    let (a, ra) = resolve(from)
+    let (b, rb) = resolve(to)
+    return unsafe { path_rename(a, ra.as_ptr(), ra.len() as i32, b, rb.as_ptr(), rb.len() as i32) }
+}
+
+/// WASI (preview 1) cannot start processes: ENOSYS.
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    let _ = program
+    let _ = args
+    let _ = capture
+    let _ = out
+    let _ = code
+    return 52
+}
+
+// ---------------------------------------------------------------------------
+// TCP (std.net): unavailable on this target (-1).
+
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    let _ = listener
+    let _ = handle
+    return -1
+}
+
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn u16 socket_port(i64 handle) {
+    let _ = handle
+    return 0
+}
+
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    let _ = handle
+    let _ = buffer
+    let _ = len
+    let _ = got
+    return -1
+}
+
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    let _ = handle
+    let _ = data
+    let _ = len
+    return -1
+}
+
+pub fn socket_shutdown(i64 handle) {
+    let _ = handle
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = handle
+}
+
+pub fn u8 net_error_kind(i32 code) {
+    let _ = code
+    return 0
 }

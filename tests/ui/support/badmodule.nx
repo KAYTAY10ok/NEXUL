@@ -1,0 +1,6 @@
+// Helper module for tests/ui/module_declaration.nx (not a test itself).
+module wrong.name
+
+pub fn value() -> i32 {
+    return 1
+}

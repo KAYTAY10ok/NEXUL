@@ -14,18 +14,4 @@ error[E0111]: an identity comparison (`===`, `!==`) is not supported yet
   |
   = note: the compiler refuses it rather than accept it without checking it
 
-error[E0202]: cannot find type `Metres`
- --> edition1_not_yet.nx:9:9
-  |
-9 |     let Metres m = 1.0
-  |         ^^^^^^ not found in this scope
-
-error[E0111]: a distinct type (`distinct`) is not supported yet
-  --> edition1_not_yet.nx:12:15
-   |
-12 | type Metres = distinct f64
-   |               ^^^^^^^^ planned in edition 1 (ADR 0010), not implemented
-   |
-   = note: the compiler refuses it rather than accept it without checking it
-
-error: could not compile due to 4 errors
+error: could not compile due to 2 errors

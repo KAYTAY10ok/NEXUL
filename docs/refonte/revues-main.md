@@ -105,3 +105,102 @@ l'étape LLVM 19 est abandonnée (inutile depuis `f8fc0d3`). Corrigé par Main d
 Tests : `cargo test --manifest-path installer/Cargo.toml --features test-sandbox --test
 silent --bins` (24 + 4) et `--test ui` (2) verts sur cette machine (session administrateur).
 Non testé : `tools/build_installer.py` complet avec Studio natif MSVC (tâche 4 de Sol).
+## 28/10/2026 — PR #29 à #67 : relecture et intégration par Main
+
+Reprise après le 16/10 : 39 PR ouvertes. La pile Core #35 → #66 est linéaire (chaque PR
+contient la précédente ; #51 et le correctif P1 de #63 y sont déjà fusionnés). Les PR de
+Codex Sol du 24/10 sont empilées sur #43 ; #61 les réunit (C1–C10), #57 réunit C9, C11 et
+C12. Les PR du 16/10 (#29 à #34) partent de `main`. Tout est fusionné sur la branche
+`claude/pensive-darwin-3e2tye`, une seule PR vers `main` : sa fusion ferme les autres.
+
+Machine de revue : conteneur Linux x86-64 (4 vCPU), Rust 1.97, LLVM 18 et 20, LLD,
+Node 22. Non disponibles : Windows, MSVC, macOS, matériel ARM ou RISC-V.
+
+### Tests exécutés
+
+| Où | Commande | Résultat |
+|---|---|---|
+| `main` (`c40acbd`) | `cargo test --release --workspace --exclude nexul-installer` | vert |
+| sommet Core #66 (`a1370b4`) | idem, `--no-fail-fast` | vert (`run_programs` O0/O2 compris) |
+| branche intégrée | idem | vert : `codegen_ir` 7, `lsp` 9, `robustness` 4, `suite` 13 |
+| branche intégrée | `cargo test --release -p nxc --test web -- --ignored` | 1/1 (ABI navigateur, `@export` vérifiés, pile WASI/web avant les données) |
+| branche intégrée | `cargo test --manifest-path studio/{syntax,lsp,terminal,dap,templates}/Cargo.toml` | vert après le correctif ETXTBSY ci-dessous |
+| `editors/vscode` | `node --test test/cli.test.js test/edition.test.js test/trust.test.js` | 15/15 |
+
+CI GitHub de #64, #65, #66 : verte sous Linux et Windows (25/10).
+
+### Pile Core (#35 → #66) — ACCEPTÉE
+
+Lu en priorité ce qui touche la sûreté : `std.tache` et les threads (`sys/linux.nx`,
+`sys/windows.nx`, intrinsèque `linux_clone`), propriétés `Transfer`/`Share`
+(`defs.rs`), règles des tâches (`check/call.rs`, `places.rs`), ordre de travail de
+l'analyse de propriété (`ownership.rs`, lot 5).
+
+**Essais adverses** (programmes écrits pour cette revue, tous refusés comme attendu) : deux
+tâches qui modifient un paramètre `inout` de la fonction englobante ; une modification
+cachée dans une fonction anonyme imbriquée (`v.sort_by(fn …)`) ; une méthode `inout self`
+pendant qu'une autre tâche lit ; deux champs différents d'une même structure (refus
+conservateur, par la racine) ; un `Vec[dyn Show]` dont l'interface ne demande pas
+`Transfer` envoyé à une tâche détachée (E0249) ; une modification dans le rappel d'un
+`Verrou.avec` en concurrence avec une autre tâche ; une tâche lancée dans une boucle
+(E0254) ; une affectation après le lancement d'une tâche qui lit (E0420) ; une fonction
+anonyme passée ailleurs qui modifie une variable d'une tâche ; deux `portee` imbriquées.
+
+**Exécution réelle** : panique dans un thread → message et code 101 (`exit_group`) ;
+dépassement de pile dans un thread (trames de 512 o et de 320 Kio) → `panic: stack
+overflow`, code 101 ; 40 producteurs détachés, 10⁶ valeurs : résultat exact.
+
+À reprendre :
+1. **(corrigé ici) Débit des canaux** : un seul mot de signal pour tout changement et un
+   réveil de tous les threads à chaque valeur. Avec 40 producteurs sur 4 cœurs,
+   100 000 valeurs prenaient 53 s en `--release` (Rust `std::sync::mpsc` : 1,9 s). Chaque
+   thread qui attend dort maintenant sur son propre mot, dans une file du canal ; le
+   verrou réveille un seul thread (`sys.wake_one`) ; attente active courte avant de
+   dormir. Mesures : 100 000 valeurs 0,9 s, 10⁶ valeurs 8,8 s (Rust std : 17,8 s).
+   Test ajouté : `tests/run/task_channels_stress.nx`.
+2. **(corrigé ici) Windows** : `SetThreadStackGuarantee` vaut pour un seul thread ; les
+   threads de `std.tache` ne réservaient rien pour le gestionnaire de C2. Non testé sur
+   Windows (pas de machine) : la CI le dira.
+3. **Sondes de pile et threads** : sans les sondes de C1, une trame plus grande que la
+   garde de 64 Kio d'un thread peut atteindre la pile d'un autre thread. C1 est dans cette
+   intégration : à garder obligatoire pour toute cible avec threads. Windows sonde par
+   `__chkstk`.
+4. `Verrou.avec` réentrant (un rappel qui reprend le même verrou) bloque : pas une faute
+   de sûreté, mais à signaler dans la spécification §11.5 ou à détecter.
+5. Sous Windows, l'attente est une cession du processeur en boucle (`WaitOnAddress`
+   prévu) : correct, mais coûteux pour des tâches qui attendent longtemps.
+
+### Codex Sol, C1–C12 (#44 à #62) — ACCEPTÉES
+
+- C1 sondes (`"probe-stack"="inline-asm"` sur toutes les définitions Linux/macOS
+  x86-64/AArch64), C2 (Windows et RISC-V), C3 `--stack-first`, C5 (déjà dans la pile Core),
+  C8 (réessai de 1018, clés uniques), C7 (CI sur toute base), #62 (alias de chemins du
+  LSP), C6 (suite du compilateur sous Windows avec LLVM 20.1.8 vérifié par SHA-256) :
+  lus et testés ici quand c'était possible.
+- C10 : l'explication de l'écart « 1,12× C » est honnête (pas de contrôle entier dans la
+  boucle flottante, aucune vérification retirée) ; gain de `String.push` ASCII (−12,7 %
+  à 10 M) accepté.
+- C9, C11 : propositions acceptées comme documents ; leur code passera par une revue de
+  sûreté (`ownership.rs`, NIR monomorphe : IR identique à l'octet exigée).
+- C12 : macOS **BLOQUÉ** (pas de Mac) ; la cible reste annoncée « non validée ».
+- La garde de couverture à 90 % de #63 (`14ce81d`) n'est **pas** intégrée (décision du
+  25/10 maintenue) ; #67 reste un brouillon de mesure, à fermer.
+
+### Codex Sol, 0.3.0 (#29 à #34) — ACCEPTÉES
+
+- #31 (DAP) et #32 (terminal) traitent toutes les remarques du 16/10 (fil d'écriture
+  dédié pour les réponses DSR, `wait()` bloquant sur `clone_killer`, `try_wait`,
+  `#[deprecated]` sur `launch`/`attach`, `AdapterExited` immédiat, outil absent avec
+  `NEXUL_NXC` défini = échec).
+- #30 (VSIX 0.3.0, formatage à l'enregistrement) : **corrigé ici**, un document non vide
+  n'est jamais remplacé par une sortie vide de `nxc` (constaté sans risque aujourd'hui :
+  sur une erreur de syntaxe, `nxc ide format --stdin` rend le texte inchangé).
+- #33 (versions de distribution alignées avant de construire l'installateur), #34 (tests
+  LSP d'éditions mélangées), #29 (références P13 brutes) : acceptées.
+
+### Correctifs de Main dans cette intégration
+
+- `studio/lsp` : `detection_in_a_folder_of_fake_tools` échouait environ une fois sur 12
+  sous Linux (outil copié pendant qu'un autre thread `fork` : ETXTBSY) ; la sonde
+  réessaie. Avant : 1 échec sur 12 ; après : 0 sur 12. Le job Linux de la CI teste
+  maintenant les crates de Studio sans GPUI (il ne les lançait pas).

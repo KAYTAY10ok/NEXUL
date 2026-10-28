@@ -1,0 +1,35 @@
+// A guard only borrows the bindings of its pattern, even when the scrutinee is a value
+// (spec §5.6): moving one could destroy a value that the next arms still match.
+fn take(owned s: String) -> bool {
+    return s.len() > 1
+}
+
+fn make() -> Option[String] {
+    return Some("ab" + "c")
+}
+
+fn main() {
+    let o: Option[String] = Some("ab" + "c")
+    match move o {
+        Some(s) if take(s) => println("long")
+        Some(s) => println(s)
+        None => {}
+    }
+    match make() {
+        Some(s) if take(move s) => println("long")
+        _ => {}
+    }
+    let r: Result[Option[String], i32] = Ok(make())
+    match move r {
+        Ok(inner) if inner.unwrap().len() > 2 => println("unwrapped")
+        _ => {}
+    }
+    // Allowed: the guard reads or copies, the body moves.
+    match make() {
+        Some(s) if take(s.clone()) and s.len() > 0 => {
+            let kept = s
+            println(kept)
+        }
+        _ => {}
+    }
+}

@@ -1,0 +1,19 @@
+// edition: 1
+// `T is Copy` (ADR 0010): the bound of the generic example of the ADR.
+fn T plus_grand[T is Ord and Copy](Vec[T] v) {
+    var T best = v[0]
+    for x in v {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn main() {
+    var Vec[i64] v = Vec.new()
+    v!.push(5)
+    v!.push(12)
+    v!.push(-7)
+    println(plus_grand(v))
+}

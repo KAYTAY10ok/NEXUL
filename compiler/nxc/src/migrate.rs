@@ -8,6 +8,7 @@
 
 use nxc_syntax::ast::*;
 use nxc_syntax::{lexer, parser, DiagSink, Edition, SourceMap};
+use std::collections::{HashMap, HashSet};
 
 /// The result of a migration.
 pub struct Migration {
@@ -32,7 +33,19 @@ struct Migrator<'a> {
     edits: Vec<Edit>,
     seq: usize,
     manual: Vec<(usize, String)>,
+    /// The function being rewritten returns `Result[..., String]`.
+    string_errors: bool,
+    /// Public types copied by their structure in 0.2, which declare `Copy` in edition 1.
+    add_copy: HashSet<String>,
+    /// The parameters of the generic structs and enums of the module, by type name.
+    type_generics: HashMap<String, Vec<String>>,
+    /// The method being rewritten moves to an `extend Type[P is …]` block that carries the
+    /// bounds of its `where` on the parameters of the type (ADR 0010, Q1).
+    bounds_moved: bool,
 }
+
+/// The functions of `std.io` whose errors became `io.IoError` (ADR 0015).
+const IO_FALLIBLE: &[&str] = &["read_file", "read_bytes", "write_file", "write_bytes", "append_file"];
 
 /// Words that edition 1 reserves; a 0.2 program that uses them as names must rename them.
 const NEW_WORDS: &[&str] = &[
@@ -53,7 +66,16 @@ pub fn migrate(name: &str, src: &str) -> Result<Migration, String> {
         let list = diags.take_sorted();
         return Err(list.iter().map(|d| format!("error[{}]: {}", d.code, d.message)).collect::<Vec<_>>().join("\n"));
     }
-    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new() };
+    let type_generics = module
+        .items
+        .iter()
+        .filter_map(|it| match &it.kind {
+            ItemKind::Struct(st) => Some((st.name.name.clone(), st.generics.iter().map(|g| g.name.clone()).collect())),
+            ItemKind::Enum(en) => Some((en.name.name.clone(), en.generics.iter().map(|g| g.name.clone()).collect())),
+            _ => None,
+        })
+        .collect();
+    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false, add_copy: copy_types(&module), type_generics, bounds_moved: false };
     for item in &module.items {
         m.item(item);
     }
@@ -118,6 +140,30 @@ impl<'a> Migrator<'a> {
 
     fn text(&self, lo: usize, hi: usize) -> &str {
         &self.src[lo..hi]
+    }
+
+    /// `lo..hi` widened to whole lines, with the comment lines just above (`///`, `//`) and
+    /// the line break at the end.
+    fn lines_of(&self, lo: usize, hi: usize) -> (usize, usize) {
+        let mut start = self.src[..lo].rfind('\n').map_or(0, |i| i + 1);
+        while start > 0 {
+            let prev = self.src[..start - 1].rfind('\n').map_or(0, |i| i + 1);
+            let line = self.src[prev..start - 1].trim_start();
+            if line.starts_with("//") || line.starts_with('@') {
+                start = prev;
+            } else {
+                break;
+            }
+        }
+        // The blank line that separated it from the previous member goes with it.
+        if start > 0 {
+            let prev = self.src[..start - 1].rfind('\n').map_or(0, |i| i + 1);
+            if self.src[prev..start - 1].trim().is_empty() {
+                start = prev;
+            }
+        }
+        let end = self.src[hi..].find('\n').map_or(self.src.len(), |i| hi + i + 1);
+        (start, end)
     }
 
     fn line_of(&self, pos: usize) -> usize {
@@ -239,6 +285,13 @@ impl<'a> Migrator<'a> {
                 if let Some(k) = self.find(lo, s.name.span.lo as usize, "struct") {
                     self.rep(k, k + "struct".len(), "type");
                 }
+                // Edition 1 copies a public type only if it says so (ADR 0012).
+                if self.add_copy.contains(&s.name.name) {
+                    if let Some(open) = self.find(s.name.span.hi as usize, item.span.hi as usize, "{") {
+                        let spaced = self.src[..open].ends_with(char::is_whitespace);
+                        self.ins(open, if spaced { "is Copy " } else { " is Copy " });
+                    }
+                }
                 for fd in &s.fields {
                     let mut t = String::new();
                     if fd.is_pub {
@@ -274,8 +327,57 @@ impl<'a> Migrator<'a> {
                     None => format!("extend {} ", ty),
                 };
                 self.rep(k, brace, head);
+                // Edition 1 bounds a parameter of the type on a block, not on a method: the
+                // methods with such a `where` move to `extend Type[P is …] { … }` blocks after
+                // this one, one per set of bounds (ADR 0010, Q1).
+                let owner = match (&i.trait_, &i.ty.kind) {
+                    (None, TypeExprKind::Path { segments, args }) if segments.len() == 1 && args.is_empty() => {
+                        self.type_generics.get(&segments[0].name).cloned().map(|g| (segments[0].name.clone(), g))
+                    }
+                    _ => None,
+                };
+                let mut moved: Vec<(String, String)> = Vec::new();
                 for it in &i.items {
-                    self.item(it);
+                    let owner_bounds: Vec<&BoundDecl> = match (&owner, &it.kind) {
+                        (Some(_), ItemKind::Fn(f)) => f.bounds.iter().filter(|b| !f.generics.iter().any(|g| g.name == b.param.name)).collect(),
+                        _ => Vec::new(),
+                    };
+                    if owner_bounds.is_empty() {
+                        self.item(it);
+                        continue;
+                    }
+                    let (name, generics) = owner.clone().unwrap();
+                    let params: Vec<String> = generics
+                        .iter()
+                        .map(|g| {
+                            let traits: Vec<String> = owner_bounds.iter().filter(|b| b.param.name == *g).flat_map(|b| b.traits.iter().map(|t| self.ty(t))).collect();
+                            if traits.is_empty() { g.clone() } else { format!("{} is {}", g, traits.join(" and ")) }
+                        })
+                        .collect();
+                    let header = format!("extend {}[{}] {{", name, params.join(", "));
+                    // The method, with its comments and attributes, from the start of its first
+                    // line to the end of its last one.
+                    let (lo, hi) = self.lines_of(it.span.lo as usize, it.span.hi as usize);
+                    let edits = self.capture(|m| {
+                        m.bounds_moved = true;
+                        m.item(it);
+                        m.bounds_moved = false;
+                    });
+                    let text = self.render(lo, hi, &edits);
+                    self.rep(lo, hi, "");
+                    // In its new block, one blank line between members and none at the top.
+                    let text = text.trim_start_matches('\n').to_string();
+                    match moved.iter_mut().find(|(h, _)| *h == header) {
+                        Some((_, body)) => {
+                            body.push('\n');
+                            body.push_str(&text);
+                        }
+                        None => moved.push((header, text)),
+                    }
+                }
+                let end = item.span.hi as usize;
+                for (header, body) in moved {
+                    self.ins(end, format!("\n\n{}\n{}}}", header, body));
                 }
             }
             ItemKind::Trait(t) => {
@@ -307,6 +409,8 @@ impl<'a> Migrator<'a> {
                 }
                 self.expr(&s.value);
             }
+            // Edition 1 only: nothing to migrate.
+            ItemKind::Newtype(_) => {}
             ItemKind::TypeAlias(a) => {
                 let printed = self.ty(&a.ty);
                 self.rep(a.ty.span.lo as usize, a.ty.span.hi as usize, printed);
@@ -330,6 +434,14 @@ impl<'a> Migrator<'a> {
         let header = self.text(start, head_end);
         if header.contains("//") || header.contains("/*") {
             self.manual(start, "comment inside a function header: moved out by the rewriting, check it");
+        }
+        // A bound on a parameter of the type (`where K: Eq` in `impl Map`): edition 1 has
+        // no place for it in the header of the method, and dropping it would drop a check.
+        if let Some(b) = f.bounds.iter().find(|b| !self.bounds_moved && !f.generics.iter().any(|g| g.name == b.param.name)) {
+            self.manual(
+                start,
+                format!("`where {}: …` bounds a parameter of the type: move `{}` to a separate `extend Type[{} is …] {{ … }}`", b.param.name, f.name.name, b.param.name),
+            );
         }
         let new = match test {
             Some(name) => format!("test \"{}\" ", name),
@@ -356,7 +468,9 @@ impl<'a> Migrator<'a> {
         };
         self.rep(start, head_end, new);
         if let Some(b) = &f.body {
+            let outer = std::mem::replace(&mut self.string_errors, f.ret.as_ref().is_some_and(is_result_of_string));
             self.block(b);
+            self.string_errors = outer;
         }
     }
 
@@ -365,8 +479,20 @@ impl<'a> Migrator<'a> {
         let lo = item.span.lo as usize;
         let Some(k) = self.find(lo, e.name.span.lo as usize, "enum") else { return };
         let end = item.span.hi as usize;
-        let body = self.text(e.name.span.hi as usize, end);
-        let comments: Vec<String> = body.lines().filter_map(|l| l.find("//").map(|i| l[i..].trim().to_string())).collect();
+        // The comments of the body, each with the variant it precedes (the documentation of
+        // that variant); the last ones, after every variant, close the list.
+        let comments_in = |m: &Self, lo: usize, hi: usize| -> Vec<String> {
+            m.text(lo, hi).lines().filter_map(|l| l.find("//").map(|i| l[i..].trim().to_string())).collect()
+        };
+        let mut at = e.name.span.hi as usize;
+        let mut before: Vec<Vec<String>> = Vec::new();
+        for v in &e.variants {
+            let lo = v.name.span.lo as usize;
+            before.push(comments_in(self, at, lo));
+            at = lo;
+        }
+        let trailing = comments_in(self, e.variants.last().map_or(at, |v| v.span.hi as usize).max(at), end);
+        let comments: Vec<String> = before.iter().flatten().chain(trailing.iter()).cloned().collect();
         let variants: Vec<String> = e
             .variants
             .iter()
@@ -383,21 +509,26 @@ impl<'a> Migrator<'a> {
                 s
             })
             .collect();
-        let generics = if e.generics.is_empty() { String::new() } else { format!("[{}]", e.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")) };
+        let mut generics = if e.generics.is_empty() { String::new() } else { format!("[{}]", e.generics.iter().map(|g| g.name.as_str()).collect::<Vec<_>>().join(", ")) };
+        // Edition 1 copies a public type only if it says so (ADR 0012).
+        if self.add_copy.contains(&e.name.name) {
+            generics.push_str(" is Copy");
+        }
         let one_line = format!("type {}{} = {}", e.name.name, generics, variants.join(" | "));
         let indent: String = self.src[..k].rsplit('\n').next().unwrap_or("").chars().take_while(|c| c.is_whitespace()).collect();
         let mut text = String::new();
-        for c in &comments {
-            text.push_str(c);
-            text.push('\n');
-            text.push_str(&indent);
-        }
         if one_line.len() + indent.len() <= 100 && comments.is_empty() {
             text.push_str(&one_line);
         } else {
             text.push_str(&format!("type {}{} =", e.name.name, generics));
-            for v in &variants {
+            for (v, docs) in variants.iter().zip(&before) {
+                for c in docs {
+                    text.push_str(&format!("\n{}    {}", indent, c));
+                }
                 text.push_str(&format!("\n{}    | {}", indent, v));
+            }
+            for c in &trailing {
+                text.push_str(&format!("\n{}    {}", indent, c));
             }
         }
         self.rep(k, end, text);
@@ -540,7 +671,18 @@ impl<'a> Migrator<'a> {
                     }
                 }
             }
-            ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Try(x) | ExprKind::Move(x) => self.expr(x),
+            ExprKind::Try(x) => {
+                // Edition 0.2 turns an `io.IoError` into its text for `?` (a transition, ADR
+                // 0015); edition 1 does not.
+                if self.string_errors && is_io_call(x) {
+                    self.manual(
+                        e.span.lo as usize,
+                        "`?` turns the `io.IoError` of this call into its text only in edition 0.2: return `Result[..., io.IoError]` or `Result[..., any Error]`, or convert with `when` (ADR 0015)",
+                    );
+                }
+                self.expr(x)
+            }
+            ExprKind::Paren(x) | ExprKind::Unary(_, x) | ExprKind::Field(x, _) | ExprKind::TupleField(x, _, _) | ExprKind::Move(x) => self.expr(x),
             ExprKind::Tuple(xs) | ExprKind::Array(xs) => {
                 for x in xs {
                     self.expr(x);
@@ -690,6 +832,35 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
             out.push(t);
         }
     }
+    // The methods and fields declared here: edition 1 accepts a reserved word as the name
+    // of a member (ADR 0010, Q2), so they keep their names, and so do their uses after a dot
+    // and as named arguments (`Sac(any: 3)`).
+    let mut members: HashSet<String> = HashSet::new();
+    let mut member_decls: HashSet<u32> = HashSet::new();
+    {
+        let d = DiagSink::new();
+        let module = parser::parse_module(lexer::lex(src, file, &d), &d);
+        for item in &module.items {
+            let methods: &[Item] = match &item.kind {
+                ItemKind::Impl(i) => &i.items,
+                ItemKind::Trait(t) => &t.items,
+                ItemKind::Struct(st) => {
+                    for fd in &st.fields {
+                        members.insert(fd.name.name.clone());
+                        member_decls.insert(fd.name.span.lo);
+                    }
+                    &[]
+                }
+                _ => &[],
+            };
+            for m in methods {
+                if let ItemKind::Fn(f) = &m.kind {
+                    members.insert(f.name.name.clone());
+                    member_decls.insert(f.name.span.lo);
+                }
+            }
+        }
+    }
     let mut toks = Vec::new();
     flatten(lexer::lex(src, file, &diags), &mut toks);
     toks.retain(|t| !matches!(t.kind, K::Str(_)));
@@ -721,7 +892,12 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
         if i > 0 && toks[i - 1].kind == K::Dot {
             continue;
         }
-        // A field or a method declared here and used after a dot elsewhere: renaming only the
+        // A method or a field declared here, or a named argument (`Sac(any: 3)`), keeps its
+        // name (ADR 0010, Q2).
+        if member_decls.contains(&(lo as u32)) || (members.contains(n) && toks.get(i + 1).is_some_and(|t| t.kind == K::Colon)) {
+            continue;
+        }
+        // A field or a method declared elsewhere and used after a dot: renaming only the
         // declaration would break its uses.
         let declares = (i > 0 && toks[i - 1].kind == K::Fn) || toks.get(i + 1).is_some_and(|t| t.kind == K::Colon);
         if declares && after_dot.contains(n) {
@@ -739,6 +915,117 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
     unsafe_words.dedup_by(|a, b| a.1 == b.1);
     (out, renamed, unsafe_words)
 }
+/// The public structs and enums of the module that edition 0.2 copies by their structure
+/// and that do not declare `Copy` yet: edition 1 copies them only with `is Copy` (ADR
+/// 0012). Without the types of other modules, a value of a type not declared here counts
+/// as a resource (apart from `Option`, `Result` and `Ordering`): such a type stays a
+/// resource, and a copy of it is reported by the compiler (E0402), never silently changed.
+fn copy_types(module: &Module) -> HashSet<String> {
+    struct Decl<'a> {
+        is_pub: bool,
+        generics: Vec<String>,
+        values: Vec<&'a TypeExpr>,
+        indirect: bool,
+    }
+    let mut decls: HashMap<String, Decl> = HashMap::new();
+    let mut not_copy: HashSet<String> = HashSet::new();
+    let mut declared: HashSet<String> = HashSet::new();
+    for item in &module.items {
+        if item.attrs.iter().any(|a| a.name.name == "derive" && a.args.iter().any(|(l, _)| matches!(l, Lit::Str(s) if s == "Copy"))) {
+            if let ItemKind::Struct(StructDecl { name, .. }) | ItemKind::Enum(EnumDecl { name, .. }) = &item.kind {
+                declared.insert(name.name.clone());
+            }
+        }
+        match &item.kind {
+            ItemKind::Struct(s) => {
+                let d = Decl {
+                    is_pub: item.is_pub,
+                    generics: s.generics.iter().map(|g| g.name.clone()).collect(),
+                    values: s.fields.iter().map(|f| &f.ty).collect(),
+                    indirect: s.fields.iter().any(|f| f.indirect),
+                };
+                decls.insert(s.name.name.clone(), d);
+            }
+            ItemKind::Enum(e) => {
+                let d = Decl {
+                    is_pub: item.is_pub,
+                    generics: e.generics.iter().map(|g| g.name.clone()).collect(),
+                    values: e.variants.iter().flat_map(|v| v.fields.iter()).collect(),
+                    indirect: e.variants.iter().any(|v| v.indirect),
+                };
+                decls.insert(e.name.name.clone(), d);
+            }
+            ItemKind::Impl(i) => {
+                let TypeExprKind::Path { segments, .. } = &i.ty.kind else { continue };
+                let Some(name) = segments.last().map(|s| s.name.clone()) else { continue };
+                match &i.trait_ {
+                    Some(t) if matches!(&t.kind, TypeExprKind::Path { segments, .. } if segments.last().is_some_and(|s| s.name == "Copy")) => {
+                        declared.insert(name);
+                    }
+                    None if i.items.iter().any(|it| matches!(&it.kind, ItemKind::Fn(f) if f.name.name == "drop")) => {
+                        not_copy.insert(name);
+                    }
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+    }
+    // The greatest set of copyable types: remove the types with a value that is not.
+    let mut copy: HashSet<String> = decls.iter().filter(|(n, d)| !d.indirect && !not_copy.contains(*n)).map(|(n, _)| n.clone()).collect();
+    loop {
+        let out: Vec<String> = copy.iter().filter(|n| !decls[*n].values.iter().all(|t| copyable(t, &decls[*n].generics, &copy))).cloned().collect();
+        if out.is_empty() {
+            break;
+        }
+        for n in out {
+            copy.remove(&n);
+        }
+    }
+    copy.into_iter().filter(|n| decls[n].is_pub && !declared.contains(n)).collect()
+}
+
+/// Is a value of type `t` copied in edition 0.2, given the copyable types of the module?
+fn copyable(t: &TypeExpr, generics: &[String], copy: &HashSet<String>) -> bool {
+    const PRIMITIVES: &[&str] = &["i8", "i16", "i32", "i64", "isize", "u8", "u16", "u32", "u64", "usize", "f32", "f64", "bool", "char", "Ptr", "Ordering"];
+    match &t.kind {
+        TypeExprKind::Path { segments, args } if segments.len() == 1 => {
+            let n = segments[0].name.as_str();
+            let args_copy = args.iter().all(|a| copyable(a, generics, copy));
+            if n == "Ptr" || (PRIMITIVES.contains(&n) && args.is_empty()) || generics.iter().any(|g| g == n) {
+                true
+            } else if n == "Option" || n == "Result" {
+                args_copy
+            } else {
+                copy.contains(n) && args_copy
+            }
+        }
+        TypeExprKind::Unit | TypeExprKind::Fn(..) => true,
+        TypeExprKind::Tuple(xs) => xs.iter().all(|x| copyable(x, generics, copy)),
+        TypeExprKind::Array(e, _) => copyable(e, generics, copy),
+        _ => false,
+    }
+}
+
+/// `Result[..., String]`.
+fn is_result_of_string(t: &TypeExpr) -> bool {
+    let TypeExprKind::Path { segments, args } = &t.kind else { return false };
+    let is_string = |t: &TypeExpr| matches!(&t.kind, TypeExprKind::Path { segments, args } if args.is_empty() && segments.len() == 1 && segments[0].name == "String");
+    segments.last().is_some_and(|s| s.name == "Result") && args.len() == 2 && is_string(&args[1])
+}
+
+/// A call of a fallible function of `std.io`: `io.read_file(...)`.
+fn is_io_call(e: &Expr) -> bool {
+    match &e.kind {
+        ExprKind::Paren(x) => is_io_call(x),
+        ExprKind::Call(f, _) => match &f.kind {
+            ExprKind::Field(m, name) => matches!(&m.kind, ExprKind::Ident(m) if m == "io") && IO_FALLIBLE.contains(&name.name.as_str()),
+            _ => false,
+        },
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,15 +1062,46 @@ mod tests {
     }
 
     #[test]
+    fn variants_keep_their_comments() {
+        let src = "pub enum E {\n    /// first\n    A(i32),\n    // second\n    B,\n}\n";
+        assert_eq!(m(src), "pub type E is Copy =\n    /// first\n    | .A(i32)\n    // second\n    | .B\n");
+    }
+
+    #[test]
     fn reports_what_is_left() {
         let r = migrate("t.nx", "fn main() {\n    let test = 1\n    println(\"{test}\")\n}\n").unwrap();
         assert_eq!(r.text, "fn main() {\n    let test_ = 1\n    println(\"{test_}\")\n}\n");
         assert_eq!(r.renamed, vec!["test"]);
-        // A field declared here and read after a dot: left to the reader.
+        // A field declared here keeps its name, a reserved word of edition 1 (ADR 0010, Q2).
         let r = migrate("t.nx", "struct S {\n    with: i32\n}\nfn f(s: S) -> i32 {\n    return s.with\n}\n").unwrap();
-        assert!(r.manual.iter().any(|(l, w)| *l == 2 && w.contains("`with`")), "{:?}", r.manual);
+        assert!(r.manual.is_empty(), "{:?}", r.manual);
+        assert!(r.text.contains("    i32 with\n") && r.text.contains("s.with"), "{}", r.text);
         // A local name is renamed; a method of the library after a dot is kept.
         let r = migrate("t.nx", "fn main() {\n    let with = 1\n    x.with()\n}\n").unwrap();
         assert_eq!(r.text, "fn main() {\n    let with_ = 1\n    x.with()\n}\n");
+        // `?` from `std.io` into `String` errors: converted by edition 0.2 only (ADR 0015).
+        let src = "fn lire(p: String) -> Result[String, String] {\n    let t = io.read_file(p)?\n    let n = autre(p)?\n    return Ok(t)\n}\nfn ok(p: String) -> Result[String, io.IoError] {\n    return Ok(io.read_file(p)?)\n}\n";
+        let r = migrate("t.nx", src).unwrap();
+        assert_eq!(r.manual.len(), 1, "{:?}", r.manual);
+        assert!(r.manual[0].0 == 2 && r.manual[0].1.contains("ADR 0015"), "{:?}", r.manual);
+    }
+
+    #[test]
+    fn public_copyable_types_declare_copy() {
+        // ADR 0012: what 0.2 copies by structure says `is Copy` in edition 1.
+        assert_eq!(m("pub struct P {\n    x: i32\n}\n"), "pub type P is Copy {\n    i32 x\n}\n");
+        assert_eq!(m("pub enum D {\n    N\n    S\n}\n"), "pub type D is Copy = .N | .S\n");
+        assert_eq!(m("pub struct G[T] {\n    v: Option[T]\n    i: In\n}\nstruct In {\n    p: (u8, [i32; 2])\n}\n"), "pub type G[T] is Copy {\n    Option[T] v\n    In i\n}\ntype In {\n    (u8, [i32; 2]) p\n}\n");
+        // Resources, private types, and types that already say it: unchanged.
+        assert_eq!(m("pub struct S {\n    s: String\n}\n"), "pub type S {\n    String s\n}\n");
+        assert_eq!(m("struct Q {\n    x: i32\n}\n"), "type Q {\n    i32 x\n}\n");
+        assert_eq!(m("pub struct H {\n    x: i32\n}\nimpl H {\n    fn drop(inout self) {\n    }\n}\n"), "pub type H {\n    i32 x\n}\nextend H {\n    fn drop(self!) {\n    }\n}\n");
+        assert_eq!(m("@derive(Copy)\npub struct C {\n    x: i32\n}\n"), "@derive(Copy)\npub type C {\n    i32 x\n}\n");
+    }
+
+    #[test]
+    fn unsafe_declarations_of_task_properties() {
+        // ADR 0013: `unsafe impl Transfer for T` becomes `unsafe extend T is Transfer`.
+        assert_eq!(m("unsafe impl Transfer for H {\n}\n"), "unsafe extend H is Transfer {\n}\n");
     }
 }

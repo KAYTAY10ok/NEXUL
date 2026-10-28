@@ -1,0 +1,2 @@
+panic: panic in a task
+  --> task_panic.nx:9:13

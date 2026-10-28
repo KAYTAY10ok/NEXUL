@@ -1,0 +1,25 @@
+// A move written after a use in the same statement, outside any loop: the use is a place
+// taken after every value of the statement is computed (spec §4.1), not a previous
+// iteration of a loop.
+fn show(a: String, owned b: String) {
+    println("{a} {b}")
+}
+
+struct Boite {
+    texte: String
+}
+
+fn vider(owned b: Boite) -> String {
+    return b.texte.clone()
+}
+
+fn main() {
+    let s = "a" + "b"
+    show(s, s)
+    var b = Boite(texte: "x" + "y")
+    b.texte = vider(b)
+    for i in 0..2 {
+        let t = "c{i}"
+        show(t, t)
+    }
+}

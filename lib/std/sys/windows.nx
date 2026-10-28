@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for Windows (spec §5.3).
 ///
 /// Only `kernel32.dll` (and `bcrypt.dll` for random numbers) is used: no C runtime.
@@ -10,77 +11,127 @@ import std.rt
 // Windows API
 
 @link("kernel32")
-extern "C" fn GetStdHandle(id: u32) -> Ptr[u8]
+extern "C" fn Ptr[u8] GetStdHandle(u32 id)
 @link("kernel32")
-extern "C" fn WriteFile(h: Ptr[u8], buffer: Ptr[u8], length: u32, written: Ptr[u32], overlapped: Ptr[u8]) -> i32
+extern "C" fn i32 WriteFile(Ptr[u8] h, Ptr[u8] buffer, u32 length, Ptr[u32] written, Ptr[u8] overlapped)
 @link("kernel32")
-extern "C" fn ReadFile(h: Ptr[u8], buffer: Ptr[u8], length: u32, read: Ptr[u32], overlapped: Ptr[u8]) -> i32
+extern "C" fn i32 ReadFile(Ptr[u8] h, Ptr[u8] buffer, u32 length, Ptr[u32] read, Ptr[u8] overlapped)
 @link("kernel32")
-extern "C" fn WriteConsoleW(h: Ptr[u8], buffer: Ptr[u16], length: u32, written: Ptr[u32], reserved: Ptr[u8]) -> i32
+extern "C" fn i32 WriteConsoleW(Ptr[u8] h, Ptr[u16] buffer, u32 length, Ptr[u32] written, Ptr[u8] reserved)
 @link("kernel32")
-extern "C" fn ReadConsoleW(h: Ptr[u8], buffer: Ptr[u16], length: u32, read: Ptr[u32], control: Ptr[u8]) -> i32
+extern "C" fn i32 ReadConsoleW(Ptr[u8] h, Ptr[u16] buffer, u32 length, Ptr[u32] read, Ptr[u8] control)
 @link("kernel32")
-extern "C" fn GetConsoleMode(h: Ptr[u8], mode: Ptr[u32]) -> i32
+extern "C" fn i32 GetConsoleMode(Ptr[u8] h, Ptr[u32] mode)
 @link("kernel32")
-extern "C" fn SetConsoleOutputCP(code_page: u32) -> i32
+extern "C" fn i32 SetConsoleOutputCP(u32 code_page)
 @link("kernel32")
-extern "C" fn ExitProcess(code: u32) -> Never
+extern "C" fn Never ExitProcess(u32 code)
 @link("kernel32")
-extern "C" fn GetProcessHeap() -> Ptr[u8]
+extern "C" fn Ptr[u8] AddVectoredExceptionHandler(u32 first, Ptr[u8] handler)
 @link("kernel32")
-extern "C" fn HeapAlloc(heap: Ptr[u8], flags: u32, size: usize) -> Ptr[u8]
+extern "C" fn i32 SetThreadStackGuarantee(Ptr[u32] bytes)
 @link("kernel32")
-extern "C" fn HeapReAlloc(heap: Ptr[u8], flags: u32, p: Ptr[u8], size: usize) -> Ptr[u8]
+extern "C" fn Ptr[u8] GetProcessHeap()
 @link("kernel32")
-extern "C" fn HeapFree(heap: Ptr[u8], flags: u32, p: Ptr[u8]) -> i32
+extern "C" fn Ptr[u8] HeapAlloc(Ptr[u8] heap, u32 flags, usize size)
 @link("kernel32")
-extern "C" fn GetCommandLineW() -> Ptr[u16]
+extern "C" fn Ptr[u8] HeapReAlloc(Ptr[u8] heap, u32 flags, Ptr[u8] p, usize size)
 @link("kernel32")
-extern "C" fn GetEnvironmentVariableW(name: Ptr[u16], buffer: Ptr[u16], size: u32) -> u32
+extern "C" fn i32 HeapFree(Ptr[u8] heap, u32 flags, Ptr[u8] p)
 @link("kernel32")
-extern "C" fn GetLastError() -> u32
+extern "C" fn Ptr[u16] GetCommandLineW()
 @link("kernel32")
-extern "C" fn CreateFileW(name: Ptr[u16], access: u32, share: u32, security: Ptr[u8], disposition: u32, flags: u32, template: Ptr[u8]) -> Ptr[u8]
+extern "C" fn u32 GetEnvironmentVariableW(Ptr[u16] name, Ptr[u16] buffer, u32 size)
 @link("kernel32")
-extern "C" fn CloseHandle(h: Ptr[u8]) -> i32
+extern "C" fn u32 GetLastError()
 @link("kernel32")
-extern "C" fn QueryPerformanceCounter(counter: Ptr[i64]) -> i32
+extern "C" fn Ptr[u8] CreateFileW(Ptr[u16] name, u32 access, u32 share, Ptr[u8] security, u32 disposition, u32 flags, Ptr[u8] template)
 @link("kernel32")
-extern "C" fn QueryPerformanceFrequency(frequency: Ptr[i64]) -> i32
+extern "C" fn i32 CloseHandle(Ptr[u8] h)
 @link("kernel32")
-extern "C" fn GetSystemTimePreciseAsFileTime(time: Ptr[u64])
+extern "C" fn i32 QueryPerformanceCounter(Ptr[i64] counter)
 @link("kernel32")
-extern "C" fn FileTimeToSystemTime(file_time: Ptr[u64], system_time: Ptr[u16]) -> i32
+extern "C" fn i32 QueryPerformanceFrequency(Ptr[i64] frequency)
 @link("kernel32")
-extern "C" fn SystemTimeToFileTime(system_time: Ptr[u16], file_time: Ptr[u64]) -> i32
+extern "C" fn GetSystemTimePreciseAsFileTime(Ptr[u64] time)
 @link("kernel32")
-extern "C" fn SystemTimeToTzSpecificLocalTime(zone: Ptr[u8], utc: Ptr[u16], local: Ptr[u16]) -> i32
+extern "C" fn i32 FileTimeToSystemTime(Ptr[u64] file_time, Ptr[u16] system_time)
 @link("kernel32")
-extern "C" fn CreateWaitableTimerExW(attributes: Ptr[u8], name: Ptr[u16], flags: u32, access: u32) -> Ptr[u8]
+extern "C" fn i32 SystemTimeToFileTime(Ptr[u16] system_time, Ptr[u64] file_time)
 @link("kernel32")
-extern "C" fn SetWaitableTimer(timer: Ptr[u8], due: Ptr[i64], period: i32, routine: Ptr[u8], argument: Ptr[u8], resume: i32) -> i32
+extern "C" fn i32 SystemTimeToTzSpecificLocalTime(Ptr[u8] zone, Ptr[u16] utc, Ptr[u16] local)
 @link("kernel32")
-extern "C" fn WaitForSingleObject(h: Ptr[u8], milliseconds: u32) -> u32
+extern "C" fn Ptr[u8] CreateWaitableTimerExW(Ptr[u8] attributes, Ptr[u16] name, u32 flags, u32 access)
 @link("kernel32")
-extern "C" fn Sleep(milliseconds: u32)
+extern "C" fn i32 SetWaitableTimer(Ptr[u8] timer, Ptr[i64] due, i32 period, Ptr[u8] routine, Ptr[u8] argument, i32 resume)
+@link("kernel32")
+extern "C" fn u32 WaitForSingleObject(Ptr[u8] h, u32 milliseconds)
+@link("kernel32")
+extern "C" fn Sleep(u32 milliseconds)
 @link("bcrypt")
-extern "C" fn BCryptGenRandom(algorithm: Ptr[u8], buffer: Ptr[u8], length: u32, flags: u32) -> i32
+extern "C" fn i32 BCryptGenRandom(Ptr[u8] algorithm, Ptr[u8] buffer, u32 length, u32 flags)
 
-const STD_INPUT: u32 = 0xFFFF_FFF6
-const STD_OUTPUT: u32 = 0xFFFF_FFF5
-const STD_ERROR: u32 = 0xFFFF_FFF4
-const CP_UTF8: u32 = 65001
+const u32 STD_INPUT = 0xFFFF_FFF6
+const u32 STD_OUTPUT = 0xFFFF_FFF5
+const u32 STD_ERROR = 0xFFFF_FFF4
+const u32 CP_UTF8 = 65001
 
 // ---------------------------------------------------------------------------
 // Process
 
-static var HEAP: Ptr[u8] = Ptr.null()
-static var STDOUT_CONSOLE: bool = false
-static var STDERR_CONSOLE: bool = false
+static var Ptr[u8] HEAP = Ptr.null()
+static var bool STDOUT_CONSOLE = false
+static var bool STDERR_CONSOLE = false
 
-unsafe fn is_console(h: Ptr[u8]) -> bool {
-    var mode: u32 = 0
-    return GetConsoleMode(h, mem.addr_of(&mode)) != 0
+/// The generated entry installs this before entering any NEXUL user code. The
+/// reserved stack is only used to print and terminate; execution never resumes.
+@lang("sys_set_fault_handler")
+fn set_fault_handler(Ptr[u8] handler) {
+    unsafe {
+        var u32 bytes = 65536
+        if SetThreadStackGuarantee(mem.addr_of(bytes!)) == 0 {
+            exit(101)
+        }
+        if AddVectoredExceptionHandler(1, handler).is_null() {
+            exit(101)
+        }
+    }
+}
+
+/// Minimal output path for an exhausted stack: no UTF-16 conversion, allocation
+/// or shared console carry state. Both buffers remain valid until ExitProcess.
+pub unsafe fn write_fault(i32 fd, Ptr[u8] data, usize len) {
+    let h = GetStdHandle(if fd == 1 { STD_OUTPUT } else { STD_ERROR })
+    var usize offset = 0
+    while offset < len {
+        var u32 written = 0
+        let n = if len - offset > 0xFFFF_FFFF { 0xFFFF_FFFF } else { (len - offset) as u32 }
+        if WriteFile(h, data.offset(offset), n, mem.addr_of(written!), Ptr.null()) == 0 or written == 0 {
+            return
+        }
+        offset += written as usize
+    }
+}
+
+@lang("sys_fault")
+fn i32 fault(Ptr[u8] exception) {
+    unsafe {
+        // Windows supplies EXCEPTION_POINTERS: its first field points to an
+        // EXCEPTION_RECORD, whose first field is the 32-bit exception code.
+        let record = exception.cast[Ptr[u8]]().read()
+        if record.cast[u32]().read() != 0xC000_00FD {
+            return 0 // EXCEPTION_CONTINUE_SEARCH: do not swallow other faults.
+        }
+        rt.flush_stack_overflow()
+        let msg = "panic: stack overflow (the recursion is probably too deep)\n"
+        write_fault(2, msg.as_ptr(), msg.len())
+        ExitProcess(101)
+    }
+}
+
+unsafe fn bool is_console(Ptr[u8] h) {
+    var u32 mode = 0
+    return GetConsoleMode(h, mem.addr_of(mode!)) != 0
 }
 
 /// Called once at program start.
@@ -93,19 +144,19 @@ pub fn init() {
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+pub fn bool stdout_is_terminal() {
     return unsafe { STDOUT_CONSOLE }
 }
 
 /// The exit code as the unsigned value Windows expects.
-fn code_bits(code: i32) -> u32 {
+fn u32 code_bits(i32 code) {
     if code < 0 {
         return ((code as i64) + 0x1_0000_0000) as u32
     }
     return code as u32
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
         ExitProcess(code_bits(code))
     }
@@ -114,7 +165,7 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Heap
 
-unsafe fn heap() -> Ptr[u8] {
+unsafe fn Ptr[u8] heap() {
     if HEAP.is_null() {
         HEAP = GetProcessHeap()
     }
@@ -122,15 +173,15 @@ unsafe fn heap() -> Ptr[u8] {
 }
 
 /// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return HeapAlloc(heap(), 0, size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return HeapReAlloc(heap(), 0, p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     let _ = HeapFree(heap(), 0, p)
 }
 
@@ -138,8 +189,8 @@ pub unsafe fn heap_free(p: Ptr[u8]) {
 // UTF-16
 
 /// `s` as UTF-16, followed by a zero (for the `...W` functions).
-fn to_wide(s: String) -> Vec[u16] {
-    var w: Vec[u16] = Vec.with_capacity(s.len() + 1)
+fn Vec[u16] to_wide(String s) {
+    var Vec[u16] w = Vec.with_capacity(s.len() + 1)
     for c in s {
         let v = c as u32
         if v >= 0x10000 {
@@ -155,9 +206,9 @@ fn to_wide(s: String) -> Vec[u16] {
 }
 
 /// The UTF-16 text `p[0..n]` as a string (unpaired surrogates become U+FFFD).
-unsafe fn from_wide(p: Ptr[u16], n: usize) -> String {
+unsafe fn String from_wide(Ptr[u16] p, usize n) {
     var s = String.with_capacity(n)
-    var i: usize = 0
+    var usize i = 0
     while i < n {
         let u = p.offset(i).read() as u32
         i += 1
@@ -178,8 +229,8 @@ unsafe fn from_wide(p: Ptr[u16], n: usize) -> String {
     return s
 }
 
-unsafe fn wide_len(p: Ptr[u16]) -> usize {
-    var n: usize = 0
+unsafe fn usize wide_len(Ptr[u16] p) {
+    var usize n = 0
     while p.offset(n).read() != 0 {
         n += 1
     }
@@ -190,21 +241,21 @@ unsafe fn wide_len(p: Ptr[u16]) -> usize {
 // Standard input and output
 
 /// Bytes of an incomplete UTF-8 sequence left at the end of the last console write.
-static var CARRY: [u8; 4] = [0; 4]
-static var CARRY_LEN: usize = 0
+static var [u8; 4] CARRY = [0; 4]
+static var usize CARRY_LEN = 0
 
 /// Writes UTF-8 to a console as UTF-16 (the console does not reliably decode UTF-8
 /// split across writes).
-unsafe fn write_console(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
-    var wide: [u16; 1024] = [0; 1024]
-    var n: usize = 0
-    var i: usize = 0
+unsafe fn bool write_console(Ptr[u8] h, Ptr[u8] data, usize len) {
+    var [u16; 1024] wide = [0; 1024]
+    var usize n = 0
+    var usize i = 0
     let total = CARRY_LEN + len
     while i < total {
         // Decode one UTF-8 sequence, reading the carried bytes first.
         let b0 = byte_at(data, i) as u32
-        var need: usize = 1
-        var cp: u32 = b0
+        var usize need = 1
+        var u32 cp = b0
         if b0 >= 0xF0 {
             need = 4
             cp = b0 & 0x07
@@ -219,7 +270,7 @@ unsafe fn write_console(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
         }
         if i + need > total {
             // Incomplete at the end: keep it for the next write.
-            var k: usize = 0
+            var usize k = 0
             while i + k < total {
                 let b = byte_at(data, i + k)
                 CARRY[k] = b
@@ -244,7 +295,7 @@ unsafe fn write_console(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
             n += 1
         }
         if n >= 1020 {
-            if not flush_wide(h, mem.addr_of(&wide).cast[u16](), n) {
+            if not flush_wide(h, mem.addr_of(wide!).cast[u16](), n) {
                 return false
             }
             n = 0
@@ -256,22 +307,22 @@ unsafe fn write_console(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
     if total == 0 or i == total {
         CARRY_LEN = 0
     }
-    return flush_wide(h, mem.addr_of(&wide).cast[u16](), n)
+    return flush_wide(h, mem.addr_of(wide!).cast[u16](), n)
 }
 
 /// Byte `i` of the carried bytes followed by `data`.
-unsafe fn byte_at(data: Ptr[u8], i: usize) -> u8 {
+unsafe fn u8 byte_at(Ptr[u8] data, usize i) {
     if i < CARRY_LEN {
         return CARRY[i]
     }
     return data.offset(i - CARRY_LEN).read()
 }
 
-unsafe fn flush_wide(h: Ptr[u8], p: Ptr[u16], n: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool flush_wide(Ptr[u8] h, Ptr[u16] p, usize n) {
+    var usize done = 0
     while done < n {
-        var written: u32 = 0
-        if WriteConsoleW(h, p.offset(done), (n - done) as u32, mem.addr_of(&written), Ptr.null()) == 0 or written == 0 {
+        var u32 written = 0
+        if WriteConsoleW(h, p.offset(done), (n - done) as u32, mem.addr_of(written!), Ptr.null()) == 0 or written == 0 {
             return false
         }
         done += written as usize
@@ -280,7 +331,7 @@ unsafe fn flush_wide(h: Ptr[u8], p: Ptr[u16], n: usize) -> bool {
 }
 
 /// Writes bytes to standard output (`fd` 1) or standard error (`fd` 2).
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     let h = GetStdHandle(if fd == 2 { STD_ERROR } else { STD_OUTPUT })
     if (fd == 2 and STDERR_CONSOLE) or (fd != 2 and STDOUT_CONSOLE) {
         return write_console(h, data, len)
@@ -288,12 +339,12 @@ pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
     return write_handle(h, data, len)
 }
 
-unsafe fn write_handle(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool write_handle(Ptr[u8] h, Ptr[u8] data, usize len) {
+    var usize done = 0
     while done < len {
         let chunk = if len - done > 0x4000_0000 { 0x4000_0000 } else { len - done }
-        var written: u32 = 0
-        if WriteFile(h, data.offset(done), chunk as u32, mem.addr_of(&written), Ptr.null()) == 0 or written == 0 {
+        var u32 written = 0
+        if WriteFile(h, data.offset(done), chunk as u32, mem.addr_of(written!), Ptr.null()) == 0 or written == 0 {
             return false
         }
         done += written as usize
@@ -301,15 +352,15 @@ unsafe fn write_handle(h: Ptr[u8], data: Ptr[u8], len: usize) -> bool {
     return true
 }
 
-static var IN_BUF: [u8; 4096] = [0; 4096]
-static var IN_POS: usize = 0
-static var IN_LEN: usize = 0
+static var [u8; 4096] IN_BUF = [0; 4096]
+static var usize IN_POS = 0
+static var usize IN_LEN = 0
 
 /// Next byte of the (redirected) standard input, or -1 at the end.
-unsafe fn read_byte(h: Ptr[u8]) -> i32 {
+unsafe fn i32 read_byte(Ptr[u8] h) {
     if IN_POS == IN_LEN {
-        var got: u32 = 0
-        if ReadFile(h, mem.addr_of(&IN_BUF).cast[u8](), 4096, mem.addr_of(&got), Ptr.null()) == 0 or got == 0 {
+        var u32 got = 0
+        if ReadFile(h, mem.addr_of(IN_BUF!).cast[u8](), 4096, mem.addr_of(got!), Ptr.null()) == 0 or got == 0 {
             return -1
         }
         IN_POS = 0
@@ -321,21 +372,22 @@ unsafe fn read_byte(h: Ptr[u8]) -> i32 {
 }
 
 /// Reads one line of standard input without its terminator; `false` at the end.
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
+    let _input = unsafe { input_lock() }
     rt.flush()
     unsafe {
         let h = GetStdHandle(STD_INPUT)
         if is_console(h) {
             // UTF-16 from the console, one code unit at a time.
-            var units: Vec[u16] = Vec.new()
-            var any = false
-            while true {
-                var c: u16 = 0
-                var got: u32 = 0
-                if ReadConsoleW(h, mem.addr_of(&c), 1, mem.addr_of(&got), Ptr.null()) == 0 or got == 0 {
+            var Vec[u16] units = Vec.new()
+            var any_ = false
+            loop {
+                var u16 c = 0
+                var u32 got = 0
+                if ReadConsoleW(h, mem.addr_of(c!), 1, mem.addr_of(got!), Ptr.null()) == 0 or got == 0 {
                     break
                 }
-                any = true
+                any_ = true
                 if c == 10 {
                     break
                 }
@@ -345,26 +397,26 @@ pub fn read_line(inout out: String) -> bool {
                 let _ = units.pop()
             }
             // Ctrl+Z at the start of a line ends the input.
-            if not any or (units.len() > 0 and units[0] == 0x1A) {
+            if not any_ or (units.len() > 0 and units[0] == 0x1A) {
                 return false
             }
             out = from_wide(units.as_ptr(), units.len())
             return true
         }
-        var bytes: Vec[u8] = Vec.new()
-        var any = false
-        while true {
+        var Vec[u8] bytes = Vec.new()
+        var any_ = false
+        loop {
             let b = read_byte(h)
             if b < 0 {
                 break
             }
-            any = true
+            any_ = true
             if b == 10 {
                 break
             }
             bytes.push(b as u8)
         }
-        if not any {
+        if not any_ {
             return false
         }
         if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -379,14 +431,14 @@ pub fn read_line(inout out: String) -> bool {
 // Command line and environment
 
 /// The command line split into arguments with the rules of the Microsoft C runtime.
-fn command_line() -> Vec[String] {
-    var args: Vec[String] = Vec.new()
+fn Vec[String] command_line() {
+    var Vec[String] args = Vec.new()
     unsafe {
         let p = GetCommandLineW()
         let n = wide_len(p)
-        var i: usize = 0
+        var usize i = 0
         // The program name: up to the closing quote, or up to the first blank.
-        var name: Vec[u16] = Vec.new()
+        var Vec[u16] name = Vec.new()
         if n > 0 and p.read() == 34 {
             i = 1
             while i < n and p.offset(i).read() != 34 {
@@ -403,14 +455,14 @@ fn command_line() -> Vec[String] {
             }
         }
         args.push(from_wide(name.as_ptr(), name.len()))
-        while true {
+        loop {
             while i < n and (p.offset(i).read() == 32 or p.offset(i).read() == 9) {
                 i += 1
             }
             if i >= n {
                 break
             }
-            var arg: Vec[u16] = Vec.new()
+            var Vec[u16] arg = Vec.new()
             var quoted = false
             while i < n {
                 let c = p.offset(i).read()
@@ -419,7 +471,7 @@ fn command_line() -> Vec[String] {
                 }
                 if c == 92 {
                     // Backslashes are literal unless they precede a quote.
-                    var count: usize = 0
+                    var usize count = 0
                     while i < n and p.offset(i).read() == 92 {
                         count += 1
                         i += 1
@@ -459,11 +511,11 @@ fn command_line() -> Vec[String] {
     return args
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return command_line().len() as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     let all = command_line()
     if index < 0 or index as usize >= all.len() {
         panic("argument index {index} out of range")
@@ -471,7 +523,7 @@ pub fn arg(index: i32) -> String {
     return all[index as usize].clone()
 }
 
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     unsafe {
         let wname = to_wide(name)
         let size = GetEnvironmentVariableW(wname.as_ptr(), Ptr.null(), 0)
@@ -489,35 +541,42 @@ pub fn env(name: String) -> Option[String] {
     }
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     return env(name).is_some()
 }
 
 // ---------------------------------------------------------------------------
 // Files
 
-const GENERIC_READ: u32 = 0x8000_0000
-const GENERIC_WRITE: u32 = 0x4000_0000
-const FILE_APPEND_DATA: u32 = 0x0004
+const u32 GENERIC_READ = 0x8000_0000
+const u32 GENERIC_WRITE = 0x4000_0000
+const u32 FILE_APPEND_DATA = 0x0004
 
-fn invalid(h: Ptr[u8]) -> bool {
+fn bool invalid(Ptr[u8] h) {
     return h.is_null() or h.addr() == usize.MAX
 }
 
-/// Reads a whole file into `out` (bytes).
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// The code of the last failure of the calling thread (never 0: -1 if the system gave
+/// none).
+fn i32 last_error() {
+    let code = unsafe { GetLastError() } as i32
+    return if code == 0 { -1 } else { code }
+}
+
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`GetLastError`).
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         let wpath = to_wide(path)
         let h = CreateFileW(wpath.as_ptr(), GENERIC_READ, 3, Ptr.null(), 3, 0x80, Ptr.null())
         if invalid(h) {
-            return false
+            return last_error()
         }
-        var ok = true
-        while true {
+        var i32 code = 0
+        loop {
             out.reserve(65536)
-            var got: u32 = 0
-            if ReadFile(h, out.as_ptr().offset(out.len()), 65536, mem.addr_of(&got), Ptr.null()) == 0 {
-                ok = false
+            var u32 got = 0
+            if ReadFile(h, out.as_ptr().offset(out.len()), 65536, mem.addr_of(got!), Ptr.null()) == 0 {
+                code = last_error()
                 break
             }
             if got == 0 {
@@ -526,35 +585,54 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + got as usize)
         }
         let _ = CloseHandle(h)
-        return ok
+        return code
     }
 }
 
-/// Creates (or replaces, or appends to) a file.
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code
+/// (`GetLastError`).
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
         let wpath = to_wide(path)
         let access = if append { FILE_APPEND_DATA } else { GENERIC_WRITE }
-        let disposition: u32 = if append { 4 } else { 2 }
+        let u32 disposition = if append { 4 } else { 2 }
         let h = CreateFileW(wpath.as_ptr(), access, 1, Ptr.null(), disposition, 0x80, Ptr.null())
         if invalid(h) {
-            return false
+            return last_error()
         }
-        let ok = len == 0 or write_handle(h, data, len)
-        let closed = CloseHandle(h) != 0
-        return ok and closed
+        if not (len == 0 or write_handle(h, data, len)) {
+            let code = last_error()
+            let _ = CloseHandle(h)
+            return code
+        }
+        if CloseHandle(h) == 0 {
+            return last_error()
+        }
+        return 0
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn u8 io_error_kind(i32 code) {
+    return when code {
+        2 | 3 then 1 // ERROR_FILE_NOT_FOUND, ERROR_PATH_NOT_FOUND
+        5 then 2 // ERROR_ACCESS_DENIED
+        80 | 183 then 3 // ERROR_FILE_EXISTS, ERROR_ALREADY_EXISTS
+        _ then 0
     }
 }
 
 // ---------------------------------------------------------------------------
 // Time
 
-pub fn monotonic_ns() -> u64 {
-    var counter: i64 = 0
-    var frequency: i64 = 0
+pub fn u64 monotonic_ns() {
+    var i64 counter = 0
+    var i64 frequency = 0
     unsafe {
-        let _ = QueryPerformanceCounter(mem.addr_of(&counter))
-        let _ = QueryPerformanceFrequency(mem.addr_of(&frequency))
+        let _ = QueryPerformanceCounter(mem.addr_of(counter!))
+        let _ = QueryPerformanceFrequency(mem.addr_of(frequency!))
     }
     let c = counter as u64
     let f = frequency as u64
@@ -562,38 +640,38 @@ pub fn monotonic_ns() -> u64 {
 }
 
 /// 100 ns intervals from 1601-01-01 to 1970-01-01.
-const EPOCH_DIFFERENCE: i64 = 116_444_736_000_000_000
+const i64 EPOCH_DIFFERENCE = 116_444_736_000_000_000
 
-pub fn unix_time_ns() -> i64 {
-    var ft: u64 = 0
+pub fn i64 unix_time_ns() {
+    var u64 ft = 0
     unsafe {
-        GetSystemTimePreciseAsFileTime(mem.addr_of(&ft))
+        GetSystemTimePreciseAsFileTime(mem.addr_of(ft!))
     }
     return ((ft as i64) - EPOCH_DIFFERENCE) * 100
 }
 
 /// Offset of local time from UTC at `unix_seconds`, in seconds (daylight saving time
 /// included).
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     var ft = (unix_seconds * 10_000_000 + EPOCH_DIFFERENCE) as u64
-    var utc: [u16; 8] = [0; 8]
-    var local: [u16; 8] = [0; 8]
-    var local_ft: u64 = 0
+    var [u16; 8] utc = [0; 8]
+    var [u16; 8] local = [0; 8]
+    var u64 local_ft = 0
     unsafe {
-        if FileTimeToSystemTime(mem.addr_of(&ft), mem.addr_of(&utc).cast[u16]()) == 0 {
+        if FileTimeToSystemTime(mem.addr_of(ft!), mem.addr_of(utc!).cast[u16]()) == 0 {
             return 0
         }
-        if SystemTimeToTzSpecificLocalTime(Ptr.null(), mem.addr_of(&utc).cast[u16](), mem.addr_of(&local).cast[u16]()) == 0 {
+        if SystemTimeToTzSpecificLocalTime(Ptr.null(), mem.addr_of(utc!).cast[u16](), mem.addr_of(local!).cast[u16]()) == 0 {
             return 0
         }
-        if SystemTimeToFileTime(mem.addr_of(&local).cast[u16](), mem.addr_of(&local_ft)) == 0 {
+        if SystemTimeToFileTime(mem.addr_of(local!).cast[u16](), mem.addr_of(local_ft!)) == 0 {
             return 0
         }
     }
     return (((local_ft as i64) - (ft as i64)) / 10_000_000) as i32
 }
 
-pub fn sleep_ns(ns: u64) {
+pub fn sleep_ns(u64 ns) {
     if ns == 0 {
         return
     }
@@ -605,7 +683,7 @@ pub fn sleep_ns(ns: u64) {
         while left > 0 {
             let chunk = if left > 86_400_000_000_000 { 86_400_000_000_000 } else { left }
             var due = 0 - ((chunk + 99) / 100) as i64
-            if not timer.is_null() and SetWaitableTimer(timer, mem.addr_of(&due), 0, Ptr.null(), Ptr.null(), 0) != 0 {
+            if not timer.is_null() and SetWaitableTimer(timer, mem.addr_of(due!), 0, Ptr.null(), Ptr.null(), 0) != 0 {
                 let _ = WaitForSingleObject(timer, 0xFFFF_FFFF)
             } else {
                 Sleep(((chunk + 999_999) / 1_000_000) as u32)
@@ -622,8 +700,8 @@ pub fn sleep_ns(ns: u64) {
 // Random numbers
 
 /// Fills `buffer` with cryptographically secure random bytes.
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
+    var usize done = 0
     while done < len {
         let n = if len - done > 0x4000_0000 { 0x4000_0000 } else { len - done }
         if BCryptGenRandom(Ptr.null(), buffer.offset(done), n as u32, 2) != 0 {
@@ -632,4 +710,613 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
         done += n
     }
     return true
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013)
+
+@link("kernel32")
+extern "C" fn Ptr[u8] CreateThread(Ptr[u8] attributes, usize stack_size, fn u32(Ptr[u8]) start, Ptr[u8] parameter, u32 flags, Ptr[u32] id)
+@link("kernel32")
+extern "C" fn u32 GetCurrentThreadId()
+@link("kernel32")
+extern "C" fn i32 SwitchToThread()
+
+/// STACK_SIZE_PARAM_IS_A_RESERVATION: the size reserves the stack (8 MiB, like Linux).
+const u32 THREAD_STACK_RESERVE = 0x10000
+const usize THREAD_STACK = 8_388_608
+
+/// What a thread runs.
+type ThreadStart {
+    fn(Ptr[u8]) entry
+    Ptr[u8] arg
+}
+
+/// Set (to 1) before the first thread starts: from then on the runtime locks.
+static var u32 THREADED = 0
+
+/// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
+/// caller then runs `entry(arg)` itself).
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    mem.atomic_store(mem.addr_of(THREADED!), 1)
+    let s = rt.alloc(mem.size_of[ThreadStart]()).cast[ThreadStart]()
+    s.write(ThreadStart(entry: entry, arg: arg))
+    let h = CreateThread(Ptr.null(), THREAD_STACK, thread_main, s.cast[u8](), THREAD_STACK_RESERVE, Ptr.null())
+    if h.is_null() {
+        rt.free(s.cast[u8]())
+        return 0
+    }
+    return h.addr()
+}
+
+/// The first function of a thread (the start routine of `CreateThread`). The guarantee of
+/// stack is per thread: without it, the handler of a stack overflow (C2) would have no
+/// stack left to print its message.
+fn u32 thread_main(Ptr[u8] arg) {
+    unsafe {
+        var u32 bytes = 65536
+        let _ = SetThreadStackGuarantee(mem.addr_of(bytes!))
+        let s = arg.cast[ThreadStart]().read()
+        rt.free(arg)
+        let entry = s.entry
+        entry(s.arg)
+    }
+    return 0
+}
+
+/// Waits for the end of a thread started by `thread_start`.
+pub unsafe fn thread_join(usize handle) {
+    let h = Ptr[u8].from_addr(handle)
+    let _ = WaitForSingleObject(h, 0xFFFF_FFFF)
+    let _ = CloseHandle(h)
+}
+
+/// The id of the calling thread.
+pub fn u64 thread_id() {
+    return unsafe { GetCurrentThreadId() } as u64
+}
+
+/// Lets another thread run.
+pub fn thread_yield() {
+    let _ = unsafe { SwitchToThread() }
+}
+
+// ---------------------------------------------------------------------------
+// Lock of the runtime (ADR 0013, task C5)
+//
+// The allocator and the outputs are shared by the threads: `rt.critical_section()` takes
+// this lock. The runtime calls itself (`print` allocates), so the thread that holds the
+// lock may take it again. Until the first thread starts, nothing is locked.
+
+static var u64 RT_OWNER = 0
+static var u32 RT_DEPTH = 0
+
+pub type CriticalSection {
+    bool locked
+}
+
+extend CriticalSection {
+    fn drop(self!) {
+        if self.locked {
+            unsafe {
+                RT_DEPTH -= 1
+                if RT_DEPTH == 0 {
+                    mem.atomic_store(mem.addr_of(RT_OWNER!), 0)
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn CriticalSection critical_section() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
+        return CriticalSection(locked: false)
+    }
+    let me = thread_id() + 1
+    if mem.atomic_load(mem.addr_of(RT_OWNER!)) != me {
+        while mem.atomic_cas(mem.addr_of(RT_OWNER!), 0, me) != 0 {
+            thread_yield()
+        }
+    }
+    RT_DEPTH += 1
+    return CriticalSection(locked: true)
+}
+
+/// The standard input is read by one thread at a time, with its own lock: a thread that
+/// waits for a line does not hold the lock of the runtime.
+static var u32 IN_LOCK = 0
+
+type InputLock {
+    bool locked
+}
+
+extend InputLock {
+    fn drop(self!) {
+        if self.locked {
+            unsafe {
+                mem.atomic_store(mem.addr_of(IN_LOCK!), 0)
+            }
+        }
+    }
+}
+
+unsafe fn InputLock input_lock() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
+        return InputLock(locked: false)
+    }
+    while mem.atomic_cas(mem.addr_of(IN_LOCK!), 0, 1) != 0 {
+        thread_yield()
+    }
+    return InputLock(locked: true)
+}
+
+// The wait on an address of Windows 8 and later (the futex of Windows).
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn i32 WaitOnAddress(Ptr[u32] address, Ptr[u32] compare, usize size, u32 milliseconds)
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn WakeByAddressSingle(Ptr[u32] address)
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn WakeByAddressAll(Ptr[u32] address)
+
+/// Sleeps while the word at `p` holds `expected` (a wake or a change of the word ends the
+/// sleep; it may also end without reason: the caller checks again). Used by the channels
+/// and the locks of `std.tache`.
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
+    var u32 e = expected
+    let _ = WaitOnAddress(p, mem.addr_of(e!), 4, 0xFFFF_FFFF)
+}
+
+/// Wakes every thread sleeping in `wait_on` on the word at `p`.
+pub unsafe fn wake_all(Ptr[u32] p) {
+    WakeByAddressAll(p)
+}
+
+/// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
+pub unsafe fn wake_one(Ptr[u32] p) {
+    WakeByAddressSingle(p)
+}
+
+// ---------------------------------------------------------------------------
+// File system and processes (std.fs, std.process)
+
+@link("kernel32")
+extern "C" fn i32 GetFileAttributesExW(Ptr[u16] name, u32 level, Ptr[u8] info)
+@link("kernel32")
+extern "C" fn Ptr[u8] FindFirstFileW(Ptr[u16] pattern, Ptr[u8] data)
+@link("kernel32")
+extern "C" fn i32 FindNextFileW(Ptr[u8] h, Ptr[u8] data)
+@link("kernel32")
+extern "C" fn i32 FindClose(Ptr[u8] h)
+@link("kernel32")
+extern "C" fn i32 CreateDirectoryW(Ptr[u16] name, Ptr[u8] security)
+@link("kernel32")
+extern "C" fn i32 RemoveDirectoryW(Ptr[u16] name)
+@link("kernel32")
+extern "C" fn i32 DeleteFileW(Ptr[u16] name)
+@link("kernel32")
+extern "C" fn i32 MoveFileExW(Ptr[u16] from, Ptr[u16] to, u32 flags)
+@link("kernel32")
+extern "C" fn i32 CreatePipe(Ptr[Ptr[u8]] read, Ptr[Ptr[u8]] write, Ptr[u8] security, u32 size)
+@link("kernel32")
+extern "C" fn i32 SetHandleInformation(Ptr[u8] h, u32 mask, u32 flags)
+@link("kernel32")
+extern "C" fn Ptr[u8] GetCurrentProcess()
+@link("kernel32")
+extern "C" fn i32 DuplicateHandle(Ptr[u8] source_process, Ptr[u8] h, Ptr[u8] target_process, Ptr[Ptr[u8]] target, u32 access, i32 inherit, u32 options)
+@link("kernel32")
+extern "C" fn i32 CreateProcessW(Ptr[u16] application, Ptr[u16] command_line, Ptr[u8] process_security, Ptr[u8] thread_security, i32 inherit, u32 flags, Ptr[u8] environment, Ptr[u16] directory, Ptr[u8] startup, Ptr[u8] information)
+@link("kernel32")
+extern "C" fn i32 GetExitCodeProcess(Ptr[u8] process, Ptr[u32] code)
+
+/// A FILETIME (100 ns intervals since 1601) as nanoseconds since 1970.
+fn u64 file_time_ns(u32 low, u32 high) {
+    let t = ((high as u64) << 32 | low as u64) as i64
+    return ((t - EPOCH_DIFFERENCE) * 100) as u64
+}
+
+/// 0 when `ok`, else the last error.
+fn i32 result(i32 ok) {
+    return if ok != 0 { 0 } else { last_error() }
+}
+
+/// What is at `path`: `out` receives its size, its kind (1 file, 2 directory) and its time
+/// of last modification (nanoseconds since 1970). Returns 0, or the error code.
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    unsafe {
+        let wpath = to_wide(path)
+        // WIN32_FILE_ATTRIBUTE_DATA (36 bytes): attributes, three FILETIME, the size.
+        var [u32; 9] data = [0; 9]
+        if GetFileAttributesExW(wpath.as_ptr(), 0, mem.addr_of(data!).cast[u8]()) == 0 {
+            return last_error()
+        }
+        out[0] = (data[7] as u64) << 32 | data[8] as u64
+        // FILE_ATTRIBUTE_DIRECTORY
+        out[1] = if data[0] & 0x10 != 0 { 2 } else { 1 }
+        out[2] = file_time_ns(data[5], data[6])
+        return 0
+    }
+}
+
+/// The names in the directory `path` (without `.` and `..`), appended to `out`. Returns 0,
+/// or the error code.
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    unsafe {
+        let last = if path.len() == 0 { 0 } else { path.byte_at(path.len() - 1) }
+        let pattern = if last == 47 or last == 92 { path + "*" } else { path + "\\*" }
+        let wpattern = to_wide(pattern)
+        // WIN32_FIND_DATAW (592 bytes); the name, zero-terminated, at offset 44.
+        var [u64; 74] data = [0; 74]
+        let d = mem.addr_of(data!).cast[u8]()
+        let h = FindFirstFileW(wpattern.as_ptr(), d)
+        if invalid(h) {
+            return last_error()
+        }
+        var i32 code = 0
+        loop {
+            let name = d.offset(44).cast[u16]()
+            let len = wide_len(name)
+            let dot = len == 1 and name.read() == 46
+            let dotdot = len == 2 and name.read() == 46 and name.offset(1).read() == 46
+            if not dot and not dotdot {
+                out.push(from_wide(name, len))
+            }
+            if FindNextFileW(h, d) == 0 {
+                let e = last_error()
+                // ERROR_NO_MORE_FILES
+                if e != 18 {
+                    code = e
+                }
+                break
+            }
+        }
+        let _ = FindClose(h)
+        return code
+    }
+}
+
+/// Creates the directory `path` (its parent must exist). Returns 0, or the error code.
+pub fn i32 make_dir(String path) {
+    unsafe {
+        let w = to_wide(path)
+        return result(CreateDirectoryW(w.as_ptr(), Ptr.null()))
+    }
+}
+
+/// Removes the file `path`, or the empty directory `path` when `dir`. Returns 0, or the
+/// error code.
+pub fn i32 remove(String path, bool dir) {
+    unsafe {
+        let w = to_wide(path)
+        return result(if dir { RemoveDirectoryW(w.as_ptr()) } else { DeleteFileW(w.as_ptr()) })
+    }
+}
+
+/// Renames `from` to `to` (replacing `to` if it is a file). Returns 0, or the error code.
+pub fn i32 rename_path(String from, String to) {
+    unsafe {
+        let a = to_wide(from)
+        let b = to_wide(to)
+        // MOVEFILE_REPLACE_EXISTING
+        return result(MoveFileExW(a.as_ptr(), b.as_ptr(), 1))
+    }
+}
+
+/// Appends `arg` to a command line, quoted as the C runtime of Windows reads it back
+/// (`CommandLineToArgvW`): within quotes, backslashes before a quote are doubled.
+fn quote_arg(String line!, String arg) {
+    if line.len() > 0 {
+        line.push(' ')
+    }
+    let plain = arg.len() > 0 and not arg.contains(" ") and not arg.contains("\t") and not arg.contains("\"")
+    if plain {
+        line.push_str(arg)
+        return
+    }
+    line.push('"')
+    var usize backslashes = 0
+    for c in arg {
+        if c == '\\' {
+            backslashes += 1
+            continue
+        }
+        let n = if c == '"' { backslashes * 2 + 1 } else { backslashes }
+        for _ in 0..n {
+            line.push('\\')
+        }
+        backslashes = 0
+        line.push(c)
+    }
+    for _ in 0..backslashes * 2 {
+        line.push('\\')
+    }
+    line.push('"')
+}
+
+/// An inheritable copy of the standard handle `id` (null when there is none).
+unsafe fn Ptr[u8] inheritable_std(u32 id) {
+    let h = GetStdHandle(id)
+    if invalid(h) {
+        return Ptr.null()
+    }
+    var Ptr[u8] copy = Ptr.null()
+    let me = GetCurrentProcess()
+    // DUPLICATE_SAME_ACCESS
+    if DuplicateHandle(me, h, me, mem.addr_of(copy!), 0, 1, 2) == 0 {
+        return Ptr.null()
+    }
+    return copy
+}
+
+unsafe fn close_handle(Ptr[u8] h) {
+    if not h.is_null() {
+        let _ = CloseHandle(h)
+    }
+}
+
+/// Runs `program` with `args` and waits for its end; `code` receives its exit code. With
+/// `capture`, its standard output and error go to `out` (merged, in order); else it shares
+/// those of this program. Returns 0, or the error code when it cannot be started (2: not
+/// found). `CreateProcessW` searches the program (`PATH` included) and adds `.exe`.
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    rt.flush()
+    var line = String.new()
+    quote_arg(line!, program)
+    for a in args {
+        quote_arg(line!, a)
+    }
+    var wline = to_wide(line)
+    unsafe {
+        var Ptr[u8] read_end = Ptr.null()
+        var Ptr[u8] write_end = Ptr.null()
+        if capture {
+            // SECURITY_ATTRIBUTES: inheritable handles.
+            var [u64; 3] security = [24, 0, 1]
+            if CreatePipe(mem.addr_of(read_end!), mem.addr_of(write_end!), mem.addr_of(security!).cast[u8](), 0) == 0 {
+                return last_error()
+            }
+            // HANDLE_FLAG_INHERIT: the child does not get the end this program reads.
+            let _ = SetHandleInformation(read_end, 1, 0)
+        }
+        let input = inheritable_std(STD_INPUT)
+        let output = if capture { write_end } else { inheritable_std(STD_OUTPUT) }
+        let error = if capture { write_end } else { inheritable_std(STD_ERROR) }
+        // STARTUPINFOW (104 bytes): cb, then dwFlags at 60 and the three handles at 80.
+        var [u64; 13] startup = [0; 13]
+        let s = mem.addr_of(startup!).cast[u8]()
+        s.cast[u32]().write(104)
+        // STARTF_USESTDHANDLES
+        s.offset(60).cast[u32]().write(0x100)
+        s.offset(80).cast[Ptr[u8]]().write(input)
+        s.offset(88).cast[Ptr[u8]]().write(output)
+        s.offset(96).cast[Ptr[u8]]().write(error)
+        // PROCESS_INFORMATION: the process, its thread, their identifiers.
+        var [u64; 3] info = [0; 3]
+        let i = mem.addr_of(info!).cast[u8]()
+        let ok = CreateProcessW(Ptr.null(), wline.as_ptr(), Ptr.null(), Ptr.null(), 1, 0, Ptr.null(), Ptr.null(), s, i)
+        let failure = if ok == 0 { last_error() } else { 0 }
+        close_handle(input)
+        close_handle(output)
+        if not capture {
+            close_handle(error)
+        }
+        if failure != 0 {
+            close_handle(read_end)
+            return failure
+        }
+        let process = i.cast[Ptr[u8]]().read()
+        close_handle(i.offset(8).cast[Ptr[u8]]().read())
+        if capture {
+            loop {
+                out.reserve(65536)
+                var u32 got = 0
+                // Fails (ERROR_BROKEN_PIPE) once the child and its own children are done.
+                if ReadFile(read_end, out.as_ptr().offset(out.len()), 65536, mem.addr_of(got!), Ptr.null()) == 0 or got == 0 {
+                    break
+                }
+                out.set_len(out.len() + got as usize)
+            }
+            close_handle(read_end)
+        }
+        let _ = WaitForSingleObject(process, 0xFFFF_FFFF)
+        var u32 exit = 0
+        let got = GetExitCodeProcess(process, mem.addr_of(exit!))
+        let lost = if got == 0 { last_error() } else { 0 }
+        close_handle(process)
+        if lost != 0 {
+            return lost
+        }
+        code = exit as i32
+        return 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TCP over IPv4 (std.net), through Winsock
+
+@link("ws2_32")
+extern "C" fn i32 WSAStartup(u16 version, Ptr[u8] data)
+@link("ws2_32")
+extern "C" fn i32 WSAGetLastError()
+@link("ws2_32")
+extern "C" fn usize socket(i32 af, i32 kind, i32 protocol)
+@link("ws2_32")
+extern "C" fn i32 bind(usize s, Ptr[u8] address, i32 len)
+@link("ws2_32")
+extern "C" fn i32 listen(usize s, i32 backlog)
+@link("ws2_32")
+extern "C" fn usize accept(usize s, Ptr[u8] address, Ptr[i32] len)
+@link("ws2_32")
+extern "C" fn i32 connect(usize s, Ptr[u8] address, i32 len)
+@link("ws2_32")
+extern "C" fn i32 getsockname(usize s, Ptr[u8] address, Ptr[i32] len)
+@link("ws2_32")
+extern "C" fn i32 recv(usize s, Ptr[u8] buffer, i32 len, i32 flags)
+@link("ws2_32")
+extern "C" fn i32 send(usize s, Ptr[u8] buffer, i32 len, i32 flags)
+@link("ws2_32")
+extern "C" fn i32 shutdown(usize s, i32 how)
+@link("ws2_32")
+extern "C" fn i32 closesocket(usize s)
+
+static var u32 WINSOCK_READY = 0
+
+/// Starts Winsock once (WSAStartup counts its calls: a second one at the same time is
+/// harmless).
+unsafe fn i32 winsock() {
+    if mem.atomic_load(mem.addr_of(WINSOCK_READY!)) != 0 {
+        return 0
+    }
+    var [u64; 64] data = [0; 64]
+    let r = WSAStartup(0x0202, mem.addr_of(data!).cast[u8]())
+    if r == 0 {
+        mem.atomic_store(mem.addr_of(WINSOCK_READY!), 1)
+    }
+    return r
+}
+
+/// struct sockaddr_in for `ip:port` (both in the order of the machine).
+fn [u64; 2] sockaddr(u32 ip, u16 port) {
+    // AF_INET, then the port and the address in network order (big-endian).
+    let q = port as u64
+    let p = (q >> 8) | (q & 0xff) << 8
+    let i = ip as u64
+    let a = i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24
+    return [2 | p << 16 | a << 32, 0]
+}
+
+/// A socket not inherited by the programs this one runs.
+unsafe fn usize private_socket(usize s) {
+    // HANDLE_FLAG_INHERIT
+    let _ = SetHandleInformation(Ptr[u8].from_addr(s), 1, 0)
+    return s
+}
+
+/// A new TCP socket, or `usize.MAX` (INVALID_SOCKET).
+unsafe fn usize tcp_socket() {
+    // AF_INET, SOCK_STREAM, IPPROTO_TCP
+    let s = socket(2, 1, 6)
+    return if s == usize.MAX { s } else { private_socket(s) }
+}
+
+/// Listens on `ip:port` (port 0: one chosen by the system); `handle` receives the socket.
+/// Returns 0, or the error code. (No SO_REUSEADDR: on Windows it lets another program
+/// take the port.)
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let started = winsock()
+        if started != 0 {
+            return started
+        }
+        let s = tcp_socket()
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        var a = sockaddr(ip, port)
+        if bind(s, mem.addr_of(a!).cast[u8](), 16) != 0 or listen(s, 128) != 0 {
+            let e = WSAGetLastError()
+            let _ = closesocket(s)
+            return e
+        }
+        handle = s as i64
+        return 0
+    }
+}
+
+/// Waits for a connection on `listener`; `handle` receives its socket. Returns 0, or the
+/// error code.
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    unsafe {
+        let s = accept(listener as usize, Ptr.null(), Ptr.null())
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        handle = private_socket(s) as i64
+        return 0
+    }
+}
+
+/// Connects to `ip:port`; `handle` receives the socket. Returns 0, or the error code.
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let started = winsock()
+        if started != 0 {
+            return started
+        }
+        let s = tcp_socket()
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        var a = sockaddr(ip, port)
+        if connect(s, mem.addr_of(a!).cast[u8](), 16) != 0 {
+            let e = WSAGetLastError()
+            let _ = closesocket(s)
+            return e
+        }
+        handle = s as i64
+        return 0
+    }
+}
+
+/// The local port of a socket (the one chosen by the system for port 0).
+pub fn u16 socket_port(i64 handle) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var i32 len = 16
+        let _ = getsockname(handle as usize, mem.addr_of(a!).cast[u8](), mem.addr_of(len!))
+        let p = (a[0] >> 16) & 0xffff
+        return ((p >> 8) | (p & 0xff) << 8) as u16
+    }
+}
+
+/// Reads at most `len` bytes; `got` receives their number (0: the peer closed its side).
+/// Returns 0, or the error code.
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    unsafe {
+        let n = recv(handle as usize, buffer, if len > 0x4000_0000 { 0x4000_0000 } else { len as i32 }, 0)
+        if n < 0 {
+            return WSAGetLastError()
+        }
+        got = n as usize
+        return 0
+    }
+}
+
+/// Writes all of `data`. Returns 0, or the error code.
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    unsafe {
+        var usize done = 0
+        while done < len {
+            let part = len - done
+            let n = send(handle as usize, data.offset(done), if part > 0x4000_0000 { 0x4000_0000 } else { part as i32 }, 0)
+            if n < 0 {
+                return WSAGetLastError()
+            }
+            done += n as usize
+        }
+        return 0
+    }
+}
+
+/// Ends the writing side: the peer reads the end of the data.
+pub fn socket_shutdown(i64 handle) {
+    // SD_SEND
+    let _ = unsafe { shutdown(handle as usize, 1) }
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = unsafe { closesocket(handle as usize) }
+}
+
+/// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
+/// aborted, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
+pub fn u8 net_error_kind(i32 code) {
+    return when code {
+        10061 then 1 // WSAECONNREFUSED
+        10054 | 10053 then 2 // WSAECONNRESET, WSAECONNABORTED
+        10048 then 3 // WSAEADDRINUSE
+        10004 then 4 // WSAEINTR
+        10060 then 5 // WSAETIMEDOUT
+        10051 | 10065 then 6 // WSAENETUNREACH, WSAEHOSTUNREACH
+        _ then 0
+    }
 }

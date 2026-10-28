@@ -56,26 +56,48 @@ fn check_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &st
 }
 
 /// The options for a test file: `// edition: 1` on one of its first lines selects the
-/// syntax of edition 1 (ADR 0010).
+/// syntax of edition 1 (ADR 0010), `// target: wasm32-wasi` the target of the analysis
+/// (diagnostics that depend on the target, such as the width of `usize`).
 fn opts_for(nx: &Path, mode: Mode) -> CompileOptions {
     let mut opts = CompileOptions::new(mode);
     let text = std::fs::read_to_string(nx).unwrap_or_default();
     if text.lines().take(3).any(|l| l.trim() == "// edition: 1") {
         opts.edition = nxc_syntax::Edition::V1;
     }
+    if let Some(name) = text.lines().take(3).find_map(|l| l.trim().strip_prefix("// target:")) {
+        opts.target = Target::from_name(name).unwrap_or_else(|e| panic!("{}: {}", nx.display(), e));
+    }
     opts
 }
 
+/// Compares with an expectation file without ever rewriting it.
+fn compare_expect(path: &Path, actual: &str, failures: &mut Vec<String>, what: &str) {
+    let expected = std::fs::read_to_string(path).map(|s| normalize(&s)).unwrap_or_default();
+    if expected != actual {
+        failures.push(format!("{}: {} differs\n--- expected ---\n{}\n--- actual ---\n{}", path.display(), what, expected, actual));
+    }
+}
+
 fn run_one(nx: &Path) -> Vec<String> {
+    run_one_at(nx, false)
+}
+
+/// Runs a program of `tests/run`, built without optimization or, with `optimized`, at
+/// `-O2` (contract K7.3: the guarantees hold at every optimization level). `@cfg` stays
+/// `debug` in both cases, so the expected outputs are the same; only the unoptimized run
+/// rewrites them under `NEXUL_BLESS`.
+fn run_one_at(nx: &Path, optimized: bool) -> Vec<String> {
+    let bless = bless() && !optimized;
+    let mode = if optimized { " [-O2]" } else { "" };
     let mut failures = Vec::new();
     let c = compile_file(nx, &opts_for(nx, Mode::Program));
     if c.errors > 0 {
         return vec![format!("{}: compilation failed\n{}", nx.display(), c.diagnostics)];
     }
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
-    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}{}", std::process::id(), if optimized { "-O2" } else { "" }));
     let exe = dir.join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
-    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
+    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), optimized)) {
         return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
     let stdin_path = nx.with_extension("in");
@@ -84,33 +106,41 @@ fn run_one(nx: &Path) -> Vec<String> {
     if stdin_path.exists() {
         cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
     }
-    let out = cmd.output().expect("run test program");
+    let out = output_retrying(&mut cmd).expect("run test program");
     let _ = std::fs::remove_file(&exe);
     let _ = std::fs::remove_file(exe.with_extension("pdb"));
     let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
     let stderr = normalize(&String::from_utf8_lossy(&out.stderr));
     let code = out.status.code().unwrap_or(-1);
-    check_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout");
+    if optimized {
+        compare_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout [-O2]");
+    } else {
+        check_expect(&nx.with_extension("out"), &stdout, &mut failures, "stdout");
+    }
     let exit_path = nx.with_extension("exit");
     let expected_code: i32 = std::fs::read_to_string(&exit_path).ok().and_then(|s| s.trim().parse().ok()).unwrap_or(0);
-    if bless() {
+    if bless {
         if code != 0 {
             std::fs::write(&exit_path, format!("{}\n", code)).unwrap();
         } else {
             let _ = std::fs::remove_file(&exit_path);
         }
     } else if code != expected_code {
-        failures.push(format!("{}: exit code {} (expected {})\nstderr:\n{}", nx.display(), code, expected_code, stderr));
+        failures.push(format!("{}{}: exit code {} (expected {})\nstderr:\n{}", nx.display(), mode, code, expected_code, stderr));
     }
     let err_path = nx.with_extension("stderr");
-    if bless() {
+    if bless {
         if !stderr.is_empty() {
             std::fs::write(&err_path, &stderr).unwrap();
         } else {
             let _ = std::fs::remove_file(&err_path);
         }
     } else if err_path.exists() || !stderr.is_empty() {
-        check_expect(&err_path, &stderr, &mut failures, "stderr");
+        if optimized {
+            compare_expect(&err_path, &stderr, &mut failures, "stderr [-O2]");
+        } else {
+            check_expect(&err_path, &stderr, &mut failures, "stderr");
+        }
     }
     if !c.diagnostics.is_empty() {
         failures.push(format!("{}: unexpected warnings\n{}", nx.display(), c.diagnostics));
@@ -120,9 +150,26 @@ fn run_one(nx: &Path) -> Vec<String> {
 
 /// The targets a test program runs on: `// targets: windows, linux` on its first line
 /// restricts it (programs calling a C library, for example).
+/// Runs `cmd`, again when Linux refuses an executable that another thread of the suite
+/// still holds open for writing while it forks (ETXTBSY, 26): the programs are built and run
+/// in parallel.
+fn output_retrying(cmd: &mut Command) -> std::io::Result<std::process::Output> {
+    let mut attempt = 0;
+    loop {
+        match cmd.output() {
+            Err(e) if e.raw_os_error() == Some(26) && attempt < 50 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            r => return r,
+        }
+    }
+}
+
 fn runs_on(nx: &Path, target: &Target) -> bool {
     let text = std::fs::read_to_string(nx).unwrap_or_default();
-    match text.lines().next().and_then(|l| l.strip_prefix("// targets:")) {
+    // In the first lines, like `// edition:` (which may come first).
+    match text.lines().take(3).find_map(|l| l.strip_prefix("// targets:")) {
         Some(list) => list.split(',').any(|t| t.trim() == target.os.name()),
         None => true,
     }
@@ -146,6 +193,14 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         c
     } else if target.os == nxc_driver::Os::None {
         return run_qemu(target, exe, stdin);
+    } else if cfg!(target_os = "linux") && target.os == nxc_driver::Os::Linux {
+        // Another architecture of Linux: the executables are static, QEMU in user mode
+        // runs them (`qemu-aarch64`, `qemu-riscv64`).
+        let arch = if target.arch == nxc_driver::Arch::Aarch64 { "aarch64" } else { "riscv64" };
+        let mut c = Command::new(format!("qemu-{}", arch));
+        // Without binfmt_misc, a program that runs itself again goes through QEMU too.
+        c.arg(exe).env("NEXUL_TEST_RUNNER", format!("qemu-{}", arch));
+        c
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
     };
@@ -153,7 +208,7 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
     if let Some(i) = stdin {
         cmd.stdin(std::fs::File::open(i).unwrap());
     }
-    cmd.output().expect("run test program")
+    output_retrying(&mut cmd).expect("run test program")
 }
 
 /// Runs a bare-metal executable in QEMU (`NEXUL_QEMU` names its directory), with
@@ -270,7 +325,12 @@ fn parallel<F: Fn(&Path) -> Vec<String> + Sync>(paths: &[PathBuf], f: F) -> Vec<
     let n = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4).min(8);
     let chunks: Vec<Vec<PathBuf>> = (0..n).map(|i| paths.iter().skip(i).step_by(n).cloned().collect()).collect();
     let results: Vec<Vec<String>> = std::thread::scope(|s| {
-        let handles: Vec<_> = chunks.iter().map(|chunk| s.spawn(|| chunk.iter().flat_map(|p| f(p)).collect::<Vec<String>>())).collect();
+        // The analyses are recursive: compile on a stack as large as that of `nxc`
+        // (contract K6.3; `tests/ui/nesting_limit.nx` reaches 1000 levels).
+        let handles: Vec<_> = chunks
+            .iter()
+            .map(|chunk| std::thread::Builder::new().stack_size(256 << 20).spawn_scoped(s, || chunk.iter().flat_map(|p| f(p)).collect::<Vec<String>>()).unwrap())
+            .collect();
         handles.into_iter().map(|h| h.join().unwrap()).collect()
     });
     results.into_iter().flatten().collect()
@@ -287,9 +347,45 @@ fn run_programs() {
     }
 }
 
+/// The same programs built at `-O2`: an optimization must not change what a program does
+/// nor remove a safety check (contract K7.3). Skipped while blessing the expectations.
+#[test]
+fn run_programs_optimized() {
+    if bless() {
+        return;
+    }
+    let target = Target::host();
+    let paths: Vec<PathBuf> = files("tests/run").into_iter().filter(|p| runs_on(p, &target)).collect();
+    assert!(!paths.is_empty(), "no tests found");
+    let failures = parallel(&paths, |nx| run_one_at(nx, true));
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
+/// The stress programs of `tests/stress` (exit criteria of the roadmap, such as 10^6
+/// messages between 64 tasks), optimized, one after the other: `NEXUL_STRESS=1`.
+#[test]
+fn stress_programs() {
+    if std::env::var_os("NEXUL_STRESS").is_none() || bless() {
+        return;
+    }
+    let target = Target::host();
+    let mut failures = Vec::new();
+    for nx in files("tests/stress").into_iter().filter(|p| runs_on(p, &target)) {
+        let started = std::time::Instant::now();
+        failures.extend(run_one_at(&nx, true));
+        eprintln!("{}: {:.1?}", nx.display(), started.elapsed());
+    }
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
 /// `nxc migrate` keeps the meaning of host-compatible programs: every single-file program
 /// of `tests/run` written in 0.2 (no user module imported), migrated to edition 1, compiles
-/// and prints the same output with the same exit code.
+/// and prints the same output with the same exit code. A program that tests a rule of
+/// edition 0.2 only says so in its first lines (`// no-migrate: reason`).
 #[test]
 fn migrated_programs_behave_the_same() {
     let paths: Vec<PathBuf> = files("tests/run")
@@ -299,7 +395,8 @@ fn migrated_programs_behave_the_same() {
                 return false;
             }
             let t = std::fs::read_to_string(p).unwrap_or_default();
-            !t.lines().take(3).any(|l| l.trim() == "// edition: 1") && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
+            !t.lines().take(3).any(|l| l.trim() == "// edition: 1" || l.starts_with("// no-migrate: "))
+                && !t.lines().any(|l| l.trim_start().starts_with("import ") && !l.trim_start().starts_with("import std"))
         })
         .collect();
     let failures = parallel(&paths, |nx| {
@@ -330,7 +427,7 @@ fn migrated_programs_behave_the_same() {
         if stdin_path.exists() {
             cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
         }
-        let out = cmd.output().expect("run migrated program");
+        let out = output_retrying(&mut cmd).expect("run migrated program");
         let _ = std::fs::remove_file(&exe);
         let _ = std::fs::remove_file(exe.with_extension("pdb"));
         let mut f = Vec::new();
@@ -352,8 +449,8 @@ fn migrated_programs_behave_the_same() {
     }
 }
 
-/// The examples and the standard library migrate with nothing left to do by hand, and the
-/// migrated examples compile in edition 1 without warnings.
+/// The standard library is in edition 1, the examples migrate with nothing left to do by hand, and the migrated examples compile in
+/// edition 1 without warnings.
 #[test]
 fn migrated_examples_and_library() {
     let mut failures = Vec::new();
@@ -369,9 +466,19 @@ fn migrated_examples_and_library() {
         }
     }
     walk(&root().join("lib"), &mut lib);
+    // The library is written in edition 1 (ADR 0010).
     for p in lib.iter().chain(files("examples").iter()) {
         let name = p.file_name().unwrap().to_string_lossy().to_string();
-        match nxc_driver::migrate::migrate(&name, &std::fs::read_to_string(p).unwrap()) {
+        let text = std::fs::read_to_string(p).unwrap();
+        let in_lib = p.starts_with(root().join("lib"));
+        if in_lib && nxc_syntax::header_edition(&text) == Some(nxc_syntax::Edition::V1) {
+            continue;
+        }
+        if in_lib {
+            failures.push(format!("{}: the library is written in edition 1 (`// edition: 1`, `nxc migrate`)", p.display()));
+            continue;
+        }
+        match nxc_driver::migrate::migrate(&name, &text) {
             Err(e) => failures.push(format!("{}: not migrated\n{}", p.display(), e)),
             Ok(m) if !m.manual.is_empty() => failures.push(format!("{}: left to do by hand: {:?}", p.display(), m.manual)),
             Ok(m) if p.starts_with(root().join("examples")) => {
@@ -495,6 +602,44 @@ fn every_code_is_explained() {
 }
 
 /// `docs/spec/diagnostics.md` is generated from the compiler's table of codes.
+/// E0001 needs a source that is not valid UTF-8; the files of `tests/ui` stay valid UTF-8
+/// because other tools read them as text (`studio/syntax` compares its lexer with the
+/// compiler's on every one).
+#[test]
+fn invalid_utf8_is_reported() {
+    let mut bytes = b"fn main() {
+    let s = \"".to_vec();
+    bytes.extend_from_slice(&[0xFF, 0xFE]);
+    bytes.extend_from_slice(b"\"
+}
+");
+    let c = nxc_driver::compile_source("bytes.nx", bytes, None, &CompileOptions::new(Mode::Check));
+    assert!(c.diagnostics.contains("error[E0001]: source file is not valid UTF-8"), "{}", c.diagnostics);
+    assert!(c.diagnostics.contains("bytes.nx:2:14"), "{}", c.diagnostics);
+}
+
+/// Every diagnostic code is produced by at least one test of `tests/ui` (contract K7.1),
+/// except the internal error E0900, which no valid standard library can produce, and
+/// E0001, tested by `invalid_utf8_is_reported`.
+#[test]
+fn every_code_has_a_ui_test() {
+    let mut seen = std::collections::HashSet::new();
+    for p in std::fs::read_dir(root().join("tests/ui")).unwrap().flatten().map(|e| e.path()) {
+        if p.extension().map_or(false, |x| x == "stderr") {
+            let text = std::fs::read_to_string(&p).unwrap_or_default();
+            for (i, _) in text.match_indices('[') {
+                if let Some(code) = text.get(i + 1..i + 6) {
+                    if (code.starts_with('E') || code.starts_with('W')) && code[1..].chars().all(|c| c.is_ascii_digit()) && text.get(i + 6..i + 7) == Some("]") {
+                        seen.insert(code.to_string());
+                    }
+                }
+            }
+        }
+    }
+    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001"].contains(c) && !seen.contains(*c)).collect();
+    assert!(missing.is_empty(), "codes without a test in tests/ui: {:?}", missing);
+}
+
 #[test]
 fn diagnostics_catalogue_is_up_to_date() {
     let path = root().join("docs").join("spec").join("diagnostics.md");

@@ -1,0 +1,14 @@
+// targets: linux, windows, macos
+// A stack overflow ends like a panic (ADR 0011, task T2): a message on the
+// error output, the exit code 101, and the output written before is kept.
+fn deep(n: u64) -> u64 {
+    var buf: [u64; 32] = [n; 32]
+    buf[(n % 32) as usize] = n *% 3
+    let r = deep(n + 1)
+    return r ^ buf[((r +% n) % 32) as usize]
+}
+
+fn main() {
+    println("before")
+    println(deep(0))
+}

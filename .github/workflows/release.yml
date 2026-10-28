@@ -1,0 +1,79 @@
+name: Release
+
+# A tag `vX.Y.Z` builds `NEXUL-Setup.exe` on Windows and publishes the release of that
+# version, its notes taken from the section of CHANGELOG.md. On a pull request that
+# changes this workflow, the installer or its scripts, the same build runs without publishing
+# (the installer is kept as an artifact).
+on:
+  push:
+    tags: [ "v*" ]
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - "tools/build_installer.py"
+      - "tools/make-python-runtime.py"
+      - "installer/**"
+
+permissions:
+  contents: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  windows-installer:
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install LLVM 20.1.8 (C API, LLD, LLDB)
+      shell: pwsh
+      run: |
+        $ProgressPreference = 'SilentlyContinue'
+        $archive = Join-Path $env:RUNNER_TEMP 'llvm-20.1.8.tar.xz'
+        $llvm = Join-Path $env:RUNNER_TEMP 'llvm'
+        Invoke-WebRequest -Uri 'https://github.com/llvm/llvm-project/releases/download/llvmorg-20.1.8/clang+llvm-20.1.8-x86_64-pc-windows-msvc.tar.xz' -OutFile $archive
+        $expected = 'f229769f11d6a6edc8ada599c0cda964b7dee6ab1a08c6cf9dd7f513e85b107f'
+        if ((Get-FileHash $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $expected) { throw 'LLVM archive checksum mismatch' }
+        New-Item -ItemType Directory -Force $llvm | Out-Null
+        & "$env:WINDIR/System32/tar.exe" -xf $archive -C $llvm --strip-components 1
+        if ($LASTEXITCODE -ne 0) { throw 'LLVM archive extraction failed' }
+        Remove-Item $archive
+        foreach ($file in @("LLVM-C.dll", "lld.exe", "lldb-dap.exe", "liblldb.dll", "lldb-server.exe", "lldb-argdumper.exe")) {
+          if (!(Test-Path (Join-Path $llvm "bin/$file"))) { throw "LLVM file missing: $file" }
+        }
+        "NEXUL_LLVM=$llvm" >> $env:GITHUB_ENV
+        "$llvm/bin" >> $env:GITHUB_PATH
+    - uses: actions/setup-python@v5
+      with:
+        python-version: "3.12"
+    - name: Point the debugger at this Python
+      shell: pwsh
+      run: |
+        "NEXUL_PYTHON=$env:pythonLocation" >> $env:GITHUB_ENV
+    - name: Build NEXUL-Setup.exe
+      shell: pwsh
+      run: |
+        python -I tools/build_installer.py "$env:RUNNER_TEMP/NEXUL-Setup.exe"
+        if ($LASTEXITCODE -ne 0) { throw 'installer build failed' }
+    - name: Check the installer in a sandbox
+      run: cargo test --release --manifest-path installer/Cargo.toml --features test-sandbox --test silent --bins
+    - uses: actions/upload-artifact@v4
+      with:
+        name: NEXUL-Setup
+        path: ${{ runner.temp }}/NEXUL-Setup.exe
+    - name: Publish the release
+      if: startsWith(github.ref, 'refs/tags/v')
+      shell: pwsh
+      env:
+        GH_TOKEN: ${{ github.token }}
+      run: |
+        $tag = "${{ github.ref_name }}"
+        $version = $tag.TrimStart('v')
+        $notes = python -I -c "import sys,re;t=open('CHANGELOG.md',encoding='utf-8').read();m=re.search(r'^## '+re.escape(sys.argv[1])+r'\b.*?$(.*?)(?=^## )',t,re.S|re.M);sys.exit('no section '+sys.argv[1]+' in CHANGELOG.md') if not m else print(m.group(1).strip())" $version
+        if ($LASTEXITCODE -ne 0) { throw 'no notes for this version' }
+        $title = (Select-String -Path CHANGELOG.md -Pattern "^## $([regex]::Escape($version))\b(.*)$").Matches[0].Groups[1].Value.Trim(' ', '—', '-')
+        $intro = "## Installer sur Windows`n`nTéléchargez **NEXUL-Setup.exe** ci-dessous et lancez-le (sans droits d'administrateur ; installation sans fenêtre : ``NEXUL-Setup.exe --silent``). Windows peut afficher un avertissement SmartScreen, l'exécutable n'étant pas signé.`n`nDepuis les sources (Windows, Linux, macOS) : Rust et LLVM 20 avec LLD, puis ``cargo build --release``.`n`n## Nouveautés`n`n"
+        Set-Content -Path notes.md -Value ($intro + ($notes -join "`n")) -Encoding utf8
+        Copy-Item "$env:RUNNER_TEMP/NEXUL-Setup.exe" NEXUL-Setup.exe
+        gh release create $tag NEXUL-Setup.exe --title "NEXUL $version — $title" --notes-file notes.md --verify-tag

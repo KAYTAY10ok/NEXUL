@@ -1,0 +1,57 @@
+error[E0251]: the constrained type `Age` cannot reuse `Add`
+ --> edition1_constrained_types.nx:5:36
+  |
+5 | type Age = distinct u8 is Copy and Add where it <= 150
+  |                                    ^^^ its result could break the condition
+  |
+  = help: compute on the base and convert the result with `as Age`, which checks it
+
+error[E0251]: `Drapeau`: a condition applies to a number or a `char`
+ --> edition1_constrained_types.nx:6:27
+  |
+6 | type Drapeau = bool where it == true
+  |                           ^^^^^^^^^^ condition on a `bool`
+
+error[E0251]: a condition compares `it` with literal constants of type `i32`
+ --> edition1_constrained_types.nx:7:31
+  |
+7 | type Bizarre = i32 where it < longueur()
+  |                               ^^^^^^^^^^ not a literal of the base type
+  |
+  = note: a condition has no call and no variable: it is checked in a few instructions, and at compile time on constants
+
+error[E0251]: a condition compares `it` with a constant
+ --> edition1_constrained_types.nx:8:25
+  |
+8 | type Double = i32 where it == it
+  |                         ^^^^^^^^ `it` on both sides
+  |
+  = help: write `it >= 0`, `it < 100` or `it in 0..=100`
+
+error[E0252]: `101` does not satisfy the condition of `Pourcent`
+  --> edition1_constrained_types.nx:13:22
+   |
+ 4 | type Pourcent = i32 where it in 0..=100
+   |                           ------------- the condition
+...
+13 |     let Pourcent p = 101
+   |                      ^^^ outside the condition
+
+error[E0252]: `-1` does not satisfy the condition of `Pourcent`
+  --> edition1_constrained_types.nx:14:13
+   |
+ 4 | type Pourcent = i32 where it in 0..=100
+   |                           ------------- the condition
+...
+14 |     let q = -1 as Pourcent
+   |             ^^ outside the condition
+
+error[E0302]: mismatched types
+  --> edition1_constrained_types.nx:15:22
+   |
+15 |     let Pourcent r = p + 1
+   |                      ^^^^^ expected `Pourcent`, found `i32`
+   |
+   = help: convert it with `… as Pourcent`, which checks its condition (from `i32`)
+
+error: could not compile due to 7 errors

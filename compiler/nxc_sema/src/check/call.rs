@@ -678,9 +678,10 @@ impl<'a> FnCtxt<'a> {
             let what = if fd.is_extern() { format!("calling the external function `{}`", fd.name) } else { format!("calling the unsafe function `{}`", fd.name) };
             self.require_unsafe(span, &what);
         }
-        if !fd.is_pub && fd.module != self.module && fd.owner.is_none() {
-            self.err(Diagnostic::error("E0227", format!("function `{}` is private", fd.name)).primary(span, "private function"));
-        }
+        // A private free function of another module is reported where its name is looked
+        // up (E0222: `module.f` or an `import`); reporting E0227 here as well gave two
+        // errors for one mistake (spec §7.4). Methods and associated functions, which the
+        // lookup in a module does not see, are checked where they are resolved (E0227).
         let mut out = Vec::new();
         let params: Vec<(Convention, Ty, String)> = fd.params.iter().map(|p| (p.conv, tcx.subst(p.ty, &targs), p.name.clone())).collect();
         let mut param_iter = params.iter();
@@ -706,6 +707,8 @@ impl<'a> FnCtxt<'a> {
             );
         }
         let name = fd.name.clone();
+        // The anonymous function given to `tache.portee` launches the tasks (ADR 0013).
+        self.next_closure_scope = self.p.lang_fn("task_scope") == Some(f);
         for (i, a) in args.iter().enumerate() {
             match rest.get(i) {
                 Some((conv, pty, _)) => out.push(self.check_arg(a, *conv, *pty, Some(&name))),
@@ -714,12 +717,81 @@ impl<'a> FnCtxt<'a> {
                 }
             }
         }
+        self.next_closure_scope = false;
+        if self.p.lang_fn("task_launch") == Some(f) {
+            self.check_task_launch(&out, span);
+        }
         self.mk(T::Call { callee: Callee::Fn(f, targs), args: out }, ret, span)
+    }
+
+    /// `p.lancer(fn() { … })` (ADR 0013): directly in the anonymous function given to
+    /// `tache.portee`, on its parameter, with an anonymous function written in the call. The
+    /// task uses only variables declared before `tache.portee` (the others are destroyed
+    /// before it ends); launched in a loop, it modifies none (the task of the next turn would
+    /// modify it at the same time); it reads `Share` values and modifies `Transfer` ones.
+    /// `places.rs` then keeps what it uses frozen until the end of the `portee`.
+    fn check_task_launch(&mut self, args: &[CallArg], span: Span) {
+        let scope = self.closure_frames.last().and_then(|f| f.scope_param.map(|p| (p, f.first_local)));
+        let receiver_ok = matches!((scope, args.first().map(|a| &a.expr.kind)), (Some((p, _)), Some(T::Local(l))) if *l == p);
+        if !receiver_ok {
+            self.err(
+                Diagnostic::error("E0254", "a task is launched directly in the function given to `tache.portee`, on its parameter")
+                    .primary(span, "not launched there")
+                    .note("`tache.portee` waits for its tasks: a task launched elsewhere could outlive what it uses")
+                    .help("write `tache.portee(fn(inout p: tache.Portee) { p.lancer(fn() { … }) })`"),
+            );
+            return;
+        }
+        let first_local = scope.unwrap().1;
+        let Some(task) = args.get(1) else { return };
+        let T::Closure { captures, .. } = &task.expr.kind else {
+            if !matches!(task.expr.kind, T::Error) {
+                self.err(
+                    Diagnostic::error("E0254", "a task is an anonymous function written in the call")
+                        .primary(task.expr.span, "not an anonymous function")
+                        .help("write `p.lancer(fn() { work() })`"),
+                );
+            }
+            return;
+        };
+        let in_loop = !self.loops.is_empty();
+        for &(l, mutated) in captures.clone().iter() {
+            let (name, ty, decl_span) = {
+                let d = &self.locals[l as usize];
+                (d.name.clone(), d.ty, d.span)
+            };
+            if l >= first_local {
+                self.err(
+                    Diagnostic::error("E0254", format!("a task cannot use `{}`, a variable of the function given to `tache.portee`", name))
+                        .primary(task.expr.span, format!("uses `{}`", name))
+                        .secondary(decl_span, "destroyed when that function returns, before the task ends")
+                        .help(format!("declare `{}` before `tache.portee`", name)),
+                );
+                continue;
+            }
+            if mutated && in_loop {
+                self.err(
+                    Diagnostic::error("E0254", format!("a task launched in a loop cannot modify `{}`", name))
+                        .primary(task.expr.span, format!("modifies `{}`", name))
+                        .note("the task of the next turn would modify it at the same time"),
+                );
+            }
+            let (property, what) = if mutated { ("transfer", format!("by a task that modifies `{}`", name)) } else { ("share", format!("by a task that reads `{}`", name)) };
+            if let Some(tr) = self.p.lang_trait(property) {
+                self.deferred.push(super::Deferred::Bound { ty, trait_id: tr, span: task.expr.span, what });
+            }
+        }
     }
 
     fn check_method_call(&mut self, base: &ast::Expr, name: &ast::Ident, targs: Option<&[ast::Expr]>, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
         let tcx = self.tcx();
-        let recv = self.check_expr(base, Expect::None);
+        let mut recv = self.check_expr(base, Expect::None);
+        // A constrained type that is not distinct has the methods of its base (ADR 0014).
+        if let Some((id, _, false)) = self.newtype_of(recv.ty) {
+            if !self.p.adt(id).methods.contains_key(&name.name) && self.trait_methods_for(recv.ty, &name.name).is_empty() {
+                recv = self.widen_constrained(recv);
+            }
+        }
         let rt = self.shallow(recv.ty);
         let explicit = targs.map(|t| self.type_args(t));
         match &*tcx.kind(rt) {
@@ -1012,7 +1084,11 @@ impl<'a> FnCtxt<'a> {
                     arity_err(self, if min == 0 { "zero or one argument" } else { "one argument" });
                 }
                 for a in args.iter().take(1) {
-                    let arg = self.check_arg(a, Convention::Borrow, tcx.error, None);
+                    // A fresh variable, not the error type: unified with the error type, an
+                    // integer literal or an inferred variable (`println(7)`) silently took
+                    // the type `{error}`, which crashed the code generator.
+                    let pty = self.new_var(a.expr.span);
+                    let arg = self.check_arg(a, Convention::Borrow, pty, None);
                     let arg = self.recheck_value(arg);
                     self.deferred.push(Deferred::Format { ty: arg.expr.ty, spec: None, span: arg.expr.span });
                     out.push(arg);
@@ -1064,6 +1140,17 @@ impl<'a> FnCtxt<'a> {
     fn check_struct_ctor(&mut self, id: AdtId, explicit: Option<Vec<Ty>>, args: &[ast::Arg], expect: Expect, span: Span) -> thir::Expr {
         let tcx = self.tcx();
         let adt = self.p.adt(id);
+        if let Some(nt) = &adt.newtype {
+            let base = self.p.ty_str(adt.fields()[0].ty);
+            let check = if nt.cond.is_some() { format!(", or `{}.check(value)` for an `Option`", adt.name) } else { String::new() };
+            self.err(
+                Diagnostic::error("E0310", format!("a value of `{}` is made with `as`", adt.name))
+                    .primary(span, "not a structure")
+                    .help(format!("write `value as {}`, `value` of type `{}`{}", adt.name, base, check)),
+            );
+            self.check_args_for_errors(args);
+            return self.error_expr(span);
+        }
         if adt.is_enum() {
             let variants: Vec<&str> = adt.variants().iter().map(|v| v.name.as_str()).collect();
             self.err(

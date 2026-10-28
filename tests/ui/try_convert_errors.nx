@@ -1,0 +1,54 @@
+// `?` converts an error only into the function's error type (ADR 0015): the same
+// type, the only variant that holds it, `dyn Error`, or (edition 0.2) its text. The
+// other cases are E0360, with what would make the conversion possible.
+enum Twice {
+    First(String)
+    Second(String)
+}
+
+enum Unrelated {
+    Code(i32)
+}
+
+struct Plain {
+    n: i32
+}
+
+enum Mine {
+    Bad
+}
+
+fn text() -> Result[i32, String] {
+    return Err("no")
+}
+
+fn mine() -> Result[i32, Mine] {
+    return Err(Mine.Bad)
+}
+
+fn ambiguous() -> Result[i32, Twice] {
+    let n = text()?
+    return Ok(n)
+}
+
+fn no_variant() -> Result[i32, Unrelated] {
+    let n = text()?
+    return Ok(n)
+}
+
+fn not_an_error() -> Result[i32, dyn Error] {
+    let n = mine()?
+    return Ok(n)
+}
+
+fn to_struct() -> Result[i32, Plain] {
+    let n = text()?
+    return Ok(n)
+}
+
+fn not_displayed() -> Result[i32, String] {
+    let n = mine()?
+    return Ok(n)
+}
+
+fn main() {}

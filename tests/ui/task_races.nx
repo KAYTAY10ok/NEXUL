@@ -1,0 +1,123 @@
+// ADR 0013: data races refused by the compiler (corpus of the review of 28/10/2026). Each
+// function tries to let two tasks touch the same value, one of them to modify it.
+import std.tache
+
+struct C {
+    x: i32
+    y: i32
+}
+
+impl C {
+    fn bump(inout self) {
+        self.x += 1
+    }
+
+    fn get(self) -> i32 {
+        return self.x
+    }
+}
+
+// Two tasks modify a parameter `inout` of the enclosing function.
+fn inout_parameter(inout v: Vec[i32]) {
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { v.push(1) })
+        p.lancer(fn() { v.push(2) })
+    })
+}
+
+// A modification hidden in a nested anonymous function.
+fn nested_closure() {
+    var v: Vec[i32] = Vec.new()
+    var n = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { v.sort_by(fn(a: i32, b: i32) -> Ordering { n += 1; return a.cmp(b) }) })
+        p.lancer(fn() { n += 2 })
+    })
+}
+
+// A method `inout self` while another task reads.
+fn method_inout() {
+    var c = C(x: 0, y: 0)
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { c.bump() })
+        p.lancer(fn() { let y = c.get() })
+    })
+}
+
+// Two tasks modify the same field.
+fn same_field() {
+    var c = C(x: 0, y: 0)
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { c.x = 1 })
+        p.lancer(fn() { c.x = 2 })
+    })
+}
+
+// A modification in the callback of a `Verrou`, while another task modifies the same value.
+fn inside_a_lock() {
+    let total = tache.Verrou.nouveau(0)
+    var x = 5
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { total.avec(fn(inout t: i32) { x += 1; t += 1 }) })
+        p.lancer(fn() { x = 3 })
+    })
+}
+
+// A task launched in a loop that modifies a variable.
+fn in_a_loop() {
+    var a = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        while a < 3 {
+            p.lancer(fn() { a += 1 })
+        }
+    })
+}
+
+// The function of the scope assigns what a running task reads.
+fn assigned_while_read() {
+    var a = 0
+    var b = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { b = a })
+        a = 7
+    })
+}
+
+// Two nested scopes: the inner task modifies what the outer task modifies.
+fn nested_scopes() {
+    var a = 0
+    tache.portee(fn(inout p: tache.Portee) {
+        p.lancer(fn() { a += 1 })
+        tache.portee(fn(inout q: tache.Portee) {
+            q.lancer(fn() { a += 1 })
+        })
+    })
+}
+
+trait Show {
+    fn show(self) -> i32
+}
+
+struct H {
+    raw: Ptr[i32]
+}
+
+impl Show for H {
+    fn show(self) -> i32 {
+        return 1
+    }
+}
+
+fn work(owned d: Vec[dyn Show]) -> i32 {
+    return d.len() as i32
+}
+
+// A `dyn` value whose interface does not require `Transfer`, moved to a detached task.
+fn dyn_without_transfer() {
+    var v: Vec[dyn Show] = Vec.new()
+    v.push(H(raw: Ptr.null()) as dyn Show)
+    let t = tache.lancer_detachee(work, v)
+}
+
+fn main() {
+}

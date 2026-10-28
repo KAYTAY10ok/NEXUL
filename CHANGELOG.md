@@ -1,5 +1,110 @@
 # Historique des versions
 
+## 0.3.0 — « Refonte »
+
+Première version de la refonte. Le langage, les garanties et leurs limites sont décrits
+par les ADR 0010 à 0015 et la [feuille de route](docs/roadmap.md) ; ce qui n'est pas
+prouvé est écrit « non testé ».
+
+**Langage**
+- Édition 1 de la syntaxe (ADR 0010) : chaque fichier ou paquet choisit son édition
+  (`// edition: 1`, `edition = "1"` dans `nexul.toml`) ; l'édition 0.2 reste acceptée ;
+  `nxc migrate` réécrit un fichier 0.2 en édition 1 (il signale désormais les contraintes
+  qu'il ne sait pas écrire au lieu de les perdre) ; toute la bibliothèque
+  standard est écrite en édition 1.
+- Copiabilité explicite des types publics, `Copy` (ADR 0012).
+- Types distincts et types contraints (`type Pourcent = i32 where it in 0..=100`),
+  vérifiés à la construction et à l'entrée des `@export` (ADR 0014).
+- Erreurs de la bibliothèque : `io.IoError`, l'interface `Error`, conversions par `?`
+  (ADR 0015) ; `?` prend son opérande (plus de déplacement hors d'une place empruntée).
+- Concurrence (ADR 0013) : `std.tache` — tâches liées à une portée (`tache.portee`,
+  `p.lancer`), propriétés `Transfer` et `Share` vérifiées par le compilateur, tâches
+  détachées (`lancer_detachee`), canaux bornés, `Verrou`, `Atomique` ; threads du système
+  sur Linux et Windows, tâches exécutées l'une après l'autre ailleurs.
+
+**Sûreté (ADR 0011)**
+- Un dépassement de pile se termine comme une panique (code 101) sur Linux (x86-64,
+  AArch64, RISC-V) et Windows, y compris dans un thread ; sondes de pile sur Linux et
+  macOS (x86-64, AArch64).
+- WebAssembly : la pile est placée avant les données statiques (`--stack-first`).
+- Les valeurs `bool`, `char` et contraintes reçues de C par une fonction `@export` sont
+  vérifiées.
+- Runtime réentrant sur les cibles sans système (sections critiques autour de
+  l'allocateur et des sorties).
+- Une garde de `match` ne peut plus déplacer une variable liée (E0403) ; largeur de
+  `isize`/`usize` vérifiée pour la cible.
+
+**Plateformes** ([matrice](docs/plateformes.md))
+- macOS : vraie couche système sur `libSystem` (entrées-sorties, fichiers, temps, threads
+  POSIX, dépassement de pile) ; la suite de conformité passe sur Apple silicon dans la CI.
+- La CI exécute aussi la suite sur AArch64 et RISC-V Linux (QEMU), WASI (Node) et
+  Cortex-M4 (QEMU).
+
+**Compilateur**
+- `nxc` ne plante plus sur les sources pathologiques (test de robustesse, limite
+  d'imbrication E0113) ; analyse des très grandes fonctions en secondes ; chaque code
+  de diagnostic a son test.
+- `nxc lsp` (ADR 0009), `nxc version --json`, texte non enregistré (`--stdin`), JSON
+  versionné.
+
+**Outils**
+- NEXUL Studio natif (GPUI) : aucune perte de données, coloration des deux éditions,
+  nouveau projet, recherche, exécuter/construire/tester ; terminal ConPTY et débogueur
+  `lldb-dap` corrigés.
+- Extension VS Code 0.3.0 : édition 1, LSP, formatage à l'enregistrement.
+- `NEXUL Setup.exe` 0.3.0 : Studio natif, migration des réglages de la 0.2, versions des
+  composants vérifiées avant la construction.
+- CI : suite complète du compilateur sous Linux, Windows et macOS (LLVM 20), crates de
+  Studio, ABI navigateur, PR empilées ; l'étiquette d'une version construit
+  `NEXUL-Setup.exe` et publie la version (`.github/workflows/release.yml`).
+
+**Limites connues** : macOS Intel et Windows sur ARM compilés mais non exécutés ; pas
+encore d'`Atomique[bool]` ni d'ordres mémoire faibles.
+
+### Aussi dans la 0.3.0 : en avance sur 0.4.0 à 0.6.0
+
+La 0.3.0 contient aussi les premiers éléments des versions 0.4.0 à 0.6.0, faits avant sa
+publication ; ces versions ne sont pas atteintes pour autant : leurs critères de sortie
+sont suivis un par un dans la [feuille de route](docs/roadmap.md).
+
+**Langage (édition 1, ADR 0010)**
+- Blocs `extend Type[P is …]` : les méthodes d'un type générique contraintes sur un
+  paramètre du type (Q1) ; mots réservés permis comme noms de membres (Q2) ; type sur la
+  variable d'une boucle (`for T x in e`) ; fonctions dans un type qui a plusieurs
+  interfaces. Toute la bibliothèque standard est écrite en édition 1 ; `nxc migrate`
+  déplace les contraintes vers un bloc `extend` et garde les commentaires des variantes.
+
+**Bibliothèque**
+- `std.fs` (spec §9.3) : métadonnées, dossiers (lister, créer, supprimer, récursivement),
+  renommer, copier, chemins (`join`, `parent`, `file_name`, `extension`) ; Linux
+  (appels système directs), macOS (`libSystem`), Windows (`kernel32`), WASI.
+- `std.process` : `run` (sorties capturées) et `status` (sorties partagées), recherche
+  dans `PATH`, sans shell ; Linux, macOS, Windows.
+- `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
+  connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
+  Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
+- `std.strview` : vues de chaînes qui partagent leur texte (`slice`, `split`, `lines`,
+  `trim` sans copie), sûres sans références stockées (compteur atomique), utilisables
+  comme clés et entre tâches.
+- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (pointeurs de
+  fonction reçus), testé avec le compilateur C du système, lié à
+  la bibliothèque statique et à la partagée, sur Linux, macOS et Windows
+  (`tests/interop`) ; `--staticlib` produit du code indépendant de la position (le lien
+  avec un exécutable C PIE échouait) ; une bibliothèque n'attend plus la fin du
+  processus pour écrire ce que `print` lui donne (rien ne s'affichait) ; archives au
+  format BSD et `.dylib` nommées `@rpath/…` sur macOS, bibliothèque d'import gardée avec
+  la DLL sous Windows.
+- Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
+  `String.push` 1,75 fois plus rapide.
+
+**Tests** : corpus de courses (`tests/ui/task_races.nx`), 10⁶ messages entre 64 tâches
+sur Linux, Windows et macOS (`NEXUL_STRESS=1`), scénario C.
+
+**Limites connues de ces ajouts** : `std.process` hérite d'une course connue — un autre thread qui lance
+un programme au même moment peut hériter du tube de capture (Windows, macOS) ; macOS
+x86-64 (structures `stat` et `dirent` anciennes) compilé mais non testé ; WASI ne lance
+pas de programmes.
+
 ## 0.2.0 — « Autonomie et abstractions »
 
 **Compilateur autonome**

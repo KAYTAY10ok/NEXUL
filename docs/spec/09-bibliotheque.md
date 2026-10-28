@@ -19,7 +19,9 @@ Le prélude, visible sans import, contient `Option`, `Result`, `String`, `Vec`, 
 fonctions intégrées (§4.10) et les traits standards (§3.9) : `Eq`, `Ord` et `Ordering`,
 `Clone`, `Display`, `Hash`, `Default`, `Add`, `Sub`, `Mul`, `Div`, `Rem`, `Neg`. Les types
 primitifs, `String`, `Vec`, `Option` et `Result` les implémentent (pour `Vec`, `Option` et
-`Result`, quand leurs éléments les implémentent).
+`Result`, quand leurs éléments les implémentent). Le prélude contient aussi `Error`,
+l'interface des erreurs que l'on montre aux utilisateurs (§7.2), implémentée par les
+erreurs de `std` (`io.IoError`).
 
 ### `Option[T]`
 | Méthode | Description |
@@ -141,13 +143,17 @@ Les deux implémentent `Clone`, `Display` et `Default`.
 | Module | Contenu |
 |---|---|
 | `std.math` | constantes `PI`, `E`, `TAU`, `SQRT_2`, `LN_2`, `LN_10` ; `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `exp`, `ln`, `log2`, `log10`, `pow`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `fmod`, `scalbn` (aussi méthodes des flottants, §4.9), précises au dernier bit près (portage de fdlibm) |
-| `std.io` | `read_line() -> Option[String]`, `read_file`, `read_bytes`, `write_file`, `write_bytes`, `append_file` (résultats `Result[_, String]`), `flush()` |
+| `std.io` | `read_line() -> Option[String]`, `read_file`, `read_bytes`, `write_file`, `write_bytes`, `append_file` (résultats `Result[_, IoError]`, §7.2), `IoError`, `flush()` |
 | `std.system` | `args() -> Vec[String]`, `exit(code: i32) -> Never`, `env(nom: String) -> Option[String]` |
 | `std.time` | `monotonic_ns()`, `unix_time()`, `unix_time_ns()`, `sleep(ms)`, `sleep_ns(ns)`, `utc_offset(...)` ; dates du calendrier : `Date` (`new`, `today`, `parse`, `add_days`, `add_months`, `weekday`, `days_until`…), `DateTime` (`now`, `now_utc`, `from_unix`…), `Weekday`, `is_leap_year`, `days_in_month` |
 | `std.random` | aléa cryptographique du système : `secure_bytes`, `secure_u64`, `secure_range`, `secure_token` ; générateur reproductible `Rng` (`new(graine)`, `from_entropy`, `range`, `float`, `chance`, `shuffle`) |
 | `std.collections` | `Map[K, V]`, `Set[T]` (§9.2) |
+| `std.fs` | système de fichiers (0.6.0) : `metadata(chemin) -> Result[Metadata, IoError]` (`kind` : `Kind.File`, `.Dir`, `.Other` ; `size` ; `modified_ns`, nanosecondes depuis 1970 ; liens symboliques suivis), `exists`, `is_file`, `is_dir`, `list_dir` (noms triés, sans `.` ni `..`), `create_dir`, `create_dir_all`, `remove_file`, `remove_dir` (dossier vide), `remove_dir_all`, `rename` (remplace un fichier existant), `copy` ; chemins : `join`, `parent`, `file_name`, `extension` (`/` partout, `\` aussi sur Windows). Linux, macOS, Windows, WASI (dans les dossiers accordés) ; ailleurs, `IoError.Other` |
+| `std.process` | autres programmes (0.6.0) : `run(programme, args) -> Result[Output, IoError]` attend la fin et rend `Output { code, output }` (sorties standard et d'erreur fusionnées, dans l'ordre) ; `status(programme, args) -> Result[i32, IoError]` partage les entrées et sorties ; sans shell ; un nom sans `/` est cherché dans `PATH` ; un programme absent donne `IoError.NotFound` ; code `128 + signal` quand un signal l'arrête (Linux, macOS). Linux, macOS, Windows ; ailleurs, `IoError.Other` |
+| `std.net` | TCP sur IPv4 (0.6.0) : `TcpListener.bind("127.0.0.1:0")` (port 0 : choisi par le système, `port()`), `accept() -> Result[TcpStream, IoError]` ; `TcpStream.connect(adresse)`, `read(out!, max)`, `read_to_end`, `read_text`, `read_line`, `write`, `write_bytes`, `shutdown` (fin de l'écriture) ; la connexion se ferme quand la valeur est détruite ; `parse_address` (`a.b.c.d:port`, `localhost:port`). Bloquant : un serveur sert chaque connexion dans sa tâche (`tache.lancer_detachee`). Erreurs : `IoError.Other(code, "connection refused: …")` et semblables (des variantes dédiées demanderaient d'amender l'ADR 0015). Pas encore : DNS, IPv6, UDP, délais. Linux, macOS, Windows |
+| `std.strview` | vues de chaînes (0.6.0) : `StrView.new(owned texte)` (sans copie), `StrView.of(texte)` ; `slice(début, fin)` en O(1), `split`, `lines`, `trim` rendent des vues **du même texte** sans rien copier ; `len`, `byte_at`, `equals`, `find`, `contains`, `starts_with`, `ends_with`, `chars`, `parse_int`, `parse_float`, `to_string` (copie) ; `Eq`, `Clone`, `Display`, `Hash` (comme la `String` des mêmes octets), `Transfer` et `Share`. Une vue n'emprunte pas : elle possède une part du texte (compteur atomique), libéré avec sa dernière vue. Mêmes résultats que les méthodes de `String` (testé) |
 | `std.mem` | `size_of[T]()`, `align_of[T]()`, `swap`, `replace`, `forget`, `drop`, et en `unsafe` : `alloc`, `realloc`, `free`, `copy[T]`, `set_bytes`, `drop_in_place[T]`, `addr_of`, `read_volatile`, `write_volatile` (registres matériels), `zeroed[T]` |
 
-*(Hors 0.2, dans l'ordre du cahier des charges §14.1 : `text` (Unicode complet), `net`,
+*(Pas encore, dans l'ordre du cahier des charges §14.1 : `text` (Unicode complet), `net` au-delà de TCP sur IPv4,
 `crypto` (adossé à des implémentations auditées), `async`, `testing` avancé, `logging`,
-`serialization`, concurrence.)*
+`serialization`.)*

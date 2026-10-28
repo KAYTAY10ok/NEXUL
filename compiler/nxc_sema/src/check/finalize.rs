@@ -199,10 +199,15 @@ impl<'a> FnCtxt<'a> {
 
     fn check_int_range(&self, n: i128, ty: Ty, span: Span) -> bool {
         if let Some(i) = self.tcx().as_int(ty) {
-            if n < i.min() || n > i.max() {
+            let (min, max) = (self.p.int_min(i), self.p.int_max(i));
+            if n < min || n > max {
+                let on_target = crate::consts::on_target(self.p, i);
                 let mut d = Diagnostic::error("E0301", format!("literal out of range for `{}`", i.name()))
-                    .primary(span, format!("the range of `{}` is {}..={}", i.name(), i.min(), i.max()));
-                if n >= 0 && i.signed() && i.bits() < 64 {
+                    .primary(span, format!("the range of `{}` is {}..={}{}", i.name(), min, max, on_target));
+                if !on_target.is_empty() && n >= i.min() && n <= i.max() {
+                    let wide = if i.signed() { "i64" } else { "u64" };
+                    d = d.help(format!("use `{}`: the width of `{}` is that of a pointer of the target", wide, i.name()));
+                } else if n >= 0 && i.signed() && i.bits() < 64 {
                     d = d.help("use a wider type, such as `i64`");
                 } else if n >= 0 && i.signed() && n <= u64::MAX as i128 {
                     d = d.help("use `u64` for values above `i64.MAX`");
@@ -235,7 +240,11 @@ impl<'a> FnCtxt<'a> {
                 }
             }
             T::Lit(_) | T::Local(_) | T::Const(_) | T::Static(_) | T::FnRef(_) | T::Error | T::Break(_) | T::Continue(_) | T::Closure { .. } => {}
-            T::Field(x, _) | T::Move(x) | T::Try(x, _) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => self.fin_expr(x),
+            T::Field(x, _) | T::Move(x) | T::Try(x, _, None) | T::ArrayRepeat(x, _) | T::FnToClosure(x) | T::ToDyn(x) => self.fin_expr(x),
+            T::Try(x, _, Some(conv)) => {
+                self.fin_expr(x);
+                self.fin_expr(&mut conv.expr);
+            }
             T::Unary(_, x) => {
                 self.fin_expr(x);
                 self.desugar_operator(e);
@@ -384,6 +393,8 @@ impl<'a> FnCtxt<'a> {
             let mut d = Diagnostic::error("E0303", format!("operator `{}` cannot be applied to `{}`", symbol, ts)).primary(span, "unsupported operation");
             if matches!(&*tcx.kind(t), TyKind::Param(_)) {
                 d = d.help(format!("add the bound `{}: {}` to the type parameter", ts, trait_name));
+            } else if self.newtype_of(t).is_some() {
+                d = d.help(format!("a distinct type has only the operations it names: `type {} = distinct … is {}`", ts, trait_name));
             } else if matches!(&*tcx.kind(t), TyKind::Adt(..)) {
                 d = d.help(format!("implement the trait `{}` for `{}` (or add `@derive({})` to its declaration)", trait_name, ts, trait_name));
             }
@@ -478,7 +489,9 @@ impl<'a> FnCtxt<'a> {
                     let mut d = Diagnostic::error("E0350", format!("a value of type `{}` cannot be formatted", self.ty_str(t)))
                         .primary(span, "not formattable")
                         .note("integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted");
-                    if self.tcx().as_adt(t).is_some() {
+                    if self.newtype_of(t).is_some() {
+                        d = d.help(format!("a distinct type has only the interfaces it names: `type {} = distinct … is Display`", self.ty_str(t)));
+                    } else if self.tcx().as_adt(t).is_some() {
                         d = d.help(format!("implement `Display` for `{}`: `impl Display for {} {{ fn to_string(self) -> String {{ ... }} }}`", self.ty_str(t), self.ty_str(t)));
                     } else if matches!(&*self.tcx().kind(t), TyKind::Param(_)) {
                         d = d.help(format!("add the bound `{}: Display`", self.ty_str(t)));
@@ -647,8 +660,38 @@ impl<'a> FnCtxt<'a> {
                 let mut d = Diagnostic::error("E0249", format!("`{}` does not implement `{}`", ts, tname)).primary(span, format!("`{}` is required {}", tname, what));
                 d = if matches!(&*tcx.kind(t), TyKind::Param(_)) {
                     d.help(format!("add the bound `{}: {}` to the type parameter", ts, tname))
+                } else if self.p.is_task_property(trait_id) {
+                    // `Transfer` and `Share` come from the structure of the type (ADR 0013).
+                    let what = if self.p.lang_trait("transfer") == Some(trait_id) { "moved to another task" } else { "read by several tasks at once" };
+                    let d = d.note(format!("`{}` cannot be {}: it holds a `Ptr`, an anonymous function or a `dyn` value without `{}`", ts, what, tname));
+                    // Only the program's own types can be declared.
+                    let own = tcx.as_adt(t).is_some_and(|(id, _)| !self.p.modules[self.p.adt(id).module.idx()].is_std);
+                    if !own {
+                        d
+                    } else if self.edition() == nxc_syntax::Edition::V1 {
+                        d.help(format!("if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe extend {} is {} {{}}`", ts, tname))
+                    } else {
+                        d.help(format!("if its `Ptr` is safe to use from another task, declare it in reviewed code: `unsafe impl {} for {} {{}}`", tname, ts))
+                    }
+                } else if self.p.lang_trait("copy") == Some(trait_id) {
+                    // `Copy` comes from the structure of the type, never from an `impl`.
+                    d.note(format!("the values of `{}` own resources: they are moved, not copied (spec §3.7)", ts))
+                        .help("pass a copy made with `.clone()` to a parameter without the bound `Copy`, or use a copyable type")
                 } else {
-                    d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
+                    // Suggest an `impl` only where the program may write one (its trait or its
+                    // type); otherwise name the types that have it.
+                    let own_trait = !self.p.modules[self.p.traits[trait_id.idx()].module.idx()].is_std;
+                    let own_type = tcx.as_adt(t).is_some_and(|(id, _)| !self.p.modules[self.p.adt(id).module.idx()].is_std);
+                    if own_trait || own_type {
+                        d.help(format!("implement it: `impl {} for {} {{ ... }}`", tname, ts))
+                    } else {
+                        let have: Vec<String> = self.p.impls.iter().filter(|i| i.trait_id == trait_id).map(|i| format!("`{}`", self.p.ty_str_with(i.self_ty, &i.generics))).collect();
+                        if have.is_empty() || have.len() > 8 {
+                            d
+                        } else {
+                            d.note(format!("`{}` is implemented by {}", tname, have.join(", ")))
+                        }
+                    }
                 };
                 self.err(d);
             }
@@ -664,7 +707,7 @@ impl<'a> FnCtxt<'a> {
             }
             Deferred::Copyable { ty, span, what } => {
                 let t = self.resolve(ty);
-                if !tcx.has_error(t) && !self.p.is_copy(t) {
+                if !tcx.has_error(t) && !self.p.is_copy_with(t, &self.bounds) {
                     self.err(
                         Diagnostic::error("E0313", format!("{} must be copyable", what))
                             .primary(span, format!("`{}` owns resources and cannot be duplicated", self.ty_str(t)))

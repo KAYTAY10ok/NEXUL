@@ -1,3 +1,4 @@
+// edition: 1
 /// UTF-8 text (spec chapter 09).
 ///
 /// Invariant: the bytes of a `String` are always valid UTF-8.
@@ -9,15 +10,15 @@ import std.mem
 import std.fmt
 
 @lang("string")
-pub struct String {
-    data: Ptr[u8]
-    len: usize
-    cap: usize
+pub type String {
+    Ptr[u8] data
+    usize len
+    usize cap
 }
 
 /// Decodes the (valid) UTF-8 character at byte `pos` and advances `pos` past it.
 @lang("str_decode")
-unsafe fn rt_decode(s: String, inout pos: usize) -> char {
+unsafe fn char rt_decode(String s, usize pos!) {
     let p = s.data.offset(pos)
     let b0 = p.read() as u32
     if b0 < 0x80 {
@@ -38,7 +39,7 @@ unsafe fn rt_decode(s: String, inout pos: usize) -> char {
 
 /// `dest += src` (also correct when `src` and `dest` are the same string).
 @lang("str_push_str")
-unsafe fn rt_push_str(inout dest: String, src: String) {
+unsafe fn rt_push_str(String dest!, String src) {
     let n = src.len
     if n == 0 {
         return
@@ -51,7 +52,7 @@ unsafe fn rt_push_str(inout dest: String, src: String) {
 
 /// `a + b`
 @lang("str_concat")
-fn rt_concat(a: String, b: String) -> String {
+fn String rt_concat(String a, String b) {
     var s = String.with_capacity(a.len + b.len)
     s.push_str(a)
     s.push_str(b)
@@ -60,7 +61,7 @@ fn rt_concat(a: String, b: String) -> String {
 
 /// `a == b`
 @lang("str_eq")
-fn rt_eq(a: String, b: String) -> bool {
+fn bool rt_eq(String a, String b) {
     if a.len != b.len {
         return false
     }
@@ -74,7 +75,7 @@ fn rt_eq(a: String, b: String) -> bool {
 
 /// Lexicographic order of the UTF-8 bytes: -1, 0 or 1.
 @lang("str_cmp")
-fn rt_cmp(a: String, b: String) -> i32 {
+fn i32 rt_cmp(String a, String b) {
     let n = if a.len < b.len { a.len } else { b.len }
     for i in 0..n {
         let x = unsafe { a.data.offset(i).read() }
@@ -90,10 +91,10 @@ fn rt_cmp(a: String, b: String) -> i32 {
 }
 
 /// Length of the valid UTF-8 sequence starting at `p[i]` (0 if invalid).
-unsafe fn utf8_sequence_len(p: Ptr[u8], i: usize, n: usize) -> usize {
+unsafe fn usize utf8_sequence_len(Ptr[u8] p, usize i, usize n) {
     let c = p.offset(i).read() as u32
-    var len: usize = 0
-    var min: u32 = 0
+    var usize len = 0
+    var u32 min = 0
     if c < 0x80 {
         return 1
     } else if (c & 0xE0) == 0xC0 {
@@ -126,8 +127,8 @@ unsafe fn utf8_sequence_len(p: Ptr[u8], i: usize, n: usize) -> usize {
 }
 
 /// Is `p[0..n]` valid UTF-8?
-pub unsafe fn utf8_valid(p: Ptr[u8], n: usize) -> bool {
-    var i: usize = 0
+pub unsafe fn bool utf8_valid(Ptr[u8] p, usize n) {
+    var usize i = 0
     while i < n {
         let l = utf8_sequence_len(p, i, n)
         if l == 0 {
@@ -138,45 +139,45 @@ pub unsafe fn utf8_valid(p: Ptr[u8], n: usize) -> bool {
     return true
 }
 
-impl String {
+extend String {
     /// An empty string (no allocation).
-    pub fn new() -> String {
+    pub fn String new() {
         return ""
     }
 
     /// An empty string able to hold `capacity` bytes without reallocating.
-    pub fn with_capacity(capacity: usize) -> String {
+    pub fn String with_capacity(usize capacity) {
         var s = String.new()
         s.reserve(capacity)
         return s
     }
 
     /// Length in bytes.
-    pub fn len(self) -> usize {
+    pub fn usize len(self) {
         return self.len
     }
 
     /// Number of bytes that fit without reallocating.
-    pub fn capacity(self) -> usize {
+    pub fn usize capacity(self) {
         return self.cap
     }
 
-    pub fn is_empty(self) -> bool {
+    pub fn bool is_empty(self) {
         return self.len == 0
     }
 
     /// Address of the bytes (always followed by a zero byte for literals).
-    pub fn as_ptr(self) -> Ptr[u8] {
+    pub fn Ptr[u8] as_ptr(self) {
         return self.data
     }
 
     /// Makes room for `extra` more bytes.
-    pub fn reserve(inout self, extra: usize) {
+    pub fn reserve(self!, usize extra) {
         let need = self.len + extra
         if self.cap != 0 and need <= self.cap {
             return
         }
-        var cap: usize = if self.cap == 0 { 16 } else { self.cap * 2 }
+        var usize cap = if self.cap == 0 { 16 } else { self.cap * 2 }
         if cap < need {
             cap = need
         }
@@ -192,8 +193,13 @@ impl String {
         self.cap = cap
     }
 
-    fn push_byte(inout self, b: u8) {
-        self.reserve(1)
+    // The test of the capacity stays in the loop that appends; `reserve` (a literal has no
+    // capacity: `cap == 0 <= len`, it is copied first) only when it is full.
+    @inline
+    fn push_byte(self!, u8 b) {
+        if self.len >= self.cap {
+            self.reserve(1)
+        }
         unsafe {
             self.data.offset(self.len).write(b)
         }
@@ -201,11 +207,21 @@ impl String {
     }
 
     /// Appends a character.
-    pub fn push(inout self, c: char) {
+    @inline
+    pub fn push(self!, char c) {
         let v = c as u32
         if v < 0x80 {
             self.push_byte(v as u8)
-        } else if v < 0x800 {
+        } else {
+            self.push_multibyte(c)
+        }
+    }
+
+    // Keep the ASCII append small enough to inline into byte-building loops.
+    // The Unicode path retains exactly the same checked operations and growth.
+    fn push_multibyte(self!, char c) {
+        let v = c as u32
+        if v < 0x800 {
             self.push_byte((0xC0 | (v >> 6)) as u8)
             self.push_byte((0x80 | (v & 0x3F)) as u8)
         } else if v < 0x10000 {
@@ -221,7 +237,7 @@ impl String {
     }
 
     /// Appends a string.
-    pub fn push_str(inout self, s: String) {
+    pub fn push_str(self!, String s) {
         let n = s.len
         self.reserve(n)
         unsafe {
@@ -231,7 +247,7 @@ impl String {
     }
 
     /// An independent copy of the string.
-    pub fn clone(self) -> String {
+    pub fn String clone(self) {
         if self.cap == 0 {
             // Literal bytes are immutable and never freed: they can be shared.
             return String(data: self.data, len: self.len, cap: 0)
@@ -242,13 +258,13 @@ impl String {
     }
 
     /// Removes all the characters.
-    pub fn clear(inout self) {
+    pub fn clear(self!) {
         self.len = 0
     }
 
     /// The byte at `index`.
     @track_caller
-    pub fn byte_at(self, index: usize) -> u8 {
+    pub fn u8 byte_at(self, usize index) {
         if index >= self.len {
             panic("byte index {index} is out of bounds of a string of length {self.len}")
         }
@@ -257,7 +273,7 @@ impl String {
         }
     }
 
-    fn is_char_boundary(self, index: usize) -> bool {
+    fn bool is_char_boundary(self, usize index) {
         if index == 0 or index == self.len {
             return true
         }
@@ -269,7 +285,7 @@ impl String {
 
     /// The bytes `start..end` as a new string.
     @track_caller
-    pub fn substring(self, start: usize, end: usize) -> String {
+    pub fn String substring(self, usize start, usize end) {
         if start > end or end > self.len {
             panic("substring {start}..{end} is out of bounds of a string of length {self.len}")
         }
@@ -288,8 +304,8 @@ impl String {
     }
 
     /// Number of characters.
-    pub fn char_count(self) -> usize {
-        var n: usize = 0
+    pub fn usize char_count(self) {
+        var usize n = 0
         for _ in self {
             n += 1
         }
@@ -297,8 +313,8 @@ impl String {
     }
 
     /// The characters of the string.
-    pub fn chars(self) -> Vec[char] {
-        var v: Vec[char] = Vec.new()
+    pub fn Vec[char] chars(self) {
+        var Vec[char] v = Vec.new()
         for c in self {
             v.push(c)
         }
@@ -306,15 +322,15 @@ impl String {
     }
 
     /// The bytes of the string.
-    pub fn bytes(self) -> Vec[u8] {
-        var v: Vec[u8] = Vec.with_capacity(self.len)
+    pub fn Vec[u8] bytes(self) {
+        var Vec[u8] v = Vec.with_capacity(self.len)
         for i in 0..self.len {
             v.push(self.byte_at(i))
         }
         return v
     }
 
-    fn matches_at(self, index: usize, pattern: String) -> bool {
+    fn bool matches_at(self, usize index, String pattern) {
         if index + pattern.len > self.len {
             return false
         }
@@ -327,11 +343,11 @@ impl String {
     }
 
     /// Byte position of the first occurrence of `needle`.
-    pub fn find(self, needle: String) -> Option[usize] {
+    pub fn Option[usize] find(self, String needle) {
         if needle.len > self.len {
             return None
         }
-        var i: usize = 0
+        var usize i = 0
         while i + needle.len <= self.len {
             if self.matches_at(i, needle) {
                 return Some(i)
@@ -341,15 +357,15 @@ impl String {
         return None
     }
 
-    pub fn contains(self, needle: String) -> bool {
+    pub fn bool contains(self, String needle) {
         return self.find(needle).is_some()
     }
 
-    pub fn starts_with(self, prefix: String) -> bool {
+    pub fn bool starts_with(self, String prefix) {
         return self.matches_at(0, prefix)
     }
 
-    pub fn ends_with(self, suffix: String) -> bool {
+    pub fn bool ends_with(self, String suffix) {
         if suffix.len > self.len {
             return false
         }
@@ -357,12 +373,12 @@ impl String {
     }
 
     /// The string without leading and trailing whitespace.
-    pub fn trim(self) -> String {
+    pub fn String trim(self) {
         var start = self.len
-        var pos: usize = 0
+        var usize pos = 0
         while pos < self.len {
             let before = pos
-            let c = unsafe { rt_decode(self, &pos) }
+            let c = unsafe { rt_decode(self, pos!) }
             if not c.is_whitespace() {
                 start = before
                 break
@@ -371,7 +387,7 @@ impl String {
         var end = start
         var p = start
         while p < self.len {
-            let c = unsafe { rt_decode(self, &p) }
+            let c = unsafe { rt_decode(self, p!) }
             if not c.is_whitespace() {
                 end = p
             }
@@ -380,7 +396,7 @@ impl String {
     }
 
     /// ASCII letters converted to upper case.
-    pub fn to_uppercase(self) -> String {
+    pub fn String to_uppercase(self) {
         var s = String.with_capacity(self.len)
         for c in self {
             s.push(c.to_ascii_uppercase())
@@ -389,7 +405,7 @@ impl String {
     }
 
     /// ASCII letters converted to lower case.
-    pub fn to_lowercase(self) -> String {
+    pub fn String to_lowercase(self) {
         var s = String.with_capacity(self.len)
         for c in self {
             s.push(c.to_ascii_lowercase())
@@ -398,16 +414,16 @@ impl String {
     }
 
     /// The parts separated by `separator`.
-    pub fn split(self, separator: String) -> Vec[String] {
-        var parts: Vec[String] = Vec.new()
+    pub fn Vec[String] split(self, String separator) {
+        var Vec[String] parts = Vec.new()
         if separator.len == 0 {
             for c in self {
                 parts.push(c.to_string())
             }
             return parts
         }
-        var start: usize = 0
-        var i: usize = 0
+        var usize start = 0
+        var usize i = 0
         while i + separator.len <= self.len {
             if self.matches_at(i, separator) {
                 parts.push(self.substring(start, i))
@@ -422,9 +438,9 @@ impl String {
     }
 
     /// The lines of the string, without their terminators (`\n` or `\r\n`).
-    pub fn lines(self) -> Vec[String] {
-        var out: Vec[String] = Vec.new()
-        var start: usize = 0
+    pub fn Vec[String] lines(self) {
+        var Vec[String] out = Vec.new()
+        var usize start = 0
         for i in 0..self.len {
             if self.byte_at(i) == '\n' as u8 {
                 var end = i
@@ -446,13 +462,13 @@ impl String {
     }
 
     /// A copy where every occurrence of `from` is replaced by `to`.
-    pub fn replace(self, from: String, to: String) -> String {
+    pub fn String replace(self, String from, String to) {
         if from.len == 0 {
             return self.clone()
         }
         var out = String.with_capacity(self.len)
-        var start: usize = 0
-        var i: usize = 0
+        var usize start = 0
+        var usize i = 0
         while i + from.len <= self.len {
             if self.matches_at(i, from) {
                 out.push_str(self.substring(start, i))
@@ -468,7 +484,7 @@ impl String {
     }
 
     /// The string repeated `count` times.
-    pub fn repeat(self, count: usize) -> String {
+    pub fn String repeat(self, usize count) {
         var out = String.with_capacity(self.len * count)
         for _ in 0..count {
             out.push_str(self)
@@ -477,11 +493,11 @@ impl String {
     }
 
     /// Reads a decimal integer (optional sign, digits only).
-    pub fn parse_int(self) -> Option[i64] {
+    pub fn Option[i64] parse_int(self) {
         if self.len == 0 {
             return None
         }
-        var i: usize = 0
+        var usize i = 0
         var negative = false
         let first = self.byte_at(0)
         if first == '-' as u8 {
@@ -494,7 +510,7 @@ impl String {
             return None
         }
         // Accumulate negatively so that `i64.MIN` can be represented.
-        var value: i64 = 0
+        var i64 value = 0
         while i < self.len {
             let b = self.byte_at(i)
             if b < '0' as u8 or b > '9' as u8 {
@@ -518,15 +534,15 @@ impl String {
 
     /// Reads a floating-point number (`1.5`, `-2e10`, `inf`, `NaN`), rounded correctly to
     /// the nearest `f64`.
-    pub fn parse_float(self) -> Option[f64] {
+    pub fn Option[f64] parse_float(self) {
         return fmt.parse_f64(self)
     }
 
     /// A string made of the bytes `p[0..n]`, where each invalid UTF-8 sequence is
     /// replaced by U+FFFD.
-    pub unsafe fn from_bytes_lossy(p: Ptr[u8], n: usize) -> String {
+    pub unsafe fn String from_bytes_lossy(Ptr[u8] p, usize n) {
         var s = String.with_capacity(n)
-        var i: usize = 0
+        var usize i = 0
         while i < n {
             let l = utf8_sequence_len(p, i, n)
             if l == 0 {
@@ -542,9 +558,15 @@ impl String {
         return s
     }
 
+    /// A string over bytes it does not own (never freed, like a literal): valid UTF-8
+    /// that must outlive it and not change meanwhile (`std.strview`).
+    pub unsafe fn String borrowed_from(Ptr[u8] data, usize len) {
+        return String(data: data, len: len, cap: 0)
+    }
+
     /// Takes ownership of a heap buffer of valid UTF-8 allocated with `mem.alloc`
     /// (`capacity` bytes, of which `len` are used).
-    pub unsafe fn from_raw_parts(data: Ptr[u8], len: usize, capacity: usize) -> String {
+    pub unsafe fn String from_raw_parts(Ptr[u8] data, usize len, usize capacity) {
         if capacity == 0 {
             return String.new()
         }
@@ -552,15 +574,15 @@ impl String {
     }
 
     /// The bytes of the string, consuming it.
-    pub fn into_bytes(owned self) -> Vec[u8] {
-        var v: Vec[u8] = Vec.with_capacity(self.len)
+    pub fn Vec[u8] into_bytes(owned self) {
+        var Vec[u8] v = Vec.with_capacity(self.len)
         for i in 0..self.len {
             v.push(unsafe { self.data.offset(i).read() })
         }
         return v
     }
 
-    fn drop(inout self) {
+    fn drop(self!) {
         if self.cap > 0 {
             unsafe {
                 mem.free(self.data)
@@ -572,14 +594,14 @@ impl String {
 // ---------------------------------------------------------------------------
 // Standard traits
 
-impl Eq for String {
-    fn eq(self, other: String) -> bool {
+extend String is Eq {
+    fn bool eq(self, String other) {
         return self == other
     }
 }
 
-impl Ord for String {
-    fn cmp(self, other: String) -> Ordering {
+extend String is Ord {
+    fn Ordering cmp(self, String other) {
         if self < other {
             return Ordering.Less
         }
@@ -590,22 +612,22 @@ impl Ord for String {
     }
 }
 
-impl Clone for String {
-    fn clone(self) -> String {
+extend String is Clone {
+    fn String clone(self) {
         return self.clone()
     }
 }
 
-impl Display for String {
-    fn to_string(self) -> String {
+extend String is Display {
+    fn String to_string(self) {
         return self.clone()
     }
 }
 
-impl Hash for String {
+extend String is Hash {
     /// FNV-1a over the bytes, then mixed.
-    fn hash(self) -> u64 {
-        var h: u64 = 0xCBF2_9CE4_8422_2325
+    fn u64 hash(self) {
+        var u64 h = 0xCBF2_9CE4_8422_2325
         unsafe {
             for i in 0..self.len {
                 h = (h ^ (self.data.offset(i).read() as u64)) *% 0x0000_0100_0000_01B3
@@ -615,8 +637,19 @@ impl Hash for String {
     }
 }
 
-impl Default for String {
-    fn default() -> String {
+extend String is Default {
+    fn String default() {
         return ""
     }
+}
+
+// ---------------------------------------------------------------------------
+// Tasks (ADR 0013)
+
+// The bytes belong to the string alone (no other pointer to them): moving the string
+// to another task moves them; a read borrow never writes them.
+unsafe extend String is Transfer {
+}
+
+unsafe extend String is Share {
 }

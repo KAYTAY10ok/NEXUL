@@ -797,10 +797,12 @@ type PtyMaster = Arc<Mutex<Option<Box<dyn MasterPty + Send>>>>;
 pub struct Terminal {
     writer: PtyWriter,
     master: PtyMaster,
-    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    killer: Box<dyn portable_pty::ChildKiller + Send + Sync>,
+    child_pid: Option<u32>,
     state: Arc<Mutex<ParserState>>,
     events: Receiver<TerminalEvent>,
     stopped: Arc<AtomicBool>,
+    child_exited: Arc<AtomicBool>,
     process_thread: Option<JoinHandle<()>>,
 }
 
@@ -845,42 +847,51 @@ impl Terminal {
             command.env(key, value);
         }
         let child = pair.slave.spawn_command(command).map_err(other_io)?;
+        let child_pid = child.process_id();
+        let killer = child.clone_killer();
         drop(pair.slave);
         let reader = pair.master.try_clone_reader().map_err(other_io)?;
         let writer = pair.master.take_writer().map_err(other_io)?;
         let master = Arc::new(Mutex::new(Some(pair.master)));
         let writer = Arc::new(Mutex::new(Some(writer)));
-        let child = Arc::new(Mutex::new(child));
         let state = Arc::new(Mutex::new(ParserState {
             parser: vte::Parser::new(),
             screen: Screen::new(cols, rows, scrollback_limit),
         }));
         let (tx, events) = mpsc::channel();
         let stopped = Arc::new(AtomicBool::new(false));
+        let child_exited = Arc::new(AtomicBool::new(false));
         let closing = Arc::new(AtomicBool::new(false));
+        let (responses_tx, responses_rx) = mpsc::channel();
+        let response_thread =
+            spawn_response_writer(writer.clone(), responses_rx, tx.clone(), closing.clone());
         let reader_thread = spawn_reader(
             reader,
             state.clone(),
-            writer.clone(),
+            responses_tx,
             tx.clone(),
             closing.clone(),
         );
         let process_thread = Some(spawn_process_watcher(
-            child.clone(),
+            child,
             master.clone(),
             writer.clone(),
             reader_thread,
+            response_thread,
             tx,
             closing,
             stopped.clone(),
+            child_exited.clone(),
         ));
         Ok(Self {
             writer,
             master,
-            child,
+            killer,
+            child_pid,
             state,
             events,
             stopped,
+            child_exited,
             process_thread,
         })
     }
@@ -957,19 +968,23 @@ impl Terminal {
     }
 
     pub fn process_id(&self) -> Option<u32> {
-        self.child.lock().ok().and_then(|child| child.process_id())
+        self.child_pid
     }
 
     /// Terminate the shell and wait for its PTY output to finish draining.
     /// Repeated calls are harmless; `Exited` is emitted once, after all output.
     pub fn stop(&mut self) -> io::Result<()> {
-        if !self.stopped.load(Ordering::Acquire) {
-            let mut child = self
-                .child
-                .lock()
-                .map_err(|_| io::Error::other("terminal child lock poisoned"))?;
-            if child.try_wait()?.is_none() {
-                child.kill()?;
+        if !self.stopped.load(Ordering::Acquire) && !self.child_exited.load(Ordering::Acquire) {
+            if let Err(error) = self.killer.kill() {
+                if !self.child_exited.load(Ordering::Acquire) {
+                    // The Windows PTY backend's `Child::kill` intentionally
+                    // suppresses TerminateProcess failures. Keep that behavior
+                    // while the independent waiter observes the child status.
+                    #[cfg(windows)]
+                    let _ = error;
+                    #[cfg(not(windows))]
+                    return Err(error);
+                }
             }
         }
         if let Some(handle) = self.process_thread.take() {
@@ -990,7 +1005,7 @@ impl Drop for Terminal {
 fn spawn_reader(
     mut reader: Box<dyn Read + Send>,
     state: Arc<Mutex<ParserState>>,
-    writer: PtyWriter,
+    responses_tx: Sender<Vec<u8>>,
     events: Sender<TerminalEvent>,
     closing: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
@@ -1013,14 +1028,14 @@ fn spawn_reader(
                         let new_title = state.screen.title.clone();
                         let responses = std::mem::take(&mut state.screen.responses);
                         drop(state);
-                        // ConPTY requests the initial cursor position before
-                        // starting its client when INHERIT_CURSOR is enabled.
                         if !responses.is_empty() {
-                            if let Ok(mut writer) = writer.lock() {
-                                if let Some(writer) = writer.as_mut() {
-                                    let _ =
-                                        writer.write_all(&responses).and_then(|_| writer.flush());
+                            if responses_tx.send(responses).is_err() {
+                                if !closing.load(Ordering::Acquire) {
+                                    let _ = events.send(TerminalEvent::Error(
+                                        "terminal response writer stopped".into(),
+                                    ));
                                 }
+                                break;
                             }
                         }
                         let _ = events.send(TerminalEvent::Output(output));
@@ -1043,44 +1058,77 @@ fn spawn_reader(
         .expect("failed to start terminal reader thread")
 }
 
+fn spawn_response_writer(
+    writer: PtyWriter,
+    responses_rx: Receiver<Vec<u8>>,
+    events: Sender<TerminalEvent>,
+    closing: Arc<AtomicBool>,
+) -> JoinHandle<()> {
+    thread::Builder::new()
+        .name("nexul-terminal-response-writer".into())
+        .spawn(move || {
+            while let Ok(response) = responses_rx.recv() {
+                let result = writer
+                    .lock()
+                    .map_err(|_| io::Error::other("terminal input lock poisoned"))
+                    .and_then(|mut writer| {
+                        let writer = writer.as_mut().ok_or_else(terminal_closed)?;
+                        writer.write_all(&response)?;
+                        writer.flush()
+                    });
+                if let Err(error) = result {
+                    if !closing.load(Ordering::Acquire) {
+                        let _ = events.send(TerminalEvent::Error(error.to_string()));
+                    }
+                }
+            }
+        })
+        .expect("failed to start terminal response writer thread")
+}
+
 fn spawn_process_watcher(
-    child: Arc<Mutex<Box<dyn portable_pty::Child + Send + Sync>>>,
+    mut child: Box<dyn portable_pty::Child + Send + Sync>,
     master: PtyMaster,
     writer: PtyWriter,
     reader_thread: JoinHandle<()>,
+    response_thread: JoinHandle<()>,
     events: Sender<TerminalEvent>,
     closing: Arc<AtomicBool>,
     stopped: Arc<AtomicBool>,
+    child_exited: Arc<AtomicBool>,
 ) -> JoinHandle<()> {
     thread::Builder::new()
         .name("nexul-terminal-process".into())
         .spawn(move || {
-            // Never hold the child lock across a blocking wait: stop() needs
-            // the same child to terminate a shell that is still running.
-            let exit_code = loop {
-                let result = child
-                    .lock()
-                    .map_err(|_| io::Error::other("terminal child lock poisoned"))
-                    .and_then(|mut child| child.try_wait());
-                match result {
-                    Ok(Some(status)) => break Some(status.exit_code() as i32),
-                    Ok(None) => thread::sleep(Duration::from_millis(10)),
-                    Err(error) => {
-                        let _ = events.send(TerminalEvent::Error(error.to_string()));
-                        break None;
-                    }
+            let exit_code = match child.wait() {
+                Ok(status) => Some(status.exit_code() as i32),
+                Err(error) => {
+                    let _ = events.send(TerminalEvent::Error(error.to_string()));
+                    None
                 }
             };
+            child_exited.store(true, Ordering::Release);
             closing.store(true, Ordering::Release);
             // ConPTY keeps its output pipe alive until the master is closed.
             // Close outside the locks, with the reader still draining output:
             // ClosePseudoConsole itself may wait for the pipe to be drained.
-            let input = writer.lock().unwrap().take();
+            let input = writer
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
             drop(input);
-            let pty = master.lock().unwrap().take();
+            let pty = master
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .take();
             drop(pty);
             if reader_thread.join().is_err() {
                 let _ = events.send(TerminalEvent::Error("terminal reader panicked".into()));
+            }
+            if response_thread.join().is_err() {
+                let _ = events.send(TerminalEvent::Error(
+                    "terminal response writer panicked".into(),
+                ));
             }
             stopped.store(true, Ordering::Release);
             let _ = events.send(TerminalEvent::Exited(exit_code));
@@ -1139,7 +1187,21 @@ impl TerminalManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Cursor;
     use std::time::{Duration, Instant};
+
+    struct SharedWriter(Arc<Mutex<Vec<u8>>>);
+
+    impl Write for SharedWriter {
+        fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
+            self.0.lock().unwrap().extend_from_slice(buffer);
+            Ok(buffer.len())
+        }
+
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
 
     fn feed(screen: &mut Screen, text: &str) {
         let mut parser = vte::Parser::new();
@@ -1179,6 +1241,46 @@ mod tests {
         assert!(screen.responses.is_empty());
         parser.advance(&mut screen, b"6n\x1b[5n\x1b[?6n");
         assert_eq!(screen.responses, b"\x1b[3;7R\x1b[0n\x1b[?3;7R");
+    }
+
+    #[test]
+    fn reader_queues_status_responses_without_waiting_for_input_lock() {
+        let written_responses = Arc::new(Mutex::new(Vec::new()));
+        let writer: PtyWriter = Arc::new(Mutex::new(Some(Box::new(SharedWriter(
+            written_responses.clone(),
+        )))));
+        let writer_guard = writer.lock().unwrap();
+        let state = Arc::new(Mutex::new(ParserState {
+            parser: vte::Parser::new(),
+            screen: Screen::new(80, 24, 4),
+        }));
+        let (responses_tx, responses_rx) = mpsc::channel();
+        let (events_tx, events_rx) = mpsc::channel();
+        let closing = Arc::new(AtomicBool::new(false));
+        let response_thread = spawn_response_writer(
+            writer.clone(),
+            responses_rx,
+            events_tx.clone(),
+            closing.clone(),
+        );
+        let reader_thread = spawn_reader(
+            Box::new(Cursor::new(b"\x1b[6noutput continues".to_vec())),
+            state,
+            responses_tx,
+            events_tx,
+            closing,
+        );
+
+        let output = events_rx.recv_timeout(Duration::from_secs(1));
+        drop(writer_guard);
+        reader_thread.join().unwrap();
+        response_thread.join().unwrap();
+
+        assert!(matches!(
+            output,
+            Ok(TerminalEvent::Output(bytes)) if bytes == b"\x1b[6noutput continues"
+        ));
+        assert_eq!(*written_responses.lock().unwrap(), b"\x1b[1;1R");
     }
 
     #[test]
@@ -1278,5 +1380,17 @@ mod tests {
             terminal.resize(80, 24).unwrap_err().kind(),
             io::ErrorKind::BrokenPipe
         );
+    }
+
+    #[test]
+    fn pty_process_id_remains_available_while_waiter_blocks() {
+        let terminal = Terminal::spawn(
+            interactive_shell(),
+            std::env::current_dir().unwrap(),
+            80,
+            24,
+        )
+        .unwrap();
+        assert!(terminal.process_id().is_some());
     }
 }

@@ -1,0 +1,78 @@
+// targets: windows, linux, macos, wasi
+// `?` converts errors (ADR 0015): into the only variant that holds the error, or into
+// a `dyn Error` value. The conversion to `String` of edition 0.2 is in try_convert_text.nx.
+import std.io
+
+enum ParseError {
+    Empty
+    NotANumber(String)
+}
+
+impl Display for ParseError {
+    fn to_string(self) -> String {
+        return match self {
+            Empty => "empty file"
+            NotANumber(t) => "not a number: {t}"
+        }
+    }
+}
+
+impl Error for ParseError {
+}
+
+enum AppError {
+    Io(io.IoError)
+    Parse(ParseError)
+}
+
+fn parse(text: String) -> Result[i64, ParseError] {
+    let t = text.trim()
+    if t.len() == 0 {
+        return Err(ParseError.Empty)
+    }
+    match t.parse_int() {
+        Some(n) => return Ok(n)
+        None => return Err(ParseError.NotANumber(t))
+    }
+}
+
+fn load(path: String) -> Result[i64, AppError] {
+    let text = io.read_file(path)?
+    let n = parse(text)?
+    return Ok(n)
+}
+
+fn load_dyn(path: String) -> Result[i64, dyn Error] {
+    let text = io.read_file(path)?
+    let n = parse(text)?
+    return Ok(n)
+}
+
+fn first_char(text: String) -> Option[char] {
+    let c = text.chars().first()?
+    return Some(c)
+}
+
+fn show(path: String) {
+    match load(path) {
+        Ok(n) => println("load: {n}")
+        Err(AppError.Io(e)) => println("load: io: {e}")
+        Err(AppError.Parse(e)) => println("load: parse: {e}")
+    }
+    match load_dyn(path) {
+        Ok(n) => println("load_dyn: {n}")
+        Err(e) => println("load_dyn: {e}")
+    }
+}
+
+fn main() {
+    let path = "nexul_try_convert.txt"
+    show("nexul_does_not_exist.txt")
+    let _ = io.write_file(path, "42\n")
+    show(path)
+    let _ = io.write_file(path, "abc")
+    show(path)
+    let _ = io.write_file(path, "")
+    show(path)
+    println("{first_char("xy").is_some()} {first_char("").is_none()}")
+}

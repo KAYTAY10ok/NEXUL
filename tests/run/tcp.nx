@@ -1,0 +1,95 @@
+// edition: 1
+// targets: linux, windows, macos
+// std.net: a concurrent server (one task per connection) on a port chosen by the system,
+// eight clients at the same time, then the errors (refused connection, bad addresses).
+import std.net
+import std.net.{TcpListener, TcpStream}
+import std.tache
+
+/// Serves one connection: each line comes back in capitals, until the client closes.
+fn i32 serve(owned TcpStream stream) {
+    var i32 lines = 0
+    loop {
+        when stream.read_line() {
+            .Ok(.Some(line)) then {
+                let _ = stream.write(line.to_uppercase() + "\n")
+                lines += 1
+            }
+            .Ok(.None) then break
+            .Err(_) then break
+        }
+    }
+    return lines
+}
+
+/// Accepts `count` connections, each served by its own task; the total of their lines.
+fn i32 accept_all(owned (TcpListener, i32) work) {
+    let (listener, count) = work
+    var Vec[tache.Tache[i32]] tasks = Vec.new()
+    for _ in 0..count {
+        when listener.accept() {
+            .Ok(stream) then tasks.push(tache.lancer_detachee(serve, stream))
+            .Err(e) then println("accept: {e}")
+        }
+    }
+    var i32 total = 0
+    loop {
+        when tasks.pop() {
+            .Some(t) then total += t.rejoindre()
+            .None then break
+        }
+    }
+    return total
+}
+
+fn String client(owned (u16, i32) work) {
+    let (port, n) = work
+    let stream = when TcpStream.connect("127.0.0.1:{port}") {
+        .Ok(s) then s
+        .Err(e) then return "connect: {e}"
+    }
+    let _ = stream.write("hello {n}\nnexul\r\n")
+    stream.shutdown()
+    return when stream.read_text() {
+        .Ok(text) then text.trim()
+        .Err(e) then "read: {e}"
+    }
+}
+
+fn main() {
+    let listener = when TcpListener.bind("127.0.0.1:0") {
+        .Ok(l) then l
+        .Err(e) then {
+            println("bind: {e}")
+            return
+        }
+    }
+    let port = listener.port()
+    println("port chosen: {port > 0}")
+    let server = tache.lancer_detachee(accept_all, (listener, 8))
+    // The clients too run at the same time, each in its own task.
+    var Vec[tache.Tache[String]] clients = Vec.new()
+    for n in 0..8 {
+        clients.push(tache.lancer_detachee(client, (port, n)))
+    }
+    clients.reverse()
+    loop {
+        when clients.pop() {
+            .Some(c) then println(c.rejoindre().replace("\n", " | "))
+            .None then break
+        }
+    }
+    println("lines served: {server.rejoindre()}")
+
+    // Nobody listens on this port any more.
+    when TcpStream.connect("127.0.0.1:{port}") {
+        .Ok(_) then println("connected?")
+        .Err(e) then println("refused: {e.to_string().starts_with("connection refused")}")
+    }
+    for text in ["localhost:80", "10.0.0.255:65535", "1.2.3:4", "1.2.3.4", "256.0.0.1:1", "1.2.3.4:70000", "a.b.c.d:1"] {
+        when net.parse_address(text) {
+            .Some(a) then println("{text} -> {a}")
+            .None then println("{text} -> none")
+        }
+    }
+}

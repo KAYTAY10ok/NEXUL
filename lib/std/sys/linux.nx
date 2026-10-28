@@ -1,3 +1,4 @@
+// edition: 1
 /// System layer for Linux (spec §5.3).
 ///
 /// NEXUL programs call the Linux kernel directly (system calls): no C library is needed,
@@ -7,74 +8,95 @@
 import std.mem
 import std.rt
 import std.heap
+import std.tzif
 
 /// A Linux system call with six arguments (unused ones are 0). Returns the result, or
 /// `-errno` (between -4095 and -1) on failure.
 @intrinsic
-unsafe fn syscall6(number: isize, a1: isize, a2: isize, a3: isize, a4: isize, a5: isize, a6: isize) -> isize
+unsafe fn isize syscall6(isize number, isize a1, isize a2, isize a3, isize a4, isize a5, isize a6)
 
 @cfg("x86_64")
-const SYS_READ: isize = 0
+const isize SYS_READ = 0
 @cfg("x86_64")
-const SYS_WRITE: isize = 1
+const isize SYS_WRITE = 1
 @cfg("x86_64")
-const SYS_CLOSE: isize = 3
+const isize SYS_CLOSE = 3
 @cfg("x86_64")
-const SYS_MMAP: isize = 9
+const isize SYS_MMAP = 9
 @cfg("x86_64")
-const SYS_MUNMAP: isize = 11
+const isize SYS_MUNMAP = 11
 @cfg("x86_64")
-const SYS_IOCTL: isize = 16
+const isize SYS_IOCTL = 16
 @cfg("x86_64")
-const SYS_NANOSLEEP: isize = 35
+const isize SYS_NANOSLEEP = 35
 @cfg("x86_64")
-const SYS_EXIT_GROUP: isize = 231
+const isize SYS_EXIT_GROUP = 231
 @cfg("x86_64")
-const SYS_CLOCK_GETTIME: isize = 228
+const isize SYS_CLOCK_GETTIME = 228
 @cfg("x86_64")
-const SYS_OPENAT: isize = 257
+const isize SYS_OPENAT = 257
 @cfg("x86_64")
-const SYS_GETRANDOM: isize = 318
+const isize SYS_GETRANDOM = 318
+@cfg("x86_64")
+const isize SYS_RT_SIGACTION = 13
+@cfg("x86_64")
+const isize SYS_SIGALTSTACK = 131
+@cfg("x86_64")
+const isize SYS_PRLIMIT64 = 302
+@cfg("x86_64")
+const isize SYS_GETPID = 39
+@cfg("x86_64")
+const isize SYS_KILL = 62
 
 @cfg("!x86_64")
-const SYS_READ: isize = 63
+const isize SYS_READ = 63
 @cfg("!x86_64")
-const SYS_WRITE: isize = 64
+const isize SYS_WRITE = 64
 @cfg("!x86_64")
-const SYS_CLOSE: isize = 57
+const isize SYS_CLOSE = 57
 @cfg("!x86_64")
-const SYS_MMAP: isize = 222
+const isize SYS_MMAP = 222
 @cfg("!x86_64")
-const SYS_MUNMAP: isize = 215
+const isize SYS_MUNMAP = 215
 @cfg("!x86_64")
-const SYS_IOCTL: isize = 29
+const isize SYS_IOCTL = 29
 @cfg("!x86_64")
-const SYS_NANOSLEEP: isize = 101
+const isize SYS_NANOSLEEP = 101
 @cfg("!x86_64")
-const SYS_EXIT_GROUP: isize = 94
+const isize SYS_EXIT_GROUP = 94
 @cfg("!x86_64")
-const SYS_CLOCK_GETTIME: isize = 113
+const isize SYS_CLOCK_GETTIME = 113
 @cfg("!x86_64")
-const SYS_OPENAT: isize = 56
+const isize SYS_OPENAT = 56
 @cfg("!x86_64")
-const SYS_GETRANDOM: isize = 278
+const isize SYS_GETRANDOM = 278
+@cfg("!x86_64")
+const isize SYS_RT_SIGACTION = 134
+@cfg("!x86_64")
+const isize SYS_SIGALTSTACK = 132
+@cfg("!x86_64")
+const isize SYS_PRLIMIT64 = 261
+@cfg("!x86_64")
+const isize SYS_GETPID = 172
+@cfg("!x86_64")
+const isize SYS_KILL = 129
 
-const EINTR: isize = -4
-const AT_FDCWD: isize = -100
+const isize EINTR = -4
+const isize AT_FDCWD = -100
 
-unsafe fn sys1(n: isize, a: isize) -> isize {
+unsafe fn isize sys1(isize n, isize a) {
     return syscall6(n, a, 0, 0, 0, 0, 0)
 }
 
-unsafe fn sys2(n: isize, a: isize, b: isize) -> isize {
+unsafe fn isize sys2(isize n, isize a, isize b) {
     return syscall6(n, a, b, 0, 0, 0, 0)
 }
 
-unsafe fn sys3(n: isize, a: isize, b: isize, c: isize) -> isize {
+unsafe fn isize sys3(isize n, isize a, isize b, isize c) {
     return syscall6(n, a, b, c, 0, 0, 0)
 }
 
-fn addr(p: Ptr[u8]) -> isize {
+fn isize addr(Ptr[u8] p) {
     return p.addr() as isize
 }
 
@@ -82,36 +104,125 @@ fn addr(p: Ptr[u8]) -> isize {
 // Process
 
 /// The initial stack of the process: argc, argv[], NULL, envp[], NULL.
-static var ARGC: usize = 0
-static var ARGV: Ptr[Ptr[u8]] = Ptr.null()
-static var ENVP: Ptr[Ptr[u8]] = Ptr.null()
-static var STDOUT_TERMINAL: bool = false
+static var usize ARGC = 0
+static var Ptr[Ptr[u8]] ARGV = Ptr.null()
+static var Ptr[Ptr[u8]] ENVP = Ptr.null()
+static var bool STDOUT_TERMINAL = false
 
 /// Called by the program entry point with the initial stack pointer.
 @lang("sys_set_stack")
-fn set_stack(sp: Ptr[usize]) {
+fn set_stack(Ptr[usize] sp) {
     unsafe {
+        STACK_TOP = sp.addr()
         ARGC = sp.read()
         ARGV = sp.offset(1).cast[Ptr[u8]]()
         ENVP = ARGV.offset(ARGC + 1)
     }
 }
 
-pub fn init() {
+// ---------------------------------------------------------------------------
+// Stack overflow (ADR 0011, task T2)
+//
+// The main stack grows down to `STACK_TOP - RLIMIT_STACK`; below lies the guard gap of
+// the kernel, which faults. A handler for SIGSEGV and SIGBUS, run on an alternate stack,
+// tells a stack overflow (fault address just below the stack) from any other fault: the
+// first ends like a panic (`panic: stack overflow`, code 101, standard output flushed),
+// the second is raised again with the default action of the system.
+
+/// The highest address of the stack (the initial stack pointer) and its lowest allowed
+/// address (from `RLIMIT_STACK`); 0 when unknown.
+static var usize STACK_TOP = 0
+static var usize STACK_LOW = 0
+/// The stack of the signal handler.
+static var [u8; 65536] ALT_STACK = [0; 65536]
+
+const isize SIGBUS = 7
+const isize SIGSEGV = 11
+const usize SA_SIGINFO = 0x4
+const usize SA_RESTORER = 0x0400_0000
+const usize SA_ONSTACK = 0x0800_0000
+const usize SA_NODEFER = 0x4000_0000
+const usize SA_RESETHAND = 0x8000_0000
+/// Faults this far below the lowest address of the stack still count as an overflow: the
+/// guard gap of the kernel (1 MiB by default) and a large frame.
+const usize GUARD_SPAN = 4_194_304
+
+/// Installs the handler of memory faults. `handler` is the C entry generated by the
+/// compiler (`nx_linux_fault`), which calls `fault`.
+@lang("sys_set_fault_handler")
+fn set_fault_handler(Ptr[u8] handler) {
+    install_fault_handler(handler)
+}
+
+fn install_fault_handler(Ptr[u8] handler) {
     unsafe {
-        // TCGETS succeeds on a terminal only.
-        var termios: [u8; 64] = [0; 64]
-        STDOUT_TERMINAL = sys3(SYS_IOCTL, 1, 0x5401, addr(mem.addr_of(&termios).cast[u8]())) == 0
+        // RLIMIT_STACK (3): the size of the main stack.
+        var [u64; 2] limit = [0, 0]
+        let r = syscall6(SYS_PRLIMIT64, 0, 3, 0, addr(mem.addr_of(limit!).cast[u8]()), 0, 0)
+        if r == 0 and limit[0] < 0x0000_1000_0000_0000 and (limit[0] as usize) < STACK_TOP {
+            STACK_LOW = STACK_TOP - (limit[0] as usize)
+        }
+        // stack_t: ss_sp, ss_flags (int, padded), ss_size.
+        var [usize; 3] alt = [mem.addr_of(ALT_STACK!).cast[u8]().addr(), 0, 65536]
+        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(alt!).cast[u8]()), 0)
+        // struct sigaction of the kernel (x86-64, AArch64): handler, flags, restorer,
+        // mask. The handler never returns, so the restorer is never used; x86-64 still
+        // requires one.
+        let flags = SA_SIGINFO | SA_ONSTACK | SA_NODEFER | SA_RESETHAND
+        var action = fault_action(handler, flags)
+        let a = addr(mem.addr_of(action!).cast[u8]())
+        let _ = syscall6(SYS_RT_SIGACTION, SIGSEGV, a, 0, 8, 0, 0)
+        let _ = syscall6(SYS_RT_SIGACTION, SIGBUS, a, 0, 8, 0, 0)
     }
 }
 
-pub fn stdout_is_terminal() -> bool {
+// RISC-V uses asm-generic/signal.h without SA_RESTORER: the mask is the
+// third word, not the fourth. Keep an unused trailing word for a common size.
+@cfg("riscv64")
+fn [usize; 4] fault_action(Ptr[u8] handler, usize flags) {
+    return [handler.addr(), flags, 0, 0]
+}
+
+@cfg("!riscv64")
+fn [usize; 4] fault_action(Ptr[u8] handler, usize flags) {
+    return [handler.addr(), flags | SA_RESTORER, handler.addr(), 0]
+}
+
+/// Called by `nx_linux_fault` on the alternate stack, with the signal and its `siginfo_t`.
+@lang("sys_fault")
+fn Never fault(i32 signal, Ptr[u8] info) {
+    unsafe {
+        // si_addr is at offset 16 of siginfo_t on 64-bit Linux.
+        let at = info.offset(16).cast[usize]().read()
+        let low = if STACK_LOW > GUARD_SPAN { STACK_LOW - GUARD_SPAN } else { 0 }
+        if STACK_LOW != 0 and at >= low and at < STACK_TOP or in_thread_guard(at) {
+            rt.flush()
+            let msg = "panic: stack overflow (the recursion is probably too deep)\n"
+            let _ = write_fd(2, msg.as_ptr(), msg.len())
+            exit(101)
+        }
+        // Any other fault (only possible through `unsafe` code or a foreign function):
+        // the handler was reset by SA_RESETHAND, so the signal ends the process as usual.
+        let _ = sys2(SYS_KILL, sys1(SYS_GETPID, 0), signal as isize)
+        exit(128 + signal)
+    }
+}
+
+pub fn init() {
+    unsafe {
+        // TCGETS succeeds on a terminal only.
+        var [u8; 64] termios = [0; 64]
+        STDOUT_TERMINAL = sys3(SYS_IOCTL, 1, 0x5401, addr(mem.addr_of(termios!).cast[u8]())) == 0
+    }
+}
+
+pub fn bool stdout_is_terminal() {
     return unsafe { STDOUT_TERMINAL }
 }
 
-pub fn exit(code: i32) -> Never {
+pub fn Never exit(i32 code) {
     unsafe {
-        while true {
+        loop {
             let _ = sys1(SYS_EXIT_GROUP, code as isize)
         }
     }
@@ -120,11 +231,11 @@ pub fn exit(code: i32) -> Never {
 // ---------------------------------------------------------------------------
 // Memory
 
-const PROT_READ_WRITE: isize = 3
-const MAP_PRIVATE_ANONYMOUS: isize = 0x22
+const isize PROT_READ_WRITE = 3
+const isize MAP_PRIVATE_ANONYMOUS = 0x22
 
 /// Pages of zeroed memory from the kernel; null on failure.
-pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] page_alloc(usize size) {
     let r = syscall6(SYS_MMAP, 0, size as isize, PROT_READ_WRITE, MAP_PRIVATE_ANONYMOUS, -1, 0)
     if r < 0 and r > -4096 {
         return Ptr.null()
@@ -132,27 +243,27 @@ pub unsafe fn page_alloc(size: usize) -> Ptr[u8] {
     return Ptr[u8].from_addr(r as usize)
 }
 
-pub unsafe fn page_free(p: Ptr[u8], size: usize) {
+pub unsafe fn page_free(Ptr[u8] p, usize size) {
     let _ = sys2(SYS_MUNMAP, addr(p), size as isize)
 }
 
-pub unsafe fn heap_alloc(size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_alloc(usize size) {
     return heap.alloc(size)
 }
 
-pub unsafe fn heap_realloc(p: Ptr[u8], size: usize) -> Ptr[u8] {
+pub unsafe fn Ptr[u8] heap_realloc(Ptr[u8] p, usize size) {
     return heap.realloc(p, size)
 }
 
-pub unsafe fn heap_free(p: Ptr[u8]) {
+pub unsafe fn heap_free(Ptr[u8] p) {
     heap.free(p)
 }
 
 // ---------------------------------------------------------------------------
 // Input and output
 
-unsafe fn write_fd(fd: isize, data: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+unsafe fn bool write_fd(isize fd, Ptr[u8] data, usize len) {
+    var usize done = 0
     while done < len {
         let r = sys3(SYS_WRITE, fd, addr(data.offset(done)), (len - done) as isize)
         if r == EINTR {
@@ -167,18 +278,18 @@ unsafe fn write_fd(fd: isize, data: Ptr[u8], len: usize) -> bool {
 }
 
 /// Writes bytes to standard output (`fd` 1) or standard error (`fd` 2).
-pub unsafe fn write(fd: i32, data: Ptr[u8], len: usize) -> bool {
+pub unsafe fn bool write(i32 fd, Ptr[u8] data, usize len) {
     return write_fd(fd as isize, data, len)
 }
 
-static var IN_BUF: [u8; 4096] = [0; 4096]
-static var IN_POS: usize = 0
-static var IN_LEN: usize = 0
+static var [u8; 4096] IN_BUF = [0; 4096]
+static var usize IN_POS = 0
+static var usize IN_LEN = 0
 
-unsafe fn read_byte() -> i32 {
+unsafe fn i32 read_byte() {
     if IN_POS == IN_LEN {
-        while true {
-            let r = sys3(SYS_READ, 0, addr(mem.addr_of(&IN_BUF).cast[u8]()), 4096)
+        loop {
+            let r = sys3(SYS_READ, 0, addr(mem.addr_of(IN_BUF!).cast[u8]()), 4096)
             if r == EINTR {
                 continue
             }
@@ -196,24 +307,25 @@ unsafe fn read_byte() -> i32 {
 }
 
 /// Reads one line of standard input without its terminator; `false` at the end.
-pub fn read_line(inout out: String) -> bool {
+pub fn bool read_line(String out!) {
+    let _input = unsafe { input_lock() }
     rt.flush()
-    var bytes: Vec[u8] = Vec.new()
-    var any = false
+    var Vec[u8] bytes = Vec.new()
+    var any_ = false
     unsafe {
-        while true {
+        loop {
             let b = read_byte()
             if b < 0 {
                 break
             }
-            any = true
+            any_ = true
             if b == 10 {
                 break
             }
             bytes.push(b as u8)
         }
     }
-    if not any {
+    if not any_ {
         return false
     }
     if bytes.len() > 0 and bytes[bytes.len() - 1] == 13 {
@@ -226,19 +338,19 @@ pub fn read_line(inout out: String) -> bool {
 // ---------------------------------------------------------------------------
 // Command line and environment
 
-unsafe fn c_len(p: Ptr[u8]) -> usize {
-    var n: usize = 0
+unsafe fn usize c_len(Ptr[u8] p) {
+    var usize n = 0
     while p.offset(n).read() != 0 {
         n += 1
     }
     return n
 }
 
-pub fn arg_count() -> i32 {
+pub fn i32 arg_count() {
     return unsafe { ARGC } as i32
 }
 
-pub fn arg(index: i32) -> String {
+pub fn String arg(i32 index) {
     unsafe {
         if index < 0 or index as usize >= ARGC {
             panic("argument index {index} out of range")
@@ -248,13 +360,13 @@ pub fn arg(index: i32) -> String {
     }
 }
 
-pub fn env(name: String) -> Option[String] {
+pub fn Option[String] env(String name) {
     unsafe {
         if ENVP.is_null() {
             return None
         }
-        var i: usize = 0
-        while true {
+        var usize i = 0
+        loop {
             let e = ENVP.offset(i).read()
             if e.is_null() {
                 break
@@ -279,7 +391,7 @@ pub fn env(name: String) -> Option[String] {
     }
 }
 
-pub fn env_is_set(name: String) -> bool {
+pub fn bool env_is_set(String name) {
     return env(name).is_some()
 }
 
@@ -287,15 +399,15 @@ pub fn env_is_set(name: String) -> bool {
 // Files
 
 /// `path` followed by a zero byte, for the kernel.
-fn c_path(path: String) -> Vec[u8] {
+fn Vec[u8] c_path(String path) {
     var v = path.clone().into_bytes()
     v.push(0)
     return v
 }
 
-unsafe fn open(path: String, flags: isize) -> isize {
+unsafe fn isize open(String path, isize flags) {
     let p = c_path(path)
-    while true {
+    loop {
         let fd = syscall6(SYS_OPENAT, AT_FDCWD, addr(p.as_ptr()), flags, 420, 0, 0)
         if fd != EINTR {
             return fd
@@ -303,22 +415,22 @@ unsafe fn open(path: String, flags: isize) -> isize {
     }
 }
 
-/// Reads a whole file into `out` (bytes).
-pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
+/// Reads a whole file into `out` (bytes). Returns 0, or the error code (`errno`).
+pub fn i32 read_file(String path, Vec[u8] out!) {
     unsafe {
         let fd = open(path, 0x80000)
         if fd < 0 {
-            return false
+            return (-fd) as i32
         }
-        var ok = true
-        while true {
+        var i32 code = 0
+        loop {
             out.reserve(65536)
             let r = sys3(SYS_READ, fd, addr(out.as_ptr().offset(out.len())), 65536)
             if r == EINTR {
                 continue
             }
             if r < 0 {
-                ok = false
+                code = (-r) as i32
                 break
             }
             if r == 0 {
@@ -327,50 +439,69 @@ pub fn read_file(path: String, inout out: Vec[u8]) -> bool {
             out.set_len(out.len() + r as usize)
         }
         let _ = sys1(SYS_CLOSE, fd)
-        return ok
+        return code
     }
 }
 
-/// Creates (or replaces, or appends to) a file.
-pub fn write_file(path: String, data: Ptr[u8], len: usize, append: bool) -> bool {
+/// Creates (or replaces, or appends to) a file. Returns 0, or the error code (`errno`).
+pub fn i32 write_file(String path, Ptr[u8] data, usize len, bool append) {
     unsafe {
         // O_WRONLY | O_CREAT | O_CLOEXEC, then O_APPEND or O_TRUNC.
-        let flags: isize = if append { 0x80441 } else { 0x80241 }
+        let isize flags = if append { 0x80441 } else { 0x80241 }
         let fd = open(path, flags)
         if fd < 0 {
-            return false
+            return (-fd) as i32
         }
         let ok = write_fd(fd, data, len)
-        let closed = sys1(SYS_CLOSE, fd) == 0
-        return ok and closed
+        let closed = sys1(SYS_CLOSE, fd)
+        if not ok {
+            return 5 // EIO: `write_fd` does not keep the code
+        }
+        if closed < 0 {
+            return (-closed) as i32
+        }
+        return 0
+    }
+}
+
+/// The `std.io` category of an error code returned by `read_file` or `write_file`
+/// (ADR 0015): 1 not found, 2 permission denied, 3 already exists, 4 interrupted,
+/// 0 another error.
+pub fn u8 io_error_kind(i32 code) {
+    return when code {
+        2 then 1 // ENOENT
+        1 | 13 then 2 // EPERM, EACCES
+        17 then 3 // EEXIST
+        4 then 4 // EINTR
+        _ then 0
     }
 }
 
 // ---------------------------------------------------------------------------
 // Time
 
-unsafe fn clock(id: isize) -> (i64, i64) {
-    var ts: [i64; 2] = [0; 2]
-    let _ = sys2(SYS_CLOCK_GETTIME, id, addr(mem.addr_of(&ts).cast[u8]()))
+unsafe fn (i64, i64) clock(isize id) {
+    var [i64; 2] ts = [0; 2]
+    let _ = sys2(SYS_CLOCK_GETTIME, id, addr(mem.addr_of(ts!).cast[u8]()))
     return (ts[0], ts[1])
 }
 
-pub fn monotonic_ns() -> u64 {
+pub fn u64 monotonic_ns() {
     let (s, ns) = unsafe { clock(1) }
     return (s as u64) * 1_000_000_000 + (ns as u64)
 }
 
-pub fn unix_time_ns() -> i64 {
+pub fn i64 unix_time_ns() {
     let (s, ns) = unsafe { clock(0) }
     return s * 1_000_000_000 + ns
 }
 
-pub fn sleep_ns(ns: u64) {
-    var req: [i64; 2] = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
-    var rem: [i64; 2] = [0; 2]
+pub fn sleep_ns(u64 ns) {
+    var [i64; 2] req = [(ns / 1_000_000_000) as i64, (ns % 1_000_000_000) as i64]
+    var [i64; 2] rem = [0; 2]
     unsafe {
-        while true {
-            let r = sys2(SYS_NANOSLEEP, addr(mem.addr_of(&req).cast[u8]()), addr(mem.addr_of(&rem).cast[u8]()))
+        loop {
+            let r = sys2(SYS_NANOSLEEP, addr(mem.addr_of(req!).cast[u8]()), addr(mem.addr_of(rem!).cast[u8]()))
             if r != EINTR {
                 break
             }
@@ -379,30 +510,12 @@ pub fn sleep_ns(ns: u64) {
     }
 }
 
-/// Reads a big-endian signed 32 or 64-bit number.
-fn be(data: Vec[u8], at: usize, size: usize) -> i64 {
-    var v: u64 = 0
-    for i in 0..size {
-        v = (v << 8) | (data[at + i] as u64)
-    }
-    if size == 4 {
-        if v >= 0x8000_0000 {
-            return (v as i64) - 0x1_0000_0000
-        }
-        return v as i64
-    }
-    if v >= 0x8000_0000_0000_0000 {
-        return 0 - ((0xFFFF_FFFF_FFFF_FFFF - v) as i64) - 1
-    }
-    return v as i64
-}
-
 /// Offset of local time from UTC at `unix_seconds`, from the time zone database
 /// (`TZ`, else `/etc/localtime`, in TZif format); 0 without time zone information.
-pub fn utc_offset(unix_seconds: i64) -> i32 {
+pub fn i32 utc_offset(i64 unix_seconds) {
     var path = "/etc/localtime"
-    match env("TZ") {
-        Some(tz) => {
+    when env("TZ") {
+        .Some(tz) then {
             if tz.len() == 0 or tz == "UTC" or tz == "UTC0" or tz == ":UTC" {
                 return 0
             }
@@ -412,236 +525,24 @@ pub fn utc_offset(unix_seconds: i64) -> i32 {
             } else if not name.contains(",") {
                 path = "/usr/share/zoneinfo/" + name
             } else {
-                return posix_offset(name, unix_seconds)
+                return tzif.posix_offset(name, unix_seconds)
             }
         }
-        None => {}
+        .None then {}
     }
-    var data: Vec[u8] = Vec.new()
-    if not read_file(path, &data) or data.len() < 44 or data[0] != 'T' as u8 or data[1] != 'Z' as u8 {
+    var Vec[u8] data = Vec.new()
+    if read_file(path, data!) != 0 {
         return 0
     }
-    // Version 2+ files repeat the data with 64-bit times after the first block.
-    var base: usize = 0
-    var time_size: usize = 4
-    let version = data[4]
-    if version >= '2' as u8 {
-        let block = tzif_block_len(data, 0, 4)
-        if 44 + block + 44 <= data.len() {
-            base = 44 + block
-            time_size = 8
-        }
-    }
-    let isutcnt = be(data, base + 20, 4) as usize
-    let isstdcnt = be(data, base + 24, 4) as usize
-    let leapcnt = be(data, base + 28, 4) as usize
-    let timecnt = be(data, base + 32, 4) as usize
-    let typecnt = be(data, base + 36, 4) as usize
-    let charcnt = be(data, base + 40, 4) as usize
-    let times = base + 44
-    let idx = times + timecnt * time_size
-    let types = idx + timecnt
-    if types + typecnt * 6 > data.len() or typecnt == 0 {
-        return 0
-    }
-    // The last transition at or before the instant.
-    var current: i64 = -1
-    for i in 0..timecnt {
-        if be(data, times + i * time_size, time_size) <= unix_seconds {
-            current = i as i64
-        } else {
-            break
-        }
-    }
-    if current < 0 {
-        // Before the first transition: the first standard-time type.
-        return be(data, types, 4) as i32
-    }
-    if current as usize == timecnt - 1 and time_size == 8 {
-        // After the last transition: the POSIX rule of the footer, when there is one.
-        let footer = types + typecnt * 6 + charcnt + leapcnt * (time_size + 4) + isstdcnt + isutcnt
-        if footer + 1 < data.len() and data[footer] == 10 {
-            var rule = String.new()
-            var k = footer + 1
-            while k < data.len() and data[k] != 10 {
-                rule.push(data[k] as char)
-                k += 1
-            }
-            if rule.len() > 0 {
-                return posix_offset(rule, unix_seconds)
-            }
-        }
-    }
-    let t = data[idx + current as usize] as usize
-    return be(data, types + t * 6, 4) as i32
-}
-
-fn tzif_block_len(data: Vec[u8], base: usize, time_size: usize) -> usize {
-    let isutcnt = be(data, base + 20, 4) as usize
-    let isstdcnt = be(data, base + 24, 4) as usize
-    let leapcnt = be(data, base + 28, 4) as usize
-    let timecnt = be(data, base + 32, 4) as usize
-    let typecnt = be(data, base + 36, 4) as usize
-    let charcnt = be(data, base + 40, 4) as usize
-    return timecnt * time_size + timecnt + typecnt * 6 + charcnt + leapcnt * (time_size + 4) + isstdcnt + isutcnt
-}
-
-/// Days from 1970-01-01 to a civil date (proleptic Gregorian calendar).
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
-    let y = if month <= 2 { year - 1 } else { year }
-    let era = (if y >= 0 { y } else { y - 399 }) / 400
-    let yoe = y - era * 400
-    let doy = (153 * (if month > 2 { month - 3 } else { month + 9 }) + 2) / 5 + day - 1
-    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
-    return era * 146_097 + doe - 719_468
-}
-
-fn year_of(days: i64) -> i64 {
-    let z = days + 719_468
-    let era = (if z >= 0 { z } else { z - 146_096 }) / 146_097
-    let doe = z - era * 146_097
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
-    let mp = (5 * doy + 2) / 153
-    let month = if mp < 10 { mp + 3 } else { mp - 9 }
-    return yoe + era * 400 + (if month <= 2 { 1 } else { 0 })
-}
-
-/// A small cursor over a POSIX TZ rule such as `CET-1CEST,M3.5.0,M10.5.0/3`.
-struct Cursor {
-    text: Vec[u8]
-    pos: usize
-}
-
-impl Cursor {
-    fn peek(self) -> u8 {
-        if self.pos < self.text.len() {
-            return self.text[self.pos]
-        }
-        return 0
-    }
-
-    fn skip_name(inout self) {
-        if self.peek() == '<' as u8 {
-            while self.pos < self.text.len() and self.text[self.pos] != '>' as u8 {
-                self.pos += 1
-            }
-            self.pos += 1
-            return
-        }
-        while self.pos < self.text.len() {
-            let c = self.text[self.pos]
-            if (c >= 'A' as u8 and c <= 'Z' as u8) or (c >= 'a' as u8 and c <= 'z' as u8) {
-                self.pos += 1
-            } else {
-                break
-            }
-        }
-    }
-
-    fn number(inout self) -> i64 {
-        var v: i64 = 0
-        while self.pos < self.text.len() and self.text[self.pos] >= '0' as u8 and self.text[self.pos] <= '9' as u8 {
-            v = v * 10 + (self.text[self.pos] - '0' as u8) as i64
-            self.pos += 1
-        }
-        return v
-    }
-
-    /// `[+-]hh[:mm[:ss]]` in seconds.
-    fn time(inout self) -> i64 {
-        var sign: i64 = 1
-        if self.peek() == '-' as u8 {
-            sign = -1
-            self.pos += 1
-        } else if self.peek() == '+' as u8 {
-            self.pos += 1
-        }
-        var t = self.number() * 3600
-        if self.peek() == ':' as u8 {
-            self.pos += 1
-            t += self.number() * 60
-            if self.peek() == ':' as u8 {
-                self.pos += 1
-                t += self.number()
-            }
-        }
-        return sign * t
-    }
-}
-
-/// The instant (seconds since 1970, local wall clock) a rule `Mm.w.d[/time]`, `Jn` or `n`
-/// designates in `year`.
-fn rule_time(inout c: Cursor, year: i64) -> i64 {
-    var day: i64 = 0
-    if c.peek() == 'M' as u8 {
-        c.pos += 1
-        let month = c.number()
-        c.pos += 1
-        let week = c.number()
-        c.pos += 1
-        let weekday = c.number()
-        let first = days_from_civil(year, month, 1)
-        // 1970-01-01 was a Thursday (4).
-        let first_wd = ((first % 7) + 7 + 4) % 7
-        day = first + ((weekday - first_wd) % 7 + 7) % 7 + (week - 1) * 7
-        let next_month = if month == 12 { days_from_civil(year + 1, 1, 1) } else { days_from_civil(year, month + 1, 1) }
-        while day >= next_month {
-            day -= 7
-        }
-    } else if c.peek() == 'J' as u8 {
-        c.pos += 1
-        let n = c.number()
-        let leap = (year % 4 == 0 and year % 100 != 0) or year % 400 == 0
-        day = days_from_civil(year, 1, 1) + n - 1 + (if leap and n >= 60 { 1 } else { 0 })
-    } else {
-        day = days_from_civil(year, 1, 1) + c.number()
-    }
-    var at: i64 = 7200
-    if c.peek() == '/' as u8 {
-        c.pos += 1
-        at = c.time()
-    }
-    return day * 86_400 + at
-}
-
-/// Offset given by a POSIX TZ rule (the footer of TZif files, or `TZ`).
-fn posix_offset(rule: String, unix_seconds: i64) -> i32 {
-    var c = Cursor(text: rule.clone().into_bytes(), pos: 0)
-    c.skip_name()
-    // POSIX offsets are positive west of Greenwich.
-    let std_offset = 0 - c.time()
-    if c.pos >= c.text.len() {
-        return std_offset as i32
-    }
-    c.skip_name()
-    var dst_offset = std_offset + 3600
-    if c.peek() != ',' as u8 and c.pos < c.text.len() {
-        dst_offset = 0 - c.time()
-    }
-    if c.peek() != ',' as u8 {
-        return std_offset as i32
-    }
-    c.pos += 1
-    let year = year_of((unix_seconds + std_offset) / 86_400)
-    let start_cursor_pos = c.pos
-    let start_local = rule_time(&c, year)
-    c.pos += 1
-    let end_local = rule_time(&c, year)
-    let _ = start_cursor_pos
-    // Transitions in UTC: the start is given in standard time, the end in daylight time.
-    let start = start_local - std_offset
-    let end = end_local - dst_offset
-    let in_dst = if start < end { unix_seconds >= start and unix_seconds < end } else { unix_seconds >= start or unix_seconds < end }
-    return (if in_dst { dst_offset } else { std_offset }) as i32
+    return tzif.offset_at(data, unix_seconds)
 }
 
 // ---------------------------------------------------------------------------
 // Random numbers
 
 /// Fills `buffer` with cryptographically secure random bytes (`getrandom`).
-pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
-    var done: usize = 0
+pub unsafe fn bool random_bytes(Ptr[u8] buffer, usize len) {
+    var usize done = 0
     while done < len {
         let r = sys3(SYS_GETRANDOM, addr(buffer.offset(done)), (len - done) as isize, 0)
         if r == EINTR {
@@ -653,4 +554,706 @@ pub unsafe fn random_bytes(buffer: Ptr[u8], len: usize) -> bool {
         done += r as usize
     }
     return true
+}
+
+// ---------------------------------------------------------------------------
+// Threads (ADR 0013)
+//
+// A thread owns a region of memory: a guard without access (a stack overflow faults
+// there), the stack of its signal handler, then its stack. `clone` starts it on that
+// stack; the kernel writes its id to `tid`, then clears it and wakes the futex on it when
+// the thread ends: that is how `thread_join` waits.
+
+@cfg("x86_64")
+const isize SYS_MPROTECT = 10
+@cfg("x86_64")
+const isize SYS_FUTEX = 202
+@cfg("x86_64")
+const isize SYS_GETTID = 186
+@cfg("x86_64")
+const isize SYS_SCHED_YIELD = 24
+@cfg("!x86_64")
+const isize SYS_MPROTECT = 226
+@cfg("!x86_64")
+const isize SYS_FUTEX = 98
+@cfg("!x86_64")
+const isize SYS_GETTID = 178
+@cfg("!x86_64")
+const isize SYS_SCHED_YIELD = 124
+
+/// CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD | CLONE_SYSVSEM |
+/// CLONE_PARENT_SETTID | CLONE_CHILD_CLEARTID.
+const isize CLONE_THREAD_FLAGS = 0x350F00
+const usize THREAD_GUARD = 65536
+const usize THREAD_ALT_STACK = 65536
+const usize THREAD_STACK = 8_388_608
+const usize THREAD_REGION = 8_519_680
+const usize MAX_THREADS = 256
+
+/// `clone` for a thread: on the new stack, the child calls `entry(arg)` then ends the
+/// thread; the parent receives the id of the child, or minus an error code.
+@intrinsic
+unsafe fn isize linux_clone(isize flags, Ptr[u8] stack, Ptr[u32] tid, owned fn(Ptr[u8]) entry, Ptr[u8] arg)
+
+/// A started thread: the word that holds its id, its region, what it runs.
+type Thread {
+    Ptr[u32] tid
+    Ptr[u8] region
+    fn(Ptr[u8]) entry
+    Ptr[u8] arg
+}
+
+/// Set (to 1) before the first thread starts: from then on the runtime locks.
+static var u32 THREADED = 0
+/// The guard regions of the running threads, for the fault handler (0: free slot).
+static var [usize; 256] GUARDS = [0; 256]
+
+/// Starts a thread that runs `entry(arg)`; returns its handle, or 0 if it cannot (the
+/// caller then runs `entry(arg)` itself).
+@cfg("linux")
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    let region = page_alloc(THREAD_REGION)
+    if region.is_null() {
+        return 0
+    }
+    // PROT_NONE on the lowest pages.
+    let _ = sys3(SYS_MPROTECT, addr(region), THREAD_GUARD as isize, 0)
+    mem.atomic_store(mem.addr_of(THREADED!), 1)
+    let tid = rt.alloc(8).cast[u32]()
+    tid.write(0)
+    let t = rt.alloc(mem.size_of[Thread]()).cast[Thread]()
+    t.write(Thread(tid: tid, region: region, entry: entry, arg: arg))
+    if not register_guard(region.addr()) {
+        page_free(region, THREAD_REGION)
+        rt.free(tid.cast[u8]())
+        rt.free(t.cast[u8]())
+        return 0
+    }
+    // The region is page-aligned and its size a multiple of 16: the top is 16-aligned.
+    let r = linux_clone(CLONE_THREAD_FLAGS, region.offset(THREAD_REGION), tid, thread_main, t.cast[u8]())
+    if r < 0 {
+        unregister_guard(region.addr())
+        page_free(region, THREAD_REGION)
+        rt.free(tid.cast[u8]())
+        rt.free(t.cast[u8]())
+        return 0
+    }
+    return t.addr()
+}
+
+@cfg("!linux")
+pub unsafe fn usize thread_start(owned fn(Ptr[u8]) entry, Ptr[u8] arg) {
+    let _ = entry
+    let _ = arg
+    return 0
+}
+
+/// The first function of a thread: the stack of its signal handler, then its work.
+fn thread_main(Ptr[u8] arg) {
+    unsafe {
+        let t = arg.cast[Thread]().read()
+        // stack_t: ss_sp, ss_flags, ss_size (the alternate stack is per thread).
+        var [usize; 3] alt = [t.region.offset(THREAD_GUARD).addr(), 0, THREAD_ALT_STACK]
+        let _ = sys2(SYS_SIGALTSTACK, addr(mem.addr_of(alt!).cast[u8]()), 0)
+        let entry = t.entry
+        entry(t.arg)
+    }
+}
+
+/// Waits for the end of a thread started by `thread_start`, then frees its memory.
+pub unsafe fn thread_join(usize handle) {
+    let p = Ptr[Thread].from_addr(handle)
+    let t = p.read()
+    loop {
+        let v = mem.atomic_load(t.tid)
+        if v == 0 {
+            break
+        }
+        // FUTEX_WAIT (0): sleeps while the word still holds `v`.
+        let _ = syscall6(SYS_FUTEX, addr(t.tid.cast[u8]()), 0, v as isize, 0, 0, 0)
+    }
+    unregister_guard(t.region.addr())
+    page_free(t.region, THREAD_REGION)
+    rt.free(t.tid.cast[u8]())
+    rt.free(p.cast[u8]())
+}
+
+/// The id of the calling thread.
+pub fn u64 thread_id() {
+    return unsafe { sys1(SYS_GETTID, 0) } as u64
+}
+
+/// Lets another thread run.
+pub fn thread_yield() {
+    let _ = unsafe { sys1(SYS_SCHED_YIELD, 0) }
+}
+
+unsafe fn bool register_guard(usize base) {
+    let _critical = rt.critical_section()
+    for i in 0..MAX_THREADS {
+        if GUARDS[i] == 0 {
+            GUARDS[i] = base
+            return true
+        }
+    }
+    return false
+}
+
+unsafe fn unregister_guard(usize base) {
+    let _critical = rt.critical_section()
+    for i in 0..MAX_THREADS {
+        if GUARDS[i] == base {
+            GUARDS[i] = 0
+        }
+    }
+}
+
+/// Is `at` in the guard of a thread (its stack overflowed)?
+unsafe fn bool in_thread_guard(usize at) {
+    for i in 0..MAX_THREADS {
+        let b = GUARDS[i]
+        if b != 0 and at >= b and at < b + THREAD_GUARD {
+            return true
+        }
+    }
+    return false
+}
+
+// ---------------------------------------------------------------------------
+// Lock of the runtime (ADR 0013, task C5)
+//
+// The allocator and the outputs are shared by the threads: `rt.critical_section()` takes
+// this lock. The runtime calls itself (`print` allocates), so the thread that holds the
+// lock may take it again. Until the first thread starts, nothing is locked.
+
+static var u64 RT_OWNER = 0
+static var u32 RT_DEPTH = 0
+
+pub type CriticalSection {
+    bool locked
+}
+
+extend CriticalSection {
+    fn drop(self!) {
+        if self.locked {
+            unsafe {
+                RT_DEPTH -= 1
+                if RT_DEPTH == 0 {
+                    mem.atomic_store(mem.addr_of(RT_OWNER!), 0)
+                }
+            }
+        }
+    }
+}
+
+pub unsafe fn CriticalSection critical_section() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
+        return CriticalSection(locked: false)
+    }
+    let me = thread_id() + 1
+    if mem.atomic_load(mem.addr_of(RT_OWNER!)) != me {
+        while mem.atomic_cas(mem.addr_of(RT_OWNER!), 0, me) != 0 {
+            thread_yield()
+        }
+    }
+    RT_DEPTH += 1
+    return CriticalSection(locked: true)
+}
+
+/// The standard input is read by one thread at a time, with its own lock: a thread that
+/// waits for a line does not hold the lock of the runtime.
+static var u32 IN_LOCK = 0
+
+type InputLock {
+    bool locked
+}
+
+extend InputLock {
+    fn drop(self!) {
+        if self.locked {
+            unsafe {
+                mem.atomic_store(mem.addr_of(IN_LOCK!), 0)
+            }
+        }
+    }
+}
+
+unsafe fn InputLock input_lock() {
+    if mem.atomic_load(mem.addr_of(THREADED!)) == 0 {
+        return InputLock(locked: false)
+    }
+    while mem.atomic_cas(mem.addr_of(IN_LOCK!), 0, 1) != 0 {
+        thread_yield()
+    }
+    return InputLock(locked: true)
+}
+
+/// Sleeps while the word at `p` holds `expected` (a wake or a change of the word ends the
+/// sleep; it may also end without reason: the caller checks again). Used by the channels
+/// and the locks of `std.tache`.
+@cfg("linux")
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
+    // FUTEX_WAIT_PRIVATE (128)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 128, expected as isize, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
+    let _ = p
+    let _ = expected
+    panic("a task waits for a value that no other task can give: this target runs the tasks one after the other")
+}
+
+/// Wakes every thread sleeping in `wait_on` on the word at `p`.
+@cfg("linux")
+pub unsafe fn wake_all(Ptr[u32] p) {
+    // FUTEX_WAKE_PRIVATE (129)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 0x7FFF_FFFF, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wake_all(Ptr[u32] p) {
+    let _ = p
+}
+
+/// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
+@cfg("linux")
+pub unsafe fn wake_one(Ptr[u32] p) {
+    // FUTEX_WAKE_PRIVATE (129)
+    let _ = syscall6(SYS_FUTEX, addr(p.cast[u8]()), 129, 1, 0, 0, 0)
+}
+
+@cfg("!linux")
+pub unsafe fn wake_one(Ptr[u32] p) {
+    let _ = p
+}
+
+// ---------------------------------------------------------------------------
+// File system and processes (std.fs, std.process)
+
+@cfg("x86_64")
+const isize SYS_STATX = 332
+@cfg("x86_64")
+const isize SYS_GETDENTS64 = 217
+@cfg("x86_64")
+const isize SYS_MKDIRAT = 258
+@cfg("x86_64")
+const isize SYS_UNLINKAT = 263
+@cfg("x86_64")
+const isize SYS_RENAMEAT2 = 316
+@cfg("x86_64")
+const isize SYS_FACCESSAT = 269
+@cfg("x86_64")
+const isize SYS_CLONE = 56
+@cfg("x86_64")
+const isize SYS_PIPE2 = 293
+@cfg("x86_64")
+const isize SYS_DUP3 = 292
+@cfg("x86_64")
+const isize SYS_EXECVE = 59
+@cfg("x86_64")
+const isize SYS_WAIT4 = 61
+
+@cfg("!x86_64")
+const isize SYS_STATX = 291
+@cfg("!x86_64")
+const isize SYS_GETDENTS64 = 61
+@cfg("!x86_64")
+const isize SYS_MKDIRAT = 34
+@cfg("!x86_64")
+const isize SYS_UNLINKAT = 35
+@cfg("!x86_64")
+const isize SYS_RENAMEAT2 = 276
+@cfg("!x86_64")
+const isize SYS_FACCESSAT = 48
+@cfg("!x86_64")
+const isize SYS_CLONE = 220
+@cfg("!x86_64")
+const isize SYS_PIPE2 = 59
+@cfg("!x86_64")
+const isize SYS_DUP3 = 24
+@cfg("!x86_64")
+const isize SYS_EXECVE = 221
+@cfg("!x86_64")
+const isize SYS_WAIT4 = 260
+
+/// Repeats a system call interrupted by a signal; the result or minus `errno`.
+unsafe fn isize retry6(isize n, isize a, isize b, isize c, isize d, isize e) {
+    loop {
+        let r = syscall6(n, a, b, c, d, e, 0)
+        if r != EINTR {
+            return r
+        }
+    }
+}
+
+/// What is at `path`: `out` receives its size, its kind (1 file, 2 directory, 3 other) and
+/// its time of last modification (nanoseconds since 1970). Returns 0, or the error code.
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    unsafe {
+        let p = c_path(path)
+        // struct statx (the same layout on every architecture).
+        var [u64; 32] buf = [0; 32]
+        let b = mem.addr_of(buf!).cast[u8]()
+        // STATX_BASIC_STATS (0x7ff); AT_FDCWD; follow symbolic links.
+        let r = retry6(SYS_STATX, AT_FDCWD, addr(p.as_ptr()), 0, 0x7ff, addr(b))
+        if r < 0 {
+            return (-r) as i32
+        }
+        let mode = b.offset(28).cast[u16]().read() as u32 & 0o170000
+        out[0] = b.offset(40).cast[u64]().read()
+        out[1] = if mode == 0o100000 { 1 } else if mode == 0o040000 { 2 } else { 3 }
+        let secs = b.offset(112).cast[i64]().read()
+        let nanos = b.offset(120).cast[u32]().read() as i64
+        out[2] = (secs * 1_000_000_000 + nanos) as u64
+        return 0
+    }
+}
+
+/// The names in the directory `path` (without `.` and `..`), appended to `out`. Returns 0,
+/// or the error code.
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    unsafe {
+        let fd = open(path, 0x80000)
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        var Vec[u8] buf = Vec.with_capacity(32768)
+        var i32 code = 0
+        loop {
+            let n = retry6(SYS_GETDENTS64, fd, addr(buf.as_ptr()), 32768, 0, 0)
+            if n < 0 {
+                code = (-n) as i32
+                break
+            }
+            if n == 0 {
+                break
+            }
+            // struct linux_dirent64: d_ino, d_off, d_reclen (u16), d_type (u8), d_name.
+            var usize at = 0
+            while at < n as usize {
+                let entry = buf.as_ptr().offset(at)
+                let reclen = entry.offset(16).cast[u16]().read() as usize
+                let name = entry.offset(19)
+                let len = c_len(name)
+                let dot = len == 1 and name.read() == 46
+                let dotdot = len == 2 and name.read() == 46 and name.offset(1).read() == 46
+                if not dot and not dotdot {
+                    out.push(String.from_bytes_lossy(name, len))
+                }
+                at += reclen
+            }
+        }
+        let _ = sys1(SYS_CLOSE, fd)
+        return code
+    }
+}
+
+/// Creates the directory `path` (its parent must exist). Returns 0, or the error code.
+pub fn i32 make_dir(String path) {
+    unsafe {
+        let p = c_path(path)
+        let r = retry6(SYS_MKDIRAT, AT_FDCWD, addr(p.as_ptr()), 0o777, 0, 0)
+        return if r < 0 { (-r) as i32 } else { 0 }
+    }
+}
+
+/// Removes the file `path`, or the empty directory `path` when `dir`. Returns 0, or the
+/// error code.
+pub fn i32 remove(String path, bool dir) {
+    unsafe {
+        let p = c_path(path)
+        // AT_REMOVEDIR
+        let flags = if dir { 0x200 as isize } else { 0 }
+        let r = retry6(SYS_UNLINKAT, AT_FDCWD, addr(p.as_ptr()), flags, 0, 0)
+        return if r < 0 { (-r) as i32 } else { 0 }
+    }
+}
+
+/// Renames `from` to `to` (replacing `to` if it is a file). Returns 0, or the error code.
+pub fn i32 rename_path(String from, String to) {
+    unsafe {
+        let a = c_path(from)
+        let b = c_path(to)
+        let r = retry6(SYS_RENAMEAT2, AT_FDCWD, addr(a.as_ptr()), AT_FDCWD, addr(b.as_ptr()), 0)
+        return if r < 0 { (-r) as i32 } else { 0 }
+    }
+}
+
+/// The path of the program to run: `program` itself when it holds a `/`, else the first
+/// executable file named so in the directories of `PATH`.
+fn Option[String] find_program(String program) {
+    if program.contains("/") {
+        return Some(program.clone())
+    }
+    let paths = when env("PATH") {
+        .Some(p) then p
+        .None then "/usr/local/bin:/usr/bin:/bin"
+    }
+    for dir in paths.split(":") {
+        let d = if dir.len() == 0 { "." } else { dir.clone() }
+        let candidate = d + "/" + program
+        let c = c_path(candidate.clone())
+        // X_OK
+        let ok = unsafe { syscall6(SYS_FACCESSAT, AT_FDCWD, addr(c.as_ptr()), 1, 0, 0, 0) } == 0
+        if ok {
+            return Some(candidate)
+        }
+    }
+    return None
+}
+
+/// Runs `program` with `args` and waits for its end; `code` receives its exit code (128 +
+/// the signal that ended it). With `capture`, its standard output and error go to `out`
+/// (merged, in order); else it shares those of this program. Returns 0, or the error code
+/// when it cannot be started (2: not found).
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    rt.flush()
+    let path = when find_program(program) {
+        .Some(p) then p
+        .None then return 2
+    }
+    // Everything the child needs is prepared before the fork: after it, the child only
+    // makes system calls (another thread may hold the lock of the allocator).
+    var Vec[Vec[u8]] strings = Vec.new()
+    strings.push(c_path(path.clone()))
+    for a in args {
+        strings.push(c_path(a))
+    }
+    var Vec[usize] argv = Vec.new()
+    for s in strings {
+        argv.push(s.as_ptr().addr())
+    }
+    argv.push(0)
+    let exe = c_path(path)
+    unsafe {
+        var [i32; 2] fds = [-1, -1]
+        if capture {
+            // O_CLOEXEC: the ends do not leak into other children.
+            let r = sys2(SYS_PIPE2, addr(mem.addr_of(fds!).cast[u8]()), 0x80000)
+            if r < 0 {
+                return (-r) as i32
+            }
+        }
+        // clone(SIGCHLD): a fork.
+        let pid = syscall6(SYS_CLONE, 17, 0, 0, 0, 0, 0)
+        if pid < 0 {
+            if capture {
+                let _ = sys1(SYS_CLOSE, fds[0] as isize)
+                let _ = sys1(SYS_CLOSE, fds[1] as isize)
+            }
+            return (-pid) as i32
+        }
+        if pid == 0 {
+            if capture {
+                let _ = sys3(SYS_DUP3, fds[1] as isize, 1, 0)
+                let _ = sys3(SYS_DUP3, fds[1] as isize, 2, 0)
+            }
+            let _ = sys3(SYS_EXECVE, addr(exe.as_ptr()), addr(argv.as_ptr().cast[u8]()), addr(ENVP.cast[u8]()))
+            // The program could not be executed.
+            let _ = sys1(SYS_EXIT_GROUP, 127)
+        }
+        if capture {
+            let _ = sys1(SYS_CLOSE, fds[1] as isize)
+            loop {
+                out.reserve(65536)
+                let n = retry6(SYS_READ, fds[0] as isize, addr(out.as_ptr().offset(out.len())), 65536, 0, 0)
+                if n <= 0 {
+                    break
+                }
+                out.set_len(out.len() + n as usize)
+            }
+            let _ = sys1(SYS_CLOSE, fds[0] as isize)
+        }
+        var i32 status = 0
+        let w = retry6(SYS_WAIT4, pid, addr(mem.addr_of(status!).cast[u8]()), 0, 0, 0)
+        if w < 0 {
+            return (-w) as i32
+        }
+        code = if status & 0x7f == 0 { (status >> 8) & 0xff } else { 128 + (status & 0x7f) }
+        return 0
+    }
+}
+
+// ---------------------------------------------------------------------------
+// TCP over IPv4 (std.net)
+
+@cfg("x86_64")
+const isize SYS_SOCKET = 41
+@cfg("x86_64")
+const isize SYS_CONNECT = 42
+@cfg("x86_64")
+const isize SYS_SENDTO = 44
+@cfg("x86_64")
+const isize SYS_RECVFROM = 45
+@cfg("x86_64")
+const isize SYS_SHUTDOWN = 48
+@cfg("x86_64")
+const isize SYS_BIND = 49
+@cfg("x86_64")
+const isize SYS_LISTEN = 50
+@cfg("x86_64")
+const isize SYS_GETSOCKNAME = 51
+@cfg("x86_64")
+const isize SYS_SETSOCKOPT = 54
+@cfg("x86_64")
+const isize SYS_ACCEPT4 = 288
+
+@cfg("!x86_64")
+const isize SYS_SOCKET = 198
+@cfg("!x86_64")
+const isize SYS_BIND = 200
+@cfg("!x86_64")
+const isize SYS_LISTEN = 201
+@cfg("!x86_64")
+const isize SYS_CONNECT = 203
+@cfg("!x86_64")
+const isize SYS_GETSOCKNAME = 204
+@cfg("!x86_64")
+const isize SYS_SENDTO = 206
+@cfg("!x86_64")
+const isize SYS_RECVFROM = 207
+@cfg("!x86_64")
+const isize SYS_SETSOCKOPT = 208
+@cfg("!x86_64")
+const isize SYS_SHUTDOWN = 210
+@cfg("!x86_64")
+const isize SYS_ACCEPT4 = 242
+
+/// struct sockaddr_in for `ip:port` (both in the order of the machine).
+fn [u64; 2] sockaddr(u32 ip, u16 port) {
+    // AF_INET, then the port and the address in network order (big-endian).
+    let q = port as u64
+    let p = (q >> 8) | (q & 0xff) << 8
+    let i = ip as u64
+    let a = i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24
+    return [2 | p << 16 | a << 32, 0]
+}
+
+/// A new TCP socket (closed by `exec`), or minus `errno`.
+unsafe fn isize tcp_socket() {
+    // AF_INET, SOCK_STREAM | SOCK_CLOEXEC
+    return sys3(SYS_SOCKET, 2, 0x80001, 0)
+}
+
+/// Listens on `ip:port` (port 0: one chosen by the system); `handle` receives the socket.
+/// Returns 0, or the error code.
+pub fn i32 tcp_listen(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        // SOL_SOCKET, SO_REUSEADDR: a server restarted at once gets its port back.
+        var i32 one = 1
+        let _ = syscall6(SYS_SETSOCKOPT, fd, 1, 2, addr(mem.addr_of(one!).cast[u8]()), 4, 0)
+        var a = sockaddr(ip, port)
+        var r = sys3(SYS_BIND, fd, addr(mem.addr_of(a!).cast[u8]()), 16)
+        if r == 0 {
+            r = sys2(SYS_LISTEN, fd, 128)
+        }
+        if r < 0 {
+            let _ = sys1(SYS_CLOSE, fd)
+            return (-r) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Waits for a connection on `listener`; `handle` receives its socket. Returns 0, or the
+/// error code.
+pub fn i32 tcp_accept(i64 listener, i64 handle!) {
+    unsafe {
+        // SOCK_CLOEXEC
+        let fd = retry6(SYS_ACCEPT4, listener as isize, 0, 0, 0x80000, 0)
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Connects to `ip:port`; `handle` receives the socket. Returns 0, or the error code.
+pub fn i32 tcp_connect(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let fd = tcp_socket()
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        var a = sockaddr(ip, port)
+        let r = retry6(SYS_CONNECT, fd, addr(mem.addr_of(a!).cast[u8]()), 16, 0, 0)
+        if r < 0 {
+            let _ = sys1(SYS_CLOSE, fd)
+            return (-r) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// The local port of a socket (the one chosen by the system for port 0).
+pub fn u16 socket_port(i64 handle) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var u32 len = 16
+        let _ = sys3(SYS_GETSOCKNAME, handle as isize, addr(mem.addr_of(a!).cast[u8]()), addr(mem.addr_of(len!).cast[u8]()))
+        let p = (a[0] >> 16) & 0xffff
+        return ((p >> 8) | (p & 0xff) << 8) as u16
+    }
+}
+
+/// Reads at most `len` bytes; `got` receives their number (0: the peer closed its side).
+/// Returns 0, or the error code.
+pub fn i32 socket_read(i64 handle, Ptr[u8] buffer, usize len, usize got!) {
+    unsafe {
+        let n = retry6(SYS_RECVFROM, handle as isize, addr(buffer), len as isize, 0, 0)
+        if n < 0 {
+            return (-n) as i32
+        }
+        got = n as usize
+        return 0
+    }
+}
+
+/// Writes all of `data`. Returns 0, or the error code (a closed peer is an error, not the
+/// signal SIGPIPE).
+pub fn i32 socket_write(i64 handle, Ptr[u8] data, usize len) {
+    unsafe {
+        var usize done = 0
+        while done < len {
+            // MSG_NOSIGNAL
+            let n = retry6(SYS_SENDTO, handle as isize, addr(data.offset(done)), (len - done) as isize, 0x4000, 0)
+            if n < 0 {
+                return (-n) as i32
+            }
+            done += n as usize
+        }
+        return 0
+    }
+}
+
+/// Ends the writing side: the peer reads the end of the data.
+pub fn socket_shutdown(i64 handle) {
+    // SHUT_WR
+    let _ = unsafe { sys2(SYS_SHUTDOWN, handle as isize, 1) }
+}
+
+pub fn socket_close(i64 handle) {
+    let _ = unsafe { sys1(SYS_CLOSE, handle as isize) }
+}
+
+/// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
+/// peer gone, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
+pub fn u8 net_error_kind(i32 code) {
+    return when code {
+        111 then 1 // ECONNREFUSED
+        104 | 32 then 2 // ECONNRESET, EPIPE
+        98 then 3 // EADDRINUSE
+        4 then 4 // EINTR
+        110 then 5 // ETIMEDOUT
+        101 | 113 then 6 // ENETUNREACH, EHOSTUNREACH
+        _ then 0
+    }
 }

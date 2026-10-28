@@ -1,0 +1,27 @@
+error[E0403]: cannot move an element of `v` out of its place
+ --> copy_bound.nx:8:12
+  |
+8 |     return v[0]
+  |            ^^^^ `T0` is a resource: moving it would leave a hole
+  |
+  = note: only a whole variable can be moved; a field or an element stays where it is
+
+error[E0249]: `String` does not implement `Copy`
+  --> copy_bound.nx:20:13
+   |
+20 |     let a = twice("a" + "b")
+   |             ^^^^^^^^^^^^^^^^ `Copy` is required by `twice`
+   |
+   = note: the values of `String` own resources: they are moved, not copied (spec §3.7)
+   = help: pass a copy made with `.clone()` to a parameter without the bound `Copy`, or use a copyable type
+
+error[E0249]: `Name` does not implement `Copy`
+  --> copy_bound.nx:21:13
+   |
+21 |     let b = twice(Name(text: "c"))
+   |             ^^^^^^^^^^^^^^^^^^^^^^ `Copy` is required by `twice`
+   |
+   = note: the values of `Name` own resources: they are moved, not copied (spec §3.7)
+   = help: pass a copy made with `.clone()` to a parameter without the bound `Copy`, or use a copyable type
+
+error: could not compile due to 3 errors

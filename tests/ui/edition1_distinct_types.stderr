@@ -1,0 +1,67 @@
+error[E0302]: mismatched operand types for `+`
+  --> edition1_distinct_types.nx:11:17
+   |
+11 |     let total = s + ms
+   |                 ^^^^^^ `Secondes` + `Millisecondes`
+   |                 - `Secondes`
+   |                     -- `Millisecondes`
+
+error[E0302]: mismatched types
+  --> edition1_distinct_types.nx:13:22
+   |
+13 |     let Secondes t = brut
+   |                      ^^^^ expected `Secondes`, found `f64`
+   |
+   = help: convert it with `… as Secondes` (from `f64`)
+
+error[E0302]: mismatched types
+  --> edition1_distinct_types.nx:14:22
+   |
+14 |     let f64 retour = s
+   |                      ^ expected `f64`, found `Secondes`
+   |
+   = help: a distinct type converts to its base with `… as f64`
+
+error[E0303]: operator `+` cannot be applied to `Compte`
+  --> edition1_distinct_types.nx:16:13
+   |
+16 |     let d = c + c
+   |             ^^^^^ unsupported operation
+   |
+   = help: a distinct type has only the operations it names: `type Compte = distinct … is Add`
+
+error[E0310]: a value of `Secondes` is made with `as`
+  --> edition1_distinct_types.nx:17:13
+   |
+17 |     let e = Secondes(1.0)
+   |             ^^^^^^^^^^^^^ not a structure
+   |
+   = help: write `value as Secondes`, `value` of type `f64`
+
+error[E0350]: a value of type `Compte` cannot be formatted
+  --> edition1_distinct_types.nx:18:36
+   |
+18 |     println("{total} {t} {retour} {d} {e}")
+   |                                    ^ not formattable
+   |
+   = note: integers, floats, `bool`, `char`, `String` and the types implementing `Display` can be formatted
+   = help: a distinct type has only the interfaces it names: `type Compte = distinct … is Display`
+
+error[E0251]: `Mot` must be based on a number, `char` or `bool`
+  --> edition1_distinct_types.nx:21:21
+   |
+21 | type Mot = distinct String
+   |                     ^^^^^^ not a scalar type
+   |
+   = note: NEXUL 1.0 accepts distinct and constrained types over the scalar types only (ADR 0014)
+
+error[E0251]: `Joli` cannot reuse `Iterator` of `i32`
+  --> edition1_distinct_types.nx:22:29
+   |
+22 | type Joli = distinct i32 is Iterator
+   |                             ^^^^^^^^ not a standard interface of the base
+   |
+   = note: reusable: Copy, Eq, Ord, Display, Hash, Clone, Default, Add, Sub, Mul, Div, Rem, Neg
+   = help: implement it yourself: `extend Joli is Iterator { … }`
+
+error: could not compile due to 8 errors

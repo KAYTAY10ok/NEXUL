@@ -1,0 +1,15 @@
+error[E0243]: `Name` is implemented twice for `Item`
+  --> traits_coherence.nx:21:1
+   |
+21 | impl Name for Item {
+   | ^^^^^^^^^^^^^^^^^^^^ second implementation
+
+error[E0244]: `Ranked` requires `Name`, which `Plain` does not implement
+  --> traits_coherence.nx:32:1
+   |
+32 | impl Ranked for Plain {
+   | ^^^^^^^^^^^^^^^^^^^^^^^ `Name` is a supertrait of `Ranked`
+   |
+   = help: add `impl Name for Plain`
+
+error: could not compile due to 2 errors

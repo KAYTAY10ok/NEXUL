@@ -172,6 +172,7 @@ mod tests {
 
     #[test]
     fn path_in_the_registry() {
+        let _root = reg::TestsRootUse::new();
         let key = format!(r"HKCU\Software\NEXUL-Tests\unit-{}-env", std::process::id());
         reg::set(&key, Some("Path"), &Value::Str(r"%SystemRoot%;C:\old\bin".into())).unwrap();
         assert_eq!(change_path_in(&key, &[r"C:\old".into()], Some(r"%USERPROFILE%\nexul\bin")), Ok(true));
@@ -190,7 +191,6 @@ mod tests {
         assert_eq!(change_path_in(&key, &[], Some(r"C:\n\bin")), Ok(true));
         assert_eq!(reg::get_text(&key, Some("Path")).as_deref(), Some(r"C:\n\bin"));
         reg::delete_tree(&key).unwrap();
-        reg::remove_tests_root_if_empty();
         assert_eq!(key_of("Machine"), MACHINE_KEY);
         assert_eq!(key_of("User"), USER_KEY);
     }

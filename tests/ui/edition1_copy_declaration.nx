@@ -1,0 +1,32 @@
+// edition: 1
+// ADR 0012: in edition 1, a public type is copied only if it declares `Copy`; a private
+// type is still copied by its structure.
+pub type Point is Copy {
+    i32 x
+    i32 y
+}
+
+pub type Direction is Copy = .North | .South
+
+pub type Counter {
+    i32 n
+}
+
+type Local {
+    i32 n
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let q = p
+    println("{p.x} {q.y}")
+    let d = Direction.North
+    let e = d
+    println("{d is .North} {e is .North}")
+    let l = Local(n: 3)
+    let m = l
+    println("{l.n} {m.n}")
+    let c = Counter(n: 4)
+    let k = c
+    println("{c.n} {k.n}")
+}
