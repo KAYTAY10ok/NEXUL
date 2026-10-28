@@ -7,6 +7,9 @@ Mis à jour le 16 octobre 2026 après validation de la matrice P9, mesure releas
 
 Mis à jour le 16 octobre 2026 après ajout de tests automatisés à la garde de version de l'installateur et vérification des PRs ouvertes. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
 
+Mis à jour le 16 octobre 2026 après intégration des PR #20–28 et mesure A1 sur `origin/main` figé à
+`c40acbd83f4818d3ee46ec420d0e479caa92b801`. Mandat : prompt Codex Sol et charte V3.
+
 ## Périmètre
 
 `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`, `studio/lsp/**`,
@@ -59,6 +62,24 @@ Claude Main conserve la revue et l'intégration.
 - La PR #30 prépare le VSIX 0.3.0 et consigne les essais hôte Windows/WSL2. La dernière version Marketplace relevée dans les preuves est 0.1.0 ; la publication du nouveau VSIX demeure une action de l'utilisateur après intégration.
 - Linux bare metal et macOS restent non testés. Les essais Linux documentés pour le VSIX ont été exécutés sous WSL2 ; les checks CI Linux ne remplacent pas ce test hôte.
 - Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
+
+| 1 | L1 — terminal ConPTY | INTÉGRÉ dans [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) ; 7 tests MSVC passés, dont les deux tests ConPTY réels. Intégration UI de Main (M6) reste à vérifier. |
+| 2 | L2 — débogueur LLDB | INTÉGRÉ dans [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) ; 8 tests passés, dont le test réel avec `lldb-dap` 23. Intégration UI de Main (M7) reste à vérifier. |
+| 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24). La question des diagnostics issus de `@derive` demeure ouverte dans [issue #23](https://github.com/KAYTAY10ok/NEXUL/issues/23), en attente d'une décision de Main. |
+| 4 | L3 — installateur Studio natif | INTÉGRÉ dans [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) ; scénario installation/mise à jour/désinstallation validé en bac à sable. Build complet de Studio MSVC non vérifié dans ce lot. |
+| 5 | L4 — extension VS Code | INTÉGRÉ dans [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26), puis formatage automatique dans [PR #28](https://github.com/KAYTAY10ok/NEXUL/pull/28). VSIX public sous `KAYTAY10ok.nexul-language`; édition 1 passe par le formateur LSP et garde ses limites documentées. |
+| 6 | L5 — modèles de projet | INTÉGRÉ dans [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ; 5 tests unitaires et 2 fonctionnels passés sous Windows MSVC et Linux. |
+| 7 | A1 — benchmarks P13 | VALIDÉ_E2E sur le commit figé `c40acbd` : 4 langages × 4 charges × 3 tailles × 3 répétitions ; toutes les sorties concordent avec C. Sources et mesures datées sous `benchmarks/astral/` ; [PR #29](https://github.com/KAYTAY10ok/NEXUL/pull/29) ouverte. CI Windows réussie ; CI Linux réussie après relance d’un échec intermittent `Text file busy` dans un test Core non modifié par cette PR. |
+
+## Travail courant
+
+- Base de travail A1 : branche `refonte/sol-a1-benchmarks`, créée depuis `origin/main` à `c40acbd`.
+- PR #29 ouverte depuis `refonte/sol-a1-benchmarks` ; Windows et Linux passent sur le commit `f80096b` (run 31, seconde tentative Linux). La première tentative Linux a échoué une fois dans `migrated_programs_behave_the_same` avec `ExecutableFileBusy` (`Text file busy`), puis a passé sans changement du compilateur. Intégration laissée à la revue de Main.
+- Les tâches 0 à 6 du prompt sont fusionnées. La publication Marketplace existe ; aucun nouveau VSIX n'a été publié pendant le lot A1.
+- Le rapport daté inclut les versions d'outils, les options d'optimisation, les temps de compilation, le pic du working set, les sorties et les mesures individuelles.
+- Les résultats sont une base sur une seule machine Windows x64; ils ne permettent pas une promesse générale de performance.
+- À coordonner avec Main : issue #23 (format d'URI/provenance des diagnostics `@derive`) et raccordement des crates terminal/DAP dans Studio (M6/M7).
+- La v0.3.0 n'est pas complète : compilation séparée/cache, interop C/Python, concurrence et messages français relèvent du cœur/Main ; P14 exige les scénarios E2E de release.
 
 | 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) intégrée. Préparation du VSIX 0.3.0 sur `refonte/sol-vscode-release` : formatage automatique vérifié dans un hôte VS Code Insiders isolé pour les deux éditions ; preuves ci-dessous. |
 | 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
@@ -129,8 +150,9 @@ Claude Main conserve la revue et l'intégration.
 
 ## Demandes à Claude Main
 
-Revue de la PR L1 et raccordement M6 : consommer les événements jusqu'à `Exited`,
-conserver le snapshot après sortie et exécuter les opérations bloquantes hors du fil UI.
+1. Traiter [issue #23](https://github.com/KAYTAY10ok/NEXUL/issues/23) : décider comment exposer en LSP les diagnostics créés depuis une source synthétique `@derive`.
+2. Raccorder dans Studio les APIs du terminal et du DAP livrées par L1/L2 (M6/M7), puis valider une session réelle via l'interface.
+3. Le cœur v0.3.0 et les scénarios finaux P14 restent sous la responsabilité de Main/Core ; le rapport A1 fournit maintenant une base de performance figée.
 
 ## Preuves L2
 
@@ -176,7 +198,7 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - `git diff --check` : réussi. Vraie boîte UAC : non testée. Les contrôles canoniques
   sont répétés avant suppression ; pas de verrouillage complet de tous les composants
   Windows contre une course de remplacement d'une jonction.
-- Main : revue sécurité et validation de l'élévation réelle demandées avant intégration.
+- Limites restant documentées : vraie boîte UAC et verrouillage complet contre une course de remplacement de jonction non validés dans ce lot.
 
 ## Preuves L3 — installateur natif
 
@@ -185,7 +207,8 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
 - Sur le commit `868aced` de la PR #25, le run Actions `38867914441` passe le build Linux
   et les tests Windows de l’installateur. Huit tests Linux passent ; deux échouent dans
   `tests/run/ffi.nx` car `ld.lld` ne résout pas `abs`, `strlen` et `sqrt`. Ces chemins
-  appartiennent à `compiler/**` / Core.
+  appartiennent à `compiler/**` / Core. Ce résultat décrit ce run historique ; le statut CI
+  du commit actuel `c40acbd` n'a pas été revérifié pendant le lot A1.
 - Construction de `studio/app` et paquet complet via MSVC : non testés sur cette machine.
 
 ## Preuves L4 initiales — intégration PR #26
@@ -206,7 +229,13 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   Edition 1 ne modifiait pas le document ; le test a été complété dans la section
   « Mise à jour — VSIX 0.3.0 » ci-dessus.
 
-## Diagnostic et correction de la CI L3
+- PR #28 a ensuite activé `nxc` comme formateur par défaut et le formatage à l'enregistrement
+  pour les deux modes de langue ; le mode Edition 1 envoie la requête au formateur LSP,
+  avec une gestion d'indentation documentée pour `|>`.
+- Le Marketplace public a été confirmé dans la tâche de publication antérieure. Ce lot A1
+  n'a ni republié ni modifié le VSIX.
+
+## Historique de la CI L3 (PR #25)
 
 - Le journal reçu est un échec réel de `cargo build --verbose` sous Ubuntu : le workspace
   compile `nexul-installer`, qui importe `std::os::windows::ffi::OsStrExt`, utilise
@@ -455,3 +484,24 @@ notamment les chemins réservés par #45. C2 macOS reste bloqué.
   aucun autre fichier n’a été reformaté.
 - Non testé : client VS Code/Studio réel, Linux bare metal, macOS et dépendance Git
   téléchargée. Aucun téléchargement n’est fait par le serveur LSP.
+
+## Preuves A1 — base P13 des performances
+
+- Sources équivalentes livrées pour NEXUL, C, Rust et C# : boucle/mathématiques, vecteur
+  transformé par une matrice 3×3, allocations de petits blocs et construction/lecture de
+  chaînes ASCII.
+- Base figée : `origin/main` `c40acbd83f4818d3ee46ec420d0e479caa92b801`. Le compilateur n'a
+  pas été modifié. `cargo build --release -p nxc` : réussi sur Windows le 16/10/2026.
+- `python benchmarks/astral/run.py --sizes 1000000 10000000 100000000 --repetitions 3` :
+  terminé ; toutes les sorties des 4 langages concordent avec la référence C. 144 mesures
+  (4 charges × 3 tailles × 4 langages × 3 répétitions).
+- Options : Clang `-O2 -ffp-contract=off -fno-fast-math`, Rust `-C opt-level=2`, .NET
+  `Release` avec Tiered PGO, NEXUL `--release`. Le pilote conserve les mesures individuelles,
+  médianes, écarts-types, temps de compilation et pics `PeakWorkingSetSize`.
+- Rapport lisible : [`benchmarks/astral/results/2026-10-16.md`](../../benchmarks/astral/results/2026-10-16.md) ;
+  données brutes : [`benchmarks/astral/results/2026-10-16.json`](../../benchmarks/astral/results/2026-10-16.json).
+- À 100M, NEXUL mesure environ 1,00 s en boucle scientifique, 0,87 s vecteur/matrice,
+  5,20 s en allocations et 0,45 s en chaînes. Ces valeurs valent pour cette machine et ces
+  implémentations seulement ; le rapport montre aussi les écarts aux références.
+- Statut : `VALIDÉ_E2E` sur un seul PC Windows x64 ; pas une certification comparative
+  générale ni une preuve pour Linux/macOS.
