@@ -362,6 +362,25 @@ fn run_programs_optimized() {
     }
 }
 
+/// The stress programs of `tests/stress` (exit criteria of the roadmap, such as 10^6
+/// messages between 64 tasks), optimized, one after the other: `NEXUL_STRESS=1`.
+#[test]
+fn stress_programs() {
+    if std::env::var_os("NEXUL_STRESS").is_none() || bless() {
+        return;
+    }
+    let target = Target::host();
+    let mut failures = Vec::new();
+    for nx in files("tests/stress").into_iter().filter(|p| runs_on(p, &target)) {
+        let started = std::time::Instant::now();
+        failures.extend(run_one_at(&nx, true));
+        eprintln!("{}: {:.1?}", nx.display(), started.elapsed());
+    }
+    if !failures.is_empty() {
+        panic!("{} failure(s):\n\n{}", failures.len(), failures.join("\n\n"));
+    }
+}
+
 /// `nxc migrate` keeps the meaning of host-compatible programs: every single-file program
 /// of `tests/run` written in 0.2 (no user module imported), migrated to edition 1, compiles
 /// and prints the same output with the same exit code. A program that tests a rule of

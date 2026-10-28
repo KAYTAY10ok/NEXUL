@@ -96,8 +96,11 @@ avec détection de fuites.
 | édition 1 complète hors formes réservées | Q1, Q2, boucle typée et types à plusieurs interfaces faits (28/10) ; restent la contrainte sur le paramètre d'un type et les types distincts génériques (ADR 0010, fin) |
 | `tests/ui` couvre chaque nouvelle règle | chaque code a son test (K7.1) |
 
-Le contenu de langage de la 0.5.0 (ADR 0013) est aussi intégré ; restent ThreadSanitizer
-et le scénario C.
+Critères de sortie de la **0.5.0** (28/10) : corpus négatif (`tests/ui/task_races.nx`, 9 courses
+refusées) et positif ; 10⁶ messages entre 64 tâches, résultat déterministe
+(`tests/stress/channels_1m.nx`, en CI sur Linux, Windows et macOS) ; scénario C **passé**
+([fiche](scenarios/C-concurrence.md)) ; ThreadSanitizer **non testé** (les threads de NEXUL
+ne passent pas par la libc ; raison dans la fiche).
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les

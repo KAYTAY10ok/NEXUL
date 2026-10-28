@@ -67,7 +67,7 @@ n'est « passé » qu'avec sa preuve datée (commande, sortie, capture si utile)
 |---|---|---|---|
 | A — Premier programme : installer, Studio, projet, erreurs, construire, exécuter, interrompre, déboguer, fermer et rouvrir sans perte | Main (Studio) ; Luna (installateur) ; Luna 2 (débogueur) | en partie maintenant (sans nouvel installateur ni débogueur) ; complet après L3, L2, M7 | À FAIRE |
 | B — Bibliothèque OOP forte | Outils | après P5, P6 | À FAIRE |
-| C — Concurrence | Outils | après P7 | À FAIRE |
+| C — Concurrence | Main (ex-Outils) | oui | **PASSÉ le 28/10** ([fiche](../scenarios/C-concurrence.md)) ; ThreadSanitizer non testé (raison dans la fiche) |
 | D — Temps réel sur la cible choisie | Outils | après P8 et la décision 3 | À FAIRE |
 | E — Auto-hébergement stage0 → stage1 → stage2 | Outils | après P12 | À FAIRE |
 | F — VS Code : VSIX propre, diagnostics, format, build, test, run, débogage, outil absent | Luna | maintenant avec `nxc` 0.2 (sauf LSP et débogage) | À FAIRE |

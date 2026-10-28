@@ -25,6 +25,11 @@ jobs:
         sudo apt-get update -q
         sudo apt-get install -y -q qemu-user qemu-system-arm
         NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test suite run_programs_cross
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
     # The crates of Studio without GPUI have their own Cargo workspaces.
     - name: Test the crates of Studio (syntax, lsp, terminal, dap, templates)
       timeout-minutes: 15
@@ -57,6 +62,11 @@ jobs:
         echo "NEXUL_LLVM=$tools" >> "$GITHUB_ENV"
     - name: Run the compiler tests (O0 and O2 programs, on macOS)
       run: cargo test --release -p nxc --no-fail-fast --verbose
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
 
   windows:
     runs-on: windows-latest
@@ -89,6 +99,11 @@ jobs:
         if ($LASTEXITCODE -ne 0) { throw "lld-link failed" }
     - name: Run the complete compiler tests (O0 and O2 programs)
       run: cargo test --release -p nxc --no-fail-fast --verbose
+    - name: Stress programs (10^6 messages between 64 tasks)
+      timeout-minutes: 10
+      env:
+        NEXUL_STRESS: "1"
+      run: cargo test --release -p nxc --test suite stress_programs -- --nocapture
     - name: Run browser ABI tests (including export validation)
       run: cargo test --release -p nxc --test web -- --ignored
     - name: Build

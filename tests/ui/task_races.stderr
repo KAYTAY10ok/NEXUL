@@ -1,0 +1,87 @@
+error[E0420]: cannot modify `v` while a task modifies `v`
+  --> task_races.nx:24:18
+   |
+23 |         p.lancer(fn() { v.push(1) })
+   |                  ------------------ this task modifies `v` until the end of `tache.portee`
+24 |         p.lancer(fn() { v.push(2) })
+   |                  ^^^^^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `n` while a task modifies `n`
+  --> task_races.nx:34:18
+   |
+33 |         p.lancer(fn() { v.sort_by(fn(a: i32, b: i32) -> Ordering { n += 1; return a.cmp(b) }) })
+   |                  ------------------------------------------------------------------------------ this task modifies `n` until the end of `tache.portee`
+34 |         p.lancer(fn() { n += 2 })
+   |                  ^^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot use `c` while a task modifies `c`
+  --> task_races.nx:43:18
+   |
+42 |         p.lancer(fn() { c.bump() })
+   |                  ----------------- this task modifies `c` until the end of `tache.portee`
+43 |         p.lancer(fn() { let y = c.get() })
+   |                  ^^^^^^^^^^^^^^^^^^^^^^^^ use here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `c` while a task modifies `c`
+  --> task_races.nx:52:18
+   |
+51 |         p.lancer(fn() { c.x = 1 })
+   |                  ---------------- this task modifies `c` until the end of `tache.portee`
+52 |         p.lancer(fn() { c.x = 2 })
+   |                  ^^^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `x` while a task modifies `x`
+  --> task_races.nx:62:18
+   |
+61 |         p.lancer(fn() { total.avec(fn(inout t: i32) { x += 1; t += 1 }) })
+   |                  -------------------------------------------------------- this task modifies `x` until the end of `tache.portee`
+62 |         p.lancer(fn() { x = 3 })
+   |                  ^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0254]: a task launched in a loop cannot modify `a`
+  --> task_races.nx:71:22
+   |
+71 |             p.lancer(fn() { a += 1 })
+   |                      ^^^^^^^^^^^^^^^ modifies `a`
+   |
+   = note: the task of the next turn would modify it at the same time
+
+error[E0420]: cannot assign to `a` while a task reads `a`
+  --> task_races.nx:82:9
+   |
+81 |         p.lancer(fn() { b = a })
+   |                  -------------- this task reads `a` until the end of `tache.portee`
+82 |         a = 7
+   |         ^ assign to here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0420]: cannot modify `a` while a task modifies `a`
+  --> task_races.nx:91:22
+   |
+90 |         p.lancer(fn() { a += 1 })
+   |                  --------------- this task modifies `a` until the end of `tache.portee`
+91 |         tache.portee(fn(inout q: tache.Portee) {
+   |                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^ modify here
+   |
+   = note: two tasks never modify the same value, and a value cannot change while a task reads it (law of exclusivity, spec §5.4)
+
+error[E0249]: `Vec[dyn Show]` does not implement `Transfer`
+   --> task_races.nx:119:13
+    |
+119 |     let t = tache.lancer_detachee(work, v)
+    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ `Transfer` is required by `lancer_detachee`
+    |
+    = note: `Vec[dyn Show]` cannot be moved to another task: it holds a `Ptr`, an anonymous function or a `dyn` value without `Transfer`
+
+error: could not compile due to 9 errors
