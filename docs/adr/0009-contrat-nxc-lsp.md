@@ -135,7 +135,7 @@ C'est le point qui conditionne la justesse des diagnostics (constats C2 à C4).
   paquet Git déjà téléchargé par `nxpm`). Il **ne télécharge jamais**. Une dépendance
   absente donne un diagnostic sur `nexul.toml` qui indique `nxpm` comme remède.
 - **Diagnostics** :
-  - calculés **200 ms après la dernière modification** ;
+  - calculés **150 ms après la dernière modification** (200 ms jusqu'au 28/10/2026) ;
   - publiés pour chaque fichier utilisateur du programme analysé (jamais pour la
     bibliothèque standard), y compris un liste vide quand un fichier n'a plus d'erreur ;
   - un résultat calculé sur une version périmée d'un document n'est pas publié.
@@ -202,8 +202,11 @@ d'acceptation de l'implémentation, mesurés et publiés dans sa PR :
 
 - survol, définition et complétion : **95 % sous 50 ms** sur `examples/calculatrice.nx`,
   une fois le serveur chaud ;
-- diagnostics publiés **moins de 300 ms** après la dernière frappe (200 ms d'attente
-  comprises) ;
+- diagnostics publiés **moins de 300 ms** après la dernière frappe (150 ms d'attente
+  comprises ; modifié par Main le 28/10/2026 : avec 200 ms, l'analyse de la bibliothèque
+  standard, qui grandit, ne tenait plus dans le reste sur les machines de la CI ; le
+  remède durable est le cache de la bibliothèque analysée, prévu avec la compilation
+  incrémentale en 0.6.0) ;
 - mémoire stable sur 1 000 modifications successives (pas de croissance continue).
 
 ## 9. Sorties JSON versionnées (ligne de commande)

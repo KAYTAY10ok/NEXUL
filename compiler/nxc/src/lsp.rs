@@ -11,7 +11,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const MAX_MESSAGE_BYTES: usize = 16 * 1024 * 1024;
-const DIAGNOSTIC_DELAY: Duration = Duration::from_millis(200);
+/// The wait after the last change before the diagnostics are computed (ADR 0009 §5, 150 ms
+/// since 28/10/2026: the analysis of a standard library that grows needs the rest of the
+/// 300 ms of §8).
+const DIAGNOSTIC_DELAY: Duration = Duration::from_millis(150);
 
 #[derive(Clone, Debug, PartialEq)]
 enum Json {
