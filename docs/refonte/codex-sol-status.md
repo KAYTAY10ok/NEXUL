@@ -3,6 +3,8 @@
 Mis à jour le 16 octobre 2026. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » ;
 Claude Main conserve la revue et l'intégration de chaque PR.
 
+Mis à jour le 16 octobre 2026 après validation de la matrice P9, mesure release et contrôle des PRs. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
+
 ## Périmètre
 
 `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`, `studio/lsp/**`,
@@ -38,6 +40,25 @@ Claude Main conserve la revue et l'intégration.
   `docs/adr/0009-contrat-nxc-lsp.md`, seul contrat accepté. Le prompt et les tâches
   actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
 - Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
+
+| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉ** par Main le 16/10 (revue : 5 suites + 90 exécutions sans blocage ; suites dans `revues-main.md`) |
+| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉ** par Main le 16/10 (vrai `lldb-dap` 23 revérifié ; suites dans `revues-main.md`) |
+| 3 | P9 — CLI et LSP | Socle INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24). [PR #34](https://github.com/KAYTAY10ok/NEXUL/pull/34) ajoute les tests d’éditions LSP mixtes et les mesures ADR 0009 ; CI réussie, revue Main attendue. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) **INTÉGRÉ** par Main le 16/10 avec le CI de `main` (PR #28 : échecs FFI Linux corrigés par `e78a357`), l'analyseur JSON de la migration rendu linéaire et la migration sautée en mode élevé (revue). |
+| 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) INTÉGRÉE ; [PR #28](https://github.com/KAYTAY10ok/NEXUL/pull/28) active le formatage à la sauvegarde pour les éditions 0.2 et 1. [PR #30](https://github.com/KAYTAY10ok/NEXUL/pull/30) prépare le VSIX 0.3.0 ; tests hôte Windows et WSL2 documentés, CI réussie, revue Main attendue. |
+| 6 | L5 — modèles de projet | INTÉGRÉ dans [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) après 5 tests unitaires et 2 fonctionnels réussis. |
+
+## Travail courant
+
+- Base actuelle : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026.
+- Les PR #20, #21, #22 et #24 à #28 concernant L1, L2, la sécurité, P9, L3, L4, L5 et le formatage ont été intégrées par Main ; les anciennes preuves détaillées ci-dessous restent historiques.
+- PRs ouvertes : #29 benchmarks (aucun run Actions associé au head trouvé ; résultats locaux dans la PR), #30 VSIX 0.3.0, #31 DAP, #32 terminal, #33 garde de cohérence des versions du paquet et #34 matrice LSP.
+- La [fiche Marketplace NEXUL](https://marketplace.visualstudio.com/items?itemName=KAYTAY10ok.nexul-language) affiche encore la version publiée **0.1.0** (vérifiée le 16/10/2026). La PR #30 prépare le VSIX 0.3.0 ; après revue et intégration, la publication de cette version reste une action du propriétaire du publisher.
+- CI Actions réussie pour les heads des PR #30, #31, #32, #33 et #34. La PR #34 est fusionnable ; aucun merge n’est demandé à Sol.
+- La garde de la PR #33 bloque intentionnellement l’empaquetage tant que Main n’a pas aligné les versions des composants à 0.3.0. Après cet alignement, la construction complète et la mise à niveau sandbox 0.2 → 0.3 restent à rejouer.
+- Le formatage des bras `.Variant` est couvert par `format_keeps_variant_arms_and_indents_method_chains` (1 test ciblé réussi dans le worktree P9). Le formatage à la sauvegarde des deux éditions est activé par la PR #28 ; la PR #30 apporte une validation hôte Windows et WSL2.
+- Le code P9 reste dans le pilote et ses tests, plus le point d’entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n’a été changée.
+- Restent non validés sur une machine dédiée : Linux bare metal et macOS. La revue Main et la fusion par l’utilisateur des PR encore ouvertes restent requises.
 
 ## Revue corrective L2 — DAP
 
@@ -374,3 +395,21 @@ Statut : BLOQUÉ : pas de Mac. Analyse dans `proposals/sol-c12-macos.md`.
 La sélection SYS_LINUX et l'entrée ELF partagée sont confirmées ; aucun résultat
 macOS revendiqué. Couche Darwin ou exclusion explicite à arbitrer/revoir par Claude,
 notamment les chemins réservés par #45. C2 macOS reste bloqué.
+
+## Preuves P9 — éditions LSP et performances (16/10/2026)
+
+- Ajout dans `compiler/nxc/tests/lsp.rs` de tests d’intégration avec un vrai processus
+  `nxc lsp` : projet d’édition 1 important un module ouvert d’édition 0.2, projet 1
+  important une dépendance locale sans édition explicite (donc 0.2), et diagnostics
+  recalculés après ajout/retrait de l’en-tête d’édition pendant `didChange`.
+- Trois tests ciblés en profil debug : **3 réussis**.
+- `cargo test --release -p nxc --test lsp -- --nocapture` : **8 réussis, 0 échec,
+  0 ignoré**. Mesure Windows release sur ce poste : P95 à chaud — hover **0,322 ms**,
+  définition **0,371 ms**, complétion **0,841 ms** ; diagnostics après modification
+  **261,93 ms** (attente de 200 ms comprise) ; écart de mémoire de travail sur 1 000
+  modifications **16,80 Mio**. Les trois critères de performance de l’ADR 0009 §8 passent.
+- `rustfmt --edition 2021 --check compiler/nxc/tests/lsp.rs` : réussi. La vérification
+  `cargo fmt --check` de tout le crate signale des fichiers préexistants non formatés ;
+  aucun autre fichier n’a été reformaté.
+- Non testé : client VS Code/Studio réel, Linux bare metal, macOS et dépendance Git
+  téléchargée. Aucun téléchargement n’est fait par le serveur LSP.
