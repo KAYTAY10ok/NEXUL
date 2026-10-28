@@ -102,6 +102,12 @@ refusées) et positif ; 10⁶ messages entre 64 tâches, résultat déterministe
 ([fiche](scenarios/C-concurrence.md)) ; ThreadSanitizer **non testé** (les threads de NEXUL
 ne passent pas par la libc ; raison dans la fiche).
 
+État de la **0.6.0** (28/10, en cours) : `std.fs` et `std.process` faits, testés par
+`tests/run/fs.nx` (Linux x86-64, AArch64 et RISC-V, WASI ; Windows et macOS par la CI) et
+`tests/run/process.nx` (Linux, Windows, macOS) ; restent la compilation séparée et le cache
+incrémental, `@repr("C")` et les rappels C, `std.net`, les vues de chaînes, et les trois
+critères de sortie (serveur TCP, temps de compilation incrémentale, appels C ↔ NEXUL).
+
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
 estimations et la validation opérationnelle ; l'utilisateur la valide. Elle remplace les

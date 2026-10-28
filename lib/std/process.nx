@@ -1,0 +1,59 @@
+// edition: 1
+/// Running other programs (spec chapter 09).
+///
+/// A program named without `/` is searched in the directories of `PATH` (on Windows, the
+/// system's own search, with `.exe` added when needed). Arguments are passed as they are,
+/// without a shell.
+
+import std.sys
+import std.io
+import std.io.{IoError}
+
+/// What a program run by `run` produced.
+@derive(Eq, Clone)
+pub type Output {
+    /// Its exit code (0 means success); 128 + the signal number when a signal ended it.
+    pub i32 code
+    /// Its standard output and standard error, merged in the order it wrote them.
+    pub String output
+}
+
+extend Output {
+    pub fn bool success(self) {
+        return self.code == 0
+    }
+}
+
+fn IoError error(i32 code, String program) {
+    return when sys.io_error_kind(code) {
+        1 then IoError.NotFound(program.clone())
+        2 then IoError.PermissionDenied(program.clone())
+        4 then IoError.Interrupted
+        _ then IoError.Other(code, "cannot run: {program}")
+    }
+}
+
+/// Runs `program` with `args`, waits for its end and returns what it wrote. Invalid UTF-8
+/// in its output is replaced by U+FFFD.
+pub fn Result[Output, IoError] run(String program, Vec[String] args) {
+    var Vec[u8] bytes = Vec.new()
+    var i32 code = 0
+    let r = sys.run_process(program, args, true, bytes!, code!)
+    if r != 0 {
+        return Err(error(r, program))
+    }
+    let output = unsafe { String.from_bytes_lossy(bytes.as_ptr(), bytes.len()) }
+    return Ok(Output(code: code, output: output))
+}
+
+/// Runs `program` with `args`, sharing the standard input and outputs of this program,
+/// and returns its exit code once it ends.
+pub fn Result[i32, IoError] status(String program, Vec[String] args) {
+    var Vec[u8] bytes = Vec.new()
+    var i32 code = 0
+    let r = sys.run_process(program, args, false, bytes!, code!)
+    if r != 0 {
+        return Err(error(r, program))
+    }
+    return Ok(code)
+}

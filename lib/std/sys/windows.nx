@@ -875,3 +875,257 @@ pub unsafe fn wake_all(Ptr[u32] p) {
 pub unsafe fn wake_one(Ptr[u32] p) {
     WakeByAddressSingle(p)
 }
+
+// ---------------------------------------------------------------------------
+// File system and processes (std.fs, std.process)
+
+@link("kernel32")
+extern "C" fn i32 GetFileAttributesExW(Ptr[u16] name, u32 level, Ptr[u8] info)
+@link("kernel32")
+extern "C" fn Ptr[u8] FindFirstFileW(Ptr[u16] pattern, Ptr[u8] data)
+@link("kernel32")
+extern "C" fn i32 FindNextFileW(Ptr[u8] h, Ptr[u8] data)
+@link("kernel32")
+extern "C" fn i32 FindClose(Ptr[u8] h)
+@link("kernel32")
+extern "C" fn i32 CreateDirectoryW(Ptr[u16] name, Ptr[u8] security)
+@link("kernel32")
+extern "C" fn i32 RemoveDirectoryW(Ptr[u16] name)
+@link("kernel32")
+extern "C" fn i32 DeleteFileW(Ptr[u16] name)
+@link("kernel32")
+extern "C" fn i32 MoveFileExW(Ptr[u16] from, Ptr[u16] to, u32 flags)
+@link("kernel32")
+extern "C" fn i32 CreatePipe(Ptr[Ptr[u8]] read, Ptr[Ptr[u8]] write, Ptr[u8] security, u32 size)
+@link("kernel32")
+extern "C" fn i32 SetHandleInformation(Ptr[u8] h, u32 mask, u32 flags)
+@link("kernel32")
+extern "C" fn Ptr[u8] GetCurrentProcess()
+@link("kernel32")
+extern "C" fn i32 DuplicateHandle(Ptr[u8] source_process, Ptr[u8] h, Ptr[u8] target_process, Ptr[Ptr[u8]] target, u32 access, i32 inherit, u32 options)
+@link("kernel32")
+extern "C" fn i32 CreateProcessW(Ptr[u16] application, Ptr[u16] command_line, Ptr[u8] process_security, Ptr[u8] thread_security, i32 inherit, u32 flags, Ptr[u8] environment, Ptr[u16] directory, Ptr[u8] startup, Ptr[u8] information)
+@link("kernel32")
+extern "C" fn i32 GetExitCodeProcess(Ptr[u8] process, Ptr[u32] code)
+
+/// A FILETIME (100 ns intervals since 1601) as nanoseconds since 1970.
+fn u64 file_time_ns(u32 low, u32 high) {
+    let t = ((high as u64) << 32 | low as u64) as i64
+    return ((t - EPOCH_DIFFERENCE) * 100) as u64
+}
+
+/// 0 when `ok`, else the last error.
+fn i32 result(i32 ok) {
+    return if ok != 0 { 0 } else { last_error() }
+}
+
+/// What is at `path`: `out` receives its size, its kind (1 file, 2 directory) and its time
+/// of last modification (nanoseconds since 1970). Returns 0, or the error code.
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    unsafe {
+        let wpath = to_wide(path)
+        // WIN32_FILE_ATTRIBUTE_DATA (36 bytes): attributes, three FILETIME, the size.
+        var [u32; 9] data = [0; 9]
+        if GetFileAttributesExW(wpath.as_ptr(), 0, mem.addr_of(data!).cast[u8]()) == 0 {
+            return last_error()
+        }
+        out[0] = (data[7] as u64) << 32 | data[8] as u64
+        // FILE_ATTRIBUTE_DIRECTORY
+        out[1] = if data[0] & 0x10 != 0 { 2 } else { 1 }
+        out[2] = file_time_ns(data[5], data[6])
+        return 0
+    }
+}
+
+/// The names in the directory `path` (without `.` and `..`), appended to `out`. Returns 0,
+/// or the error code.
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    unsafe {
+        let last = if path.len() == 0 { 0 } else { path.byte_at(path.len() - 1) }
+        let pattern = if last == 47 or last == 92 { path + "*" } else { path + "\\*" }
+        let wpattern = to_wide(pattern)
+        // WIN32_FIND_DATAW (592 bytes); the name, zero-terminated, at offset 44.
+        var [u64; 74] data = [0; 74]
+        let d = mem.addr_of(data!).cast[u8]()
+        let h = FindFirstFileW(wpattern.as_ptr(), d)
+        if invalid(h) {
+            return last_error()
+        }
+        var i32 code = 0
+        loop {
+            let name = d.offset(44).cast[u16]()
+            let len = wide_len(name)
+            let dot = len == 1 and name.read() == 46
+            let dotdot = len == 2 and name.read() == 46 and name.offset(1).read() == 46
+            if not dot and not dotdot {
+                out.push(from_wide(name, len))
+            }
+            if FindNextFileW(h, d) == 0 {
+                let e = last_error()
+                // ERROR_NO_MORE_FILES
+                if e != 18 {
+                    code = e
+                }
+                break
+            }
+        }
+        let _ = FindClose(h)
+        return code
+    }
+}
+
+/// Creates the directory `path` (its parent must exist). Returns 0, or the error code.
+pub fn i32 make_dir(String path) {
+    unsafe {
+        let w = to_wide(path)
+        return result(CreateDirectoryW(w.as_ptr(), Ptr.null()))
+    }
+}
+
+/// Removes the file `path`, or the empty directory `path` when `dir`. Returns 0, or the
+/// error code.
+pub fn i32 remove(String path, bool dir) {
+    unsafe {
+        let w = to_wide(path)
+        return result(if dir { RemoveDirectoryW(w.as_ptr()) } else { DeleteFileW(w.as_ptr()) })
+    }
+}
+
+/// Renames `from` to `to` (replacing `to` if it is a file). Returns 0, or the error code.
+pub fn i32 rename_path(String from, String to) {
+    unsafe {
+        let a = to_wide(from)
+        let b = to_wide(to)
+        // MOVEFILE_REPLACE_EXISTING
+        return result(MoveFileExW(a.as_ptr(), b.as_ptr(), 1))
+    }
+}
+
+/// Appends `arg` to a command line, quoted as the C runtime of Windows reads it back
+/// (`CommandLineToArgvW`): within quotes, backslashes before a quote are doubled.
+fn quote_arg(String line!, String arg) {
+    if line.len() > 0 {
+        line.push(' ')
+    }
+    let plain = arg.len() > 0 and not arg.contains(" ") and not arg.contains("\t") and not arg.contains("\"")
+    if plain {
+        line.push_str(arg)
+        return
+    }
+    line.push('"')
+    var usize backslashes = 0
+    for c in arg {
+        if c == '\\' {
+            backslashes += 1
+            continue
+        }
+        let n = if c == '"' { backslashes * 2 + 1 } else { backslashes }
+        for _ in 0..n {
+            line.push('\\')
+        }
+        backslashes = 0
+        line.push(c)
+    }
+    for _ in 0..backslashes * 2 {
+        line.push('\\')
+    }
+    line.push('"')
+}
+
+/// An inheritable copy of the standard handle `id` (null when there is none).
+unsafe fn Ptr[u8] inheritable_std(u32 id) {
+    let h = GetStdHandle(id)
+    if invalid(h) {
+        return Ptr.null()
+    }
+    var Ptr[u8] copy = Ptr.null()
+    let me = GetCurrentProcess()
+    // DUPLICATE_SAME_ACCESS
+    if DuplicateHandle(me, h, me, mem.addr_of(copy!), 0, 1, 2) == 0 {
+        return Ptr.null()
+    }
+    return copy
+}
+
+unsafe fn close_handle(Ptr[u8] h) {
+    if not h.is_null() {
+        let _ = CloseHandle(h)
+    }
+}
+
+/// Runs `program` with `args` and waits for its end; `code` receives its exit code. With
+/// `capture`, its standard output and error go to `out` (merged, in order); else it shares
+/// those of this program. Returns 0, or the error code when it cannot be started (2: not
+/// found). `CreateProcessW` searches the program (`PATH` included) and adds `.exe`.
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    rt.flush()
+    var line = String.new()
+    quote_arg(line!, program)
+    for a in args {
+        quote_arg(line!, a)
+    }
+    var wline = to_wide(line)
+    unsafe {
+        var Ptr[u8] read_end = Ptr.null()
+        var Ptr[u8] write_end = Ptr.null()
+        if capture {
+            // SECURITY_ATTRIBUTES: inheritable handles.
+            var [u64; 3] security = [24, 0, 1]
+            if CreatePipe(mem.addr_of(read_end!), mem.addr_of(write_end!), mem.addr_of(security!).cast[u8](), 0) == 0 {
+                return last_error()
+            }
+            // HANDLE_FLAG_INHERIT: the child does not get the end this program reads.
+            let _ = SetHandleInformation(read_end, 1, 0)
+        }
+        let input = inheritable_std(STD_INPUT)
+        let output = if capture { write_end } else { inheritable_std(STD_OUTPUT) }
+        let error = if capture { write_end } else { inheritable_std(STD_ERROR) }
+        // STARTUPINFOW (104 bytes): cb, then dwFlags at 60 and the three handles at 80.
+        var [u64; 13] startup = [0; 13]
+        let s = mem.addr_of(startup!).cast[u8]()
+        s.cast[u32]().write(104)
+        // STARTF_USESTDHANDLES
+        s.offset(60).cast[u32]().write(0x100)
+        s.offset(80).cast[Ptr[u8]]().write(input)
+        s.offset(88).cast[Ptr[u8]]().write(output)
+        s.offset(96).cast[Ptr[u8]]().write(error)
+        // PROCESS_INFORMATION: the process, its thread, their identifiers.
+        var [u64; 3] info = [0; 3]
+        let i = mem.addr_of(info!).cast[u8]()
+        let ok = CreateProcessW(Ptr.null(), wline.as_ptr(), Ptr.null(), Ptr.null(), 1, 0, Ptr.null(), Ptr.null(), s, i)
+        let failure = if ok == 0 { last_error() } else { 0 }
+        close_handle(input)
+        close_handle(output)
+        if not capture {
+            close_handle(error)
+        }
+        if failure != 0 {
+            close_handle(read_end)
+            return failure
+        }
+        let process = i.cast[Ptr[u8]]().read()
+        close_handle(i.offset(8).cast[Ptr[u8]]().read())
+        if capture {
+            loop {
+                out.reserve(65536)
+                var u32 got = 0
+                // Fails (ERROR_BROKEN_PIPE) once the child and its own children are done.
+                if ReadFile(read_end, out.as_ptr().offset(out.len()), 65536, mem.addr_of(got!), Ptr.null()) == 0 or got == 0 {
+                    break
+                }
+                out.set_len(out.len() + got as usize)
+            }
+            close_handle(read_end)
+        }
+        let _ = WaitForSingleObject(process, 0xFFFF_FFFF)
+        var u32 exit = 0
+        let got = GetExitCodeProcess(process, mem.addr_of(exit!))
+        let lost = if got == 0 { last_error() } else { 0 }
+        close_handle(process)
+        if lost != 0 {
+            return lost
+        }
+        code = exit as i32
+        return 0
+    }
+}

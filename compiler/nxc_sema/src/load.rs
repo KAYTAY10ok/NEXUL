@@ -30,6 +30,8 @@ pub const STD_MODULES: &[(&str, &str, bool)] = &[
     ("std.collections", include_str!("../../../lib/std/collections.nx"), false),
     ("std.tache", include_str!("../../../lib/std/tache.nx"), false),
     ("std.tzif", include_str!("../../../lib/std/tzif.nx"), true),
+    ("std.fs", include_str!("../../../lib/std/fs.nx"), false),
+    ("std.process", include_str!("../../../lib/std/process.nx"), false),
 ];
 
 /// The system layer `std.sys`, one implementation per operating system.

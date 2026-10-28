@@ -148,8 +148,10 @@ Les deux implémentent `Clone`, `Display` et `Default`.
 | `std.time` | `monotonic_ns()`, `unix_time()`, `unix_time_ns()`, `sleep(ms)`, `sleep_ns(ns)`, `utc_offset(...)` ; dates du calendrier : `Date` (`new`, `today`, `parse`, `add_days`, `add_months`, `weekday`, `days_until`…), `DateTime` (`now`, `now_utc`, `from_unix`…), `Weekday`, `is_leap_year`, `days_in_month` |
 | `std.random` | aléa cryptographique du système : `secure_bytes`, `secure_u64`, `secure_range`, `secure_token` ; générateur reproductible `Rng` (`new(graine)`, `from_entropy`, `range`, `float`, `chance`, `shuffle`) |
 | `std.collections` | `Map[K, V]`, `Set[T]` (§9.2) |
+| `std.fs` | système de fichiers (0.6.0) : `metadata(chemin) -> Result[Metadata, IoError]` (`kind` : `Kind.File`, `.Dir`, `.Other` ; `size` ; `modified_ns`, nanosecondes depuis 1970 ; liens symboliques suivis), `exists`, `is_file`, `is_dir`, `list_dir` (noms triés, sans `.` ni `..`), `create_dir`, `create_dir_all`, `remove_file`, `remove_dir` (dossier vide), `remove_dir_all`, `rename` (remplace un fichier existant), `copy` ; chemins : `join`, `parent`, `file_name`, `extension` (`/` partout, `\` aussi sur Windows). Linux, macOS, Windows, WASI (dans les dossiers accordés) ; ailleurs, `IoError.Other` |
+| `std.process` | autres programmes (0.6.0) : `run(programme, args) -> Result[Output, IoError]` attend la fin et rend `Output { code, output }` (sorties standard et d'erreur fusionnées, dans l'ordre) ; `status(programme, args) -> Result[i32, IoError]` partage les entrées et sorties ; sans shell ; un nom sans `/` est cherché dans `PATH` ; un programme absent donne `IoError.NotFound` ; code `128 + signal` quand un signal l'arrête (Linux, macOS). Linux, macOS, Windows ; ailleurs, `IoError.Other` |
 | `std.mem` | `size_of[T]()`, `align_of[T]()`, `swap`, `replace`, `forget`, `drop`, et en `unsafe` : `alloc`, `realloc`, `free`, `copy[T]`, `set_bytes`, `drop_in_place[T]`, `addr_of`, `read_volatile`, `write_volatile` (registres matériels), `zeroed[T]` |
 
-*(Hors 0.2, dans l'ordre du cahier des charges §14.1 : `text` (Unicode complet), `net`,
+*(Pas encore, dans l'ordre du cahier des charges §14.1 : `text` (Unicode complet), `net`,
 `crypto` (adossé à des implémentations auditées), `async`, `testing` avancé, `logging`,
-`serialization`, concurrence.)*
+`serialization`.)*

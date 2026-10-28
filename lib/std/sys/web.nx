@@ -102,3 +102,44 @@ pub unsafe fn wake_all(Ptr[u32] p) {
 pub unsafe fn wake_one(Ptr[u32] p) {
     let _ = p
 }
+
+// ---------------------------------------------------------------------------
+// File system and processes (std.fs, std.process): unavailable on this target (-1).
+
+pub fn i32 file_info(String path, [u64; 3] out!) {
+    let _ = path
+    let _ = out
+    return -1
+}
+
+pub fn i32 list_dir(String path, Vec[String] out!) {
+    let _ = path
+    let _ = out
+    return -1
+}
+
+pub fn i32 make_dir(String path) {
+    let _ = path
+    return -1
+}
+
+pub fn i32 remove(String path, bool dir) {
+    let _ = path
+    let _ = dir
+    return -1
+}
+
+pub fn i32 rename_path(String from, String to) {
+    let _ = from
+    let _ = to
+    return -1
+}
+
+pub fn i32 run_process(String program, Vec[String] args, bool capture, Vec[u8] out!, i32 code!) {
+    let _ = program
+    let _ = args
+    let _ = capture
+    let _ = out
+    let _ = code
+    return -1
+}

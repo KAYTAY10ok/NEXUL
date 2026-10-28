@@ -1,5 +1,34 @@
 # Historique des versions
 
+## Non publié (vers 0.4.0, 0.5.0 et 0.6.0)
+
+Travail fait après la préparation de la 0.3.0, sur la même branche d'intégration ; les
+critères de sortie de chaque version sont suivis dans la [feuille de route](docs/roadmap.md).
+
+**Langage (édition 1, ADR 0010)**
+- Blocs `extend Type[P is …]` : les méthodes d'un type générique contraintes sur un
+  paramètre du type (Q1) ; mots réservés permis comme noms de membres (Q2) ; type sur la
+  variable d'une boucle (`for T x in e`) ; fonctions dans un type qui a plusieurs
+  interfaces. Toute la bibliothèque standard est écrite en édition 1 ; `nxc migrate`
+  déplace les contraintes vers un bloc `extend` et garde les commentaires des variantes.
+
+**Bibliothèque**
+- `std.fs` (spec §9.3) : métadonnées, dossiers (lister, créer, supprimer, récursivement),
+  renommer, copier, chemins (`join`, `parent`, `file_name`, `extension`) ; Linux
+  (appels système directs), macOS (`libSystem`), Windows (`kernel32`), WASI.
+- `std.process` : `run` (sorties capturées) et `status` (sorties partagées), recherche
+  dans `PATH`, sans shell ; Linux, macOS, Windows.
+- Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
+  `String.push` 1,75 fois plus rapide.
+
+**Tests** : corpus de courses (`tests/ui/task_races.nx`), 10⁶ messages entre 64 tâches
+sur Linux, Windows et macOS (`NEXUL_STRESS=1`), scénario C.
+
+**Limites connues** : `std.process` hérite d'une course connue — un autre thread qui lance
+un programme au même moment peut hériter du tube de capture (Windows, macOS) ; macOS
+x86-64 (structures `stat` et `dirent` anciennes) compilé mais non testé ; WASI ne lance
+pas de programmes.
+
 ## 0.3.0 — « Refonte »
 
 Première version de la refonte. Le langage, les garanties et leurs limites sont décrits

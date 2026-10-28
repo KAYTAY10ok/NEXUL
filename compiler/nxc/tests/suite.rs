@@ -198,7 +198,8 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
         // runs them (`qemu-aarch64`, `qemu-riscv64`).
         let arch = if target.arch == nxc_driver::Arch::Aarch64 { "aarch64" } else { "riscv64" };
         let mut c = Command::new(format!("qemu-{}", arch));
-        c.arg(exe);
+        // Without binfmt_misc, a program that runs itself again goes through QEMU too.
+        c.arg(exe).env("NEXUL_TEST_RUNNER", format!("qemu-{}", arch));
         c
     } else {
         panic!("cannot run programs for `{}` on this machine", target.name);
