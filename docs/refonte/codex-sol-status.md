@@ -41,6 +41,28 @@ Claude Main conserve la revue et l'intégration.
   actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
 - Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
 
+| 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) intégrée. Préparation du VSIX 0.3.0 sur `refonte/sol-vscode-release` : formatage automatique vérifié dans un hôte VS Code Insiders isolé pour les deux éditions ; preuves ci-dessous. |
+| 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
+
+## Travail courant
+
+- Base de cette branche : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026.
+- Les PR #20, #21, #25, #26, #27 et #28 sont présentes dans l’historique de `origin/main`.
+- Branche de préparation du VSIX 0.3.0 : `refonte/sol-vscode-release`; voir les preuves ci-dessous.
+- La PR [#30](https://github.com/KAYTAY10ok/NEXUL/pull/30) est ouverte vers `main`. Le run CI `38903204531` a terminé avec succès sur Linux et Windows ; revue/intégration de Main attendue. La branche est à jour avec `origin/main` au commit `c40acbd`.
+- Le Marketplace sert actuellement la version `0.1.0` de `KAYTAY10ok.nexul-language`. Le VSIX `0.3.0` est préparé et testé, mais pas publié ; la publication reste à la charge de l’utilisateur.
+- Le contrat accepté de `nxc lsp` est `docs/adr/0009-contrat-nxc-lsp.md`. Le code P9 est intégré ; aucune grammaire ni règle de typage n’a été changée dans le lot Sol.
+
+## Mise à jour — VSIX 0.3.0
+
+- Branche `refonte/sol-vscode-release`, basée sur `origin/main` au commit `c40acbd`.
+- `editors/vscode/package.json` et le lockfile portent la version `0.3.0`; ajout du changelog et de l’icône Marketplace.
+- Formatage à l’enregistrement activé par défaut via `nexul.formatOnSave` (désactivable par espace de travail). Il respecte Workspace Trust et passe le texte non enregistré à `nxc ide format` sur stdin.
+- `npm test` : **15/15 réussis** sur Windows et Ubuntu 26.04 sous WSL2.
+- Linux : `cargo build --release -p nxc` réussi sous WSL2 ; `nxc check/build/run/test` réussis sur le fixture édition 1 avec LLD système.
+- `npm run test:host` : **réussi** sous Windows avec le `nxc.exe` release, et sous WSL2 Ubuntu 26.04 avec VS Code Insiders Linux et le `nxc` Linux. Dans les deux cas, profil et extensions isolés, VSIX installé, serveur LSP, CodeLens, commandes `check/build/run/test`, formatage automatique des éditions 0.2/1, formatage manuel 0.2 et diagnostics non enregistrés passent. Le run Windows de suivi vérifie aussi qu’en édition 1 l’enregistrement réindente les bras `.Rouge` et `.Vert` délibérément désindentés dans le fixture `when`; ce cas précis n’a pas encore été rejoué sous WSL2. Le journal VS Code Linux contient des erreurs non bloquantes `native-keymap`/WebGL propres à l’environnement WSL ; le test se termine avec le code 0.
+- `npm run package` : réussi sous Windows et WSL2 ; VSIX `0.3.0`, 333 fichiers, 483,87 Ko, licences incluses. Linux bare metal, macOS et publication Marketplace non testés.
+
 | 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉ** par Main le 16/10 (revue : 5 suites + 90 exécutions sans blocage ; suites dans `revues-main.md`) |
 | 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉ** par Main le 16/10 (vrai `lldb-dap` 23 revérifié ; suites dans `revues-main.md`) |
 | 3 | P9 — CLI et LSP | Socle INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24). [PR #34](https://github.com/KAYTAY10ok/NEXUL/pull/34) ajoute les tests d’éditions LSP mixtes et les mesures ADR 0009 ; CI réussie, revue Main attendue. |
@@ -147,7 +169,7 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   appartiennent à `compiler/**` / Core.
 - Construction de `studio/app` et paquet complet via MSVC : non testés sur cette machine.
 
-## Preuves L4 — extension VS Code et édition 1
+## Preuves L4 initiales — intégration PR #26
 
 - `cargo build --release -p nxc` réussi depuis la base `496949f`.
 - `cargo test -p nxc` : 32 tests réussis (11 unitaires, 6 fondations, 5 LSP, 10 conformité), 0 échec ; 1 test Web ignoré comme prévu sans sa chaîne dédiée.
@@ -161,8 +183,9 @@ conserver le snapshot après sortie et exécuter les opérations bloquantes hors
   édition non enregistrée et effacement du diagnostic après correction passent aussi.
   Pour l’édition 1, la commande de formatage prévient et laisse le texte intact.
 - `git diff --check` : réussi. Le VSIX n’a pas été installé dans une instance utilisateur
-  et l’extension n’a pas été publiée sur le Marketplace. Le formatage Edition 1 dépend
-  de son implémentation par Core dans `nxc`.
+  et l’extension n’a pas été publiée sur le Marketplace. À cette étape, le formatage
+  Edition 1 ne modifiait pas le document ; le test a été complété dans la section
+  « Mise à jour — VSIX 0.3.0 » ci-dessus.
 
 ## Diagnostic et correction de la CI L3
 

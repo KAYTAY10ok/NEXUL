@@ -2,8 +2,9 @@
   "name": "nexul-language",
   "displayName": "NEXUL Language Support",
   "description": "Coloration, diagnostics, formatage automatique et outils de développement pour le langage NEXUL.",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "publisher": "KAYTAY10ok",
+  "icon": "media/icon.png",
   "license": "MIT OR Apache-2.0",
   "repository": {
     "type": "git",
@@ -140,19 +141,15 @@
         }
       }
     ],
-    "configurationDefaults": {
-      "[nexul]": {
-        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
-        "editor.formatOnSave": true
-      },
-      "[nexul1]": {
-        "editor.defaultFormatter": "KAYTAY10ok.nexul-language",
-        "editor.formatOnSave": true
-      }
-    },
     "configuration": {
       "title": "NEXUL",
       "properties": {
+        "nexul.formatOnSave": {
+          "type": "boolean",
+          "default": true,
+          "scope": "resource",
+          "description": "Formate les fichiers NEXUL à chaque enregistrement."
+        },
         "nexul.nxcPath": {
           "type": "string",
           "default": "nxc",
@@ -164,8 +161,8 @@
   },
   "scripts": {
     "test": "node --test test/cli.test.js test/edition.test.js test/trust.test.js",
-    "test:host": "node test/run-host-tests.js",
-    "package": "node -e \"require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package --out dist/kaytay10ok.nexul-language-0.1.0.vsix"
+    "test:host": "npm run package && node test/run-host-tests.js",
+    "package": "node -e \"require('node:fs').mkdirSync('dist', { recursive: true })\" && vsce package --out dist/kaytay10ok.nexul-language-0.3.0.vsix"
   },
   "devDependencies": {
     "@vscode/test-electron": "^3.1.0",
