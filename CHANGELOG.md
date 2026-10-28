@@ -1,48 +1,5 @@
 # Historique des versions
 
-## Non publié (vers 0.4.0, 0.5.0 et 0.6.0)
-
-Travail fait après la préparation de la 0.3.0, sur la même branche d'intégration ; les
-critères de sortie de chaque version sont suivis dans la [feuille de route](docs/roadmap.md).
-
-**Langage (édition 1, ADR 0010)**
-- Blocs `extend Type[P is …]` : les méthodes d'un type générique contraintes sur un
-  paramètre du type (Q1) ; mots réservés permis comme noms de membres (Q2) ; type sur la
-  variable d'une boucle (`for T x in e`) ; fonctions dans un type qui a plusieurs
-  interfaces. Toute la bibliothèque standard est écrite en édition 1 ; `nxc migrate`
-  déplace les contraintes vers un bloc `extend` et garde les commentaires des variantes.
-
-**Bibliothèque**
-- `std.fs` (spec §9.3) : métadonnées, dossiers (lister, créer, supprimer, récursivement),
-  renommer, copier, chemins (`join`, `parent`, `file_name`, `extension`) ; Linux
-  (appels système directs), macOS (`libSystem`), Windows (`kernel32`), WASI.
-- `std.process` : `run` (sorties capturées) et `status` (sorties partagées), recherche
-  dans `PATH`, sans shell ; Linux, macOS, Windows.
-- `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
-  connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
-  Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
-- `std.strview` : vues de chaînes qui partagent leur texte (`slice`, `split`, `lines`,
-  `trim` sans copie), sûres sans références stockées (compteur atomique), utilisables
-  comme clés et entre tâches.
-- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (pointeurs de
-  fonction reçus), testé avec le compilateur C du système, lié à
-  la bibliothèque statique et à la partagée, sur Linux, macOS et Windows
-  (`tests/interop`) ; `--staticlib` produit du code indépendant de la position (le lien
-  avec un exécutable C PIE échouait) ; une bibliothèque n'attend plus la fin du
-  processus pour écrire ce que `print` lui donne (rien ne s'affichait) ; archives au
-  format BSD et `.dylib` nommées `@rpath/…` sur macOS, bibliothèque d'import gardée avec
-  la DLL sous Windows.
-- Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
-  `String.push` 1,75 fois plus rapide.
-
-**Tests** : corpus de courses (`tests/ui/task_races.nx`), 10⁶ messages entre 64 tâches
-sur Linux, Windows et macOS (`NEXUL_STRESS=1`), scénario C.
-
-**Limites connues** : `std.process` hérite d'une course connue — un autre thread qui lance
-un programme au même moment peut hériter du tube de capture (Windows, macOS) ; macOS
-x86-64 (structures `stat` et `dirent` anciennes) compilé mais non testé ; WASI ne lance
-pas de programmes.
-
 ## 0.3.0 — « Refonte »
 
 Première version de la refonte. Le langage, les garanties et leurs limites sont décrits
@@ -53,8 +10,8 @@ prouvé est écrit « non testé ».
 - Édition 1 de la syntaxe (ADR 0010) : chaque fichier ou paquet choisit son édition
   (`// edition: 1`, `edition = "1"` dans `nexul.toml`) ; l'édition 0.2 reste acceptée ;
   `nxc migrate` réécrit un fichier 0.2 en édition 1 (il signale désormais les contraintes
-  qu'il ne sait pas écrire au lieu de les perdre) ; 20 des 24 fichiers de la bibliothèque
-  standard sont écrits en édition 1.
+  qu'il ne sait pas écrire au lieu de les perdre) ; toute la bibliothèque
+  standard est écrite en édition 1.
 - Copiabilité explicite des types publics, `Copy` (ADR 0012).
 - Types distincts et types contraints (`type Pourcent = i32 where it in 0..=100`),
   vérifiés à la construction et à l'entrée des `@export` (ADR 0014).
@@ -97,13 +54,56 @@ prouvé est écrit « non testé ».
 - Extension VS Code 0.3.0 : édition 1, LSP, formatage à l'enregistrement.
 - `NEXUL Setup.exe` 0.3.0 : Studio natif, migration des réglages de la 0.2, versions des
   composants vérifiées avant la construction.
-- CI : suite complète du compilateur sous Linux et Windows (LLVM 20.1.8), crates de
-  Studio, ABI navigateur, PR empilées.
+- CI : suite complète du compilateur sous Linux, Windows et macOS (LLVM 20), crates de
+  Studio, ABI navigateur, PR empilées ; l'étiquette d'une version construit
+  `NEXUL-Setup.exe` et publie la version (`.github/workflows/release.yml`).
 
-**Limites connues** : macOS Intel et Windows sur ARM compilés mais non exécutés ; en
-édition 1, pas encore de méthode contrainte sur un paramètre de son type (`vec.nx`,
-`string.nx`, `collections.nx`, `tache.nx` restent en 0.2) ; pas encore
-d'`Atomique[bool]` ni d'ordres mémoire faibles.
+**Limites connues** : macOS Intel et Windows sur ARM compilés mais non exécutés ; pas
+encore d'`Atomique[bool]` ni d'ordres mémoire faibles.
+
+### Aussi dans la 0.3.0 : en avance sur 0.4.0 à 0.6.0
+
+La 0.3.0 contient aussi les premiers éléments des versions 0.4.0 à 0.6.0, faits avant sa
+publication ; ces versions ne sont pas atteintes pour autant : leurs critères de sortie
+sont suivis un par un dans la [feuille de route](docs/roadmap.md).
+
+**Langage (édition 1, ADR 0010)**
+- Blocs `extend Type[P is …]` : les méthodes d'un type générique contraintes sur un
+  paramètre du type (Q1) ; mots réservés permis comme noms de membres (Q2) ; type sur la
+  variable d'une boucle (`for T x in e`) ; fonctions dans un type qui a plusieurs
+  interfaces. Toute la bibliothèque standard est écrite en édition 1 ; `nxc migrate`
+  déplace les contraintes vers un bloc `extend` et garde les commentaires des variantes.
+
+**Bibliothèque**
+- `std.fs` (spec §9.3) : métadonnées, dossiers (lister, créer, supprimer, récursivement),
+  renommer, copier, chemins (`join`, `parent`, `file_name`, `extension`) ; Linux
+  (appels système directs), macOS (`libSystem`), Windows (`kernel32`), WASI.
+- `std.process` : `run` (sorties capturées) et `status` (sorties partagées), recherche
+  dans `PATH`, sans shell ; Linux, macOS, Windows.
+- `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
+  connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
+  Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
+- `std.strview` : vues de chaînes qui partagent leur texte (`slice`, `split`, `lines`,
+  `trim` sans copie), sûres sans références stockées (compteur atomique), utilisables
+  comme clés et entre tâches.
+- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (pointeurs de
+  fonction reçus), testé avec le compilateur C du système, lié à
+  la bibliothèque statique et à la partagée, sur Linux, macOS et Windows
+  (`tests/interop`) ; `--staticlib` produit du code indépendant de la position (le lien
+  avec un exécutable C PIE échouait) ; une bibliothèque n'attend plus la fin du
+  processus pour écrire ce que `print` lui donne (rien ne s'affichait) ; archives au
+  format BSD et `.dylib` nommées `@rpath/…` sur macOS, bibliothèque d'import gardée avec
+  la DLL sous Windows.
+- Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
+  `String.push` 1,75 fois plus rapide.
+
+**Tests** : corpus de courses (`tests/ui/task_races.nx`), 10⁶ messages entre 64 tâches
+sur Linux, Windows et macOS (`NEXUL_STRESS=1`), scénario C.
+
+**Limites connues de ces ajouts** : `std.process` hérite d'une course connue — un autre thread qui lance
+un programme au même moment peut hériter du tube de capture (Windows, macOS) ; macOS
+x86-64 (structures `stat` et `dirent` anciennes) compilé mais non testé ; WASI ne lance
+pas de programmes.
 
 ## 0.2.0 — « Autonomie et abstractions »
 
