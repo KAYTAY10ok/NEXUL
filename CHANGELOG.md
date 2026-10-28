@@ -24,12 +24,14 @@ critères de sortie de chaque version sont suivis dans la [feuille de route](doc
 - `std.strview` : vues de chaînes qui partagent leur texte (`slice`, `split`, `lines`,
   `trim` sans copie), sûres sans références stockées (compteur atomique), utilisables
   comme clés et entre tâches.
-- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (fonction du
-  programme, pointeur de fonction reçu), testé avec le compilateur C du système, lié à
+- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (pointeurs de
+  fonction reçus), testé avec le compilateur C du système, lié à
   la bibliothèque statique et à la partagée, sur Linux, macOS et Windows
   (`tests/interop`) ; `--staticlib` produit du code indépendant de la position (le lien
   avec un exécutable C PIE échouait) ; une bibliothèque n'attend plus la fin du
-  processus pour écrire ce que `print` lui donne (rien ne s'affichait).
+  processus pour écrire ce que `print` lui donne (rien ne s'affichait) ; archives au
+  format BSD et `.dylib` nommées `@rpath/…` sur macOS, bibliothèque d'import gardée avec
+  la DLL sous Windows.
 - Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
   `String.push` 1,75 fois plus rapide.
 

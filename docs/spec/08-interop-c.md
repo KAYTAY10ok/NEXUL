@@ -95,9 +95,13 @@ fn main() {
   aussitôt (aucun point d'entrée NEXUL ne viderait le tampon à la fin).
 - **Testé** (0.6.0) : `tests/interop/main.c`, compilé par le compilateur C du système
   (`cc`, `clang` sous Windows), appelle `tests/interop/lib.nx` (entiers, chaîne C, `bool`
-  vérifié, sortie standard), qui rappelle C (une fonction du programme et un pointeur de
-  fonction reçu) ; lié une fois à la bibliothèque statique et une fois à la partagée, sur
+  vérifié, sortie standard), qui rappelle C par les pointeurs de fonction reçus ; lié une fois à la bibliothèque statique et une fois à la partagée, sur
   Linux, macOS et Windows dans la CI (`compiler/nxc/tests/interop.rs`).
+- Une bibliothèque **partagée** n'appelle pas une fonction du programme qui la charge par
+  une déclaration `extern` : une DLL Windows ne peut rien importer de son programme
+  (l'appel échoue au chargement, 0xc0000139), et sur macOS le nom serait cherché dans
+  `libSystem`. Le programme lui passe des pointeurs de fonction. Une bibliothèque
+  statique, elle, peut le faire (le nom est résolu à l'édition de liens).
 - Une panique dans une fonction exportée arrête le processus avec le message habituel
   (§07) : elle ne traverse jamais la frontière avec C.
 - **Valeurs reçues de C** (ADR 0011 T4) : un `bool` doit être l'octet 0 ou 1, un `char`

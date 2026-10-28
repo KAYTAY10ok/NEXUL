@@ -1,6 +1,6 @@
 //! C and NEXUL calling each other (roadmap 0.6.0): `tests/interop/main.c`, compiled by
 //! the C compiler of the system, calls the `@export` functions of `tests/interop/lib.nx`,
-//! which call back into C (a function of the program, a function pointer it passes).
+//! which call back into C through the function pointers it passes.
 //! Linked once with the static library (`--staticlib`) and once with the shared one
 //! (`--lib`).
 //!
