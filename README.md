@@ -4,7 +4,7 @@
 
 NEXUL est un langage de programmation compilé, sûr et lisible, conçu pour couvrir tous les
 domaines du logiciel : outils système, serveurs, jeux, embarqué, calcul scientifique. Ce
-dépôt contient la **version 0.2** : la spécification du langage, le compilateur natif
+dépôt contient la **version 0.3** (la refonte, en route vers la 1.0) : la spécification du langage, le compilateur natif
 `nxc`, la bibliothèque standard et le runtime (écrits en NEXUL), le gestionnaire de
 paquets `nxpm`, l'environnement de développement **NEXUL Studio** et le programme
 d'installation pour Windows.
@@ -171,10 +171,11 @@ moteur Python pour le débogueur) et produit `NEXUL Setup.exe` sur le Bureau
 
 ## État
 
-NEXUL 0.2 est utilisable pour des programmes complets en ligne de commande, des
-bibliothèques, WebAssembly et des micrologiciels. La concurrence, le réseau,
-l'interopérabilité Python et la compilation séparée des modules sont les prochaines
-étapes de la [feuille de route](docs/roadmap.md).
+NEXUL 0.3 est utilisable pour des programmes complets en ligne de commande, des
+bibliothèques, WebAssembly et des micrologiciels, et écrit déjà des programmes
+concurrents sûrs (`std.tache`, ADR 0013) sur Linux et Windows. La compilation séparée,
+le réseau, le profil temps réel et le compilateur écrit en NEXUL (auto-hébergement) sont
+les étapes suivantes, de la 0.4 à la 1.0 : voir la [feuille de route](docs/roadmap.md).
 
 ## Licence
 

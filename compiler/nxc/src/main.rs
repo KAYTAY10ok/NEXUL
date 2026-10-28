@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
 const USAGE: &str = "\
-nxc — the NEXUL compiler, version 0.2
+nxc — the NEXUL compiler, version 0.3
 
 usage:
     nxc run    <file.nx> [options] [-- program arguments]   compile and run
@@ -183,8 +183,9 @@ fn real_main() {
         "version" | "--version" | "-V" => {
             if args.json_version.is_some() {
                 println!(
-                    "{{\"nxc\":{},\"nexul\":\"0.2\",\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}}",
-                    nxc_driver::json_str(env!("CARGO_PKG_VERSION"))
+                    "{{\"nxc\":{},\"nexul\":{},\"json\":[0,1],\"lsp\":true,\"editions\":[\"0.2\",\"1\"]}}",
+                    nxc_driver::json_str(env!("CARGO_PKG_VERSION")),
+                    nxc_driver::json_str(&env!("CARGO_PKG_VERSION")[..3])
                 );
             } else {
                 println!(
