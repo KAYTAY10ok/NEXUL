@@ -35,4 +35,5 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | Lot | Document |
 |---|---|
 | P12 — SH0 | [Auto-hébergement : inventaire et trajectoire](selfhost-sh0.md) |
+| P8 — G0 | [Temps réel : choix de la première cible](temps-reel-g0.md) (décision 3) |
 | Contrats | [Contrats entre les composants du compilateur](../spec/contrats-composants.md) (proposés) |
