@@ -91,8 +91,10 @@ pub unsafe fn free(Ptr[u8] p) {
 const usize OUT_CAP = 8192
 static var [u8; 8192] OUT_BUF = [0; 8192]
 static var usize OUT_LEN = 0
-/// When standard output is a terminal, every `print` is flushed immediately.
-static var bool OUT_IS_TERMINAL = false
+/// When standard output is a terminal, every `print` is flushed immediately. The entry of
+/// a program sets it; in a library (`--lib`, `--staticlib`), where no entry of NEXUL runs
+/// and nothing would flush at the end, it stays true.
+static var bool OUT_IS_TERMINAL = true
 
 /// Only the Windows stack-fault path uses this. The process exits immediately,
 /// so no allocation, destruction or console transcoding is needed.

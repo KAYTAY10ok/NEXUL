@@ -8,6 +8,8 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # tests/interop: C and NEXUL calling each other, with the C compiler of the runner.
+  NEXUL_REQUIRE_CC: "1"
 
 jobs:
   linux:

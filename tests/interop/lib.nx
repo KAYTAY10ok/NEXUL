@@ -1,0 +1,46 @@
+// edition: 1
+// The NEXUL side of tests/interop: functions for C (`@export`), which call C in turn
+// (a function of the C program, and a function pointer it passes).
+
+extern "C" fn i32 c_twice(i32 x)
+
+@export
+fn i32 nx_add(i32 a, i32 b) {
+    return a + b
+}
+
+/// Calls the C callback `f`, then a function of the C program.
+@export
+fn i32 nx_apply(fn i32(i32) f, i32 x) {
+    return f(x) + unsafe { c_twice(x) }
+}
+
+/// The number of words of a C string (the allocator of NEXUL, in a library).
+@export
+fn usize nx_words(Ptr[u8] text) {
+    var usize n = 0
+    unsafe {
+        while text.offset(n).read() != 0 {
+            n += 1
+        }
+    }
+    let s = unsafe { String.from_bytes_lossy(text, n) }
+    var usize words = 0
+    for w in s.split(" ") {
+        if w.len() > 0 {
+            words += 1
+        }
+    }
+    return words
+}
+
+/// A `bool` from C is checked at the entry (ADR 0011 T4).
+@export
+fn i32 nx_choose(bool first, i32 a, i32 b) {
+    return if first { a } else { b }
+}
+
+@export
+fn nx_hello(i32 n) {
+    println("hello {n} from NEXUL")
+}

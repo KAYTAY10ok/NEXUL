@@ -37,9 +37,16 @@ fn main() {
 | `char` | `uint32_t` |
 | `Ptr[T]` | `T*` |
 | `()` (retour) | `void` |
+| `fn R(A, B)` | `R (*)(A, B)` (pointeur de fonction de rappel) |
 
-Tout autre type dans une signature `extern` est l'erreur E0503. *(Hors 0.1 : structures
-`@repr("C")`, pointeurs de fonctions de rappel, variadiques.)*
+Tout autre type dans une signature `extern` est l'erreur E0503. *(Pas encore : structures
+`@repr("C")` passées par valeur, variadiques.)*
+
+**Fonctions de rappel.** Une valeur de type fonction passée par valeur est toujours une
+fonction **nommée** (une fonction anonyme n'y est pas acceptée, E0248) : c'est un simple
+pointeur de code, à la convention d'appel C, que C peut appeler. Dans l'autre sens, une
+fonction `@export` qui reçoit un pointeur de fonction de C l'appelle comme une fonction
+NEXUL. Testé avec un vrai compilateur C (`tests/interop`, §8.4).
 
 ## 8.3 Pointeurs bruts `Ptr[T]`
 
@@ -82,7 +89,15 @@ fn main() {
   (§8.2) ; elle n'est pas générique (E0504).
 - `nxc build lib.nx --lib` produit une bibliothèque partagée (`.dll`, `.so`, `.dylib`)
   dont les symboles exportés sont exactement les fonctions `@export` ; `--staticlib`
-  produit une bibliothèque statique (`.lib`, `.a`). Le runtime de NEXUL y est inclus.
+  produit une bibliothèque statique (`.lib`, `.a`). Le runtime de NEXUL y est inclus ;
+  hors Windows, les deux sont compilées en code indépendant de la position (un
+  exécutable C est PIE par défaut). Dans une bibliothèque, chaque `print` est écrit
+  aussitôt (aucun point d'entrée NEXUL ne viderait le tampon à la fin).
+- **Testé** (0.6.0) : `tests/interop/main.c`, compilé par le compilateur C du système
+  (`cc`, `clang` sous Windows), appelle `tests/interop/lib.nx` (entiers, chaîne C, `bool`
+  vérifié, sortie standard), qui rappelle C (une fonction du programme et un pointeur de
+  fonction reçu) ; lié une fois à la bibliothèque statique et une fois à la partagée, sur
+  Linux, macOS et Windows dans la CI (`compiler/nxc/tests/interop.rs`).
 - Une panique dans une fonction exportée arrête le processus avec le message habituel
   (§07) : elle ne traverse jamais la frontière avec C.
 - **Valeurs reçues de C** (ADR 0011 T4) : un `bool` doit être l'octet 0 ou 1, un `char`

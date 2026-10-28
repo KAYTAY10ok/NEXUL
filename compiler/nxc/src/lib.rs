@@ -600,7 +600,9 @@ pub fn emit_object(output: &Output, obj: &Path, opts: &BuildOptions) -> Result<(
         cpu: &t.cpu,
         features: &t.features,
         opt_level: opts.level(),
-        pic: opts.kind == OutputKind::SharedLibrary && t.os != Os::Windows,
+        // A static library too: C compilers make position-independent executables by
+        // default, which cannot link code that is not.
+        pic: opts.kind != OutputKind::Executable && t.os != Os::Windows,
         code_model: code_model(t),
     };
     llvm::compile(&tc, &output.ir, obj, &cg, false).map(|_| ())

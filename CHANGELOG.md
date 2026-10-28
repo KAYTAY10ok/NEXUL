@@ -21,6 +21,12 @@ critères de sortie de chaque version sont suivis dans la [feuille de route](doc
 - `std.net` : TCP sur IPv4 (`TcpListener`, `TcpStream`), bloquant, une tâche par
   connexion ; serveur concurrent testé (`tests/run/tcp.nx`, 8 clients simultanés) sur
   Linux (x86-64, AArch64, RISC-V), Windows et macOS. Pas encore : DNS, IPv6, UDP, délais.
+- Interopérabilité C : un programme C appelle NEXUL et NEXUL rappelle C (fonction du
+  programme, pointeur de fonction reçu), testé avec le compilateur C du système, lié à
+  la bibliothèque statique et à la partagée, sur Linux, macOS et Windows
+  (`tests/interop`) ; `--staticlib` produit du code indépendant de la position (le lien
+  avec un exécutable C PIE échouait) ; une bibliothèque n'attend plus la fin du
+  processus pour écrire ce que `print` lui donne (rien ne s'affichait).
 - Canaux de `std.tache` : files d'attente par thread et réveil d'un seul thread ;
   `String.push` 1,75 fois plus rapide.
 

@@ -107,9 +107,11 @@ ne passent pas par la libc ; raison dans la fiche).
 `tests/run/process.nx` (Linux, Windows, macOS) ; `std.net` (TCP sur IPv4) fait, et le
 critère « serveur TCP concurrent d'exemple testé » rempli sur Linux (trois architectures)
 par `tests/run/tcp.nx` (un serveur, une tâche par connexion, 8 clients simultanés) ;
-Windows et macOS : à confirmer par la CI. Restent la compilation séparée et le cache incrémental,
-`@repr("C")` et les rappels C, les vues de chaînes, UDP, et deux critères de sortie (temps
-de compilation incrémentale, appels C ↔ NEXUL).
+Windows et macOS : à confirmer par la CI. Le critère « programme C qui appelle NEXUL et
+inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
+compris ; Linux ici, macOS et Windows par la CI). Restent la compilation séparée et le
+cache incrémental, `@repr("C")` (structures par valeur), les vues de chaînes, UDP, et le
+critère du temps de compilation incrémentale.
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
