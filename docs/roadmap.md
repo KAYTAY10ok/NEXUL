@@ -93,7 +93,7 @@ avec détection de fuites.
 | matrice des plateformes publiée | [plateformes.md](plateformes.md) |
 | macOS validé ou exclu | **validé** sur Apple silicon (CI, O0 et O2) ; Intel compilé seulement |
 | `lib/` migrée | **fait** : toute la bibliothèque standard en édition 1 |
-| édition 1 complète hors formes réservées | Q1 et Q2 décidées et mises en œuvre (28/10) ; reste à relire la liste des formes de l'ADR 0010 |
+| édition 1 complète hors formes réservées | Q1, Q2, boucle typée et types à plusieurs interfaces faits (28/10) ; restent la contrainte sur le paramètre d'un type et les types distincts génériques (ADR 0010, fin) |
 | `tests/ui` couvre chaque nouvelle règle | chaque code a son test (K7.1) |
 
 Le contenu de langage de la 0.5.0 (ADR 0013) est aussi intégré ; restent ThreadSanitizer

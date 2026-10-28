@@ -21,6 +21,9 @@ struct PendingImpl {
     module: ModId,
     decl: ast::ImplDecl,
     span: Span,
+    /// The functions written in the body of a type that declares several interfaces
+    /// (`type P is A and B { … }`): each goes to the interface that declares it.
+    type_body: bool,
 }
 
 /// What a function signature is resolved inside of: an `impl` block or a `trait`.
@@ -69,7 +72,8 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
             }
             let item_ref = match item.kind {
                 ItemKind::Impl(decl) => {
-                    impls.push(PendingImpl { module: mid, decl, span: item.span });
+                    let type_body = item.attrs.iter().any(|a| a.name.name == "type body");
+                    impls.push(PendingImpl { module: mid, decl, span: item.span, type_body });
                     continue;
                 }
                 ItemKind::Fn(f) => {
@@ -310,6 +314,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
     for (id, decl, attrs) in &pending_fns {
         resolve_fn_sig(prog, *id, decl, attrs, None, diags);
     }
+    let impls = distribute_type_body(prog, impls);
     for imp in impls {
         if imp.decl.trait_.is_some() {
             collect_trait_impl(prog, imp, diags);
@@ -402,7 +407,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" => {}
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" | "type body" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
                 // The validation of a constrained type panics where `as` is written (ADR 0014).
                 let validation = name == "track_caller" && matches!(&item.kind, ItemKind::Fn(f) if f.name.name == crate::newtype::VALIDATE_FN);
@@ -1037,6 +1042,34 @@ fn collect_trait(prog: &mut Program, id: TraitId, decl: &ast::TraitDecl, diags: 
 }
 
 /// `impl Trait for Type { ... }`
+/// `type P is A and B { fn … }` (edition 1): each function goes to the block of the
+/// interface that declares a function of that name; the others stay methods of the type.
+fn distribute_type_body(prog: &Program, mut impls: Vec<PendingImpl>) -> Vec<PendingImpl> {
+    for b in 0..impls.len() {
+        if !impls[b].type_body {
+            continue;
+        }
+        let fns = std::mem::take(&mut impls[b].decl.items);
+        let mut kept = Vec::new();
+        for item in fns {
+            let ItemKind::Fn(f) = &item.kind else { continue };
+            let target = (0..impls.len()).find(|&t| {
+                impls[t].span == impls[b].span
+                    && impls[t].decl.trait_.as_ref().is_some_and(|tr| {
+                        resolve_trait_ref(prog, impls[t].module, tr, &DiagSink::new())
+                            .is_some_and(|id| prog.traits[id.idx()].methods.iter().any(|m| m.name == f.name.name))
+                    })
+            });
+            match target {
+                Some(t) => impls[t].decl.items.push(item),
+                None => kept.push(item),
+            }
+        }
+        impls[b].decl.items = kept;
+    }
+    impls
+}
+
 fn collect_trait_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     let trait_expr = imp.decl.trait_.clone().unwrap();
     let Some(tr) = resolve_trait_ref(prog, imp.module, &trait_expr, diags) else { return };

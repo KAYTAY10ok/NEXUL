@@ -1,0 +1,24 @@
+// edition: 1
+// Edition 1 (ADR 0010): a type on the variable of a `for` loop (it also types a range), and
+// functions in a type that declares several interfaces (each goes to its interface).
+type Point is Display and Eq {
+    i32 x
+    i32 y
+
+    fn String to_string(self) = "({self.x}, {self.y})"
+    fn bool eq(self, Point o) = self.x == o.x and self.y == o.y
+    pub fn i32 somme(self) = self.x + self.y
+}
+
+fn main() {
+    var i64 s = 0
+    for i64 i in 0..5 {
+        s += i * 1_000_000_000_000
+    }
+    for f64 x in [1.5, 2.5] {
+        s += x as i64
+    }
+    println(s)
+    let a = Point(x: 1, y: 2)
+    println("{a} {a == Point(x: 1, y: 2)} {a == Point(x: 2, y: 1)} {a.somme()}")
+}

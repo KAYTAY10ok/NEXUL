@@ -483,8 +483,11 @@ impl<'a> Parser<'a> {
             0 => {}
             1 => items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty, trait_: interfaces.pop(), bounds: vec![], items: fns, is_unsafe: false }), span }),
             _ => {
+                // The functions go to the interface that declares them, decided once the
+                // interfaces are known (`type body`, a name no program can write).
                 if !fns.is_empty() {
-                    self.not_yet(span, "functions in a type that declares several interfaces (write them in `extend Type is I { … }`)");
+                    let marker = Attr { name: Ident { name: "type body".into(), span }, args: vec![], span };
+                    items.push(Item { attrs: vec![marker], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: None, bounds: vec![], items: fns, is_unsafe: false }), span });
                 }
                 for i in interfaces {
                     items.push(Item { attrs: vec![], is_pub: false, kind: ItemKind::Impl(ImplDecl { ty: self_ty.clone(), trait_: Some(i), bounds: vec![], items: vec![], is_unsafe: false }), span });
@@ -845,13 +848,16 @@ impl<'a> Parser<'a> {
         Ok(Some(match self.peek().clone() {
             TokenKind::For => {
                 self.bump();
-                if self.typed_name_here() {
-                    let span = self.span();
-                    self.not_yet(span, "a type on the variable of a `for` loop");
-                    return Err(());
-                }
+                // `for T x in e { … }`: the type is checked by `let T x = x` at the start of
+                // the body (it also gives its type to a range: `for i64 i in 0..n`).
+                let typed = if self.typed_name_here() { Some(self.type_expr()?) } else { None };
                 let pat = self.pattern()?;
                 let mutable = self.eat(&TokenKind::Bang);
+                if typed.is_some() && (mutable || !matches!(pat.kind, PatKind::Ident(_))) {
+                    let span = pat.span;
+                    self.not_yet(span, "a type on the variable of a `for` loop that modifies the elements or destructures them");
+                    return Err(());
+                }
                 self.expect(TokenKind::In, "`in`")?;
                 if self.is(&TokenKind::Amp) {
                     let span = self.span();
@@ -866,7 +872,12 @@ impl<'a> Parser<'a> {
                 } else {
                     ForIter::Expr { expr: first, mutable }
                 };
-                let body = self.block()?;
+                let mut body = self.block()?;
+                if let (Some(ty), PatKind::Ident(name)) = (typed, &pat.kind) {
+                    let init = Expr { kind: ExprKind::Ident(name.clone()), span: pat.span };
+                    let span = ty.span.to(pat.span);
+                    body.stmts.insert(0, Stmt { kind: StmtKind::Let { pat: pat.clone(), ty: Some(ty), init }, span });
+                }
                 StmtKind::For { label, pat, iter, body }
             }
             TokenKind::While => {

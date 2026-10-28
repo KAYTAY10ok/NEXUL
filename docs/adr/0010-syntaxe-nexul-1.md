@@ -675,3 +675,12 @@ clé), mais `fn bool any(…)` ne se déclare pas.
 - **Proposition (recommandée)** : accepter un mot réservé comme **nom de méthode ou de
   champ** dans sa déclaration (le mot suit `fn T` ou un type, jamais en tête
   d'instruction), sans le permettre ailleurs. Aucun renommage de l'API, aucune rupture.
+
+**Formes complétées le 28/10/2026 (Claude Main, critère « édition 1 complète » de la 0.4.0)** :
+`for T x in e { … }` (le type est vérifié comme celui d'un `let`, et type un intervalle :
+`for i64 i in 0..n` ; pas encore avec `x!` ni un motif) ; des fonctions dans un `type` qui
+déclare plusieurs interfaces (chacune va à l'interface qui la déclare, les autres restent des
+méthodes du type). Tests : `tests/run/edition1_forms.nx`. Restent refusées (E0111), hors formes
+réservées du §8 : une contrainte sur le paramètre d'un type (`type Map[K is Hash]`, que l'on écrit
+sur les blocs `extend`), un type distinct ou contraint générique (ADR 0014), `===`/`!==` (avec
+les valeurs partagées).
