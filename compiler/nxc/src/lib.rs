@@ -676,9 +676,11 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
     });
     if let Some((_, file)) = &cached {
         if file.is_file() && std::fs::copy(file, out).is_ok() {
-            let pdb = file.with_extension("pdb");
-            if pdb.is_file() {
-                let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
+            for ext in companions(opts) {
+                let c = file.with_extension(ext);
+                if c.is_file() {
+                    let _ = std::fs::copy(&c, out.with_extension(ext));
+                }
             }
             // Recently used outputs are the last ones removed from the cache.
             let _ = std::fs::File::options()
@@ -718,10 +720,12 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
         link::link(&tc, &job)?;
         if let Some((d, file)) = &cached {
             let _ = std::fs::copy(&target_path, file);
-            let pdb = target_path.with_extension("pdb");
-            if pdb.is_file() {
-                let _ = std::fs::copy(&pdb, file.with_extension("pdb"));
-                let _ = std::fs::copy(&pdb, out.with_extension("pdb"));
+            for ext in companions(opts) {
+                let c = target_path.with_extension(ext);
+                if c.is_file() {
+                    let _ = std::fs::copy(&c, file.with_extension(ext));
+                    let _ = std::fs::copy(&c, out.with_extension(ext));
+                }
             }
             std::fs::copy(&target_path, out)
                 .map_err(|e| format!("cannot write `{}`: {}", out.display(), e))?;
@@ -731,6 +735,16 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
     })();
     let _ = std::fs::remove_dir_all(&work);
     result
+}
+
+/// The files the linker writes next to the output, by extension: the debug information
+/// (`.pdb`) and, for a DLL, its import library (`.lib`), which C programs link with.
+fn companions(opts: &BuildOptions) -> &'static [&'static str] {
+    if opts.target.os == Os::Windows && opts.kind == OutputKind::SharedLibrary {
+        &["pdb", "lib"]
+    } else {
+        &["pdb"]
+    }
 }
 
 pub fn exe_name(stem: &str, target: &Target) -> String {

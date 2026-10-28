@@ -56,6 +56,10 @@ fn c_calls_nexul_and_back() {
         } else {
             // Each directory holds one kind of library only.
             c.arg(format!("-L{}", d.display())).arg("-lnxlib");
+            if cfg!(target_os = "macos") {
+                // The dylib is named `@rpath/libnxlib.dylib`.
+                c.arg(format!("-Wl,-rpath,{}", d.display()));
+            }
         }
         run(&mut c, &format!("{} (link with {})", cc, kind));
         let mut program = Command::new(&exe);
