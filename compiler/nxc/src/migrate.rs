@@ -479,8 +479,20 @@ impl<'a> Migrator<'a> {
         let lo = item.span.lo as usize;
         let Some(k) = self.find(lo, e.name.span.lo as usize, "enum") else { return };
         let end = item.span.hi as usize;
-        let body = self.text(e.name.span.hi as usize, end);
-        let comments: Vec<String> = body.lines().filter_map(|l| l.find("//").map(|i| l[i..].trim().to_string())).collect();
+        // The comments of the body, each with the variant it precedes (the documentation of
+        // that variant); the last ones, after every variant, close the list.
+        let comments_in = |m: &Self, lo: usize, hi: usize| -> Vec<String> {
+            m.text(lo, hi).lines().filter_map(|l| l.find("//").map(|i| l[i..].trim().to_string())).collect()
+        };
+        let mut at = e.name.span.hi as usize;
+        let mut before: Vec<Vec<String>> = Vec::new();
+        for v in &e.variants {
+            let lo = v.name.span.lo as usize;
+            before.push(comments_in(self, at, lo));
+            at = lo;
+        }
+        let trailing = comments_in(self, e.variants.last().map_or(at, |v| v.span.hi as usize).max(at), end);
+        let comments: Vec<String> = before.iter().flatten().chain(trailing.iter()).cloned().collect();
         let variants: Vec<String> = e
             .variants
             .iter()
@@ -505,17 +517,18 @@ impl<'a> Migrator<'a> {
         let one_line = format!("type {}{} = {}", e.name.name, generics, variants.join(" | "));
         let indent: String = self.src[..k].rsplit('\n').next().unwrap_or("").chars().take_while(|c| c.is_whitespace()).collect();
         let mut text = String::new();
-        for c in &comments {
-            text.push_str(c);
-            text.push('\n');
-            text.push_str(&indent);
-        }
         if one_line.len() + indent.len() <= 100 && comments.is_empty() {
             text.push_str(&one_line);
         } else {
             text.push_str(&format!("type {}{} =", e.name.name, generics));
-            for v in &variants {
+            for (v, docs) in variants.iter().zip(&before) {
+                for c in docs {
+                    text.push_str(&format!("\n{}    {}", indent, c));
+                }
                 text.push_str(&format!("\n{}    | {}", indent, v));
+            }
+            for c in &trailing {
+                text.push_str(&format!("\n{}    {}", indent, c));
             }
         }
         self.rep(k, end, text);
@@ -1046,6 +1059,12 @@ mod tests {
             out,
             "fn f(C c) {\n    let i32 x = 1 // garde\n    var Vec[i32] v = Vec.new()\n    doubler(v!)\n    when c {\n        .Rouge then 1; .Vert then 2\n        .Rgb(r, _) if r > 2 then 3\n        _ then 0\n    }\n    if trouve(x) is .Some(n) {\n    }\n    while v.pop() is .Some(y) {\n    }\n    #exterieur loop {\n        break #exterieur\n    }\n    for e! in v {\n    }\n    let g = fn i32(i32 a) => a + 1\n}\n"
         );
+    }
+
+    #[test]
+    fn variants_keep_their_comments() {
+        let src = "pub enum E {\n    /// first\n    A(i32),\n    // second\n    B,\n}\n";
+        assert_eq!(m(src), "pub type E is Copy =\n    /// first\n    | .A(i32)\n    // second\n    | .B\n");
     }
 
     #[test]

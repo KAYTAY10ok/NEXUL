@@ -23,18 +23,18 @@ pub fn Option[String] read_line() {
 /// Why an input/output operation failed (ADR 0015). The variants keep the path given
 /// to the function; `Other` keeps the system's error code.
 @derive(Eq, Clone)
-pub /// Nothing exists at this path.
-/// The system refuses access to this path.
-/// Something already exists at this path.
-/// The content is not what was expected (a text file that is not UTF-8).
-/// A signal interrupted the operation.
-/// Another error: the system's code (-1 when the system gives none) and a message.
-type IoError =
+pub type IoError =
+    /// Nothing exists at this path.
     | .NotFound(String)
+    /// The system refuses access to this path.
     | .PermissionDenied(String)
+    /// Something already exists at this path.
     | .AlreadyExists(String)
+    /// The content is not what was expected (a text file that is not UTF-8).
     | .InvalidData(String)
+    /// A signal interrupted the operation.
     | .Interrupted
+    /// Another error: the system's code (-1 when the system gives none) and a message.
     | .Other(i32, String)
 
 extend IoError is Display {
