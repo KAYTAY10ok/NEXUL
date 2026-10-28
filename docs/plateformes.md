@@ -8,7 +8,7 @@ produit un exécutable valide, sans l'avoir lancé. Liste des cibles : `nxc targ
 | Cible | Système | Exécution de `tests/run` | Par qui, sur quoi | Remarques |
 |---|---|---|---|---|
 | `x86_64-linux` | Linux | **O0 et O2**, programmes migrés en édition 1 | CI GitHub (`ubuntu-latest`) à chaque PR | référence ; threads, pile, ABI navigateur |
-| `x86_64-windows` | Windows 10/11 | **O0 et O2** | CI GitHub (`windows-latest`, LLVM 20.1.8) | threads par `CreateThread`, attente par cession du processeur |
+| `x86_64-windows` | Windows 10/11 | **O0 et O2** | CI GitHub (`windows-latest`, LLVM 20.1.8) | threads par `CreateThread`, attente par `WaitOnAddress` |
 | `aarch64-macos` | macOS 11 et plus (Apple silicon) | **O0 et O2** | CI GitHub (`macos-latest`, LLVM 20 de Homebrew) depuis le 28/10 | couche `libSystem` (`sys/macos.nx`), threads POSIX, `__ulock_wait` |
 | `aarch64-linux` | Linux | O0 | CI GitHub, QEMU en mode utilisateur | binaires statiques |
 | `riscv64-linux` | Linux | O0 | CI GitHub, QEMU en mode utilisateur | dépassement de pile vérifié par Codex Sol (C2) |

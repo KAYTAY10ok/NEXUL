@@ -9,7 +9,9 @@ prouvé est écrit « non testé ».
 **Langage**
 - Édition 1 de la syntaxe (ADR 0010) : chaque fichier ou paquet choisit son édition
   (`// edition: 1`, `edition = "1"` dans `nexul.toml`) ; l'édition 0.2 reste acceptée ;
-  `nxc migrate` réécrit un fichier 0.2 en édition 1.
+  `nxc migrate` réécrit un fichier 0.2 en édition 1 (il signale désormais les contraintes
+  qu'il ne sait pas écrire au lieu de les perdre) ; 20 des 24 fichiers de la bibliothèque
+  standard sont écrits en édition 1.
 - Copiabilité explicite des types publics, `Copy` (ADR 0012).
 - Types distincts et types contraints (`type Pourcent = i32 where it in 0..=100`),
   vérifiés à la construction et à l'entrée des `@export` (ADR 0014).
@@ -32,6 +34,12 @@ prouvé est écrit « non testé ».
 - Une garde de `match` ne peut plus déplacer une variable liée (E0403) ; largeur de
   `isize`/`usize` vérifiée pour la cible.
 
+**Plateformes** ([matrice](docs/plateformes.md))
+- macOS : vraie couche système sur `libSystem` (entrées-sorties, fichiers, temps, threads
+  POSIX, dépassement de pile) ; la suite de conformité passe sur Apple silicon dans la CI.
+- La CI exécute aussi la suite sur AArch64 et RISC-V Linux (QEMU), WASI (Node) et
+  Cortex-M4 (QEMU).
+
 **Compilateur**
 - `nxc` ne plante plus sur les sources pathologiques (test de robustesse, limite
   d'imbrication E0113) ; analyse des très grandes fonctions en secondes ; chaque code
@@ -49,8 +57,9 @@ prouvé est écrit « non testé ».
 - CI : suite complète du compilateur sous Linux et Windows (LLVM 20.1.8), crates de
   Studio, ABI navigateur, PR empilées.
 
-**Limites connues** : macOS non validé (pas de machine de test) ; sous Windows, une
-tâche qui attend cède le processeur en boucle (`WaitOnAddress` prévu) ; pas encore
+**Limites connues** : macOS Intel et Windows sur ARM compilés mais non exécutés ; en
+édition 1, pas encore de méthode contrainte sur un paramètre de son type (`vec.nx`,
+`string.nx`, `collections.nx`, `tache.nx` restent en 0.2) ; pas encore
 d'`Atomique[bool]` ni d'ordres mémoire faibles.
 
 ## 0.2.0 — « Autonomie et abstractions »

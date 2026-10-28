@@ -850,21 +850,28 @@ unsafe fn InputLock input_lock() {
     return InputLock(locked: true)
 }
 
-/// Lets the other threads run while the word at `p` may still hold `expected`: the caller
-/// checks again (a wait by polling; `WaitOnAddress` is a later improvement). Used by the
-/// channels and the locks of `std.tache`.
+// The wait on an address of Windows 8 and later (the futex of Windows).
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn i32 WaitOnAddress(Ptr[u32] address, Ptr[u32] compare, usize size, u32 milliseconds)
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn WakeByAddressSingle(Ptr[u32] address)
+@link("api-ms-win-core-synch-l1-2-0")
+extern "C" fn WakeByAddressAll(Ptr[u32] address)
+
+/// Sleeps while the word at `p` holds `expected` (a wake or a change of the word ends the
+/// sleep; it may also end without reason: the caller checks again). Used by the channels
+/// and the locks of `std.tache`.
 pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
-    if mem.atomic_load(p) == expected {
-        thread_yield()
-    }
+    var u32 e = expected
+    let _ = WaitOnAddress(p, mem.addr_of(e!), 4, 0xFFFF_FFFF)
 }
 
-/// Nothing to do: the waiting threads poll.
+/// Wakes every thread sleeping in `wait_on` on the word at `p`.
 pub unsafe fn wake_all(Ptr[u32] p) {
-    let _ = p
+    WakeByAddressAll(p)
 }
 
-/// Nothing to do: the waiting threads poll.
+/// Wakes one of the threads sleeping in `wait_on` on the word at `p`.
 pub unsafe fn wake_one(Ptr[u32] p) {
-    let _ = p
+    WakeByAddressSingle(p)
 }
