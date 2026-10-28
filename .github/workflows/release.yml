@@ -19,6 +19,7 @@ on:
       - ".github/workflows/release.yml"
       - "tools/build_installer.py"
       - "tools/make-python-runtime.py"
+      - "tools/release_notes.py"
       - "installer/**"
 
 permissions:
@@ -88,10 +89,10 @@ jobs:
           $version = $tag.TrimStart('v')
           $create = @('--verify-tag')
         }
-        $notes = python -I -c "import sys,re;t=open('CHANGELOG.md',encoding='utf-8').read();m=re.search(r'^## '+re.escape(sys.argv[1])+r'\b.*?$(.*?)(?=^## )',t,re.S|re.M);sys.exit('no section '+sys.argv[1]+' in CHANGELOG.md') if not m else print(m.group(1).strip())" $version
-        if ($LASTEXITCODE -ne 0) { throw 'no notes for this version' }
-        $title = (Select-String -Path CHANGELOG.md -Pattern "^## $([regex]::Escape($version))\b(.*)$").Matches[0].Groups[1].Value.Trim(' ', '—', '-')
-        $intro = "## Installer sur Windows`n`nTéléchargez **NEXUL-Setup.exe** ci-dessous et lancez-le (sans droits d'administrateur ; installation sans fenêtre : ``NEXUL-Setup.exe --silent``). Windows peut afficher un avertissement SmartScreen, l'exécutable n'étant pas signé.`n`nDepuis les sources (Windows, Linux, macOS) : Rust et LLVM 20 avec LLD, puis ``cargo build --release``.`n`n## Nouveautés`n`n"
-        Set-Content -Path notes.md -Value ($intro + ($notes -join "`n")) -Encoding utf8
+        # The notes and the title, from the section of the version in CHANGELOG.md.
+        python -I tools/release_notes.py $version notes.md title.txt
+        if ($LASTEXITCODE -ne 0) { throw "no notes for $version" }
+        $title = Get-Content -Path title.txt -Raw -Encoding utf8
         Copy-Item "$env:RUNNER_TEMP/NEXUL-Setup.exe" NEXUL-Setup.exe
-        gh release create $tag NEXUL-Setup.exe --title "NEXUL $version — $title" --notes-file notes.md @create
+        gh release create $tag NEXUL-Setup.exe --title "$title" --notes-file notes.md @create
+        if ($LASTEXITCODE -ne 0) { throw 'gh release create failed' }
