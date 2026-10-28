@@ -106,7 +106,7 @@ fn run_one_at(nx: &Path, optimized: bool) -> Vec<String> {
     if stdin_path.exists() {
         cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
     }
-    let out = cmd.output().expect("run test program");
+    let out = output_retrying(&mut cmd).expect("run test program");
     let _ = std::fs::remove_file(&exe);
     let _ = std::fs::remove_file(exe.with_extension("pdb"));
     let stdout = normalize(&String::from_utf8_lossy(&out.stdout));
@@ -150,6 +150,22 @@ fn run_one_at(nx: &Path, optimized: bool) -> Vec<String> {
 
 /// The targets a test program runs on: `// targets: windows, linux` on its first line
 /// restricts it (programs calling a C library, for example).
+/// Runs `cmd`, again when Linux refuses an executable that another thread of the suite
+/// still holds open for writing while it forks (ETXTBSY, 26): the programs are built and run
+/// in parallel.
+fn output_retrying(cmd: &mut Command) -> std::io::Result<std::process::Output> {
+    let mut attempt = 0;
+    loop {
+        match cmd.output() {
+            Err(e) if e.raw_os_error() == Some(26) && attempt < 50 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            r => return r,
+        }
+    }
+}
+
 fn runs_on(nx: &Path, target: &Target) -> bool {
     let text = std::fs::read_to_string(nx).unwrap_or_default();
     // In the first lines, like `// edition:` (which may come first).
@@ -191,7 +207,7 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
     if let Some(i) = stdin {
         cmd.stdin(std::fs::File::open(i).unwrap());
     }
-    cmd.output().expect("run test program")
+    output_retrying(&mut cmd).expect("run test program")
 }
 
 /// Runs a bare-metal executable in QEMU (`NEXUL_QEMU` names its directory), with
@@ -391,7 +407,7 @@ fn migrated_programs_behave_the_same() {
         if stdin_path.exists() {
             cmd.stdin(std::fs::File::open(&stdin_path).unwrap());
         }
-        let out = cmd.output().expect("run migrated program");
+        let out = output_retrying(&mut cmd).expect("run migrated program");
         let _ = std::fs::remove_file(&exe);
         let _ = std::fs::remove_file(exe.with_extension("pdb"));
         let mut f = Vec::new();
