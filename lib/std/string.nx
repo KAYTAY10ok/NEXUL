@@ -193,8 +193,13 @@ extend String {
         self.cap = cap
     }
 
+    // The test of the capacity stays in the loop that appends; `reserve` (a literal has no
+    // capacity: `cap == 0 <= len`, it is copied first) only when it is full.
+    @inline
     fn push_byte(self!, u8 b) {
-        self.reserve(1)
+        if self.len >= self.cap {
+            self.reserve(1)
+        }
         unsafe {
             self.data.offset(self.len).write(b)
         }
