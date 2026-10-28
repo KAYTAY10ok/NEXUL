@@ -120,7 +120,8 @@ function activate(context) {
           cwd: workingDirectory(document),
           input: text
         });
-        if (result.stdout === text) return [];
+        // Never replace a document with an empty output (an `nxc` that failed silently).
+        if (result.stdout === text || (result.stdout === '' && text !== '')) return [];
         return [vscode.TextEdit.replace(
           new vscode.Range(new vscode.Position(0, 0), document.positionAt(text.length)),
           result.stdout

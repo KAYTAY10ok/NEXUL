@@ -748,9 +748,13 @@ pub unsafe fn thread_start(owned entry: fn(Ptr[u8]), arg: Ptr[u8]) -> usize {
     return h.addr()
 }
 
-/// The first function of a thread (the start routine of `CreateThread`).
+/// The first function of a thread (the start routine of `CreateThread`). The guarantee of
+/// stack is per thread: without it, the handler of a stack overflow (C2) would have no
+/// stack left to print its message.
 fn thread_main(arg: Ptr[u8]) -> u32 {
     unsafe {
+        var bytes: u32 = 65536
+        let _ = SetThreadStackGuarantee(mem.addr_of(&bytes))
         let s = arg.cast[ThreadStart]().read()
         rt.free(arg)
         let entry = s.entry
