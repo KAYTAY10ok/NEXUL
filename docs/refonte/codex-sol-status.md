@@ -1,7 +1,7 @@
 # État de Codex Sol — composants, outils et distribution
 
-Mis à jour le 16 octobre 2026 après validation L4/L5 et contrôle des PRs ouvertes. Mandat : `prompt-codex-sol.md` et
-charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
+Mis à jour le 16 octobre 2026. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » ;
+Claude Main conserve la revue et l'intégration de chaque PR.
 
 ## Périmètre
 
@@ -16,20 +16,21 @@ Claude Main conserve la revue et l'intégration.
 | Ordre | Tâche | Statut et preuves |
 |---|---|---|
 | 0 | Sécurité extension/installateur | INTÉGRÉ : corrections et tests fusionnés dans [PR #22](https://github.com/KAYTAY10ok/NEXUL/pull/22). |
-| 1 | L1 — arrêt et sortie ConPTY | TESTÉ_UNITAIREMENT : 7 tests MSVC réussis, ConPTY réel inclus ; [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉ** par Main le 16/10 (revue : 5 suites + 90 exécutions sans blocage ; suites dans `revues-main.md`) |
-| 2 | L2 — vrai `lldb-dap` | TESTÉ_UNITAIREMENT : 8 tests réussis, dont le test réel ; [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉ** par Main le 16/10 (vrai `lldb-dap` 23 revérifié ; suites dans `revues-main.md`) |
+| 1 | L1 — arrêt et sortie ConPTY | [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20) **INTÉGRÉE** par Main ; corrections de revue restantes à traiter dans une PR dédiée. |
+| 2 | L2 — vrai `lldb-dap` | [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21) **INTÉGRÉE** par Main ; corrections de revue en cours sur `refonte/sol-l2-dap-followup`, tests MSVC avec vrai `nxc`/`lldb-dap` réussis. |
 | 3 | P9 — CLI et LSP | INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24), sur `origin/main` `496949f` ; tests MSVC précédemment exécutés et consignés ci-dessous. |
 | 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable. [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25) **INTÉGRÉ** par Main le 16/10 avec le CI de `main` (PR #28 : échecs FFI Linux corrigés par `e78a357`), l'analyseur JSON de la migration rendu linéaire et la migration sautée en mode élevé (revue). |
-| 5 | L4 — extension VS Code et édition 1 | VALIDÉ_E2E dans un hôte VS Code Insiders isolé avec `nxc` du dépôt ; [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) ouverte et fusionnable. Son CI Linux échoue en compilant l’installateur Windows (`std::os::windows`, `kernel32`), problème couvert par la séparation de workflow de la PR #25, en attente de revue Main. Le formatage édition 1 reste bloqué sans modifier le document. |
-| 6 | L5 — modèles de projet | TESTÉ : 5 tests unitaires et 2 fonctionnels réussis ; [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) ouverte et fusionnable. Son CI est aussi bloquée par le build Linux global de l’installateur Windows. |
+| 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) **INTÉGRÉE** ; le formatage automatique des deux éditions est validé dans un hôte isolé. Le VSIX 0.3.0 est proposé dans [PR #30](https://github.com/KAYTAY10ok/NEXUL/pull/30), publication Marketplace encore à faire. |
+| 6 | L5 — modèles de projet | [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) intégrée. |
+| 7 | A1 — base de performances P13 | [PR #29](https://github.com/KAYTAY10ok/NEXUL/pull/29) ouverte vers `main`. |
 
 ## Travail courant
 
-- Base actuelle : `origin/main` à `496949f`, récupérée le 16 octobre 2026.
-- L4 : branche `refonte/sol-l4-vscode`, validation réelle de l’extension, du serveur LSP et des commandes `nxc` réussie sur ce poste.
-- Les PR #20, #21, #26 et #27 sont ouvertes et fusionnables ; leurs runs Linux respectifs (#11, #12, #16 et #15) échouent au build global sur l’installateur Windows (`std::os::windows`, `kernel32`). Les tests restent ignorés après cet échec.
-- La PR #25 porte la séparation des jobs Linux/Windows. Son run #10 passe les tests Windows et le build Linux, mais 2 tests Linux FFI échouent sur `abs`, `strlen` et `sqrt`, dans `compiler/**` / Core. Revue Main attendue avant intégration de cette correction de workflow.
-- L1 et L2 ont intégré `origin/main` (`496949f`) et sont fusionnables ; revue Main attendue. L3, L4 et L5 ont leurs PR ouvertes et attendent aussi revue/intégration.
+- Base actuelle : `origin/main` à `c40acbd`, récupérée le 16 octobre 2026. Les PR #20–28 ont été intégrées ; les seuls PR ouvertes détectées sont #29 et #30.
+- VSIX : [PR #30](https://github.com/KAYTAY10ok/NEXUL/pull/30) ouverte. Le run CI `38903204531` a réussi Linux et Windows sur le commit `a56896e`; le commit documentaire `1685995` a ensuite avancé la branche, et son état CI est à revérifier.
+- Marketplace : la fiche `KAYTAY10ok.nexul-language` sert actuellement la version `0.1.0`. Le VSIX 0.3.0 préparé n'est pas publié ; la publication reste à la charge de l'utilisateur.
+- Corrections de revue L2 : branche dédiée `refonte/sol-l2-dap-followup`, issue de `origin/main` à `c40acbd`; test complet MSVC avec outils configurés et vrai `lldb-dap` réussi. PR à créer après mise à jour du présent état.
+- La PR #25 et la correction CI #28 sont intégrées ; l'échec FFI Linux `abs`/`strlen`/`sqrt` a été corrigé par Core dans `e78a357`.
 - Base du lot sécurité : `origin/main` à `f438283`, branche `refonte/sol-securite-outils`.
 - Branche L1 : `refonte/sol-l1-terminal` ; L2 : `refonte/sol-l2-dap`. Worktree indépendant sous
   `files-mentioned-by-the-user-prompt/work/NEXUL-sol`.
@@ -37,6 +38,15 @@ Claude Main conserve la revue et l'intégration.
   `docs/adr/0009-contrat-nxc-lsp.md`, seul contrat accepté. Le prompt et les tâches
   actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
 - Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
+
+## Revue corrective L2 — DAP
+
+- Branche `refonte/sol-l2-dap-followup`, séparée de la préparation VSIX et issue de `origin/main` (`c40acbd`).
+- Les appels synchrones publics `launch`/`attach` sont dépréciés au profit de `begin_launch`/`begin_attach`, adaptés à la séquence différée de LLDB.
+- `PendingRequest::try_wait` permet le sondage non bloquant. La fermeture du lecteur marque l'état DAP fermé sous le même verrou que les requêtes en attente, réveille les demandes existantes avec `AdapterExited` et fait échouer immédiatement toute nouvelle requête.
+- Le test faux adaptateur couvre la sortie spontanée pendant `launch`, la réception de `AdapterExited` et le refus d'une requête postérieure. Le test réel ne saute plus si un chemin `NEXUL_NXC` explicite est invalide ou si `NEXUL_LLVM` est configuré sans `lldb-dap` disponible.
+- Validation MSVC : `cargo +stable-x86_64-pc-windows-msvc test --manifest-path studio/dap/Cargo.toml -- --nocapture` — 5 unitaires, 4 tests client/faux adaptateur et 1 test réel LLDB/NEXUL réussis, aucun test ignoré. Le test ciblé avec un `NEXUL_NXC` explicitement inexistant échoue comme prévu (code Cargo 101) au lieu d'être ignoré.
+- `cargo +stable-x86_64-pc-windows-msvc fmt --manifest-path studio/dap/Cargo.toml` et `git diff --check` réussis. Linux WSL2 : mêmes 5 tests unitaires et 4 tests client réussis ; le test réel est explicitement ignoré faute de `lldb-dap`. Linux bare metal non testé.
 
 ## Preuves L1
 
