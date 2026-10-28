@@ -5,6 +5,8 @@ Claude Main conserve la revue et l'intégration de chaque PR.
 
 Mis à jour le 16 octobre 2026 après validation de la matrice P9, mesure release et contrôle des PRs. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
 
+Mis à jour le 16 octobre 2026 après ajout de tests automatisés à la garde de version de l'installateur et vérification des PRs ouvertes. Mandat : `prompt-codex-sol.md` et charte « Équipe réduite » du worktree de Claude Main, lus à la demande de l'utilisateur.
+
 ## Périmètre
 
 `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`, `studio/lsp/**`,
@@ -39,6 +41,23 @@ Claude Main conserve la revue et l'intégration.
 - Main a remplacé le brouillon `docs/spec/lsp.md` par
   `docs/adr/0009-contrat-nxc-lsp.md`, seul contrat accepté. Le prompt et les tâches
   actualisés ajoutent les deux corrections de `revues-main.md` en priorité 0.
+
+| 1 | L1 — terminal ConPTY | INTÉGRÉ dans [PR #20](https://github.com/KAYTAY10ok/NEXUL/pull/20). [PR #32](https://github.com/KAYTAY10ok/NEXUL/pull/32) répond aux suivis de revue ; CI Linux/Windows réussie, revue Main attendue. |
+| 2 | L2 — client DAP | INTÉGRÉ dans [PR #21](https://github.com/KAYTAY10ok/NEXUL/pull/21). [PR #31](https://github.com/KAYTAY10ok/NEXUL/pull/31) répond aux suivis de revue ; CI Linux/Windows réussie, revue Main attendue. Le test réel `lldb-dap` passe sous Windows ; il est non testé sous Linux faute de `lldb-dap` dans WSL2. |
+| 3 | P9 — CLI et LSP | Socle INTÉGRÉ dans [PR #24](https://github.com/KAYTAY10ok/NEXUL/pull/24). [PR #34](https://github.com/KAYTAY10ok/NEXUL/pull/34) ajoute les cas d'éditions mixtes et les mesures ; CI Linux/Windows réussie, revue Main attendue. |
+| 4 | L3 — installateur natif | VALIDÉ_E2E en bac à sable dans [PR #25](https://github.com/KAYTAY10ok/NEXUL/pull/25), intégrée. [PR #33](https://github.com/KAYTAY10ok/NEXUL/pull/33) bloque les paquets aux versions incohérentes ; CI Linux/Windows réussie. La reconstruction et la mise à niveau sandbox 0.2 → 0.3 restent à faire après l'alignement de versions par Main. |
+| 5 | L4 — extension VS Code | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) et le formatage à la sauvegarde de [PR #28](https://github.com/KAYTAY10ok/NEXUL/pull/28) sont intégrés. [PR #30](https://github.com/KAYTAY10ok/NEXUL/pull/30) prépare le VSIX 0.3.0 ; tests hôte Windows et WSL2 documentés, CI Linux/Windows réussie, revue Main attendue. Publication Marketplace réservée à l'utilisateur. |
+| 6 | L5 — modèles de projet | INTÉGRÉ dans [PR #27](https://github.com/KAYTAY10ok/NEXUL/pull/27) après tests unitaires et fonctionnels. |
+
+## Travail courant
+
+- Base actuelle vérifiée : `origin/main` à `c40acbd83f4818d3ee46ec420d0e479caa92b801`.
+- Les PR [#29](https://github.com/KAYTAY10ok/NEXUL/pull/29) à [#34](https://github.com/KAYTAY10ok/NEXUL/pull/34) sont ouvertes. Leurs checks Linux et Windows sont réussis ; aucune revue Main ni aucun fil de revue n'est encore enregistré.
+- La PR #33 ajoute une garde avant toute compilation de l'installateur et quatre tests Python automatisés : lecture des métadonnées Cargo, versions alignées, versions mixtes et paquet absent. La version actuelle de Studio natif diffère des autres composants ; la garde bloque donc correctement la construction tant que Main n'a pas aligné les versions.
+- Vérifications locales de la PR #33 : `python -m unittest discover -s tools/tests -v` — 4/4 réussis ; `python -m py_compile tools/build_installer.py tools/tests/test_build_installer_versions.py` — réussi ; `git diff --check` — réussi. `python -I tools/build_installer.py` s'arrête avant la compilation en signalant les versions réellement trouvées (`nxc`, Studio web, installateur 0.2.0 ; Studio natif 0.3.0`).
+- Après l'alignement par Main, restent la construction complète de l'installateur 0.3.0 avec Studio natif MSVC et la validation sandbox d'une mise à niveau réelle 0.2 → 0.3.
+- La PR #30 prépare le VSIX 0.3.0 et consigne les essais hôte Windows/WSL2. La dernière version Marketplace relevée dans les preuves est 0.1.0 ; la publication du nouveau VSIX demeure une action de l'utilisateur après intégration.
+- Linux bare metal et macOS restent non testés. Les essais Linux documentés pour le VSIX ont été exécutés sous WSL2 ; les checks CI Linux ne remplacent pas ce test hôte.
 - Le code P9 reste dans le pilote et ses tests, plus le point d'entrée autorisé de lecture superposée dans `compiler/nxc_sema/src/load.rs`; aucune grammaire ou règle de typage n'a été changée.
 
 | 5 | L4 — extension VS Code et édition 1 | [PR #26](https://github.com/KAYTAY10ok/NEXUL/pull/26) intégrée. Préparation du VSIX 0.3.0 sur `refonte/sol-vscode-release` : formatage automatique vérifié dans un hôte VS Code Insiders isolé pour les deux éditions ; preuves ci-dessous. |
