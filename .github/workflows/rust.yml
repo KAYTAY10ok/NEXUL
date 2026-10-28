@@ -20,6 +20,13 @@ jobs:
       run: cargo test --release --workspace --exclude nexul-installer --verbose
     - name: Run browser ABI tests (including export validation)
       run: cargo test --release -p nxc --test web -- --ignored
+    # The crates of Studio without GPUI have their own Cargo workspaces.
+    - name: Test the crates of Studio (syntax, lsp, terminal, dap, templates)
+      timeout-minutes: 15
+      run: |
+        for c in syntax lsp terminal dap templates; do
+          cargo test --manifest-path studio/$c/Cargo.toml
+        done
 
   windows:
     runs-on: windows-latest
