@@ -644,11 +644,16 @@ Reste : `===`/`!==` (avec les valeurs partagées), types distincts et contraints
 - **Indentation significative** : écartée (passation §3.1 : pas de règle dépendant
   d'espaces mal définis ; copier-coller fragile).
 
-## Questions ouvertes (28/10/2026) — à décider par l'utilisateur
+## Questions du 28/10/2026 — **décidées par l'utilisateur le 28/10/2026** (A pour Q1, la proposition pour Q2)
 
-Constatées en migrant la bibliothèque standard (Claude Main). Tant qu'elles ne sont pas
-tranchées, `vec.nx`, `string.nx`, `collections.nx` et `tache.nx` restent en édition 0.2, et
-`nxc migrate` signale ces cas au lieu de les réécrire.
+Constatées en migrant la bibliothèque standard (Claude Main). **Mises en œuvre le
+28/10/2026** : `extend Type[P is …] { … }` sans interface est accepté quand il nomme les
+paramètres du type dans l'ordre (sinon E0224) ; ses contraintes s'ajoutent à chacune de ses
+méthodes ; un mot réservé peut nommer une méthode (dans `extend`, `interface` ou un type),
+un champ ou un argument nommé, jamais une fonction libre (E0010). `nxc migrate` regroupe
+les méthodes à `where` par jeu de contraintes et ne renomme plus les membres. Toute la
+bibliothèque standard est écrite en édition 1. Tests : `tests/run/edition1_members.nx`,
+`tests/ui/edition1_members.nx`.
 
 **Q1. Une méthode contrainte sur un paramètre de son type.** En 0.2,
 `impl Vec { fn contains(self, value: T) -> bool where T: Eq { … } }` ; en édition 1, ni

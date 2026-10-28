@@ -114,7 +114,7 @@ d'état mis à jour. Claude Main revoit et intègre. Priorité : 1 = à commence
 | O3 | 1 | P9 — contrat `nxc lsp` (capacités, version, texte non enregistré) puis implémentation : `initialize`, `didOpen`/`didChange`, `publishDiagnostics`, `hover`, `completion`, `definition`, `references`, `rename`, `documentSymbol`, `formatting` ; champ `version` dans `check --json` et `ide` ; vérification depuis l'entrée standard | contrat approuvé par Main, puis tests stdio réels | À FAIRE |
 | O4 | 1 | Formateur : l'accolade fermante reste en fin de ligne (`fn main(){⏎ println("ok")}`) | comportement décidé, test de non-régression | À FAIRE |
 | O5 | 2 | P5 — conception : types distincts, sous-types contraints, invariants, contrats, effets, OOP, modèle mémoire et concurrence ; corpus de tests d'acceptation (positifs et négatifs) | ADR relues par Main ; corpus prêt à exécuter | À FAIRE |
-| O6 | 2 | P8-G0 — étude comparée de la première cible temps réel (Cortex-M nu, Cortex-M + RTOS, Linux PREEMPT_RT) : contraintes, instrumentation, matériel nécessaire | étude ; Main propose, l'utilisateur choisit (décision 3) | À FAIRE |
+| O6 | 2 | P8-G0 — étude comparée de la première cible temps réel (Cortex-M nu, Cortex-M + RTOS, Linux PREEMPT_RT) : contraintes, instrumentation, matériel nécessaire | étude ; Main propose, l'utilisateur choisit (décision 3) | FAIT : Cortex-M4 sans système (28/10) |
 | O7 | 2 | Couche système macOS du runtime (défaut relevé dans [audit-core.md](audit-core.md)) | correctif + tests, ou BLOQUÉ documenté (pas de Mac) | À FAIRE |
 | O8 | 2 | P12-SH0 — inventaire de ce qui manque à NEXUL pour écrire son compilateur (chaînes UTF-8, collections, fichiers, diagnostics, appels LLVM) | `docs/adr/selfhost-sh0.md` | À FAIRE |
 | O9 | continu | WebAssembly, LLVM, précision numérique, cibles : aucune régression ; tests navigateur supplémentaires | suites vertes à chaque PR | continu |
@@ -264,7 +264,7 @@ devient une tâche quand son lot démarre ; une ligne n'est cochée qu'avec sa p
 
 | ID | Amélioration | Statut |
 |---|---|---|
-| R1 | G0 : étude et choix de la première cible (décision 3) | À FAIRE (O6) |
+| R1 | G0 : étude et choix de la première cible (décision 3) | FAIT : étude PR #38 ; l'utilisateur a choisi le Cortex-M4 sans système le 28/10/2026 |
 | R2 | Profil RT : allocation interdite ou bornée après initialisation, pools, budgets d'objets | À FAIRE |
 | R3 | Boucles, récursions et attentes bornées là où une preuve est exigée ; annotations vérifiées | À FAIRE |
 | R4 | Classement des fonctions : ISR-safe, non bloquant, sans allocation, déterministe, matériel, I/O | À FAIRE |
@@ -432,12 +432,13 @@ PC de Main.
 |---|---|---|---|
 | 1 | Gouvernance V3 et transferts | appliquer | **validée le 15/10** |
 | 2 | Édition du langage : nouvelle syntaxe incompatible ou édition opt-in avec migrateur | version majeure + outil de migration, pas de casse silencieuse | **décidée le 16/10** : syntaxe de l'ADR 0010 (édition 1), 0.2 gardée sous `--edition 0.2`, `nxc migrate` |
-| 3 | Première cible temps réel | à proposer après l'étude O6 | à décider |
+| 3 | Première cible temps réel | Cortex-M4 sans système (étude P8-G0, PR #38) | **décidée le 28/10** : Cortex-M4 sans système |
 | 4 | Niveau des contrats (partout ou profil strict) | à proposer avec O5 | à décider |
 | 5 | Concurrence par cible | natif d'abord | à décider |
 | 6 | Périmètre initial de l'auto-hébergement | à proposer avec O8 | à décider |
 | 7 | Extension VS Code : nom, éditeur, publication Marketplace | publication seulement sur action explicite de l'utilisateur | à décider |
-| 8 | CI de confiance (Windows, Linux, cibles embarquées) | GitHub Actions Windows + Linux pour commencer | à décider |
+| 8 | CI de confiance (Windows, Linux, cibles embarquées) | GitHub Actions Windows + Linux pour commencer | appliquée : Linux, Windows, macOS, plus AArch64/RISC-V/Cortex-M4 sous QEMU et WASI (28/10) |
+| 9 | Édition 1 : méthodes contraintes (Q1), mots réservés comme noms de membres (Q2) | `extend Type[P is …]` ; membres autorisés | **décidée le 28/10** (ADR 0010) |
 
 ## 7. Intégration
 

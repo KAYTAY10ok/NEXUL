@@ -460,7 +460,7 @@ fn lsp_requests_cover_open_project_documents_and_standard_library() {
     client.request(13, "nexul/stdSource", "{\"uri\":\"nexul-std:///vec.nx\"}");
     let std_source = client.response(13);
     assert!(
-        std_source.contains("\"text\"") && std_source.contains("struct Vec"),
+        std_source.contains("\"text\"") && std_source.contains("type Vec"),
         "{std_source}"
     );
 

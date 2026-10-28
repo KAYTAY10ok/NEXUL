@@ -1,7 +1,7 @@
 # Temps réel — P8-G0 : choix de la première cible
 
 Lot P8, étape G0 (tâche O6 du plan maître). Auteur : Claude (architecture, concurrence,
-temps réel). Statut : **étude** (18/10/2026). Elle prépare la **décision 3** de
+temps réel). Statut : **étude** (18/10/2026) ; **décision 3 prise par l'utilisateur le 28/10/2026 : cible A, Cortex-M4 sans système**. Elle prépare la **décision 3** de
 l'utilisateur (plan maître §6) ; elle ne revendique aucune garantie.
 
 ## 1. Ce que « temps réel » voudra dire pour NEXUL

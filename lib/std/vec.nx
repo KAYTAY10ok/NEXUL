@@ -1,3 +1,4 @@
+// edition: 1
 /// A growable array stored on the heap (spec chapter 09).
 
 import std.core
@@ -5,46 +6,46 @@ import std.mem
 import std.rt
 
 @lang("vec")
-pub struct Vec[T] {
-    data: Ptr[T]
-    len: usize
-    cap: usize
+pub type Vec[T] {
+    Ptr[T] data
+    usize len
+    usize cap
 }
 
-impl Vec {
+extend Vec {
     /// An empty vector (no allocation).
-    pub fn new() -> Vec[T] {
+    pub fn Vec[T] new() {
         return Vec(data: Ptr.null(), len: 0, cap: 0)
     }
 
     /// An empty vector able to hold `capacity` elements without reallocating.
-    pub fn with_capacity(capacity: usize) -> Vec[T] {
-        var v: Vec[T] = Vec.new()
+    pub fn Vec[T] with_capacity(usize capacity) {
+        var Vec[T] v = Vec.new()
         v.reserve(capacity)
         return v
     }
 
     /// Number of elements.
-    pub fn len(self) -> usize {
+    pub fn usize len(self) {
         return self.len
     }
 
     /// Number of elements that fit without reallocating.
-    pub fn capacity(self) -> usize {
+    pub fn usize capacity(self) {
         return self.cap
     }
 
-    pub fn is_empty(self) -> bool {
+    pub fn bool is_empty(self) {
         return self.len == 0
     }
 
     /// Makes room for `extra` more elements (capacity grows geometrically).
-    pub fn reserve(inout self, extra: usize) {
+    pub fn reserve(self!, usize extra) {
         let need = self.len + extra
         if need <= self.cap {
             return
         }
-        var cap: usize = if self.cap == 0 { 4 } else { self.cap * 2 }
+        var usize cap = if self.cap == 0 { 4 } else { self.cap * 2 }
         if cap < need {
             cap = need
         }
@@ -60,7 +61,7 @@ impl Vec {
     }
 
     /// Appends an element.
-    pub fn push(inout self, owned value: T) {
+    pub fn push(self!, owned T value) {
         if self.len == self.cap {
             self.reserve(1)
         }
@@ -71,7 +72,7 @@ impl Vec {
     }
 
     /// Removes and returns the last element.
-    pub fn pop(inout self) -> Option[T] {
+    pub fn Option[T] pop(self!) {
         if self.len == 0 {
             return None
         }
@@ -83,7 +84,7 @@ impl Vec {
 
     /// Inserts an element at `index`, shifting the following ones.
     @track_caller
-    pub fn insert(inout self, index: usize, owned value: T) {
+    pub fn insert(self!, usize index, owned T value) {
         if index > self.len {
             panic("insertion index {index} is out of bounds of a vector of length {self.len}")
         }
@@ -100,7 +101,7 @@ impl Vec {
 
     /// Removes and returns the element at `index`, shifting the following ones.
     @track_caller
-    pub fn remove(inout self, index: usize) -> T {
+    pub fn T remove(self!, usize index) {
         if index >= self.len {
             panic("removal index {index} is out of bounds of a vector of length {self.len}")
         }
@@ -115,7 +116,7 @@ impl Vec {
 
     /// Exchanges the elements at `i` and `j`.
     @track_caller
-    pub fn swap(inout self, i: usize, j: usize) {
+    pub fn swap(self!, usize i, usize j) {
         if i >= self.len or j >= self.len {
             panic("swap index out of bounds: the length is {self.len} but the indices are {i} and {j}")
         }
@@ -132,13 +133,13 @@ impl Vec {
     }
 
     /// Removes every element.
-    pub fn clear(inout self) {
+    pub fn clear(self!) {
         self.truncate(0)
     }
 
     /// Keeps the first `length` elements and destroys the others, by increasing index
     /// (spec §5.5).
-    pub fn truncate(inout self, length: usize) {
+    pub fn truncate(self!, usize length) {
         if length >= self.len {
             return
         }
@@ -153,19 +154,19 @@ impl Vec {
 
     /// Address of the first element (null for an empty vector without storage). The
     /// pointer is valid until the vector is modified or destroyed.
-    pub fn as_ptr(self) -> Ptr[T] {
+    pub fn Ptr[T] as_ptr(self) {
         return self.data
     }
 
     /// Sets the length without initializing or destroying elements: the elements
     /// `0..length` must be valid and `length <= capacity()`.
-    pub unsafe fn set_len(inout self, length: usize) {
+    pub unsafe fn set_len(self!, usize length) {
         self.len = length
     }
 
     /// Gives up the storage: (data, length, capacity). The caller becomes responsible
     /// for the elements and for freeing the storage with `mem.free`.
-    pub unsafe fn into_raw_parts(owned self) -> (Ptr[T], usize, usize) {
+    pub unsafe fn (Ptr[T], usize, usize) into_raw_parts(owned self) {
         let parts = (self.data, self.len, self.cap)
         mem.forget(self)
         return parts
@@ -174,7 +175,7 @@ impl Vec {
     /// Address of element `index` (used by `v[index]`).
     @index
     @track_caller
-    fn at(self, index: usize) -> Ptr[T] {
+    fn Ptr[T] at(self, usize index) {
         if index >= self.len {
             rt.index_fail(index, self.len)
         }
@@ -183,7 +184,7 @@ impl Vec {
         }
     }
 
-    fn drop(inout self) {
+    fn drop(self!) {
         self.truncate(0)
         if self.cap > 0 {
             unsafe {
@@ -193,46 +194,10 @@ impl Vec {
     }
 }
 
-impl Vec {
-    /// `true` if an element equals `value`.
-    pub fn contains(self, value: T) -> bool where T: Eq {
-        for x in self {
-            if x == value {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// The position of the first element equal to `value`.
-    pub fn index_of(self, value: T) -> Option[usize] where T: Eq {
-        for i in 0..self.len {
-            if self[i] == value {
-                return Some(i)
-            }
-        }
-        return None
-    }
-
-    /// A copy of the first element, or `None` if the vector is empty.
-    pub fn first(self) -> Option[T] where T: Clone {
-        if self.len == 0 {
-            return None
-        }
-        return Some(self[0].clone())
-    }
-
-    /// A copy of the last element, or `None` if the vector is empty.
-    pub fn last(self) -> Option[T] where T: Clone {
-        if self.len == 0 {
-            return None
-        }
-        return Some(self[self.len - 1].clone())
-    }
-
+extend Vec {
     /// Reverses the order of the elements.
-    pub fn reverse(inout self) {
-        var i: usize = 0
+    pub fn reverse(self!) {
+        var usize i = 0
         var j = self.len
         while i + 1 < j {
             j -= 1
@@ -241,48 +206,8 @@ impl Vec {
         }
     }
 
-    /// Sorts the elements in increasing order (heap sort: O(n log n), in place; equal
-    /// elements may change order).
-    pub fn sort(inout self) where T: Ord {
-        let n = self.len
-        if n < 2 {
-            return
-        }
-        var start = n / 2
-        while start > 0 {
-            start -= 1
-            self.sift_down(start, n)
-        }
-        var end = n
-        while end > 1 {
-            end -= 1
-            self.swap(0, end)
-            self.sift_down(0, end)
-        }
-    }
-
-    fn sift_down(inout self, start: usize, end: usize) where T: Ord {
-        var root = start
-        while true {
-            let child = 2 * root + 1
-            if child >= end {
-                return
-            }
-            var c = child
-            if child + 1 < end and self[child] < self[child + 1] {
-                c = child + 1
-            }
-            if self[root] < self[c] {
-                self.swap(root, c)
-                root = c
-            } else {
-                return
-            }
-        }
-    }
-
     /// Sorts the elements with a comparison function.
-    pub fn sort_by(inout self, compare: fn(T, T) -> Ordering) {
+    pub fn sort_by(self!, fn Ordering(T, T) compare) {
         let n = self.len
         if n < 2 {
             return
@@ -300,9 +225,9 @@ impl Vec {
         }
     }
 
-    fn sift_down_by(inout self, start: usize, end: usize, compare: fn(T, T) -> Ordering) {
+    fn sift_down_by(self!, usize start, usize end, fn Ordering(T, T) compare) {
         var root = start
-        while true {
+        loop {
             let child = 2 * root + 1
             if child >= end {
                 return
@@ -320,9 +245,210 @@ impl Vec {
         }
     }
 
+    /// A new vector with `f` applied to every element.
+    pub fn Vec[U] map[U](self, fn U(T) f) {
+        var Vec[U] out = Vec.with_capacity(self.len)
+        for x in self {
+            out.push(f(x))
+        }
+        return out
+    }
+
+    /// Calls `f` on every element, in order.
+    pub fn for_each(self, fn(T) f) {
+        for x in self {
+            f(x)
+        }
+    }
+
+    /// `true` if `test` is true for at least one element.
+    pub fn bool any(self, fn bool(T) test_) {
+        for x in self {
+            if test_(x) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// `true` if `test` is true for every element.
+    pub fn bool all(self, fn bool(T) test_) {
+        for x in self {
+            if not test_(x) {
+                return false
+            }
+        }
+        return true
+    }
+
+    /// The number of elements for which `test` is true.
+    pub fn usize count(self, fn bool(T) test_) {
+        var usize n = 0
+        for x in self {
+            if test_(x) {
+                n += 1
+            }
+        }
+        return n
+    }
+
+    /// The position of the first element for which `test` is true.
+    pub fn Option[usize] position(self, fn bool(T) test_) {
+        for i in 0..self.len {
+            if test_(self[i]) {
+                return Some(i)
+            }
+        }
+        return None
+    }
+
+    /// Combines the elements from left to right: `f(f(f(init, a), b), c)`.
+    pub fn A fold[A](self, owned A init, fn A(A, T) f) {
+        var acc = init
+        for x in self {
+            acc = f(acc, x)
+        }
+        return acc
+    }
+
+    /// Keeps only the elements for which `keep` is true.
+    pub fn retain(self!, fn bool(T) keep) {
+        var usize i = 0
+        while i < self.len {
+            if keep(self[i]) {
+                i += 1
+            } else {
+                let _ = self.remove(i)
+            }
+        }
+    }
+}
+
+extend Vec[T is Eq] {
+    /// `true` if an element equals `value`.
+    pub fn bool contains(self, T value) {
+        for x in self {
+            if x == value {
+                return true
+            }
+        }
+        return false
+    }
+
+    /// The position of the first element equal to `value`.
+    pub fn Option[usize] index_of(self, T value) {
+        for i in 0..self.len {
+            if self[i] == value {
+                return Some(i)
+            }
+        }
+        return None
+    }
+
+    /// Removes consecutive equal elements.
+    pub fn dedup(self!) {
+        var usize i = 1
+        while i < self.len {
+            if self[i] == self[i - 1] {
+                let _ = self.remove(i)
+            } else {
+                i += 1
+            }
+        }
+    }
+}
+
+extend Vec[T is Clone] {
+    /// A copy of the first element, or `None` if the vector is empty.
+    pub fn Option[T] first(self) {
+        if self.len == 0 {
+            return None
+        }
+        return Some(self[0].clone())
+    }
+
+    /// A copy of the last element, or `None` if the vector is empty.
+    pub fn Option[T] last(self) {
+        if self.len == 0 {
+            return None
+        }
+        return Some(self[self.len - 1].clone())
+    }
+
+    /// A new vector with the elements for which `keep` is true.
+    pub fn Vec[T] filter(self, fn bool(T) keep) {
+        var Vec[T] out = Vec.new()
+        for x in self {
+            if keep(x) {
+                out.push(x.clone())
+            }
+        }
+        return out
+    }
+
+    /// A copy of the first element for which `test` is true.
+    pub fn Option[T] find(self, fn bool(T) test_) {
+        for x in self {
+            if test_(x) {
+                return Some(x.clone())
+            }
+        }
+        return None
+    }
+
+    /// Appends copies of the elements of `other`.
+    pub fn extend(self!, Vec[T] other) {
+        self.reserve(other.len)
+        for x in other {
+            self.push(x.clone())
+        }
+    }
+}
+
+extend Vec[T is Ord] {
+    /// Sorts the elements in increasing order (heap sort: O(n log n), in place; equal
+    /// elements may change order).
+    pub fn sort(self!) {
+        let n = self.len
+        if n < 2 {
+            return
+        }
+        var start = n / 2
+        while start > 0 {
+            start -= 1
+            self.sift_down(start, n)
+        }
+        var end = n
+        while end > 1 {
+            end -= 1
+            self.swap(0, end)
+            self.sift_down(0, end)
+        }
+    }
+
+    fn sift_down(self!, usize start, usize end) {
+        var root = start
+        loop {
+            let child = 2 * root + 1
+            if child >= end {
+                return
+            }
+            var c = child
+            if child + 1 < end and self[child] < self[child + 1] {
+                c = child + 1
+            }
+            if self[root] < self[c] {
+                self.swap(root, c)
+                root = c
+            } else {
+                return
+            }
+        }
+    }
+
     /// The position of `value` in a sorted vector (binary search).
-    pub fn binary_search(self, value: T) -> Option[usize] where T: Ord {
-        var lo: usize = 0
+    pub fn Option[usize] binary_search(self, T value) {
+        var usize lo = 0
         var hi = self.len
         while lo < hi {
             let mid = lo + (hi - lo) / 2
@@ -338,124 +464,15 @@ impl Vec {
         }
         return None
     }
+}
 
-    /// A new vector with `f` applied to every element.
-    pub fn map[U](self, f: fn(T) -> U) -> Vec[U] {
-        var out: Vec[U] = Vec.with_capacity(self.len)
-        for x in self {
-            out.push(f(x))
-        }
-        return out
-    }
-
-    /// A new vector with the elements for which `keep` is true.
-    pub fn filter(self, keep: fn(T) -> bool) -> Vec[T] where T: Clone {
-        var out: Vec[T] = Vec.new()
-        for x in self {
-            if keep(x) {
-                out.push(x.clone())
-            }
-        }
-        return out
-    }
-
-    /// Calls `f` on every element, in order.
-    pub fn for_each(self, f: fn(T)) {
-        for x in self {
-            f(x)
-        }
-    }
-
-    /// `true` if `test` is true for at least one element.
-    pub fn any(self, test: fn(T) -> bool) -> bool {
-        for x in self {
-            if test(x) {
-                return true
-            }
-        }
-        return false
-    }
-
-    /// `true` if `test` is true for every element.
-    pub fn all(self, test: fn(T) -> bool) -> bool {
-        for x in self {
-            if not test(x) {
-                return false
-            }
-        }
-        return true
-    }
-
-    /// The number of elements for which `test` is true.
-    pub fn count(self, test: fn(T) -> bool) -> usize {
-        var n: usize = 0
-        for x in self {
-            if test(x) {
-                n += 1
-            }
-        }
-        return n
-    }
-
-    /// A copy of the first element for which `test` is true.
-    pub fn find(self, test: fn(T) -> bool) -> Option[T] where T: Clone {
-        for x in self {
-            if test(x) {
-                return Some(x.clone())
-            }
-        }
-        return None
-    }
-
-    /// The position of the first element for which `test` is true.
-    pub fn position(self, test: fn(T) -> bool) -> Option[usize] {
-        for i in 0..self.len {
-            if test(self[i]) {
-                return Some(i)
-            }
-        }
-        return None
-    }
-
-    /// Combines the elements from left to right: `f(f(f(init, a), b), c)`.
-    pub fn fold[A](self, owned init: A, f: fn(A, T) -> A) -> A {
-        var acc = init
-        for x in self {
-            acc = f(acc, x)
-        }
-        return acc
-    }
-
-    /// Keeps only the elements for which `keep` is true.
-    pub fn retain(inout self, keep: fn(T) -> bool) {
-        var i: usize = 0
-        while i < self.len {
-            if keep(self[i]) {
-                i += 1
-            } else {
-                let _ = self.remove(i)
-            }
-        }
-    }
-
-    /// Removes consecutive equal elements.
-    pub fn dedup(inout self) where T: Eq {
-        var i: usize = 1
-        while i < self.len {
-            if self[i] == self[i - 1] {
-                let _ = self.remove(i)
-            } else {
-                i += 1
-            }
-        }
-    }
-
+extend Vec[T is Ord and Clone] {
     /// A copy of the largest element.
-    pub fn max(self) -> Option[T] where T: Ord + Clone {
+    pub fn Option[T] max(self) {
         if self.len == 0 {
             return None
         }
-        var best: usize = 0
+        var usize best = 0
         for i in 1..self.len {
             if self[i] > self[best] {
                 best = i
@@ -465,11 +482,11 @@ impl Vec {
     }
 
     /// A copy of the smallest element.
-    pub fn min(self) -> Option[T] where T: Ord + Clone {
+    pub fn Option[T] min(self) {
         if self.len == 0 {
             return None
         }
-        var best: usize = 0
+        var usize best = 0
         for i in 1..self.len {
             if self[i] < self[best] {
                 best = i
@@ -477,18 +494,22 @@ impl Vec {
         }
         return Some(self[best].clone())
     }
+}
 
+extend Vec[T is Add and Default] {
     /// The sum of the elements (`T.default()` for an empty vector).
-    pub fn sum(self) -> T where T: Add + Default {
+    pub fn T sum(self) {
         var total = T.default()
         for x in self {
             total = total + x
         }
         return total
     }
+}
 
+extend Vec[T is Display] {
     /// The elements as text, separated by `separator`.
-    pub fn join(self, separator: String) -> String where T: Display {
+    pub fn String join(self, String separator) {
         var out = ""
         for i in 0..self.len {
             if i > 0 {
@@ -498,22 +519,14 @@ impl Vec {
         }
         return out
     }
-
-    /// Appends copies of the elements of `other`.
-    pub fn extend(inout self, other: Vec[T]) where T: Clone {
-        self.reserve(other.len)
-        for x in other {
-            self.push(x.clone())
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Standard traits
 
-impl Clone for Vec[T: Clone] {
-    fn clone(self) -> Vec[T] {
-        var out: Vec[T] = Vec.with_capacity(self.len)
+extend Vec[T is Clone] is Clone {
+    fn Vec[T] clone(self) {
+        var Vec[T] out = Vec.with_capacity(self.len)
         for x in self {
             out.push(x.clone())
         }
@@ -521,8 +534,8 @@ impl Clone for Vec[T: Clone] {
     }
 }
 
-impl Eq for Vec[T: Eq] {
-    fn eq(self, other: Vec[T]) -> bool {
+extend Vec[T is Eq] is Eq {
+    fn bool eq(self, Vec[T] other) {
         if self.len != other.len {
             return false
         }
@@ -535,10 +548,10 @@ impl Eq for Vec[T: Eq] {
     }
 }
 
-impl Ord for Vec[T: Ord] {
+extend Vec[T is Ord] is Ord {
     /// Lexicographic order.
-    fn cmp(self, other: Vec[T]) -> Ordering {
-        var i: usize = 0
+    fn Ordering cmp(self, Vec[T] other) {
+        var usize i = 0
         while i < self.len and i < other.len {
             let c = self[i].cmp(other[i])
             if c != Ordering.Equal {
@@ -556,14 +569,14 @@ impl Ord for Vec[T: Ord] {
     }
 }
 
-impl Display for Vec[T: Display] {
-    fn to_string(self) -> String {
+extend Vec[T is Display] is Display {
+    fn String to_string(self) {
         return "[{self.join(", ")}]"
     }
 }
 
-impl Hash for Vec[T: Hash] {
-    fn hash(self) -> u64 {
+extend Vec[T is Hash] is Hash {
+    fn u64 hash(self) {
         var h = core.hash_mix(self.len as u64)
         for x in self {
             h = core.hash_combine(h, x.hash())
@@ -572,8 +585,8 @@ impl Hash for Vec[T: Hash] {
     }
 }
 
-impl Default for Vec[T] {
-    fn default() -> Vec[T] {
+extend Vec[T] is Default {
+    fn Vec[T] default() {
         return Vec.new()
     }
 }
@@ -583,8 +596,8 @@ impl Default for Vec[T] {
 
 // The elements belong to the vector alone: it can be moved to another task when they
 // can, and read by several tasks when they can.
-unsafe impl Transfer for Vec[T: Transfer] {
+unsafe extend Vec[T is Transfer] is Transfer {
 }
 
-unsafe impl Share for Vec[T: Share] {
+unsafe extend Vec[T is Share] is Share {
 }

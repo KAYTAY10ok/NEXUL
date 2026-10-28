@@ -1,0 +1,26 @@
+// edition: 1
+// ADR 0010, Q1 and Q2: a bounded block requires its bounds at each call; its parameters
+// are those of the type; a free function cannot be named with a reserved word.
+type Boite[T] {
+    Vec[T] items
+}
+
+extend Boite[T is Eq] {
+    pub fn bool contient(self, T x) = self.items.len() > 0 and self.items[0] == x
+}
+
+extend Boite[U is Eq] {
+    pub fn bool autre(self) = true
+}
+
+type Opaque {
+    i32 n
+}
+
+fn i32 repeat(i32 n) = n
+
+fn main() {
+    var Boite[Opaque] o = Boite(items: Vec.new())
+    o.items.push(Opaque(n: 1))
+    println("{o.contient(Opaque(n: 1))}")
+}

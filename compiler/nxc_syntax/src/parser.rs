@@ -40,6 +40,9 @@ struct Parser<'a> {
     depth: u32,
     /// E0113 was reported: the rest of the nesting is not reported again.
     too_deep: bool,
+    /// Edition 1: the function being read is a method (in `extend`, `interface` or a type),
+    /// whose name may be a reserved word (ADR 0010, Q2).
+    member_fn: bool,
 }
 
 /// Deepest nesting of expressions, blocks, types and patterns (E0113). The analyses that
@@ -99,7 +102,7 @@ fn assign_op(k: &TokenKind) -> Option<AssignOp> {
 
 impl<'a> Parser<'a> {
     fn new(toks: Vec<Token>, diags: &'a DiagSink) -> Parser<'a> {
-        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new(), test_panics: false, depth: 0, too_deep: false }
+        Parser { toks, pos: 0, diags, last_error_at: None, ed1: false, no_bang: false, test_names: Vec::new(), test_panics: false, depth: 0, too_deep: false, member_fn: false }
     }
 
     // -----------------------------------------------------------------------
@@ -209,6 +212,22 @@ impl<'a> Parser<'a> {
         } else {
             self.expected(what);
             Err(())
+        }
+    }
+
+    /// The name of a member (method, field, named argument): in edition 1 it may be a
+    /// reserved word (`fn bool any(…)`, `v.any(…)`), since it never begins a statement
+    /// (ADR 0010, Q2).
+    fn member_ident(&mut self, what: &str) -> PResult<Ident> {
+        match self.peek().clone() {
+            TokenKind::Ident(name) if name != "_" => {
+                let span = self.bump().span;
+                Ok(Ident { name, span })
+            }
+            _ => {
+                self.expected(what);
+                Err(())
+            }
         }
     }
 
@@ -1363,7 +1382,7 @@ impl<'a> Parser<'a> {
             }
             let start = self.span();
             let label = if matches!(self.peek(), TokenKind::Ident(_)) && self.peek_at(1) == &TokenKind::Colon {
-                let l = self.ident("a label")?;
+                let l = self.member_ident("a label")?;
                 self.bump();
                 Some(l)
             } else {

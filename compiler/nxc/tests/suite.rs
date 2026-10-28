@@ -429,8 +429,7 @@ fn migrated_programs_behave_the_same() {
     }
 }
 
-/// The standard library is in edition 1 (but for the files kept in 0.2, which still migrate),
-/// the examples migrate with nothing left to do by hand, and the migrated examples compile in
+/// The standard library is in edition 1, the examples migrate with nothing left to do by hand, and the migrated examples compile in
 /// edition 1 without warnings.
 #[test]
 fn migrated_examples_and_library() {
@@ -447,10 +446,7 @@ fn migrated_examples_and_library() {
         }
     }
     walk(&root().join("lib"), &mut lib);
-    // The library is written in edition 1, except these files: a public method named with a
-    // word that edition 1 reserves (`repeat`, `any`, `extend`), or bounded on a parameter of
-    // its type (`where K: Eq` in `impl Map`), has no form in edition 1 yet (ADR 0010).
-    const KEPT_IN_0_2: &[&str] = &["vec.nx", "string.nx", "collections.nx", "tache.nx"];
+    // The library is written in edition 1 (ADR 0010).
     for p in lib.iter().chain(files("examples").iter()) {
         let name = p.file_name().unwrap().to_string_lossy().to_string();
         let text = std::fs::read_to_string(p).unwrap();
@@ -458,13 +454,13 @@ fn migrated_examples_and_library() {
         if in_lib && nxc_syntax::header_edition(&text) == Some(nxc_syntax::Edition::V1) {
             continue;
         }
-        if in_lib && !KEPT_IN_0_2.contains(&name.as_str()) {
+        if in_lib {
             failures.push(format!("{}: the library is written in edition 1 (`// edition: 1`, `nxc migrate`)", p.display()));
             continue;
         }
         match nxc_driver::migrate::migrate(&name, &text) {
             Err(e) => failures.push(format!("{}: not migrated\n{}", p.display(), e)),
-            Ok(m) if !m.manual.is_empty() && !in_lib => failures.push(format!("{}: left to do by hand: {:?}", p.display(), m.manual)),
+            Ok(m) if !m.manual.is_empty() => failures.push(format!("{}: left to do by hand: {:?}", p.display(), m.manual)),
             Ok(m) if p.starts_with(root().join("examples")) => {
                 let mut opts = CompileOptions::new(Mode::Check);
                 opts.edition = nxc_syntax::Edition::V1;

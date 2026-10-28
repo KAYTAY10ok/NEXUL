@@ -1,0 +1,42 @@
+// edition: 1
+// ADR 0010, Q1 and Q2: methods bounded on a parameter of their type live in an
+// `extend Type[P is …]` block; a method or a field may be named with a reserved word.
+type Boite[T] {
+    Vec[T] items
+    i32 any
+}
+
+extend Boite {
+    pub fn usize taille(self) = self.items.len()
+    pub fn bool any(self) = self.any > 0
+    pub fn i32 repeat(self, i32 n) = self.any * n
+}
+
+extend Boite[T is Eq] {
+    pub fn bool contient(self, T x) {
+        for v in self.items {
+            if v == x {
+                return true
+            }
+        }
+        return false
+    }
+}
+
+extend Boite[T is Display] {
+    pub fn String texte(self) = self.items.join("-")
+}
+
+type Opaque {
+    i32 n
+}
+
+fn main() {
+    var b = Boite(items: Vec.new(), any: 2)
+    b.items.push(3)
+    b.items.push(5)
+    println("{b.taille()} {b.contient(3)} {b.contient(4)} {b.texte()}")
+    println("{b.any()} {b.repeat(4)}")
+    let Boite[Opaque] o = Boite(items: Vec.new(), any: 0)
+    println("{o.taille()} {o.any()}")
+}

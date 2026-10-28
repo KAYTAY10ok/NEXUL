@@ -1241,11 +1241,20 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
     // The target must be a type declared in the same module (spec §6.3).
     let target = match &imp.decl.ty.kind {
         TypeExprKind::Path { segments, args } if segments.len() == 1 => {
-            if !args.is_empty() {
+            // Edition 1 (ADR 0010, Q1): `extend Map[K is Hash and Eq, V] { … }` names the
+            // parameters of the type, in order, to bound them for the methods of the block.
+            let names_params = |prog: &Program| -> bool {
+                let Some(ItemRef::Adt(a)) = lookup_item(prog, imp.module, &segments[0].name) else { return false };
+                let generics = &prog.adts[a.idx()].generics;
+                args.len() == generics.len()
+                    && args.iter().zip(generics.iter()).all(|(t, g)| matches!(&t.kind, TypeExprKind::Path { segments, args } if segments.len() == 1 && args.is_empty() && segments[0].name == *g))
+            };
+            if !args.is_empty() && !names_params(prog) {
                 diags.emit(
                     Diagnostic::error("E0224", "an `impl` block applies to the whole generic type")
                         .primary(imp.decl.ty.span, "remove the generic arguments")
-                        .note("inside the block, the type's parameters are in scope automatically"),
+                        .note("inside the block, the type's parameters are in scope automatically")
+                        .help("to bound them, name them as the type declares them: `extend Map[K is Eq, V] { … }`"),
                 );
             }
             if primitive_type(prog, &segments[0].name).is_some() || segments[0].name == "Ptr" {
@@ -1305,8 +1314,16 @@ fn collect_impl(prog: &mut Program, imp: PendingImpl, diags: &DiagSink) {
         return;
     }
     let owner_generics = prog.adts[adt_id.idx()].generics.clone();
+    let block_bounds = imp.decl.bounds.clone();
     for item in imp.decl.items {
-        let ItemKind::Fn(f) = item.kind else { continue };
+        let ItemKind::Fn(mut f) = item.kind else { continue };
+        // The bounds of the block (`extend Vec[T is Eq]`) bound each of its methods, as a
+        // `where T: Eq` of the method would in edition 0.2.
+        if !block_bounds.is_empty() {
+            let mut bounds = block_bounds.clone();
+            bounds.extend(f.bounds.drain(..));
+            f.bounds = bounds;
+        }
         check_attrs(&ast::Item { attrs: item.attrs.clone(), is_pub: item.is_pub, kind: ItemKind::Fn(f.clone()), span: item.span }, prog.modules[imp.module.idx()].is_std, diags);
         let f = Rc::new(f);
         let id = FnId(prog.fns.len() as u32);

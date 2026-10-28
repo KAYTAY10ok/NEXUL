@@ -37,6 +37,11 @@ struct Migrator<'a> {
     string_errors: bool,
     /// Public types copied by their structure in 0.2, which declare `Copy` in edition 1.
     add_copy: HashSet<String>,
+    /// The parameters of the generic structs and enums of the module, by type name.
+    type_generics: HashMap<String, Vec<String>>,
+    /// The method being rewritten moves to an `extend Type[P is …]` block that carries the
+    /// bounds of its `where` on the parameters of the type (ADR 0010, Q1).
+    bounds_moved: bool,
 }
 
 /// The functions of `std.io` whose errors became `io.IoError` (ADR 0015).
@@ -61,7 +66,16 @@ pub fn migrate(name: &str, src: &str) -> Result<Migration, String> {
         let list = diags.take_sorted();
         return Err(list.iter().map(|d| format!("error[{}]: {}", d.code, d.message)).collect::<Vec<_>>().join("\n"));
     }
-    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false, add_copy: copy_types(&module) };
+    let type_generics = module
+        .items
+        .iter()
+        .filter_map(|it| match &it.kind {
+            ItemKind::Struct(st) => Some((st.name.name.clone(), st.generics.iter().map(|g| g.name.clone()).collect())),
+            ItemKind::Enum(en) => Some((en.name.name.clone(), en.generics.iter().map(|g| g.name.clone()).collect())),
+            _ => None,
+        })
+        .collect();
+    let mut m = Migrator { src, edits: Vec::new(), seq: 0, manual: Vec::new(), string_errors: false, add_copy: copy_types(&module), type_generics, bounds_moved: false };
     for item in &module.items {
         m.item(item);
     }
@@ -126,6 +140,30 @@ impl<'a> Migrator<'a> {
 
     fn text(&self, lo: usize, hi: usize) -> &str {
         &self.src[lo..hi]
+    }
+
+    /// `lo..hi` widened to whole lines, with the comment lines just above (`///`, `//`) and
+    /// the line break at the end.
+    fn lines_of(&self, lo: usize, hi: usize) -> (usize, usize) {
+        let mut start = self.src[..lo].rfind('\n').map_or(0, |i| i + 1);
+        while start > 0 {
+            let prev = self.src[..start - 1].rfind('\n').map_or(0, |i| i + 1);
+            let line = self.src[prev..start - 1].trim_start();
+            if line.starts_with("//") || line.starts_with('@') {
+                start = prev;
+            } else {
+                break;
+            }
+        }
+        // The blank line that separated it from the previous member goes with it.
+        if start > 0 {
+            let prev = self.src[..start - 1].rfind('\n').map_or(0, |i| i + 1);
+            if self.src[prev..start - 1].trim().is_empty() {
+                start = prev;
+            }
+        }
+        let end = self.src[hi..].find('\n').map_or(self.src.len(), |i| hi + i + 1);
+        (start, end)
     }
 
     fn line_of(&self, pos: usize) -> usize {
@@ -289,8 +327,57 @@ impl<'a> Migrator<'a> {
                     None => format!("extend {} ", ty),
                 };
                 self.rep(k, brace, head);
+                // Edition 1 bounds a parameter of the type on a block, not on a method: the
+                // methods with such a `where` move to `extend Type[P is …] { … }` blocks after
+                // this one, one per set of bounds (ADR 0010, Q1).
+                let owner = match (&i.trait_, &i.ty.kind) {
+                    (None, TypeExprKind::Path { segments, args }) if segments.len() == 1 && args.is_empty() => {
+                        self.type_generics.get(&segments[0].name).cloned().map(|g| (segments[0].name.clone(), g))
+                    }
+                    _ => None,
+                };
+                let mut moved: Vec<(String, String)> = Vec::new();
                 for it in &i.items {
-                    self.item(it);
+                    let owner_bounds: Vec<&BoundDecl> = match (&owner, &it.kind) {
+                        (Some(_), ItemKind::Fn(f)) => f.bounds.iter().filter(|b| !f.generics.iter().any(|g| g.name == b.param.name)).collect(),
+                        _ => Vec::new(),
+                    };
+                    if owner_bounds.is_empty() {
+                        self.item(it);
+                        continue;
+                    }
+                    let (name, generics) = owner.clone().unwrap();
+                    let params: Vec<String> = generics
+                        .iter()
+                        .map(|g| {
+                            let traits: Vec<String> = owner_bounds.iter().filter(|b| b.param.name == *g).flat_map(|b| b.traits.iter().map(|t| self.ty(t))).collect();
+                            if traits.is_empty() { g.clone() } else { format!("{} is {}", g, traits.join(" and ")) }
+                        })
+                        .collect();
+                    let header = format!("extend {}[{}] {{", name, params.join(", "));
+                    // The method, with its comments and attributes, from the start of its first
+                    // line to the end of its last one.
+                    let (lo, hi) = self.lines_of(it.span.lo as usize, it.span.hi as usize);
+                    let edits = self.capture(|m| {
+                        m.bounds_moved = true;
+                        m.item(it);
+                        m.bounds_moved = false;
+                    });
+                    let text = self.render(lo, hi, &edits);
+                    self.rep(lo, hi, "");
+                    // In its new block, one blank line between members and none at the top.
+                    let text = text.trim_start_matches('\n').to_string();
+                    match moved.iter_mut().find(|(h, _)| *h == header) {
+                        Some((_, body)) => {
+                            body.push('\n');
+                            body.push_str(&text);
+                        }
+                        None => moved.push((header, text)),
+                    }
+                }
+                let end = item.span.hi as usize;
+                for (header, body) in moved {
+                    self.ins(end, format!("\n\n{}\n{}}}", header, body));
                 }
             }
             ItemKind::Trait(t) => {
@@ -350,7 +437,7 @@ impl<'a> Migrator<'a> {
         }
         // A bound on a parameter of the type (`where K: Eq` in `impl Map`): edition 1 has
         // no place for it in the header of the method, and dropping it would drop a check.
-        if let Some(b) = f.bounds.iter().find(|b| !f.generics.iter().any(|g| g.name == b.param.name)) {
+        if let Some(b) = f.bounds.iter().find(|b| !self.bounds_moved && !f.generics.iter().any(|g| g.name == b.param.name)) {
             self.manual(
                 start,
                 format!("`where {}: …` bounds a parameter of the type: move `{}` to a separate `extend Type[{} is …] {{ … }}`", b.param.name, f.name.name, b.param.name),
@@ -732,6 +819,35 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
             out.push(t);
         }
     }
+    // The methods and fields declared here: edition 1 accepts a reserved word as the name
+    // of a member (ADR 0010, Q2), so they keep their names, and so do their uses after a dot
+    // and as named arguments (`Sac(any: 3)`).
+    let mut members: HashSet<String> = HashSet::new();
+    let mut member_decls: HashSet<u32> = HashSet::new();
+    {
+        let d = DiagSink::new();
+        let module = parser::parse_module(lexer::lex(src, file, &d), &d);
+        for item in &module.items {
+            let methods: &[Item] = match &item.kind {
+                ItemKind::Impl(i) => &i.items,
+                ItemKind::Trait(t) => &t.items,
+                ItemKind::Struct(st) => {
+                    for fd in &st.fields {
+                        members.insert(fd.name.name.clone());
+                        member_decls.insert(fd.name.span.lo);
+                    }
+                    &[]
+                }
+                _ => &[],
+            };
+            for m in methods {
+                if let ItemKind::Fn(f) = &m.kind {
+                    members.insert(f.name.name.clone());
+                    member_decls.insert(f.name.span.lo);
+                }
+            }
+        }
+    }
     let mut toks = Vec::new();
     flatten(lexer::lex(src, file, &diags), &mut toks);
     toks.retain(|t| !matches!(t.kind, K::Str(_)));
@@ -763,7 +879,12 @@ fn rename_reserved(src: &str) -> (String, Vec<String>, Vec<(usize, String)>) {
         if i > 0 && toks[i - 1].kind == K::Dot {
             continue;
         }
-        // A field or a method declared here and used after a dot elsewhere: renaming only the
+        // A method or a field declared here, or a named argument (`Sac(any: 3)`), keeps its
+        // name (ADR 0010, Q2).
+        if member_decls.contains(&(lo as u32)) || (members.contains(n) && toks.get(i + 1).is_some_and(|t| t.kind == K::Colon)) {
+            continue;
+        }
+        // A field or a method declared elsewhere and used after a dot: renaming only the
         // declaration would break its uses.
         let declares = (i > 0 && toks[i - 1].kind == K::Fn) || toks.get(i + 1).is_some_and(|t| t.kind == K::Colon);
         if declares && after_dot.contains(n) {
@@ -932,9 +1053,10 @@ mod tests {
         let r = migrate("t.nx", "fn main() {\n    let test = 1\n    println(\"{test}\")\n}\n").unwrap();
         assert_eq!(r.text, "fn main() {\n    let test_ = 1\n    println(\"{test_}\")\n}\n");
         assert_eq!(r.renamed, vec!["test"]);
-        // A field declared here and read after a dot: left to the reader.
+        // A field declared here keeps its name, a reserved word of edition 1 (ADR 0010, Q2).
         let r = migrate("t.nx", "struct S {\n    with: i32\n}\nfn f(s: S) -> i32 {\n    return s.with\n}\n").unwrap();
-        assert!(r.manual.iter().any(|(l, w)| *l == 2 && w.contains("`with`")), "{:?}", r.manual);
+        assert!(r.manual.is_empty(), "{:?}", r.manual);
+        assert!(r.text.contains("    i32 with\n") && r.text.contains("s.with"), "{}", r.text);
         // A local name is renamed; a method of the library after a dot is kept.
         let r = migrate("t.nx", "fn main() {\n    let with = 1\n    x.with()\n}\n").unwrap();
         assert_eq!(r.text, "fn main() {\n    let with_ = 1\n    x.with()\n}\n");

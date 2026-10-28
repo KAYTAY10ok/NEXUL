@@ -267,11 +267,12 @@ impl<'a> Parser<'a> {
 
     /// `[unsafe] fn [Type] name[generics](params) body`
     pub(super) fn fn_decl1(&mut self) -> PResult<FnDecl> {
+        let member = std::mem::take(&mut self.member_fn);
         let start = self.span();
         let is_unsafe = self.eat(&TokenKind::Unsafe);
         self.expect(TokenKind::Fn, "`fn`")?;
         let ret = if self.typed_name_here() { Some(self.type_expr()?) } else { None };
-        let name = self.ident("a function name")?;
+        let name = if member { self.member_ident("a function name")? } else { self.ident("a function name")? };
         let (generics, bounds) = self.generics1()?;
         self.expect(TokenKind::LParen, "`(`")?;
         let mut params = Vec::new();
@@ -442,6 +443,7 @@ impl<'a> Parser<'a> {
                 let mpub = self.eat(&TokenKind::Pub);
                 // `fn i32(i32) f` is a field whose type is a function; `fn i32 f(…)` a function.
                 if matches!(self.peek(), TokenKind::Fn | TokenKind::Unsafe) && !self.typed_name_here() {
+                    self.member_fn = true;
                     let f = self.fn_decl1()?;
                     fns.push(Item { attrs: mattrs, is_pub: mpub, kind: ItemKind::Fn(f), span: mstart.to(self.prev_span()) });
                 } else {
@@ -451,7 +453,7 @@ impl<'a> Parser<'a> {
                         return Err(());
                     }
                     let ty = self.type_expr()?;
-                    let fname = self.ident("a field name")?;
+                    let fname = self.member_ident("a field name")?;
                     fields.push(FieldDecl { is_pub: mpub, indirect, name: fname, ty, span: mstart.to(self.prev_span()) });
                 }
                 Ok(())
@@ -662,6 +664,7 @@ impl<'a> Parser<'a> {
                     self.expected(what);
                     return Err(());
                 }
+                self.member_fn = true;
                 let f = self.fn_decl1()?;
                 Ok(Item { attrs, is_pub, kind: ItemKind::Fn(f), span: start.to(self.prev_span()) })
             })();
