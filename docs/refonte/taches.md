@@ -1,4 +1,12 @@
-# NEXUL — tâches des agents (équipe réduite, 15/10/2026)
+# NEXUL — tâches des agents
+
+> **Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1.** Les tâches de Codex Terra (T1 à
+> T5 : performance, `std.net`, compilation incrémentale, auto-hébergement SH2–SH3, outils)
+> sont dans [prompt-codex-terra.md](prompt-codex-terra.md) ; celles de Claude Main dans
+> [claude-main-status.md](claude-main-status.md), section « En cours ». La suite de ce
+> fichier est l'archive de la période Claude Main + Codex Sol 6.1 (15/10 au 28/10).
+
+## Archive : équipe Claude Main + Codex Sol 6.1 (15/10/2026)
 
 Depuis le 15/10, l'équipe est **Claude Main + Codex Sol 6.1**. Les autres agents (Outils,
 Luna, Luna 2, Gemma) ne travaillent plus sur NEXUL ; leurs tâches sont reprises ci-dessous.
