@@ -22,13 +22,13 @@ partagé, les sections).
 |---|---|---|---|
 | T1 Campagne de performance | CONÇU | | |
 | T2 `std.net` complet (UDP, délais, IPv6, noms) | CONÇU | | |
-| T3 Compilation incrémentale (ADR 0016 d'abord) | CONÇU | | |
+| T3 Compilation incrémentale | CONÇU | À proposer | [ADR 0016 proposée](../adr/0016-compilation-incrementale.md), sans implémentation ; validation et mandat de Main requis. |
 | T4 Auto-hébergement SH2 (lexer), SH3 (parser, après G3) | CONÇU | | |
 | T5 Outils et distribution | CONÇU | | |
 
 ## Demandes à Claude Main
 
-—
+- T3 : revoir l'ADR 0016 et décider qui fournit l'interface de cache de `std` dans les fichiers `nxc_sema` et `nxc_syntax` réservés à Main, ou accorder un mandat délimité. L'implémentation attend son accord.
 
 ## Manques de NEXUL rencontrés (pour Main)
 
