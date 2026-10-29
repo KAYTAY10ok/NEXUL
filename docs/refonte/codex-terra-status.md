@@ -7,6 +7,7 @@ Agent : **Codex Terra 6.1**. Périmètre : prompt de démarrage T1 à T5 ; Claud
 | Tâche | Branche | Fichiers | Depuis |
 |---|---|---|---|
 | T1 — banc Linux, mesures initiales ; profilage et gains à poursuivre | `refonte/terra-performance` | `benchmarks/**`, `docs/refonte/codex-terra-status.md` ; proposition de job CI `.github/workflows/terra-benchmarks.yml` pour revue de Main | 29/10/2026 |
+| T1 — analyse des écarts et reproductions | `refonte/terra-profil` | `benchmarks/rapports/**`, `benchmarks/terra/**` et fichier d'état ; aucune modification des fichiers de Main | 29/10/2026 |
 
 ## Tâches
 
