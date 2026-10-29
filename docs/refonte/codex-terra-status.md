@@ -13,7 +13,9 @@ partagé, les sections).
 
 | Tâche | Branche | Fichiers | Depuis |
 |---|---|---|---|
-| — | — | — | — |
+| T1 — campagne de performance | `refonte/terra-performance`, `refonte/terra-profil` | `benchmarks/**`, workflow de mesures ; PR #72 | 29/10/2026 |
+| T3 — ADR proposée | `refonte/terra-incremental` | `docs/adr/0016-compilation-incrementale.md` ; PR #73 | 29/10/2026 |
+| T2 — première tranche UDP locale | `refonte/terra-udp` | `lib/std/net.nx` ; nouvelles sections UDP en fin de `lib/std/sys/{linux,macos,windows,wasi,web,bare}.nx` selon besoin ; nouveau `tests/run/udp.nx` ; fichier d'état | 29/10/2026 |
 
 ## Tâches
 
