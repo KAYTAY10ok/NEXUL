@@ -2,6 +2,22 @@
 
 ## Non publié
 
+**Effets (0.7.0, ADR 0018)**
+- `with noalloc, nonblocking` après les paramètres d'une fonction (spec §12.1).
+  - Le compilateur suit tous les appels, à travers les instances génériques et les
+    destructeurs.
+  - Il refuse :
+    - une allocation ou une libération (E0601) ;
+    - une attente : console, fichiers, semi-hébergement, verrous, appels système (E0602) ;
+    - un appel indirect ou une récursion (E0603).
+  - L'erreur montre la chaîne d'appels.
+- Les paniques ne sont pas des effets, ni les fonctions qui ne rendent pas la main
+  (`Never`) : le programme s'arrête.
+- Fonctions C : la clause sur une déclaration `extern "C"` est une promesse du
+  programmeur. Sans elle, un appel C alloue et bloque.
+- `std.rt.ms`, `us` et `s` donnent des durées en nanosecondes, pour les tâches
+  périodiques à venir. `every … within …` est encore refusé (E0111).
+
 **Interopérabilité C**
 - Structures C par valeur : `@repr("C")` (ADR 0017, spec §8.5). Une telle structure a la
   disposition de C et se passe par valeur, en paramètre comme en résultat, aux fonctions

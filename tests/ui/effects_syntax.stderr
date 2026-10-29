@@ -1,0 +1,29 @@
+error[E0604]: a C function cannot be a periodic task
+ --> effects_syntax.nx:5:26
+  |
+5 | extern "C" fn i32 tick() every ms(1)
+  |                          ^^^^^^^^^^^ remove `every`
+
+error[E0604]: the effect `noalloc` is written twice
+ --> effects_syntax.nx:7:32
+  |
+7 | fn double(i64 x) with noalloc, noalloc {
+  |                                ^^^^^^^ remove this one
+
+error[E0111]: the effect `io` is not supported yet
+  --> effects_syntax.nx:10:17
+   |
+10 | fn lourd() with io {
+   |                 ^^ planned in edition 1 (ADR 0010), not implemented
+   |
+   = note: the compiler refuses it rather than accept it without checking it
+
+error[E0111]: a contract (`requires`, `ensures`) is not supported yet
+  --> effects_syntax.nx:13:19
+   |
+13 | fn contrat(i64 x) requires x > 0 {
+   |                   ^^^^^^^^^^^^^^ planned in edition 1 (ADR 0010), not implemented
+   |
+   = note: the compiler refuses it rather than accept it without checking it
+
+error: could not compile due to 4 errors

@@ -1,0 +1,35 @@
+// edition: 1
+// Functions declared `with noalloc, nonblocking` (spec §12.1) compile and run like the
+// others: the effects are checked at compile time and cost nothing at run time.
+import std.rt.{ms, us}
+
+type Filtre {
+    i64 somme
+    [i64; 4] fenetre
+    usize pos
+}
+
+fn i64 filtrer(Filtre f!, i64 x) with noalloc, nonblocking {
+    f.somme += x - f.fenetre[f.pos]
+    f.fenetre[f.pos] = x
+    f.pos = (f.pos + 1) % 4
+    return f.somme / 4
+}
+
+fn T plus_grand[T is Copy and Ord](T a, T b) with noalloc, nonblocking {
+    return if a > b { a } else { b }
+}
+
+fn i64 lisse([i64; 8] mesures) with noalloc, nonblocking {
+    var f = Filtre(somme: 0, fenetre: [0; 4], pos: 0)
+    var dernier = 0
+    for m in mesures {
+        dernier = filtrer(f!, m)
+    }
+    return plus_grand(dernier, 0)
+}
+
+fn main() {
+    println("{lisse([4, 8, 12, 16, 20, 24, 28, 32])}")
+    println("{plus_grand(2.5, 1.0)} {ms(10)} {us(400)}")
+}

@@ -48,6 +48,7 @@ unsafe fn write_header(Ptr[u8] block, usize first, usize marker) {
 }
 
 /// Allocates `size` bytes aligned on 16 bytes; null if the memory is exhausted.
+@allocates
 pub unsafe fn Ptr[u8] alloc(usize size) {
     let _critical = unsafe { rt.critical_section() }
     if size > usize.MAX - MAX_CLASS_SIZE {
@@ -97,6 +98,7 @@ unsafe fn usize usable_size(Ptr[u8] p) {
     return class_size(first) - HEADER
 }
 
+@allocates
 pub unsafe fn free(Ptr[u8] p) {
     let _critical = unsafe { rt.critical_section() }
     if p.is_null() {
@@ -117,6 +119,7 @@ pub unsafe fn free(Ptr[u8] p) {
     FREE_LISTS[first] = block
 }
 
+@allocates
 pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
     let _critical = unsafe { rt.critical_section() }
     if p.is_null() {

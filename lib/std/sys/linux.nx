@@ -13,6 +13,7 @@ import std.tzif
 /// A Linux system call with six arguments (unused ones are 0). Returns the result, or
 /// `-errno` (between -4095 and -1) on failure.
 @intrinsic
+@blocks
 unsafe fn isize syscall6(isize number, isize a1, isize a2, isize a3, isize a4, isize a5, isize a6)
 
 @cfg("x86_64")
@@ -593,6 +594,7 @@ const usize MAX_THREADS = 256
 /// `clone` for a thread: on the new stack, the child calls `entry(arg)` then ends the
 /// thread; the parent receives the id of the child, or minus an error code.
 @intrinsic
+@blocks
 unsafe fn isize linux_clone(isize flags, Ptr[u8] stack, Ptr[u32] tid, owned fn(Ptr[u8]) entry, Ptr[u8] arg)
 
 /// A started thread: the word that holds its id, its region, what it runs.

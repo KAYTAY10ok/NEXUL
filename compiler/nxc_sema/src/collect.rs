@@ -111,6 +111,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         bounds: vec![],
                         abi_params: None,
                         trait_id: None,
+                        effects: effects_of(&e.effects, &item.attrs),
                     });
                     pending_externs.push((id, e, item.attrs.clone()));
                     ItemRef::Fn(id)
@@ -377,6 +378,21 @@ fn new_fn_def(f: &Rc<ast::FnDecl>, module: ModId, is_pub: bool, owner: Option<Ad
         bounds: vec![],
         abi_params: None,
         trait_id: None,
+        effects: effects_of(&f.effects, attrs),
+    }
+}
+
+/// The `with` clause and the roots `@allocates`, `@blocks` (ADR 0018 §1).
+fn effects_of(with: &[ast::Ident], attrs: &[ast::Attr]) -> Effects {
+    Effects {
+        noalloc: with.iter().any(|e| e.name == "noalloc"),
+        nonblocking: with.iter().any(|e| e.name == "nonblocking"),
+        span: match (with.first(), with.last()) {
+            (Some(a), Some(b)) => Some(a.span.to(b.span)),
+            _ => None,
+        },
+        allocates: attrs.iter().any(|a| a.name.name == "allocates"),
+        blocks: attrs.iter().any(|a| a.name.name == "blocks"),
     }
 }
 
@@ -408,11 +424,21 @@ fn check_generic_names(gens: &[ast::Ident], diags: &DiagSink) {
 }
 
 fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
+    if let ItemKind::Fn(f) = &item.kind {
+        if let Some(p) = &f.period {
+            // Periodic tasks come with the scheduler (ADR 0018 §2, step G2-b).
+            diags.emit(
+                Diagnostic::error("E0111", "a periodic task (`every … within …`) is not supported yet")
+                    .primary(p.span, "planned in 0.7.0 (ADR 0018), not implemented")
+                    .note("the compiler refuses it rather than accept it without checking it"),
+            );
+        }
+    }
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
             "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "repr" | "expects panic" | "type body" => {}
-            "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
+            "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" | "allocates" | "blocks" => {
                 // The validation of a constrained type panics where `as` is written (ADR 0014).
                 let validation = name == "track_caller" && matches!(&item.kind, ItemKind::Fn(f) if f.name.name == crate::newtype::VALIDATE_FN);
                 if !is_std && !validation {
@@ -438,12 +464,13 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             ("index", ItemKind::Fn(_)) => true,
             ("track_caller", ItemKind::Fn(_)) => true,
             ("export" | "inline" | "cold" | "no_builtins", ItemKind::Fn(_)) => true,
+            ("allocates" | "blocks", ItemKind::Fn(_) | ItemKind::ExternFn(_)) => true,
             ("cfg", _) => true,
             ("derive", ItemKind::Struct(_) | ItemKind::Enum(_)) => true,
             ("derive", _) => false,
             ("repr", ItemKind::Struct(_)) => true,
             ("repr", _) => false,
-            ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller" | "export" | "inline" | "cold" | "no_builtins", _) => false,
+            ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller" | "export" | "inline" | "cold" | "no_builtins" | "allocates" | "blocks", _) => false,
             _ => true,
         };
         if !ok_target {

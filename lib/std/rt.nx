@@ -26,6 +26,24 @@ pub unsafe fn sys.CriticalSection critical_section() {
 }
 
 // ---------------------------------------------------------------------------
+// Durations of the real-time tasks (ADR 0018 §2), in nanoseconds
+
+/// `n` milliseconds: `every ms(10)`.
+pub fn u64 ms(u64 n) with noalloc, nonblocking {
+    return n * 1_000_000
+}
+
+/// `n` microseconds: `within us(400)`.
+pub fn u64 us(u64 n) with noalloc, nonblocking {
+    return n * 1_000
+}
+
+/// `n` seconds.
+pub fn u64 s(u64 n) with noalloc, nonblocking {
+    return n * 1_000_000_000
+}
+
+// ---------------------------------------------------------------------------
 // Heap
 
 /// Number of live heap allocations. With the environment variable `NEXUL_LEAK_CHECK`,
@@ -51,6 +69,7 @@ fn Never out_of_memory() {
 
 /// Allocates `size` bytes (aligned for any type); never returns null.
 @lang("alloc")
+@allocates
 pub unsafe fn Ptr[u8] alloc(usize size) {
     let _critical = unsafe { critical_section() }
     let p = sys.heap_alloc(if size == 0 { 1 } else { size })
@@ -63,6 +82,7 @@ pub unsafe fn Ptr[u8] alloc(usize size) {
 
 /// Resizes an allocation made by `alloc` (or allocates if `p` is null).
 @lang("realloc")
+@allocates
 pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
     let _critical = unsafe { critical_section() }
     if p.is_null() {
@@ -77,6 +97,7 @@ pub unsafe fn Ptr[u8] realloc(Ptr[u8] p, usize size) {
 
 /// Frees an allocation made by `alloc` or `realloc`; does nothing for null.
 @lang("free")
+@allocates
 pub unsafe fn free(Ptr[u8] p) {
     let _critical = unsafe { critical_section() }
     if not p.is_null() {

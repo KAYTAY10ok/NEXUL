@@ -1,0 +1,9 @@
+error[E0111]: a periodic task (`every … within …`) is not supported yet
+ --> periodic_task.nx:5:17
+  |
+5 | fn regulation() every ms(10) within ms(2) with noalloc, nonblocking {
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ planned in 0.7.0 (ADR 0018), not implemented
+  |
+  = note: the compiler refuses it rather than accept it without checking it
+
+error: could not compile due to 1 error

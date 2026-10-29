@@ -625,7 +625,7 @@ impl<'a> Parser<'a> {
         let ret = if self.eat(&TokenKind::Arrow) { Some(self.type_expr()?) } else { None };
         self.where_clause(&mut bounds)?;
         let body = if self.is(&TokenKind::LBrace) { Some(self.block()?) } else { None };
-        Ok(FnDecl { name, generics, bounds, params, ret, body, is_unsafe, span: start.to(self.prev_span()) })
+        Ok(FnDecl { name, generics, bounds, params, ret, body, is_unsafe, effects: vec![], period: None, span: start.to(self.prev_span()) })
     }
 
     /// Parses `{ elem sep elem sep ... }` where sep is `,` or a newline.
@@ -881,7 +881,7 @@ impl<'a> Parser<'a> {
             self.error_here(Diagnostic::error("E0101", "an `extern` function cannot have a body").primary(span, "unexpected body"));
             return Err(());
         }
-        Ok(ExternFnDecl { abi, abi_span, name, params, ret })
+        Ok(ExternFnDecl { abi, abi_span, name, params, ret, effects: vec![] })
     }
 
     // -----------------------------------------------------------------------

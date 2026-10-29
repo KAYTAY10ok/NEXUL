@@ -157,6 +157,15 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0504` | Invalid `@export` function. |
 | `E0505` | Invalid `@repr("C")` structure. |
 
+## Effets et temps réel (ADR 0018)
+
+| Code | Signification |
+|---|---|
+| `E0601` | A function declared `with noalloc` can allocate or free memory (ADR 0018 §1). |
+| `E0602` | A function declared `with nonblocking` can wait (ADR 0018 §1). |
+| `E0603` | A function with effects makes a call that cannot be checked (ADR 0018 §1). |
+| `E0604` | Invalid effects or real-time task (ADR 0018 §1, §2). |
+
 ## Erreurs internes
 
 | Code | Signification |
