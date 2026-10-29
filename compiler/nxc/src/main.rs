@@ -61,6 +61,7 @@ struct Args {
     kind: OutputKind,
     no_debug: bool,
     link_args: Vec<String>,
+    stack_report: bool,
     json_version: Option<u8>,
     stdin: bool,
     /// `--edition`; otherwise the file and its project say (`pkg::edition_for`).
@@ -82,6 +83,7 @@ fn parse_args() -> Args {
         kind: OutputKind::Executable,
         no_debug: false,
         link_args: vec![],
+        stack_report: false,
         json_version: None,
         stdin: false,
         edition: None,
@@ -110,6 +112,7 @@ fn parse_args() -> Args {
             "--no-debug" => a.no_debug = true,
             "--target" => a.target = it.next(),
             "--link-arg" => a.link_args.extend(it.next()),
+            "--stack-report" => a.stack_report = true,
             "--emit" => match it.next().as_deref() {
                 Some("llvm-ir") | Some("ir") => a.emit_ir = true,
                 other => fail(&format!(
@@ -344,6 +347,7 @@ fn compile_command(args: &Args) {
     bopts.debug_info = copts.debug_info;
     bopts.kind = args.kind;
     bopts.link_args = args.link_args.clone();
+    bopts.stack_report = args.stack_report;
     if args.emit_ir {
         let out = args
             .output

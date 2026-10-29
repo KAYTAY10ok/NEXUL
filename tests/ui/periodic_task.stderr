@@ -1,7 +1,7 @@
 error[E0604]: real-time tasks need a Cortex-M target without system, not `x86_64-linux`
- --> periodic_task.nx:5:17
+ --> periodic_task.nx:6:17
   |
-5 | fn regulation() every ms(10) within ms(2) with noalloc, nonblocking {
+6 | fn regulation() every ms(10) within ms(2) with noalloc, nonblocking {
   |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ a task or an interrupt
   |
   = note: compile with `--target thumbv7em-none` (ADR 0018)

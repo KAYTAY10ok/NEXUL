@@ -29,6 +29,8 @@ jobs:
         NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test suite run_programs_cross
         # @repr("C") structures exchanged with C compiled by clang, on the same targets.
         NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test c_abi c_and_nexul_exchange_structures
+        # Real-time tasks: the bound of the stack covers the observed maximum (ADR 0018 §6).
+        NEXUL_TEST_TARGETS=thumbv7em-none cargo test --release -p nxc --test rt_stack
     - name: Stress programs (10^6 messages between 64 tasks)
       timeout-minutes: 10
       env:

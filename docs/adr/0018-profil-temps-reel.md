@@ -164,7 +164,7 @@ la main.
   La borne vaut :
   - celle de `main`, jusqu'à `rt.run()` compris ;
   - plus, pour chaque niveau de priorité, le maximum sur ses tâches, plus un cadre
-    d'exception de 104 octets (contexte flottant) ;
+    d'exception de 112 octets (contexte flottant et alignement ; 40 sans) ;
   - plus le cadre de SysTick et celui du répartiteur.
   
   Si elle dépasse la réserve, la compilation échoue (E0607, avec le détail par niveau).

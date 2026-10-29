@@ -9,6 +9,7 @@ pub mod migrate;
 pub mod lsp;
 mod objsyms;
 pub mod pkg;
+mod stack;
 pub mod toolchain;
 
 pub use link::OutputKind;
@@ -485,6 +486,8 @@ pub struct BuildOptions {
     pub debug_info: bool,
     pub kind: OutputKind,
     pub link_args: Vec<String>,
+    /// `--stack-report`: print the bound of the stack of the real-time tasks.
+    pub stack_report: bool,
 }
 
 impl BuildOptions {
@@ -496,6 +499,7 @@ impl BuildOptions {
             debug_info: !release,
             kind: OutputKind::Executable,
             link_args: Vec::new(),
+            stack_report: false,
         }
     }
 
@@ -687,7 +691,7 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
                 .write(true)
                 .open(file)
                 .and_then(|f| f.set_modified(std::time::SystemTime::now()));
-            return Ok(());
+            return check_stack(output, out, opts);
         }
     }
     let work = std::env::temp_dir().join(format!("nexul-build-{}", unique_suffix()));
@@ -718,6 +722,11 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
             extra: &opts.link_args,
         };
         link::link(&tc, &job)?;
+        // An executable whose stack is not bounded is not kept, nor cached.
+        if let Err(e) = check_stack(output, &target_path, opts) {
+            let _ = std::fs::remove_file(&target_path);
+            return Err(e);
+        }
         if let Some((d, file)) = &cached {
             let _ = std::fs::copy(&target_path, file);
             for ext in companions(opts) {
@@ -735,6 +744,17 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
     })();
     let _ = std::fs::remove_dir_all(&work);
     result
+}
+
+/// The bound of the stack of a program with real-time tasks (ADR 0018 §6), on the linked
+/// executable: refused above the reserve (E0607); printed with `--stack-report`.
+fn check_stack(output: &Output, exe: &Path, opts: &BuildOptions) -> Result<(), String> {
+    let Some(spec) = &output.stack else { return Ok(()) };
+    let report = stack::check(spec, exe)?;
+    if opts.stack_report {
+        eprintln!("stack of the real-time tasks ({} bytes):\n{}", report.bound, report.lines.join("\n"));
+    }
+    Ok(())
 }
 
 /// The files the linker writes next to the output, by extension: the debug information

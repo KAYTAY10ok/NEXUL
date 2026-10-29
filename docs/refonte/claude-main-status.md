@@ -16,7 +16,7 @@ Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1 ([prompt-codex-terra.md](pr
 | Tâche | Fichiers | Statut |
 |---|---|---|
 | `@repr("C")` : structures C par valeur, ABI par cible (0.6.0) | — | FUSIONNÉ (PR #75) |
-| 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, échéances ([ADR 0018](../adr/0018-profil-temps-reel.md), P8-G1) | `compiler/nxc_syntax` (`parser/ed1.rs`, AST), `compiler/nxc_sema`, `compiler/nxc_nir`, `compiler/nxc_codegen_llvm` (répartiteurs, table des vecteurs), `compiler/nxc/src/stack.rs` et `link.rs` (script `bare`), `lib/std/rt.nx`, `lib/std/sys/bare.nx`, attributs `@allocates`/`@blocks` dans `lib/std`, `docs/spec/12-temps-reel.md` | ADR acceptée ; G2-a (effets) FUSIONNÉ (PR #76) ; G2-b (tâches, ressources, ordonnanceur) IMPLÉMENTÉ, TESTÉ sous QEMU ; G2-c (pile bornée) en cours ; G3 (mesures sur carte) non testé |
+| 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, échéances ([ADR 0018](../adr/0018-profil-temps-reel.md), P8-G1) | `compiler/nxc_syntax` (`parser/ed1.rs`, AST), `compiler/nxc_sema`, `compiler/nxc_nir`, `compiler/nxc_codegen_llvm` (répartiteurs, table des vecteurs), `compiler/nxc/src/stack.rs` et `link.rs` (script `bare`), `lib/std/rt.nx`, `lib/std/sys/bare.nx`, attributs `@allocates`/`@blocks` dans `lib/std`, `docs/spec/12-temps-reel.md` | ADR acceptée ; G2-a (effets) FUSIONNÉ (PR #76) ; G2-b (tâches, ressources, ordonnanceur) et G2-c (pile bornée, garde MPU) IMPLÉMENTÉS, TESTÉS sous QEMU, PR #77 ; G3 (mesures sur carte) non testé |
 | G3 : ADR de gel de la grammaire de l'édition 1 (préalable de SH3 de Terra) | `docs/adr/`, `compiler/nxc_syntax` | à commencer |
 | Relecture et intégration des PR `[terra]` | — | en continu |
 

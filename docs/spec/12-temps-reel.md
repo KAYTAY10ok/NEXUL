@@ -103,6 +103,30 @@ fn main() {
 - Un appel à une tâche, ou une tâche prise comme valeur, est refusé (E0605), sauf comme
   argument de `rt.overruns` (E0608 pour un autre argument).
 
-## 12.3 Pile bornée (à venir)
+## 12.3 Pile bornée
 
-ADR 0018 §6 : borne calculée sur le code machine, réserve `@stack`, garde MPU (E0607).
+- **Réserve** : `@stack(octets)` sur `main`, 8192 par défaut, un multiple de 32 d'au moins
+  1024 (E0604). La pile est en haut de la RAM ; le tas s'arrête sous la réserve.
+- **Garde** : une région MPU sans accès, de 32 octets, sous la réserve. Un débordement, dans
+  une tâche comme dans `main`, provoque une faute MemManage : arrêt sûr, avec le message
+  `panic: stack overflow` et le code de sortie 101. Les autres fautes (HardFault, BusFault,
+  UsageFault) arrêtent de même.
+- **Borne statique** : `nxc` la calcule sur l'exécutable lié, en code machine, après
+  optimisation et inlining.
+  - Les trames sont lues dans les prologues Thumb-2 et les appels dans les `bl`.
+  - La borne additionne :
+    - la chaîne de démarrage jusqu'à `rt.run()` ;
+    - pour chaque niveau de priorité, le plus profond de ses gestionnaires et le cadre
+      d'exception (112 octets avec le contexte flottant, 40 sans) ;
+    - SysTick.
+  - Un appel par un registre, une autre écriture de `sp` ou un cycle rendent la borne
+    inconnue : la compilation échoue (E0607), sans estimation.
+  - Une borne supérieure à la réserve échoue aussi (E0607), et aucun exécutable n'est
+    laissé.
+  - Les fonctions qui ne rendent jamais la main (paniques) n'en font pas partie : si une
+    panique déborde, la garde arrête le programme.
+- `nxc build --stack-report` écrit la borne, niveau par niveau.
+- `rt.stack_used()` donne la pile la plus profonde **observée** pendant `rt.run()`, en
+  peignant la pile libre. C'est une mesure, pas une borne. Le test
+  `compiler/nxc/tests/rt_stack.rs` vérifie sous QEMU que la borne la couvre, en O0, O2 et
+  Os.

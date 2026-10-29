@@ -27,6 +27,14 @@ const ICSR: u32 = 0xE000_ED04;
 const SYST_CSR: u32 = 0xE000_E010;
 const SYST_RVR: u32 = 0xE000_E014;
 const SYST_CVR: u32 = 0xE000_E018;
+const SHCSR: u32 = 0xE000_ED24;
+const MPU_CTRL: u32 = 0xE000_ED94;
+const MPU_RNR: u32 = 0xE000_ED98;
+const MPU_RBAR: u32 = 0xE000_ED9C;
+const MPU_RASR: u32 = 0xE000_EDA0;
+
+/// Bytes guarded by the MPU under the reserve of the stack (ADR 0018 §6).
+pub const GUARD: u64 = 32;
 
 /// The value of the priority registers for a level (1 lowest .. 7): 3 bits, in the high
 /// bits of the byte; 0 is SysTick.
@@ -42,7 +50,7 @@ impl<'a> Gen<'a> {
         let n = plan.tasks.len();
         let mut handlers = Vec::new();
         let mut g = String::new();
-        let _ = writeln!(g, "@nx_rt_pend = internal global [{n} x i8] zeroinitializer\n@nx_rt_busy = internal global [{n} x i8] zeroinitializer\n@nx_rt_cnt = internal global [{n} x i32] zeroinitializer\n@nx_rt_rel = internal global [{n} x i64] zeroinitializer\n@nx_rt_over = internal global [{n} x i32] zeroinitializer\n@nx_rt_ticks = internal global i64 0\n@nx_rt_stopped = internal global i8 0");
+        let _ = writeln!(g, "@nx_rt_pend = internal global [{n} x i8] zeroinitializer\n@nx_rt_busy = internal global [{n} x i8] zeroinitializer\n@nx_rt_cnt = internal global [{n} x i32] zeroinitializer\n@nx_rt_rel = internal global [{n} x i64] zeroinitializer\n@nx_rt_over = internal global [{n} x i32] zeroinitializer\n@nx_rt_ticks = internal global i64 0\n@nx_rt_stopped = internal global i8 0\n@nx_rt_used = internal global i32 0");
         self.globals.push_str(&g);
         let mut f = String::new();
         // Trampolines.
@@ -110,8 +118,74 @@ impl<'a> Gen<'a> {
             }
         }
         self.emit_rt_run(&plan, &mut f);
+        self.emit_rt_guard(&plan, &mut f);
+        // What the driver bounds on the executable (ADR 0018 §6).
+        let mut levels: Vec<(u8, Vec<String>)> = Vec::new();
+        for (i, t) in plan.tasks.iter().enumerate() {
+            let root = match t.irq {
+                Some(_) => format!("nx_rt_task_{}", i),
+                None => format!("nx_rt_dispatch_{}", t.priority),
+            };
+            match levels.iter_mut().find(|(l, _)| *l == t.priority) {
+                Some((_, roots)) if !roots.contains(&root) => roots.push(root),
+                Some(_) => {}
+                None => levels.push((t.priority, vec![root])),
+            }
+        }
+        levels.sort();
+        let mut chain = self.entry_chain.clone();
+        chain.push("nx_rt_run".into());
+        let fp = self.opts.target.features.contains("vfp");
+        self.stack = Some(crate::StackSpec {
+            reserve: plan.stack,
+            // 26 words with the floating-point context, 8 without, plus the alignment.
+            exception: if fp { 112 } else { 40 },
+            chain,
+            levels,
+            systick: (plan.tick > 0).then(|| "nx_rt_systick".to_string()),
+            stops: Vec::new(),
+        });
+        for (vector, thunk) in [("MemManage_Handler", "nx_rt_memmanage"), ("HardFault_Handler", "nx_rt_hardfault"), ("BusFault_Handler", "nx_rt_hardfault"), ("UsageFault_Handler", "nx_rt_hardfault")] {
+            handlers.push((vector.into(), thunk.into()));
+        }
         self.fn_defs.push_str(&f);
         handlers
+    }
+
+    /// The guard of the stack (a region of the MPU without access under the reserve), and
+    /// the faults: a safe stop, on a stack pointer reset to the top (the overflowed stack
+    /// cannot hold the frame of the handler).
+    fn emit_rt_guard(&mut self, plan: &RtPlan, f: &mut String) {
+        let below = plan.stack + GUARD;
+        // XN, no access, 32 bytes (SIZE = 4), enabled.
+        let rasr = 0x1000_0009u32;
+        let _ = writeln!(
+            f,
+            "define internal void @nx_rt_guard() nounwind {{
+start:
+  %top = ptrtoint ptr @__stack_top to i32
+  %base = sub i32 %top, {below}
+  store volatile i32 0, ptr inttoptr (i32 {MPU_RNR} to ptr)
+  store volatile i32 %base, ptr inttoptr (i32 {MPU_RBAR} to ptr)
+  store volatile i32 {rasr}, ptr inttoptr (i32 {MPU_RASR} to ptr)
+  store volatile i32 5, ptr inttoptr (i32 {MPU_CTRL} to ptr)
+  %sh = load volatile i32, ptr inttoptr (i32 {SHCSR} to ptr)
+  %sh1 = or i32 %sh, 65536
+  store volatile i32 %sh1, ptr inttoptr (i32 {SHCSR} to ptr)
+  call void asm sideeffect \"dsb\0Aisb\", \"~{{memory}}\"()
+  ret void
+}}
+"
+        );
+        let (fault, _) = self.lang_fn("rt_fault");
+        let _ = writeln!(f, "define void @nx_rt_fault(i32 %k) nounwind noreturn {{\nstart:\n  call void {}(i32 %k)\n  unreachable\n}}\n", fault);
+        for (name, kind) in [("nx_rt_memmanage", 1), ("nx_rt_hardfault", 2)] {
+            self.declare(&format!("declare void @{}()", name));
+            self.module_asm.push(format!(
+                ".section .text.{name},\"ax\",%progbits\n.globl {name}\n.type {name},%function\n.thumb_func\n{name}:\n  cpsid i\n  ldr r0, ={top}\n  mov sp, r0\n  movs r0, #{kind}\n  bl nx_rt_fault\n  b .\n.ltorg\n.text\n",
+                top = "__stack_top"
+            ));
+        }
     }
 
     /// `@nx_rt_now`: cycles since `rt.run`, from the ticks and the current value of SysTick
@@ -199,6 +273,39 @@ done:
             let _ = writeln!(enable, "  store volatile i8 0, ptr inttoptr (i32 {SHPR3_SYSTICK} to ptr)\n  store volatile i32 {}, ptr inttoptr (i32 {SYST_RVR} to ptr)\n  store volatile i32 0, ptr inttoptr (i32 {SYST_CVR} to ptr)\n  store volatile i32 7, ptr inttoptr (i32 {SYST_CSR} to ptr)", plan.tick - 1);
             let _ = writeln!(disable, "  store volatile i32 0, ptr inttoptr (i32 {SYST_CSR} to ptr)");
         }
+        // The free part of the stack is painted, then the deepest word touched while the
+        // tasks ran is found: `rt.stack_used()`, an observed maximum (ADR 0018 §6).
+        let below = plan.stack;
+        let paint = format!(
+            "  %top = ptrtoint ptr @__stack_top to i32
+  %bottom = sub i32 %top, {below}
+  %sp = call i32 asm sideeffect \"mov $0, sp\", \"=r\"()
+  %limit = sub i32 %sp, 64
+  br label %paint
+paint:
+  %pa = phi i32 [ %bottom, %start ], [ %pa1, %paint ]
+  %pp = inttoptr i32 %pa to ptr
+  store volatile i32 2779096485, ptr %pp
+  %pa1 = add i32 %pa, 4
+  %pmore = icmp ult i32 %pa1, %limit
+  br i1 %pmore, label %paint, label %painted
+painted:
+"
+        );
+        let measure = "  br label %scan
+scan:
+  %sa = phi i32 [ %bottom, %end ], [ %sa1, %scan ]
+  %sp2 = inttoptr i32 %sa to ptr
+  %w = load volatile i32, ptr %sp2
+  %same = icmp eq i32 %w, 2779096485
+  %sa1 = add i32 %sa, 4
+  %smore = icmp ult i32 %sa1, %limit
+  %go = and i1 %same, %smore
+  br i1 %go, label %scan, label %scanned
+scanned:
+  %used = sub i32 %top, %sa
+  store volatile i32 %used, ptr @nx_rt_used
+".to_string();
         let _ = writeln!(
             f,
             "define internal void @nx_rt_run() nounwind {{
@@ -208,7 +315,7 @@ start:
   call void @llvm.memset.p0.i32(ptr @nx_rt_pend, i8 0, i32 {n}, i1 true)
   call void @llvm.memset.p0.i32(ptr @nx_rt_busy, i8 0, i32 {n}, i1 true)
   call void @llvm.memset.p0.i32(ptr @nx_rt_over, i8 0, i32 {over}, i1 true)
-{setup}  fence seq_cst
+{setup}{paint}  fence seq_cst
 {enable}  br label %wait
 wait:
   %s = load volatile i8, ptr @nx_rt_stopped
@@ -219,10 +326,12 @@ sleep:
   br label %wait
 end:
 {disable}  fence seq_cst
-  ret void
+{measure}  ret void
 }}
 ",
-            over = 4 * n
+            over = 4 * n,
+            paint = paint,
+            measure = measure
         );
         self.declare("declare void @llvm.memset.p0.i32(ptr, i8, i32, i1)");
     }
@@ -243,6 +352,8 @@ end:
                 _ => "add i32 0, 0".into(),
             },
             "now_cycles" if has => "call i64 @nx_rt_now()".into(),
+            "stack_used" if has => "load volatile i32, ptr @nx_rt_used".into(),
+            "stack_used" => "add i32 0, 0".into(),
             "now_cycles" => "add i64 0, 0".into(),
             _ => return None,
         })

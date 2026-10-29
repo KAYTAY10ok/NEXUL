@@ -65,8 +65,10 @@ const usize SYS_EXIT_EXTENDED = 0x20
 const usize SYS_ELAPSED = 0x30
 const usize SYS_TICKFREQ = 0x31
 
-/// Space kept for the stack below the top of RAM.
-const usize STACK_RESERVE = 65536
+/// Space kept for the stack below the top of RAM: 64 KiB, or the `@stack` of a program
+/// with real-time tasks, under which 32 bytes guarded by the MPU (ADR 0018 §6).
+@intrinsic
+unsafe fn usize stack_reserve()
 
 static var isize STDOUT = -1
 static var isize STDERR = -1
@@ -88,7 +90,7 @@ unsafe fn isize open_host(String name, usize mode) {
 fn reset() {
     unsafe {
         HEAP_NEXT = heap_start()
-        HEAP_END = stack_top().sub(STACK_RESERVE)
+        HEAP_END = stack_top().sub(stack_reserve())
     }
 }
 

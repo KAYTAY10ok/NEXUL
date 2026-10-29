@@ -37,6 +37,14 @@
 - Testé sous QEMU (`mps2-an386`) : libérations, ressource partagée sous préemption sans
   mise à jour perdue, interruption logicielle, dépassements détectés en surcharge. Les
   temps sur carte réelle ne sont **pas testés** (G3).
+- **Pile bornée** (ADR 0018 §6, spec §12.3) :
+  - réserve `@stack`, garde MPU sous la réserve, arrêt sûr sur débordement et sur faute ;
+  - borne calculée par `nxc` sur l'exécutable lié, en code machine ;
+  - E0607 si la borne est inconnue ou dépasse la réserve ; `--stack-report` ;
+  - `rt.stack_used()` mesure la pile observée.
+  
+  Sous QEMU, la borne couvre le maximum observé en O0, O2 et Os (664 ≤ 1180, 256 ≤ 648,
+  216 ≤ 608 octets sur le programme de test).
 
 **Interopérabilité C**
 - Structures C par valeur : `@repr("C")` (ADR 0017, spec §8.5). Une telle structure a la

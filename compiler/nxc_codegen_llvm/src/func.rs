@@ -1470,8 +1470,8 @@ impl<'a> Gen<'a> {
                         };
                         if let Some(code) = self.rt_intrinsic(&name, task) {
                             match name.as_str() {
-                                "overruns" | "now_cycles" => {
-                                    let ty = if name == "overruns" { "i32" } else { "i64" };
+                                "overruns" | "now_cycles" | "stack_used" => {
+                                    let ty = if name == "now_cycles" { "i64" } else { "i32" };
                                     let v = self.val(cx, code);
                                     self.store_result(cx, dest, ty, &v);
                                 }
@@ -2394,6 +2394,14 @@ fail:
                 };
                 let r = self.val(cx, format!("call {u} asm sideeffect \"{}\", \"{}\"({u} {}, {u} {})", insn, regs, s(0), s(1), u = u));
                 self.store_result(cx, dest, u, &r);
+            }
+            "stack_reserve" => {
+                // With tasks: the reserve of `@stack` and its guard (ADR 0018 §6).
+                let r = match &self.p.rt {
+                    Some(plan) => plan.stack + crate::rt::GUARD,
+                    None => 65536,
+                };
+                self.store_result(cx, dest, u, &r.to_string());
             }
             "heap_start" | "stack_top" => {
                 let g = if name == "heap_start" { "@__heap_start" } else { "@__stack_top" };

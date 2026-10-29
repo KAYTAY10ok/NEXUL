@@ -159,7 +159,14 @@ pub fn plan(prog: &mut Program, diags: &DiagSink) {
         return;
     };
     let hz = hz as u64;
-    let stack = main_rt.stack.map(|(v, _)| v as u64).unwrap_or(8192);
+    let stack = match main_rt.stack {
+        Some((v, sp)) if v < 1024 || v % 32 != 0 || v > 1 << 30 => {
+            diags.emit(Diagnostic::error("E0604", "the reserve of the stack is a multiple of 32 bytes, at least 1024").primary(sp, "here"));
+            return;
+        }
+        Some((v, _)) => v as u64,
+        None => 8192,
+    };
     // Periods and deadlines in cycles.
     let cycles = |ns: u64| -> Option<u64> {
         let c = ns as u128 * hz as u128;

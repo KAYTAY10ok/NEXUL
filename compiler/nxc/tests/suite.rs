@@ -646,7 +646,8 @@ fn every_code_has_a_ui_test() {
             }
         }
     }
-    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001"].contains(c) && !seen.contains(*c)).collect();
+    // E0607 is found on the linked executable: `tests/rt_stack.rs`.
+    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001", "E0607"].contains(c) && !seen.contains(*c)).collect();
     assert!(missing.is_empty(), "codes without a test in tests/ui: {:?}", missing);
 }
 

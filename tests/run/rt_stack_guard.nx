@@ -1,0 +1,32 @@
+// edition: 1
+// targets: thumbv7em-none
+// The guard of the stack (ADR 0018 §6): a program with tasks overflows its stack after
+// `rt.run()` (an unbounded recursion of `main`); the MPU stops it safely.
+import std.rt
+import std.rt.{ms}
+
+@resource
+static var u32 n = 0
+
+fn t(u32 n!) every ms(1) with noalloc, nonblocking {
+    n += 1
+    if n == 3 {
+        rt.stop()
+    }
+}
+
+fn u64 profond(u64 k) {
+    let [u64; 16] a = [k; 16]
+    if k == 0 {
+        return a[3]
+    }
+    return profond(k - 1) + a[k % 16]
+}
+
+@clock(25_000_000)
+@stack(4096)
+fn main() {
+    rt.run()
+    println("tâches finies : {n}")
+    println("{profond(100000)}")
+}
