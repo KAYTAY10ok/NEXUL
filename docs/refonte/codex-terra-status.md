@@ -13,7 +13,10 @@ partagé, les sections).
 
 | Tâche | Branche | Fichiers | Depuis |
 |---|---|---|---|
-| — | — | — | — |
+| T1 — campagne de performance et profils | `refonte/terra-performance`, `refonte/terra-profil` | `benchmarks/**` ; PR #72 et #74 | 29/10/2026 |
+| T2 — UDP IPv4 | `refonte/terra-udp` | `lib/std/net.nx`, sections réseau système, nouveau test UDP | 29/10/2026 |
+| T3 — ADR proposée | `refonte/terra-incremental` | `docs/adr/0016-compilation-incrementale.md` ; PR #73 | 29/10/2026 |
+| T4 SH2 — oracle JSON et lexer NEXUL | `refonte/terra-sh2` | `compiler/nxc/src/main.rs` : commande cachée `debug tokens --json` seulement ; `selfhost/lexer/**`, fichier d'état, proposition de CI | 29/10/2026 |
 
 ## Tâches
 
@@ -32,3 +35,7 @@ partagé, les sections).
 ## Manques de NEXUL rencontrés (pour Main)
 
 —
+
+Le plan SH0 antérieur mentionne le gel G3 pour SH2 ; le mandat du 29/10 demande SH2
+maintenant et conditionne explicitement SH3 à G3. Le lexer SH2 doit donc rester adaptable
+aux décisions de grammaire ; SH3 attend G3.
