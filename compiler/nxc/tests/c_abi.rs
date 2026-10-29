@@ -299,12 +299,49 @@ fn run(cmd: &mut Command, what: &str) -> String {
     String::from_utf8_lossy(&out.stdout).replace("\r\n", "\n")
 }
 
+/// Removes the attributes with a parenthesized argument that do not decide the calling
+/// convention and that newer clangs add (`range(i32 0, 2)` from LLVM 19, `captures(none)`
+/// from LLVM 21…): they would hide the `(` that opens the parameters.
+fn strip_attr_groups(line: &str) -> String {
+    const GROUPS: &[&str] = &["range(", "nofpclass(", "initializes(", "captures(", "dereferenceable(", "dereferenceable_or_null(", "memory("];
+    let mut out = String::new();
+    let mut i = 0;
+    'scan: while i < line.len() {
+        for g in GROUPS {
+            let starts_word = i == 0 || !line.as_bytes()[i - 1].is_ascii_alphanumeric() && line.as_bytes()[i - 1] != b'_';
+            if starts_word && line[i..].starts_with(g) {
+                let mut depth = 0;
+                for (j, ch) in line[i..].char_indices() {
+                    match ch {
+                        '(' => depth += 1,
+                        ')' => {
+                            depth -= 1;
+                            if depth == 0 {
+                                i += j + 1;
+                                continue 'scan;
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        let ch = line[i..].chars().next().unwrap();
+        out.push(ch);
+        i += ch.len_utf8();
+    }
+    out
+}
+
 /// A signature line reduced to what the calling convention decides: types and the
 /// attributes `byval`, `sret`, `align`, `alignstack`, `signext`, `zeroext`; structure
 /// names without their decoration (`%struct.S9`, `%"S9#12"` → `%S9`).
 fn normalize(line: &str) -> String {
-    let line = line.trim();
-    let (head, rest) = line.split_once('(').unwrap();
+    let line = strip_attr_groups(line.trim());
+    let line = line.as_str();
+    let at = line.find('@').unwrap();
+    let open = at + line[at..].find('(').unwrap();
+    let (head, rest) = (&line[..open], &line[open + 1..]);
     let (before, name) = head.rsplit_once('@').unwrap();
     let name = name.trim_matches('"');
     // The result type: what is left before the name once the keywords are removed.
