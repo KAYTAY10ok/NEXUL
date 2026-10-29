@@ -1,0 +1,46 @@
+// edition: 1
+// target: thumbv7em-none
+// Real-time tasks, declarations (ADR 0018 §2 to §4): E0604, E0605.
+import std.rt
+import std.rt.{ms, us}
+
+type Etat {
+    u32 n
+}
+
+@resource
+static var Etat etat = Etat(n: 0)
+
+static var u32 libre = 0
+
+// E0604: no effects; deadline after the period; duration not constant.
+fn sans_effets(Etat etat!) every ms(1) {
+    etat.n += 1
+}
+
+fn trop_tard() every ms(1) within ms(2) with noalloc, nonblocking {
+}
+
+fn variable(u64 x) every ms(x) with noalloc, nonblocking {
+}
+
+// E0605: a parameter that is not a resource; a resource given away.
+fn pas_ressource(u32 libre!) every ms(5) with noalloc, nonblocking {
+}
+
+fn donnee(owned Etat etat) every ms(5) with noalloc, nonblocking {
+}
+
+// E0604: an interrupt without priority; a priority out of range.
+@interrupt(3)
+fn sans_priorite() with noalloc, nonblocking {
+}
+
+@interrupt(4)
+@priority(9)
+fn trop_haut() with noalloc, nonblocking {
+}
+
+@clock(25_000_000)
+fn main() {
+}

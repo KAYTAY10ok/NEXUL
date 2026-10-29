@@ -24,7 +24,7 @@ mentions « Hors 0.1 » signalent ce qui reste à venir.
 | [09 — Bibliothèque standard](09-bibliotheque.md) | Prélude, traits standards, `String`, `Vec`, `Map`, `Set`, `std.*` |
 | [10 — Compilateur `nxc`](10-compilateur.md) | Pipeline, IR, backend LLVM, runtime, cibles, ligne de commande, tests |
 | [11 — Tâches et concurrence](11-taches.md) | `Transfer`, `Share`, `tache.portee`, `lancer`, exclusivité entre tâches, threads |
-| [12 — Effets et temps réel](12-temps-reel.md) | `with noalloc, nonblocking` ; tâches périodiques, ressources et pile bornée (à venir) |
+| [12 — Effets et temps réel](12-temps-reel.md) | `with noalloc, nonblocking` ; tâches périodiques, interruptions, ressources à plafond ; pile bornée et garde MPU |
 
 ## Conventions
 

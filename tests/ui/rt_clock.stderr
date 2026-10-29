@@ -1,0 +1,9 @@
+error[E0606]: the periods do not give a tick of SysTick of at least 1000 cycles
+ --> rt_clock.nx:6:8
+  |
+6 | fn a() every us(3) with noalloc, nonblocking {
+  |        ^^^^^^^^^^^ with these periods
+  |
+  = note: the tick is the greatest common divisor of the periods: 3 cycles
+
+error: could not compile due to 1 error

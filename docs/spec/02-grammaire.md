@@ -179,3 +179,179 @@ L'analyseur officiel est un analyseur récursif descendant écrit à la main, av
 reprise sur erreur au niveau des instructions et des éléments : une seule erreur de
 syntaxe ne doit jamais masquer les erreurs indépendantes qui suivent. L'arbre syntaxique
 conserve la position exacte (fichier, octet de début et de fin) de chaque nœud.
+
+## 2.8 Édition 1 (grammaire figée, ADR 0019)
+
+Les sections 2.2 à 2.6 décrivent l'édition 0.2. La grammaire ci-dessous est celle de
+l'**édition 1**, telle que l'implémente `compiler/nxc_syntax/src/parser/ed1.rs`. Depuis la
+0.7.0, elle est **figée** (ADR 0019) : elle ne change que par une ADR acceptée, en
+ajoutant une forme. Le parser auto-hébergé (SH3) doit donner le même arbre pour tout ce
+qu'elle accepte, et refuser le reste.
+
+Notation : celle de §2.1. `FIN` est la fin d'instruction (§1.7) ; `nom` est un `Ident`
+qui n'est pas un mot réservé de l'édition 1. Les mots `when then is interface extend any
+distinct it repeat test expects requires ensures with every within spawn loop` sont des
+identificateurs pour le lexer et des mots-clés pour le parser (E0010 comme nom).
+
+### Fichier et éléments
+
+```ebnf
+fichier        = { FIN } [ "module" chemin FIN ] { import FIN } { element FIN } ;
+import         = "import" chemin [ "." "{" nom_importe { "," nom_importe } "}" | "as" nom ] ;
+nom_importe    = nom [ "as" nom ] ;
+chemin         = nom { "." nom } ;
+attribut       = "@" nom [ "(" [ litteral_attr { "," litteral_attr } ] ")" ] { FIN } ;
+litteral_attr  = Chaine | Entier | Ident | "true" | "false" ;
+
+element        = { attribut } [ "pub" ]
+                 ( fonction | type_decl | interface | extension | "unsafe" extension
+                 | test | constante | statique | externe ) ;
+fonction       = [ "unsafe" ] "fn" [ type ] nom [ generiques ] "(" [ parametres ] ")"
+                 { clause } [ corps ] ;
+                 (* « un type puis un nom » : le type rendu ; un nom seul : rien n'est rendu *)
+parametres     = parametre { "," parametre } [ "," ] ;
+parametre      = [ "owned" ] "self" [ "!" ] | [ "owned" ] type nom [ "!" ] ;
+generiques     = "[" generique { "," generique } [ "," ] "]" ;
+generique      = nom [ "is" type { "and" type } ] ;
+clause         = "with" nom { "," nom }                        (* noalloc, nonblocking *)
+               | "every" expression [ "within" expression ] ;
+corps          = bloc | "=" expression ;
+test           = "test" Chaine [ "expects" "panic" ] bloc ;    (* chaîne sans interpolation *)
+constante      = "const" type nom "=" expression ;
+statique       = "static" [ "var" ] type nom "=" expression ;
+externe        = "extern" Chaine "fn" [ type ] nom "(" [ type nom { "," type nom } ] ")"
+                 [ "with" nom { "," nom } ] ;
+```
+
+### Types déclarés
+
+```ebnf
+type_decl      = "type" nom [ generiques ]
+                 ( [ "is" type { "and" type } ] corps_type
+                 | "is" type { "and" type } "=" variantes
+                 | "=" ( variantes | [ "distinct" ] type [ "is" type { "and" type } ]
+                                     [ "where" condition ] ) ) ;
+corps_type     = "{" { FIN } { membre ( FIN | "," ) { FIN } } "}" ;
+membre         = { attribut } [ "pub" ] ( fonction | [ "indirect" ] type nom ) ;
+variantes      = [ "|" ] variante { "|" variante } ;
+variante       = [ "indirect" ] "." nom [ "(" [ type [ nom ] { "," type [ nom ] } ] ")" ] ;
+condition      = cond_et { "or" cond_et } ;
+cond_et        = cond_non { "and" cond_non } ;
+cond_non       = "not" cond_non | "(" condition ")"
+               | "it" "in" unaire ( ".." | "..=" ) unaire
+               | "it" comparateur unaire | unaire comparateur "it" ;
+comparateur    = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+interface      = "interface" nom [ "is" type { "and" type } ] corps_fonctions ;
+extension      = "extend" ( chemin [ generiques ] | type ) [ "is" type ] corps_fonctions ;
+corps_fonctions= "{" { FIN } { { attribut } [ "pub" ] fonction FIN { FIN } } "}" ;
+```
+
+Une fonction d'un `corps_type` se distingue d'un champ de type fonction par ce qui suit le
+type : `fn i32(i32) f` est un champ, `fn i32 f(…)` une fonction.
+
+### Types
+
+```ebnf
+type           = chemin [ "[" type { "," type } "]" ] | "Self"
+               | "any" type                                     (* objet d'interface *)
+               | "(" [ type { "," type } ] ")"                  (* () et n-uplets *)
+               | "[" type ";" expression "]"                    (* tableau de taille fixe *)
+               | "fn" [ type ] "(" [ type_param { "," type_param } ] ")" ;
+type_param     = [ "owned" ] type [ "!" ] ;
+```
+
+### Blocs et instructions
+
+```ebnf
+bloc           = "{" { FIN } { instruction ( FIN | "}" ) { FIN } } "}" ;
+instruction    = "let" [ type ] motif "=" expression [ "else" repli ]
+               | "var" [ type ] nom [ "=" expression ]
+               | [ "#" nom ] boucle
+               | bloc                                           (* portée *)
+               | expression affectation expression
+               | expression [ "else" repli ] ;
+affectation    = "=" | "+=" | "-=" | "*=" | "/=" | "%=" | "&=" | "|=" | "^=" | "<<=" | ">>=" ;
+repli          = bloc | expression ;
+boucle         = "for" [ type ] motif [ "!" ] "in" expression [ ( ".." | "..=" ) expression ] bloc
+               | "while" expression bloc
+               | "loop" bloc
+               | "repeat" expression bloc ;
+```
+
+### Expressions
+
+```ebnf
+expression     = binaire { "|>" postfixe } ;
+binaire        = (* opérateurs binaires par précédence croissante, ci-dessous *) ;
+conversion     = unaire { "as" type } ;
+unaire         = ( "-" | "not" | "~" | "move" ) unaire | postfixe ;
+postfixe       = primaire { "." ( nom | Entier ) | "(" [ arguments ] ")"
+                          | "[" expression { "," expression } "]" | "?" | "!" } ;
+arguments      = argument { "," argument } [ "," ] ;
+argument       = [ nom ":" ] expression ;                       (* `x!` : valeur modifiée *)
+primaire       = litteral | Chaine | nom | "self" | "Self" | "." nom
+               | "(" [ expression { "," expression } [ "," ] ] ")"
+               | "[" [ expression ( ";" expression | { "," expression } ) ] "]"
+               | si | quand | anonyme | "unsafe" bloc
+               | "return" [ expression ] | ( "break" | "continue" ) [ "#" nom ] ;
+si             = "if" expression bloc [ "else" ( si | bloc ) ] ;
+quand          = "when" expression [ "!" ] "{" { FIN } { bras FIN { FIN } } "}" ;
+bras           = "else" valeur | motif { "," motif } [ "if" expression ] "then" valeur ;
+valeur         = bloc | expression [ affectation expression ] ;
+anonyme        = "fn" [ type ] "(" [ param_a { "," param_a } ] ")" ( "=>" expression | bloc ) ;
+param_a        = [ "owned" ] [ type ] nom [ "!" ] ;
+```
+
+Précédence de `binaire`, de la plus faible à la plus forte (toutes associatives à gauche,
+sauf les comparaisons, non associatives : E0104) :
+
+| Niveau | Opérateurs |
+|---|---|
+| 1 | `or` |
+| 2 | `and` |
+| 3 | `==` `!=` `<` `<=` `>` `>=` ; `e is motif` ; `e in a..b`, `e in a..=b`, `e in c` (bornes et `c` au niveau 4) |
+| 4 | `\|` |
+| 5 | `^` |
+| 6 | `&` |
+| 7 | `<<` `>>` |
+| 8 | `+` `-` `+%` `-%` |
+| 9 | `*` `/` `%` `*%` |
+| 10 | `as` (`conversion`) |
+
+`|>` est plus faible que tout : `a |> f(b)` est `f(a, b)`, `a |> f` est `f(a)`. `..` et
+`..=` n'existent que dans `for`, après `in` et dans les motifs. `if e is P` et `while e is P`
+lient les noms de `P` dans le bloc ; `e! is P` les lie à `e` lui-même.
+
+### Motifs
+
+```ebnf
+motif          = motif_simple { "|" motif_simple } ;
+motif_simple   = "_" | litteral_motif [ ( ".." | "..=" ) litteral_motif ]
+               | nom [ "!" ]                                     (* liaison *)
+               | "." nom [ "(" args_motif ")" ]                  (* variante du type examiné *)
+               | chemin [ "(" args_motif ")" ]                   (* variante ou constante qualifiée *)
+               | "(" [ motif { "," motif } [ "," ] ] ")" ;
+args_motif     = [ arg_motif { "," arg_motif } [ "," ] ] ;
+arg_motif      = nom ":" motif | motif | ".." ;
+litteral_motif = [ "-" ] Entier | Caractere | Chaine | "true" | "false" ;
+```
+
+### Reconnaissance d'un type
+
+Après `fn`, `let`, `var`, `for`, dans un paramètre, un champ ou un paramètre d'une fonction
+anonyme, le parser lit un type **seulement si** les jetons qui suivent forment un type
+puis un `nom` (autre que `is` et `then`). C'est un retour arrière borné par les crochets
+et parenthèses, sans information sémantique. Un `else` qui suit le bloc d'un `if`, même à
+la ligne, appartient à ce `if`.
+
+### Formes réservées
+
+Lues puis refusées (E0111), jamais acceptées sans être vérifiées : `requires` et
+`ensures` ; un effet autre que `noalloc` et `nonblocking` ; `===` et `!==` ; `spawn` ;
+`it` hors d'une condition `where` ; une borne sur le paramètre d'un `type` ; un type
+`distinct` ou contraint générique ; un type sur la variable d'un `for` qui modifie ou
+déstructure.
+
+Retirées de l'édition 0.2, refusées avec la nouvelle écriture (E0112) : `struct`, `enum`,
+`trait`, `impl`, `dyn`, `match`, `&x`, `->`, `name: Type`, `[T: I]`, `if let`, `while let`,
+`=>` dans `when`, `label: for`.

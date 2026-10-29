@@ -170,7 +170,8 @@ fn runs_on(nx: &Path, target: &Target) -> bool {
     let text = std::fs::read_to_string(nx).unwrap_or_default();
     // In the first lines, like `// edition:` (which may come first).
     match text.lines().take(3).find_map(|l| l.strip_prefix("// targets:")) {
-        Some(list) => list.split(',').any(|t| t.trim() == target.os.name()),
+        // A system (`linux`, `none`), or a target (`thumbv7em-none`).
+        Some(list) => list.split(',').any(|t| t.trim() == target.os.name() || t.trim() == target.name),
         None => true,
     }
 }
@@ -217,7 +218,9 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
 fn run_qemu(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::Output {
     use nxc_driver::Arch;
     let (system, machine): (&str, &[&str]) = match target.arch {
-        Arch::Arm => ("arm", &["-machine", "mps2-an386"]),
+        // `-icount`: the time of the board follows the instructions executed, not the clock
+        // of the host; the real-time tasks (ADR 0018) see the same time on a loaded machine.
+        Arch::Arm => ("arm", &["-machine", "mps2-an386", "-icount", "shift=5"]),
         Arch::Aarch64 => ("aarch64", &["-machine", "virt", "-cpu", "cortex-a53"]),
         Arch::Riscv32 => ("riscv32", &["-machine", "virt", "-bios", "none"]),
         _ => ("riscv64", &["-machine", "virt", "-bios", "none"]),
@@ -557,7 +560,16 @@ fn documentation_examples_compile() {
             checked += 1;
             let line = text[..text.len() - rest.len()].lines().count();
             let name = format!("{}:{}", doc.file_name().unwrap().to_string_lossy(), line);
-            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, &CompileOptions::new(Mode::Check));
+            // `// edition: 1` and `// target: thumbv7em-none` in the first lines, as in the
+            // test files.
+            let mut opts = CompileOptions::new(Mode::Check);
+            if let Some(t) = block.lines().take(3).find_map(|l| l.trim().strip_prefix("// target:")) {
+                opts.target = Target::from_name(t.trim()).unwrap();
+            }
+            if block.lines().take(3).any(|l| l.trim() == "// edition: 1") {
+                opts.edition = nxc_syntax::Edition::V1;
+            }
+            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, &opts);
             match block.find("// erreur E") {
                 Some(i) => {
                     let code = &block[i + "// erreur ".len()..i + "// erreur ".len() + 5];
@@ -636,7 +648,8 @@ fn every_code_has_a_ui_test() {
             }
         }
     }
-    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001"].contains(c) && !seen.contains(*c)).collect();
+    // E0607 is found on the linked executable: `tests/rt_stack.rs`.
+    let missing: Vec<&str> = nxc_driver::codes::all_codes().filter(|c| !["E0900", "E0001", "E0607"].contains(c) && !seen.contains(*c)).collect();
     assert!(missing.is_empty(), "codes without a test in tests/ui: {:?}", missing);
 }
 

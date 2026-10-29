@@ -1,0 +1,8 @@
+warning[W0009]: 1 task(s) are declared but `rt.run()` is never called
+  --> rt_never_run.nx:10:4
+   |
+10 | fn main() {
+   |    ^^^^ the tasks never start
+   |
+   = help: call `rt.run()` in `main`, after the preparation of the hardware
+

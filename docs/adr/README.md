@@ -22,6 +22,7 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0015](0015-erreurs-et-conversion.md) | Erreurs de la bibliothèque standard (`IoError`) et conversion par `?` (acceptée le 24/10/2026, mise en œuvre au lot 11) |
 | [0017](0017-structures-c.md) | Structures C par valeur, `@repr("C")` (acceptée le 29/10/2026, mise en œuvre en 0.6.0) |
 | [0018](0018-profil-temps-reel.md) | Profil temps réel v1 sur Cortex-M4 : effets, tâches périodiques, ressources à plafond, pile bornée (acceptée le 29/10/2026, 0.7.0) |
+| [0019](0019-gel-grammaire-edition-1.md) | Gel de la grammaire de l'édition 1 (G3) : grammaire normative §2.8 du chapitre 02, règles d'évolution, mandat M-T4a pour SH3 (acceptée le 29/10/2026) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
 

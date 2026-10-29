@@ -1,0 +1,32 @@
+// edition: 1
+// target: thumbv7em-none
+// Real-time tasks, uses (ADR 0018 §2, §3, §5): E0605, E0608, W0009.
+import std.rt
+import std.rt.{ms}
+
+type Etat {
+    u32 n
+}
+
+@resource
+static var Etat etat = Etat(n: 0)
+
+fn bonne(Etat etat!) every ms(2) with noalloc, nonblocking {
+    etat.n += 1
+}
+
+// A task called; a resource used outside its tasks and `main`.
+fn aide() {
+    unsafe {
+        bonne(etat!)
+        etat.n = 0
+    }
+}
+
+@clock(25_000_000)
+fn main() {
+    aide()
+    // Not a task.
+    let _ = rt.overruns(aide)
+    etat.n = 1
+}

@@ -1,0 +1,11 @@
+// edition: 1
+// target: thumbv7em-none
+// The clock must give whole cycles, and a tick of at least 1000 cycles (E0606).
+import std.rt.{us}
+
+fn a() every us(3) with noalloc, nonblocking {
+}
+
+@clock(1_000_000)
+fn main() {
+}

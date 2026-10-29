@@ -1,0 +1,31 @@
+error[E0605]: the task `bonne` is called by the scheduler only
+  --> rt_uses.nx:21:9
+   |
+21 |         bonne(etat!)
+   |         ^^^^^^^^^^^^ a task is not called
+   |
+   = help: put the shared code in an ordinary function
+
+error[E0605]: the resource `etat` is used only by its tasks and by `main`
+  --> rt_uses.nx:21:15
+   |
+21 |         bonne(etat!)
+   |               ^^^^ outside a task
+   |
+   = help: receive it as a parameter of a task, or pass it on from the task
+
+error[E0605]: the resource `etat` is used only by its tasks and by `main`
+  --> rt_uses.nx:22:9
+   |
+22 |         etat.n = 0
+   |         ^^^^ outside a task
+   |
+   = help: receive it as a parameter of a task, or pass it on from the task
+
+error[E0608]: `rt.overruns` counts the missed deadlines of a task
+  --> rt_uses.nx:30:13
+   |
+30 |     let _ = rt.overruns(aide)
+   |             ^^^^^^^^^^^^^^^^^ its argument is not the name of a task
+
+error: could not compile due to 4 errors

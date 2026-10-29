@@ -1,5 +1,6 @@
 // edition: 1
-// Periodic tasks come with the scheduler (ADR 0018 §2, 0.7.0): refused until then.
+// target: x86_64-linux
+// Periodic tasks need a Cortex-M target without system (ADR 0018 §2): E0604 elsewhere.
 import std.rt.{ms}
 
 fn regulation() every ms(10) within ms(2) with noalloc, nonblocking {

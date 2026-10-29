@@ -28,6 +28,40 @@ pub unsafe fn sys.CriticalSection critical_section() {
 // ---------------------------------------------------------------------------
 // Durations of the real-time tasks (ADR 0018 §2), in nanoseconds
 
+/// Starts the real-time tasks and the interrupts with resources (ADR 0018 §2), then waits
+/// for them; returns when a task calls `stop`. Without tasks, returns at once.
+@intrinsic
+pub fn run()
+
+/// Stops the tasks: `run` returns to `main` when the current task ends.
+@intrinsic
+pub fn stop()
+
+/// The deadlines missed by a task so far (ADR 0018 §5): `rt.overruns(regulation)`.
+@intrinsic
+pub fn u32 overruns[F](F task)
+
+/// Cycles of the core since `run` started, from SysTick (0 without periodic task).
+@intrinsic
+pub fn u64 now_cycles()
+
+/// The most stack used while the tasks ran (bytes from the top), as observed by `run`: a
+/// measure, not a bound (the bound is computed by `nxc`, `--stack-report`).
+@intrinsic
+pub fn u32 stack_used()
+
+/// A hardware fault of a program with tasks (ADR 0018 §5, §6): a safe stop. The stack
+/// pointer has been reset to the top of the stack.
+@lang("rt_fault")
+@cold
+fn Never fault(u32 kind) {
+    // No position: the fault is not at a place of the source.
+    if kind == 1 {
+        panic_at("stack overflow: the guard of the stack was reached (MemManage)", Ptr[Location].null())
+    }
+    panic_at("hardware fault (HardFault)", Ptr[Location].null())
+}
+
 /// `n` milliseconds: `every ms(10)`.
 pub fn u64 ms(u64 n) with noalloc, nonblocking {
     return n * 1_000_000

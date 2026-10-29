@@ -1,0 +1,65 @@
+// edition: 1
+// targets: thumbv7em-none
+// Real-time tasks (ADR 0018, spec §12.2) under QEMU: releases, ceiling of a shared
+// resource under preemption, a software interrupt, overruns detected.
+import std.mem
+import std.rt
+import std.rt.{ms, us}
+
+type Etat {
+    u32 haut
+    u32 bas
+    u32 total
+    u32 appuis
+    u32 signales
+}
+
+@resource
+static var Etat e = Etat(haut: 0, bas: 0, total: 0, appuis: 0, signales: 0)
+
+/// Busy while the clock goes on: deterministic in QEMU, whatever its speed.
+fn attendre(u64 cycles) with noalloc, nonblocking {
+    let fin = rt.now_cycles() + cycles
+    while rt.now_cycles() < fin {
+    }
+}
+
+// Every millisecond: a short increment, and a software interrupt every 10 releases.
+fn haut(Etat e!) every ms(1) within us(500) with noalloc, nonblocking {
+    e.haut += 1
+    e.total += 1
+    if e.haut % 10 == 0 {
+        unsafe { mem.write_volatile(Ptr[u32].from_addr(0xE000_E200), 1 << 6) }
+    }
+    if e.haut == 100 {
+        rt.stop()
+    }
+}
+
+// Every 20 ms, a long read-modify-write of the shared total (8 ms of 25 MHz cycles):
+// it runs at the ceiling of `e`, so no increment of `haut` is lost; `haut` is delayed.
+fn bas(Etat e!) every ms(20) with noalloc, nonblocking {
+    let avant = e.total
+    attendre(200_000)
+    e.total = avant + 1
+    e.bas += 1
+}
+
+@interrupt(6)
+@priority(2)
+fn bouton(Etat e!) with noalloc, nonblocking {
+    e.appuis += 1
+}
+
+@overrun
+fn retard() with noalloc, nonblocking {
+}
+
+@clock(25_000_000)
+fn main() {
+    rt.run()
+    // The counts of `bas` and of the overruns depend on the timing: only what is certain.
+    println("haut {e.haut}, bas lancé {e.bas > 0}")
+    println("rien de perdu {e.total == e.haut + e.bas}, appuis {e.appuis}")
+    println("retards de haut détectés {rt.overruns(haut) > 0}, de bas {rt.overruns(bas)}")
+}
