@@ -1,0 +1,48 @@
+# To display the perf.data header info, please use --header/--header-only options.
+#
+#
+# Total Lost Samples: 0
+#
+# Samples: 655  of event 'cpu-clock:u'
+# Event count (approx.): 656970895
+#
+# Overhead  Command      Shared Object     Symbol
+# ........  ...........  ................  ......................
+#
+    27.33%  source_scan  source_scan       [.] 0x0000000000003d62
+    14.35%  source_scan  source_scan       [.] 0x0000000000003d59
+    11.15%  source_scan  source_scan       [.] 0x0000000000003d5d
+    10.69%  source_scan  source_scan       [.] 0x0000000000003d54
+     7.94%  source_scan  source_scan       [.] 0x00000000000030cf
+     5.04%  source_scan  source_scan       [.] 0x00000000000030bd
+     4.43%  source_scan  source_scan       [.] 0x00000000000030d6
+     4.27%  source_scan  source_scan       [.] 0x00000000000030d9
+     3.05%  source_scan  source_scan       [.] 0x00000000000030d2
+     2.90%  source_scan  source_scan       [.] 0x00000000000030cc
+     2.14%  source_scan  source_scan       [.] 0x00000000000030c1
+     1.53%  source_scan  source_scan       [.] 0x00000000000030af
+     0.92%  source_scan  source_scan       [.] 0x000000000000236b
+     0.76%  source_scan  source_scan       [.] 0x00000000000030b1
+     0.61%  source_scan  source_scan       [.] 0x00000000000030a7
+     0.31%  source_scan  source_scan       [.] 0x000000000000302e
+     0.31%  source_scan  source_scan       [.] 0x00000000000030b9
+     0.15%  sh           dash              [.] 0x0000000000013cea
+     0.15%  sh           libc.so.6         [.] 0x000000000009fd22
+     0.15%  source_scan  source_scan       [.] 0x000000000000221c
+     0.15%  source_scan  source_scan       [.] 0x000000000000234b
+     0.15%  source_scan  source_scan       [.] 0x0000000000002368
+     0.15%  source_scan  source_scan       [.] 0x0000000000002382
+     0.15%  source_scan  source_scan       [.] 0x00000000000023cb
+     0.15%  source_scan  source_scan       [.] 0x0000000000002f93
+     0.15%  source_scan  source_scan       [.] 0x0000000000002fea
+     0.15%  source_scan  source_scan       [.] 0x00000000000030b5
+     0.15%  source_scan  source_scan       [.] 0x00000000000030e7
+     0.15%  source_scan  source_scan       [.] 0x00000000000037f7
+     0.15%  source_scan  source_scan       [.] 0x00000000000038dc
+     0.15%  source_scan  source_scan       [.] 0x00000000000038f4
+     0.15%  source_scan  source_scan       [.] 0x0000000000003d66
+
+
+#
+# (Cannot load tips.txt file, please install perf!)
+#
