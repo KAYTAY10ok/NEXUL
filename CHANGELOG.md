@@ -21,6 +21,8 @@
   - Un résultat C de moins de 32 bits ne produit plus d'IR invalide.
   - Sur ARM, le runtime fournit les fonctions flottantes de l'ABI d'exécution
     (`__aeabi_dadd`…) pour le code C lié à un programme NEXUL.
+  - Windows : une fonction C définie dans un objet donné au lien (`--link-arg c.obj`)
+    n'est plus importée d'une DLL, ce qui la définissait deux fois.
 
 ## 0.3.0 — « Refonte »
 
