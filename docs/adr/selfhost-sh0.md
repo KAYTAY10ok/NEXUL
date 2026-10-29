@@ -71,7 +71,7 @@ exacte, ce qui est l'atout principal de cette trajectoire.
 
 ## 5. Risques d'une transition prématurée
 
-- **Syntaxe mouvante** : l'édition 1 est en cours d'implémentation (G3) ; réécrire le
+- **Syntaxe mouvante** : réglé par le gel de l'édition 1 (G3, [ADR 0019](0019-gel-grammaire-edition-1.md)) ; réécrire le
   compilateur avant qu'elle soit figée imposerait une double migration. SH2 ne commence
   pas avant le gel de la grammaire de l'édition 1.
 - **Double maintenance** : chaque correction du compilateur Rust devra être reportée
