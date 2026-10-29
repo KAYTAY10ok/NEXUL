@@ -12,7 +12,7 @@ error[E0503]: type `String` cannot cross the C boundary
 2 | extern "C" fn g(s: String) -> Vec[i32]
   |                    ^^^^^^ not FFI-safe
   |
-  = note: allowed: integers, floats, `bool`, `char` and `Ptr[T]` (see spec §8.2)
+  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]`, C callbacks and `@repr("C")` structures (see spec §8.2)
 
 error[E0503]: type `Vec[i32]` cannot cross the C boundary
  --> ffi_errors.nx:2:31
@@ -20,6 +20,6 @@ error[E0503]: type `Vec[i32]` cannot cross the C boundary
 2 | extern "C" fn g(s: String) -> Vec[i32]
   |                               ^^^^^^^^ not FFI-safe
   |
-  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `()`
+  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]`, `@repr("C")` structures and `()`
 
 error: could not compile due to 3 errors

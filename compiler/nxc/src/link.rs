@@ -84,9 +84,20 @@ fn link_windows(tc: &Toolchain, job: &LinkJob) -> Result<(), String> {
     for o in &job.objects {
         cmd.arg(o);
     }
+    // A C function defined in an object given to the link (`--link-arg c.obj`) comes from
+    // that object, not from a DLL.
+    let mut local: Vec<String> = Vec::new();
+    for a in job.extra {
+        let p = Path::new(a);
+        if matches!(p.extension().and_then(|e| e.to_str()), Some("obj" | "o")) {
+            if let Ok(data) = std::fs::read(p) {
+                local.extend(crate::objsyms::defined_symbols(&data));
+            }
+        }
+    }
     // One import library per DLL, generated from the declarations of the program.
     let mut by_dll: BTreeMap<String, Vec<String>> = BTreeMap::new();
-    for (dll, sym) in job.imports {
+    for (dll, sym) in job.imports.iter().filter(|(_, s)| !local.contains(s)) {
         let list = by_dll.entry(dll.to_ascii_lowercase()).or_default();
         if !list.contains(sym) {
             list.push(sym.clone());

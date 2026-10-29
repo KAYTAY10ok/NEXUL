@@ -20,6 +20,8 @@ des décisions architecturales »). Format : contexte, décision, conséquences,
 | [0013](0013-fondations-de-la-concurrence.md) | Fondations de la concurrence : invariants, concurrence structurée, `Transfer`/`Share` (acceptée le 24/10/2026) |
 | [0014](0014-types-distincts-et-contraints.md) | Types distincts, types contraints et orientation des contrats (acceptée le 24/10/2026, mise en œuvre au lot 13) |
 | [0015](0015-erreurs-et-conversion.md) | Erreurs de la bibliothèque standard (`IoError`) et conversion par `?` (acceptée le 24/10/2026, mise en œuvre au lot 11) |
+| [0017](0017-structures-c.md) | Structures C par valeur, `@repr("C")` (acceptée le 29/10/2026, mise en œuvre en 0.6.0) |
+| [0018](0018-profil-temps-reel.md) | Profil temps réel v1 sur Cortex-M4 : effets, tâches périodiques, ressources à plafond, pile bornée (acceptée le 29/10/2026, 0.7.0) |
 
 ## Travaux préparatoires : nouvelle syntaxe (refonte V3, P2)
 

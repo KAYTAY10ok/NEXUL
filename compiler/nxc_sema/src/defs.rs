@@ -169,6 +169,9 @@ pub struct AdtDef {
     /// A distinct or constrained type (ADR 0014): a structure whose only field, hidden,
     /// holds a value of its base.
     pub newtype: Option<NewtypeDef>,
+    /// `@repr("C")`: the layout of C, and passed by value across the C boundary with the
+    /// calling convention of the target (spec §8.2).
+    pub repr_c: bool,
 }
 
 /// What a distinct or constrained type adds to its base (ADR 0014).

@@ -1,0 +1,49 @@
+// edition: 1
+// @repr("C") (spec §8.2): what C has, by value; E0505 for the rest.
+@repr("C")
+type Point {
+    f64 x
+    f64 y
+}
+
+@repr("C")
+type Flags {
+    bool on
+    char letter
+    String name
+}
+
+@repr("C")
+type Empty {
+}
+
+@repr("C")
+type Pair[T] {
+    T a
+}
+
+@repr("Rust")
+type Other {
+    i32 x
+}
+
+@repr("C")
+type Owner {
+    i32 handle
+}
+
+extend Owner {
+    fn drop(self!) {
+    }
+}
+
+type Plain {
+    i32 x
+}
+
+extern "C" fn Point c_point(Point p)
+extern "C" fn i32 c_plain(Plain p)
+extern "C" fn i32 c_callback(fn i32(Point) f)
+
+fn main() {
+}

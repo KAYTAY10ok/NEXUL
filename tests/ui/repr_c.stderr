@@ -1,0 +1,67 @@
+error[E0505]: field `on` of a `@repr("C")` structure has type `bool`, which C does not have
+  --> repr_c.nx:11:10
+   |
+11 |     bool on
+   |          ^^ not a C type
+   |
+   = note: allowed: integers, floats, `Ptr[T]`, C callbacks, arrays of them and other `@repr("C")` structures; `bool` and `char` are refused because C could give invalid values: use `u8` or `u32`
+
+error[E0505]: field `letter` of a `@repr("C")` structure has type `char`, which C does not have
+  --> repr_c.nx:12:10
+   |
+12 |     char letter
+   |          ^^^^^^ not a C type
+   |
+   = note: allowed: integers, floats, `Ptr[T]`, C callbacks, arrays of them and other `@repr("C")` structures; `bool` and `char` are refused because C could give invalid values: use `u8` or `u32`
+
+error[E0505]: field `name` of a `@repr("C")` structure has type `String`, which C does not have
+  --> repr_c.nx:13:12
+   |
+13 |     String name
+   |            ^^^^ not a C type
+   |
+   = note: allowed: integers, floats, `Ptr[T]`, C callbacks, arrays of them and other `@repr("C")` structures; `bool` and `char` are refused because C could give invalid values: use `u8` or `u32`
+
+error[E0505]: the `@repr("C")` structure `Empty` has no field
+  --> repr_c.nx:17:6
+   |
+17 | type Empty {
+   |      ^^^^^ C has no empty structure
+
+error[E0505]: the `@repr("C")` structure `Pair` cannot have type parameters
+  --> repr_c.nx:21:6
+   |
+21 | type Pair[T] {
+   |      ^^^^ generic structure
+
+error[E0505]: invalid `@repr`
+  --> repr_c.nx:25:1
+   |
+25 | @repr("Rust")
+   | ^^^^^^^^^^^^^ expected `@repr("C")`
+   |
+   = note: `@repr("C")` is the only representation (spec §8.2)
+
+error[E0505]: the `@repr("C")` structure `Owner` cannot have a destructor
+  --> repr_c.nx:31:6
+   |
+31 | type Owner {
+   |      ^^^^^ C copies it bit by bit
+
+error[E0503]: type `Plain` cannot cross the C boundary
+  --> repr_c.nx:45:27
+   |
+45 | extern "C" fn i32 c_plain(Plain p)
+   |                           ^^^^^ not FFI-safe
+   |
+   = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]`, C callbacks and `@repr("C")` structures (see spec §8.2)
+
+error[E0503]: type `fn(Point) -> i32` cannot cross the C boundary
+  --> repr_c.nx:46:30
+   |
+46 | extern "C" fn i32 c_callback(fn i32(Point) f)
+   |                              ^^^^^^^^^^^^^ not FFI-safe
+   |
+   = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]`, C callbacks and `@repr("C")` structures (see spec §8.2)
+
+error: could not compile due to 9 errors

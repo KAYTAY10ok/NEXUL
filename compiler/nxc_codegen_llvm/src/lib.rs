@@ -14,6 +14,7 @@
 //! The runtime (panics, heap, formatting...) is NEXUL code from the standard library,
 //! called through the functions marked `@lang`.
 
+pub mod cabi;
 mod debuginfo;
 mod func;
 pub mod layout;
@@ -508,12 +509,14 @@ impl<'a> Gen<'a> {
     /// checks them before calling the function (ADR 0011 T4, ADR 0014 §2.7).
     pub fn export_checks(&self, f: FnId) -> bool {
         let fd = self.p.func(f);
+        // The functions of std.builtins keep LLVM's convention: LLVM calls them.
+        let user = !self.p.modules[fd.module.idx()].is_std;
         fd.export.is_some()
-            && fd.params.iter().any(|p| match &*self.tcx().kind(p.ty) {
+            && (user && cabi::arm_hard_float(&self.opts.target) || fd.params.iter().any(|p| match &*self.tcx().kind(p.ty) {
                 TyKind::Bool | TyKind::Char => true,
-                TyKind::Adt(id, _) => self.p.adt(*id).newtype.is_some(),
+                TyKind::Adt(id, _) => self.p.adt(*id).newtype.is_some() || self.p.adt(*id).repr_c,
                 _ => false,
-            })
+            }) || matches!(self.tcx().as_adt(fd.ret), Some((id, _)) if self.p.adt(id).repr_c))
     }
 
     /// A runtime function of the standard library.
@@ -542,9 +545,9 @@ impl<'a> Gen<'a> {
         }
         let fd = self.p.func(f);
         let name = format!("@{}", quote_name(&fd.name));
-        let params: Vec<String> = fd.params.iter().map(|p| p.ty).collect::<Vec<_>>().into_iter().map(|t| self.c_param(t)).collect();
+        let ptys: Vec<Ty> = fd.params.iter().map(|p| p.ty).collect();
         let ret_ty = fd.ret;
-        let ret = if self.is_void(ret_ty) { "void".to_string() } else { self.c_param(ret_ty) };
+        let (ret, params) = self.c_signature(&ptys, ret_ty);
         let link = match &fd.kind {
             FnKind::Extern { link, .. } => link.clone(),
             _ => None,
@@ -574,9 +577,109 @@ impl<'a> Gen<'a> {
             }
             _ => {}
         }
-        self.declare(&format!("declare {} {}({}) {}", ret, name, params.join(", "), attrs));
+        let cc = self.c_cc();
+        self.declare(&format!("declare {}{} {}({}) {}", cc, ret, name, params.join(", "), attrs));
         self.externs.insert(f, name.clone());
         name
+    }
+
+    /// The layout of a `@repr("C")` structure as the C calling conventions see it: its
+    /// scalars flattened with their offsets.
+    pub fn c_shape(&mut self, t: Ty) -> Option<cabi::Shape> {
+        let tcx = self.tcx();
+        let (id, _) = tcx.as_adt(t)?;
+        if !self.p.adt(id).repr_c {
+            return None;
+        }
+        let mut leaves = Vec::new();
+        self.c_leaves(t, 0, &mut leaves);
+        let l = self.lx.layout(t);
+        Some(cabi::Shape { size: l.size, align: l.align, leaves, llty: self.llty(t) })
+    }
+
+    fn c_leaves(&mut self, t: Ty, base: u64, out: &mut Vec<(u64, cabi::Leaf)>) {
+        let tcx = self.tcx();
+        match &*tcx.kind(t) {
+            TyKind::Float(nxc_sema::ty::FloatTy::F32) => out.push((base, cabi::Leaf::F32)),
+            TyKind::Float(nxc_sema::ty::FloatTy::F64) => out.push((base, cabi::Leaf::F64)),
+            TyKind::Int(i) => out.push((base, cabi::Leaf::Int(self.lx.int_bytes(*i)))),
+            TyKind::Ptr(_) | TyKind::Fn(..) => out.push((base, cabi::Leaf::Ptr(self.lx.ptr_bytes))),
+            TyKind::Array(e, n) => {
+                let size = self.lx.layout(*e).size;
+                for k in 0..*n {
+                    self.c_leaves(*e, base + k * size, out);
+                }
+            }
+            TyKind::Adt(id, args) => {
+                let fields: Vec<Ty> = self.p.adt(*id).fields().iter().map(|f| tcx.subst(f.ty, args)).collect();
+                let offsets = self.lx.struct_offsets(&fields);
+                for (f, o) in fields.into_iter().zip(offsets) {
+                    self.c_leaves(f, base + o, out);
+                }
+            }
+            _ => unreachable!("internal: `{}` in a `@repr(\"C\")` structure", self.p.ty_str(t)),
+        }
+    }
+
+    /// How the parameters and the result of a C signature are passed (spec §8.2).
+    pub fn c_abi(&mut self, params: &[Ty], ret: Ty) -> (Vec<cabi::ArgAbi>, cabi::RetAbi) {
+        let mut values = Vec::new();
+        for &p in params {
+            values.push(self.c_value(p));
+        }
+        let rv = if self.is_void(ret) || self.tcx().is_never(ret) { None } else { Some(self.c_value(ret)) };
+        let target = self.opts.target.clone();
+        cabi::classify(&target, &values, rv.as_ref())
+    }
+
+    fn c_value(&mut self, t: Ty) -> cabi::Value {
+        match self.c_shape(t) {
+            Some(s) => cabi::Value::Struct(s),
+            None => cabi::Value::Scalar { float: matches!(&*self.tcx().kind(t), TyKind::Float(_)) },
+        }
+    }
+
+    /// The calling convention written on what C calls or is called by. On ARM with a
+    /// hard-float ABI (`thumbv7em`), LLVM's default convention passes floats in core
+    /// registers (its float ABI is set by an option the C interface of LLVM does not
+    /// have), while C passes them in VFP registers: `arm_aapcs_vfpcc` says so.
+    pub fn c_cc(&self) -> &'static str {
+        if cabi::arm_hard_float(&self.opts.target) {
+            "arm_aapcs_vfpcc "
+        } else {
+            ""
+        }
+    }
+
+    /// The LLVM result type and parameter list of a C signature (`sret` first).
+    pub fn c_signature(&mut self, params: &[Ty], ret: Ty) -> (String, Vec<String>) {
+        let (abis, rabi) = self.c_abi(params, ret);
+        let mut out = Vec::new();
+        let ret_s = match &rabi {
+            cabi::RetAbi::Direct if self.is_void(ret) || self.tcx().is_never(ret) => "void".to_string(),
+            // The result as it is: its extension is the callee's work, and the bits above
+            // it are not read.
+            cabi::RetAbi::Direct => self.llty(ret),
+            cabi::RetAbi::Agg(ty) => ty.clone(),
+            cabi::RetAbi::Sret { align } => {
+                let lt = self.llty(ret);
+                out.push(format!("ptr sret({}) align {}", lt, align));
+                "void".to_string()
+            }
+        };
+        for (&p, abi) in params.iter().zip(&abis) {
+            match abi {
+                cabi::ArgAbi::Direct => out.push(self.c_param(p)),
+                cabi::ArgAbi::Pieces(ps) => out.extend(ps.iter().map(|(_, ty)| ty.clone())),
+                cabi::ArgAbi::Agg(ty, attr) => out.push(format!("{}{}", ty, attr)),
+                cabi::ArgAbi::Indirect { byval: true, align } => {
+                    let lt = self.llty(p);
+                    out.push(format!("ptr byval({}) align {}", lt, align));
+                }
+                cabi::ArgAbi::Indirect { byval: false, .. } => out.push("ptr".into()),
+            }
+        }
+        (ret_s, out)
     }
 
     /// A parameter or return type with the C calling convention (narrow integers are
@@ -589,6 +692,9 @@ impl<'a> Gen<'a> {
             TyKind::Int(i) if self.int_bits(*i) < 32 && !windows => {
                 format!("{} {}", base, if i.signed() { "signext" } else { "zeroext" })
             }
+            // RISC-V 64 keeps 32-bit integers sign-extended in its registers, unsigned
+            // ones too (what clang emits).
+            TyKind::Int(i) if self.int_bits(*i) == 32 && self.opts.target.arch == Arch::Riscv64 => format!("{} signext", base),
             _ => base,
         }
     }
@@ -1257,6 +1363,85 @@ start:
 
     /// 64-bit division for 32-bit processors (the functions LLVM calls for `i64 / i64`),
     /// by shifts and subtractions on 64-bit values that the processor handles natively.
+    /// The floating-point functions of the ARM run-time ABI (`__aeabi_dadd`…), which C
+    /// compilers call for the operations the processor lacks: weak aliases of the
+    /// functions of `std.builtins`. The run-time ABI passes their arguments in core
+    /// registers even on a hard-float target (`arm_aapcscc`), so each converts.
+    fn emit_aeabi_float(&mut self) {
+        // (name, function of std.builtins, result, parameters, how the result is made)
+        let d = "double";
+        let f = "float";
+        let table: &[(&str, &str, &str, &[&str], &str)] = &[
+            ("dadd", "__adddf3", d, &[d, d], ""),
+            ("dsub", "__subdf3", d, &[d, d], ""),
+            ("drsub", "__subdf3", d, &[d, d], "swap"),
+            ("dmul", "__muldf3", d, &[d, d], ""),
+            ("ddiv", "__divdf3", d, &[d, d], ""),
+            ("dneg", "__negdf2", d, &[d], ""),
+            ("dcmpeq", "__eqdf2", "i32", &[d, d], "eq"),
+            ("dcmplt", "__ltdf2", "i32", &[d, d], "slt"),
+            ("dcmple", "__ledf2", "i32", &[d, d], "sle"),
+            ("dcmpge", "__gedf2", "i32", &[d, d], "sge"),
+            ("dcmpgt", "__gtdf2", "i32", &[d, d], "sgt"),
+            ("dcmpun", "__unorddf2", "i32", &[d, d], "ne"),
+            ("d2iz", "__fixdfsi", "i32", &[d], ""),
+            ("d2uiz", "__fixunsdfsi", "i32", &[d], ""),
+            ("d2lz", "__fixdfdi", "i64", &[d], ""),
+            ("d2ulz", "__fixunsdfdi", "i64", &[d], ""),
+            ("i2d", "__floatsidf", d, &["i32"], ""),
+            ("ui2d", "__floatunsidf", d, &["i32"], ""),
+            ("l2d", "__floatdidf", d, &["i64"], ""),
+            ("ul2d", "__floatundidf", d, &["i64"], ""),
+            ("f2d", "__extendsfdf2", d, &[f], ""),
+            ("d2f", "__truncdfsf2", f, &[d], ""),
+            ("fadd", "__addsf3", f, &[f, f], ""),
+            ("fsub", "__subsf3", f, &[f, f], ""),
+            ("frsub", "__subsf3", f, &[f, f], "swap"),
+            ("fmul", "__mulsf3", f, &[f, f], ""),
+            ("fdiv", "__divsf3", f, &[f, f], ""),
+            ("fneg", "__negsf2", f, &[f], ""),
+            ("fcmpeq", "__eqsf2", "i32", &[f, f], "eq"),
+            ("fcmplt", "__ltsf2", "i32", &[f, f], "slt"),
+            ("fcmple", "__lesf2", "i32", &[f, f], "sle"),
+            ("fcmpge", "__gesf2", "i32", &[f, f], "sge"),
+            ("fcmpgt", "__gtsf2", "i32", &[f, f], "sgt"),
+            ("fcmpun", "__unordsf2", "i32", &[f, f], "ne"),
+            ("f2iz", "__fixsfsi", "i32", &[f], ""),
+            ("f2uiz", "__fixunssfsi", "i32", &[f], ""),
+            ("f2lz", "__fixsfdi", "i64", &[f], ""),
+            ("f2ulz", "__fixunssfdi", "i64", &[f], ""),
+            ("i2f", "__floatsisf", f, &["i32"], ""),
+            ("ui2f", "__floatunsisf", f, &["i32"], ""),
+            ("l2f", "__floatdisf", f, &["i64"], ""),
+            ("ul2f", "__floatundisf", f, &["i64"], ""),
+        ];
+        for &(name, gnu, ret, params, how) in table {
+            if !self.exports.iter().any(|e| e == gnu) {
+                continue;
+            }
+            let decl: Vec<String> = params.iter().enumerate().map(|(i, t)| format!("{} %a{}", t, i)).collect();
+            let mut args = decl.clone();
+            if how == "swap" {
+                args.swap(0, 1);
+            }
+            // The functions of std.builtins return a comparison as a sign (`__ltdf2` < 0
+            // when a < b); the run-time ABI as 0 or 1.
+            let (call_ret, body) = match how {
+                "eq" | "slt" | "sle" | "sge" | "sgt" | "ne" => {
+                    let pred = if how == "eq" { "eq" } else if how == "ne" { "ne" } else { how };
+                    ("i32", format!("  %c = icmp {} i32 %r, 0\n  %b = zext i1 %c to i32\n  ret i32 %b\n", pred))
+                }
+                _ => (ret, format!("  ret {} %r\n", ret)),
+            };
+            let _ = write!(
+                self.fn_defs,
+                "define weak arm_aapcscc {ret} @__aeabi_{name}({}) nounwind {{\nstart:\n  %r = call {call_ret} @{gnu}({})\n{body}}}\n\n",
+                decl.join(", "),
+                args.join(", ")
+            );
+        }
+    }
+
     fn emit_div64_builtins(&mut self) {
         self.fn_defs.push_str(
             "define internal {i64, i64} @nx.udivmod64(i64 %n, i64 %d) nounwind \"no-builtins\" {
@@ -1326,6 +1511,9 @@ start:
 
 ",
             );
+        }
+        if self.opts.target.arch == Arch::Arm {
+            self.emit_aeabi_float();
         }
         {
             for (name, f, idx) in [("__udivdi3", "udivmod64", 0), ("__umoddi3", "udivmod64", 1), ("__divdi3", "sdivmod64", 0), ("__moddi3", "sdivmod64", 1)] {
