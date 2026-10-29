@@ -44,11 +44,64 @@ fn i64 filtrer(Filtre f!, i64 x) with noalloc, nonblocking {
   (appel système, semi-hébergement, attente). Ces deux attributs lui sont réservés (E0231).
 - Les effets sont vérifiés sur toutes les cibles ; ils ne promettent rien sur la durée.
 
-## 12.2 Tâches périodiques, ressources, interruptions (à venir)
+## 12.2 Tâches périodiques, ressources, interruptions
 
-`every … within …`, `@resource`, `@interrupt`, `@priority`, `rt.run()` : ADR 0018 §2 à §5,
-prévus en 0.7.0 sur `thumbv7em-none`. Les durées s'écrivent avec `std.rt.ms`, `us` et `s`
-(en nanosecondes).
+Sur une cible Cortex-M sans système (`thumbv7em-none`, `thumbv7m-none`) ; ailleurs, E0604.
+
+```nexul
+// edition: 1
+// target: thumbv7em-none
+import std.rt
+import std.rt.{ms, us}
+
+type Etat {
+    u32 n
+}
+
+@resource
+static var Etat etat = Etat(n: 0)
+
+fn regulation(Etat etat!) every ms(1) within us(400) with noalloc, nonblocking {
+    etat.n += 1
+    if etat.n == 1000 {
+        rt.stop()
+    }
+}
+
+@clock(25_000_000)
+fn main() {
+    rt.run()
+    println("{etat.n} périodes, {rt.overruns(regulation)} retards")
+}
+```
+
+- **Tâche périodique** : `every` et, si l'échéance est plus courte que la période,
+  `within`. Leurs durées sont `ms(n)`, `us(n)` ou `s(n)` de `std.rt` avec un entier
+  littéral. Une tâche est une fonction libre, sans résultat ni générique, déclarée
+  `with noalloc, nonblocking` (E0604).
+- **Interruption** : `@interrupt(n)` (ligne 0 à 31 du NVIC) et `@priority(p)` obligatoire.
+- **Priorités** : de 1 (la plus basse) à 7. Une tâche périodique sans `@priority` reçoit
+  la sienne de sa période (monotone par taux) : la plus courte a la priorité la plus
+  haute ; à période égale, même niveau, dans l'ordre de déclaration. SysTick, qui libère
+  les tâches, est au-dessus de toutes.
+- **Ressources** : une `static var` marquée `@resource`. Une tâche la reçoit par un
+  paramètre du même nom et du même type (`Etat etat!` pour la modifier). Personne d'autre
+  ne l'utilise, sauf `main`, sans `unsafe`, puisqu'aucune tâche ne tourne en dehors de
+  `rt.run()` (E0605). Une tâche s'exécute au **plafond** de ses ressources, c'est-à-dire
+  la plus haute priorité des tâches qui les reçoivent, par `BASEPRI`. Pas de course, pas
+  d'interblocage, une seule pile.
+- **Exécution** : `main` prépare le matériel puis appelle `rt.run()`. La fonction rend la
+  main quand une tâche appelle `rt.stop()`. Sans appel à `rt.run()`, W0009.
+- **Horloge** : `@clock(hz)` sur `main`, obligatoire avec des tâches (E0604). Les périodes
+  sont des nombres entiers de cycles ; leur PGCD donne le top de SysTick, d'au moins 1000
+  cycles (E0606).
+- **Dépassements** : une libération alors que l'instance précédente n'a pas fini est
+  comptée et **sautée** ; une fin après l'échéance est comptée. `rt.overruns(tache)`
+  donne le compte, et la fonction marquée `@overrun` (sans paramètre,
+  `with noalloc, nonblocking`) est appelée à chaque dépassement.
+- **Instant** : `rt.now_cycles()` donne les cycles depuis `rt.run()`, d'après SysTick.
+- Un appel à une tâche, ou une tâche prise comme valeur, est refusé (E0605), sauf comme
+  argument de `rt.overruns` (E0608 pour un autre argument).
 
 ## 12.3 Pile bornée (à venir)
 

@@ -125,6 +125,8 @@ pub struct FnCtxt<'a> {
     pub(crate) next_closure_scope: bool,
     /// The id the next anonymous function will receive.
     pub(crate) next_fn_id: u32,
+    /// Checking `main`, which may use the `@resource` statics without `unsafe` (ADR 0018 §3).
+    pub(crate) in_main: bool,
 }
 
 impl<'a> FnCtxt<'a> {
@@ -149,6 +151,7 @@ impl<'a> FnCtxt<'a> {
             closure_frames: Vec::new(),
             next_closure_scope: false,
             next_fn_id: p.fns.len() as u32,
+            in_main: false,
         }
     }
 
@@ -441,6 +444,7 @@ impl<'a> FnCtxt<'a> {
             closure_frames: Vec::new(),
             next_closure_scope: false,
             next_fn_id: 0,
+            in_main: self.in_main,
         };
         copy.unify(a, b)
     }
@@ -566,6 +570,7 @@ fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, di
     cx.self_ty = f.self_ty;
     cx.bounds = f.bounds.clone();
     cx.next_fn_id = first_new;
+    cx.in_main = prog.main_fn == Some(id);
     cx.ret_ty = f.ret;
     if f.is_unsafe {
         cx.unsafe_depth = 1;
@@ -637,6 +642,7 @@ fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, di
             abi_params: None,
             trait_id: None,
             effects: Default::default(),
+            rt: Default::default(),
         };
         let b = thir::Body { fn_id: c.fn_id, locals, params, block: c.block, ret_ty: ret, span: c.span };
         out.push((def, b));

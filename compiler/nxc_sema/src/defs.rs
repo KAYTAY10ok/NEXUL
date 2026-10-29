@@ -308,6 +308,50 @@ pub struct FnDef {
     pub trait_id: Option<TraitId>,
     /// `with noalloc, nonblocking`, and the roots `@allocates`, `@blocks` (ADR 0018 §1).
     pub effects: Effects,
+    /// `@interrupt`, `@priority`, `@overrun`, `@clock`, `@stack` (ADR 0018 §2 to §6).
+    pub rt: RtAttrs,
+}
+
+/// The real-time attributes of a function, as written (checked by `crate::rt`).
+#[derive(Clone, Debug, Default)]
+pub struct RtAttrs {
+    pub interrupt: Option<(u128, Span)>,
+    pub priority: Option<(u128, Span)>,
+    pub overrun: Option<Span>,
+    pub clock: Option<(u128, Span)>,
+    pub stack: Option<(u128, Span)>,
+}
+
+/// The real-time tasks of the program and how they are scheduled (ADR 0018 §2 to §6),
+/// computed by `crate::rt`.
+#[derive(Clone, Debug)]
+pub struct RtPlan {
+    pub clock_hz: u64,
+    /// Reserve of the stack, in bytes.
+    pub stack: u64,
+    /// Cycles per tick of SysTick (0 without periodic task).
+    pub tick: u32,
+    pub tasks: Vec<RtTask>,
+    /// `@overrun`: called after each missed deadline.
+    pub overrun: Option<FnId>,
+}
+
+#[derive(Clone, Debug)]
+pub struct RtTask {
+    pub f: FnId,
+    /// A hardware interrupt (`@interrupt(n)`); otherwise a periodic task.
+    pub irq: Option<u32>,
+    /// Period in ticks of SysTick, and deadline in cycles (periodic tasks).
+    pub period_ticks: u32,
+    pub deadline: u64,
+    /// 1 (lowest) to 7.
+    pub priority: u8,
+    /// The priority the task runs at: the ceiling of its resources if higher (§3).
+    pub run_level: u8,
+    /// The interrupt line whose handler runs the task (its dispatcher for a periodic task).
+    pub line: u32,
+    /// Its parameters: the resources, and whether it modifies each.
+    pub resources: Vec<(StaticId, bool)>,
 }
 
 /// Effects of a function (ADR 0018 §1): what it promises (`with`), checked on every call
@@ -387,6 +431,8 @@ pub struct StaticDef {
     pub mutable: bool,
     pub ty: Ty,
     pub ast: Rc<ast::StaticDecl>,
+    /// `@resource`: shared by real-time tasks (ADR 0018 §3).
+    pub resource: bool,
 }
 
 /// The initial value of a static variable, computed at compile time.
@@ -450,6 +496,8 @@ pub struct Program {
     pub main_fn: Option<FnId>,
     pub bodies: HashMap<FnId, thir::Body>,
     pub const_values: HashMap<ConstId, ConstValue>,
+    /// The real-time tasks, if the program has any (ADR 0018).
+    pub rt: Option<RtPlan>,
 }
 
 impl Program {
@@ -491,6 +539,7 @@ impl Program {
             main_fn: None,
             bodies: HashMap::new(),
             const_values: HashMap::new(),
+            rt: None,
         }
     }
 

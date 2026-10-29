@@ -1,0 +1,17 @@
+// edition: 1
+// target: thumbv7em-none
+// Scheduling impossible (ADR 0018 §4, §5): SysTick belongs to the scheduler (E0606).
+import std.rt
+import std.rt.{ms}
+
+fn vite() every ms(1) with noalloc, nonblocking {
+}
+
+@export("SysTick_Handler")
+fn mien() {
+}
+
+@clock(25_000_000)
+fn main() {
+    rt.run()
+}

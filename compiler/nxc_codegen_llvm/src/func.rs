@@ -1463,6 +1463,24 @@ impl<'a> Gen<'a> {
                 let fd = self.p.func(*f);
                 if let Some(name) = fd.intrinsic() {
                     let name = name.to_string();
+                    if self.p.modules[fd.module.idx()].path == "std.rt" {
+                        let task = match args.first() {
+                            Some(Operand::FnRef(t)) => Some(*t),
+                            _ => None,
+                        };
+                        if let Some(code) = self.rt_intrinsic(&name, task) {
+                            match name.as_str() {
+                                "overruns" | "now_cycles" => {
+                                    let ty = if name == "overruns" { "i32" } else { "i64" };
+                                    let v = self.val(cx, code);
+                                    self.store_result(cx, dest, ty, &v);
+                                }
+                                _ if !code.is_empty() => self.ins(cx, code),
+                                _ => {}
+                            }
+                            return;
+                        }
+                    }
                     self.emit_intrinsic(cx, &name, &targs, args, dest, span);
                     return;
                 }

@@ -1,0 +1,10 @@
+// edition: 1
+// target: thumbv7em-none
+// A program with tasks gives the frequency of the core (ADR 0018 §6): E0604.
+import std.rt.{ms}
+
+fn vite() every ms(1) with noalloc, nonblocking {
+}
+
+fn main() {
+}

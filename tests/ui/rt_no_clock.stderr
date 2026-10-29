@@ -1,0 +1,9 @@
+error[E0604]: a program with tasks gives the clock frequency of the core on `main`: `@clock(hz)`
+ --> rt_no_clock.nx:9:4
+  |
+9 | fn main() {
+  |    ^^^^ add `@clock(25_000_000)` for example
+  |
+  = note: periods and deadlines are converted to cycles of this clock
+
+error: could not compile due to 1 error

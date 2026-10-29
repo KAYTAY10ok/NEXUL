@@ -1,9 +1,9 @@
-error[E0111]: a periodic task (`every … within …`) is not supported yet
+error[E0604]: real-time tasks need a Cortex-M target without system, not `x86_64-linux`
  --> periodic_task.nx:5:17
   |
 5 | fn regulation() every ms(10) within ms(2) with noalloc, nonblocking {
-  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ planned in 0.7.0 (ADR 0018), not implemented
+  |                 ^^^^^^^^^^^^^^^^^^^^^^^^^ a task or an interrupt
   |
-  = note: the compiler refuses it rather than accept it without checking it
+  = note: compile with `--target thumbv7em-none` (ADR 0018)
 
 error: could not compile due to 1 error

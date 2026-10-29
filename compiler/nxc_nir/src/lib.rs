@@ -5,6 +5,7 @@ pub mod build;
 pub mod effects;
 pub mod nir;
 pub mod ownership;
+pub mod rt;
 
 use nxc_sema::defs::{FnId, Program};
 use nxc_syntax::{DiagSink, SourceMap};
@@ -25,6 +26,7 @@ pub fn lower_program(p: &Program, sm: &SourceMap, diags: &DiagSink) -> HashMap<F
             ownership::elaborate_drops(p, body);
         }
         effects::check(p, &out, diags);
+        rt::check(p, &mut out, diags);
     }
     out
 }

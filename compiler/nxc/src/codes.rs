@@ -156,7 +156,10 @@ them). Use `const` for a constant string, or keep the resource in a local variab
     ("E0601", "A function declared `with noalloc` can allocate or free memory (ADR 0018 §1).\n\nThe compiler follows every call the function can make, through generic instances and\ndestructors; the notes show the chain down to the allocation. Use fixed-size arrays and\nvalues prepared before, or remove `noalloc`:\n\n    fn i64 moyenne([i64; 4] v) with noalloc, nonblocking { … }"),
     ("E0602", "A function declared `with nonblocking` can wait (ADR 0018 §1).\n\nWaiting means the console, files, semihosting, locks, channels, `join` and `sleep`, or a C\nfunction that is not declared `with nonblocking`. The notes show the chain of calls."),
     ("E0603", "A function with effects makes a call that cannot be checked (ADR 0018 §1).\n\nA call through a function value or `any`, or a recursion, hides what the function does and\nhow much stack it needs. Call the functions directly, without a cycle."),
-    ("E0604", "Invalid effects or real-time task (ADR 0018 §1, §2).\n\nAn effect is written once; a C function declares effects (`with noalloc, nonblocking`)\nbut cannot be a periodic task."),
+    ("E0604", "Invalid effects or real-time task (ADR 0018 §1 to §6).\n\nA task is a free function without result, declared `with noalloc, nonblocking`, on a\nCortex-M target without system (`thumbv7em-none`):\n\n    fn regulation(Etat etat!) every ms(1) within us(400) with noalloc, nonblocking { … }\n\nThe period and the deadline are `ms(n)`, `us(n)` or `s(n)` of `std.rt` with a whole\nnumber, the deadline at most the period. An interrupt (`@interrupt(n)`) has a\n`@priority(p)`, 1 (lowest) to 7. `main` gives the clock of the core: `@clock(hz)`."),
+    ("E0605", "Invalid use of a task or a resource (ADR 0018 §3).\n\nThe parameters of a task are resources: `@resource static var` of the same name and type,\nlent (`etat`) or modified (`etat!`). Only the scheduler runs a task, with its resources:\na task is not called or taken as a value, and a resource is used only by its tasks and by\n`main` (which never runs at the same time as them)."),
+    ("E0606", "The tasks cannot be scheduled (ADR 0018 §5).\n\nThe periods are whole numbers of cycles of the clock and give a tick of SysTick of at\nleast 1000 cycles; at most 7 different periods; each interrupt line has one handler;\n`SysTick_Handler` belongs to the scheduler."),
+    ("E0608", "`rt.overruns` takes the name of a task: `rt.overruns(regulation)`."),
     ("E0900", "The standard library is incomplete (internal error)."),
     ("W0001", "A variable or parameter is never read.\n\nIf this is intentional, start its name with `_`."),
     ("W0002", "A `match` arm can never be reached: earlier arms already match all its values."),
@@ -166,6 +169,7 @@ them). Use `const` for a constant string, or keep the resource in a local variab
     ("W0006", "Code after `return`, `break`, `continue` or `panic` is never executed."),
     ("W0007", "An uppercase name in a pattern is a new variable, not a variant.\n\nIt matches every value. Check the spelling of the variant."),
     ("W0008", "A conversion with `as` converts a value to its own type."),
+    ("W0009", "The program declares real-time tasks but never calls `rt.run()`: they never start.\n\nCall `rt.run()` in `main` once the hardware is ready; it returns when a task calls\n`rt.stop()`."),
 ];
 
 /// Every (code, explanation) pair, in order.

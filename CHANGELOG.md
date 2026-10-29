@@ -15,8 +15,28 @@
   (`Never`) : le programme s'arrête.
 - Fonctions C : la clause sur une déclaration `extern "C"` est une promesse du
   programmeur. Sans elle, un appel C alloue et bloque.
-- `std.rt.ms`, `us` et `s` donnent des durées en nanosecondes, pour les tâches
-  périodiques à venir. `every … within …` est encore refusé (E0111).
+- `std.rt.ms`, `us` et `s` donnent des durées en nanosecondes.
+
+**Tâches temps réel sur Cortex-M (0.7.0, ADR 0018 §2 à §5, spec §12.2)**
+- Tâches périodiques `every ms(1) within us(400)`, interruptions `@interrupt(n)` et
+  `@priority(p)`, ressources `@resource static var`.
+- Le NVIC ordonnance, sans noyau, sur une seule pile :
+  - SysTick libère les tâches ;
+  - un répartiteur par niveau de priorité les exécute ;
+  - chaque tâche s'exécute au plafond de ses ressources (`BASEPRI`) ;
+  - priorités monotones par taux, ou explicites.
+- `rt.run()` et `rt.stop()` démarrent et arrêtent les tâches ; `rt.overruns(tache)` et
+  `@overrun` signalent les échéances manquées ; `rt.now_cycles()` donne l'instant.
+- Le compilateur refuse :
+  - une tâche mal formée ou sans `@clock` (E0604) ;
+  - une tâche appelée, ou une ressource utilisée hors de ses tâches et de `main` (E0605) ;
+  - un ordonnancement impossible (E0606) ;
+  - un argument de `rt.overruns` qui n'est pas une tâche (E0608).
+  
+  Des tâches jamais démarrées donnent l'avertissement W0009.
+- Testé sous QEMU (`mps2-an386`) : libérations, ressource partagée sous préemption sans
+  mise à jour perdue, interruption logicielle, dépassements détectés en surcharge. Les
+  temps sur carte réelle ne sont **pas testés** (G3).
 
 **Interopérabilité C**
 - Structures C par valeur : `@repr("C")` (ADR 0017, spec §8.5). Une telle structure a la

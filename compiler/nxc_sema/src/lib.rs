@@ -10,6 +10,7 @@ pub mod exhaust;
 pub mod load;
 pub mod newtype;
 pub mod places;
+pub mod rt;
 pub mod target;
 pub mod thir;
 pub mod ty;
@@ -28,6 +29,7 @@ pub fn analyze(src: ProgramSource, sm: &mut SourceMap, diags: &DiagSink) -> Prog
     consts::eval_all(&mut prog, diags);
     consts::eval_statics(&mut prog, diags);
     check::check_program(&mut prog, diags);
+    rt::plan(&mut prog, diags);
     exhaust::check_program(&prog, diags);
     places::check_program(&prog, diags);
     report_unused_imports(&prog, diags);

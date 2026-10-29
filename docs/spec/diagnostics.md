@@ -164,7 +164,10 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0601` | A function declared `with noalloc` can allocate or free memory (ADR 0018 §1). |
 | `E0602` | A function declared `with nonblocking` can wait (ADR 0018 §1). |
 | `E0603` | A function with effects makes a call that cannot be checked (ADR 0018 §1). |
-| `E0604` | Invalid effects or real-time task (ADR 0018 §1, §2). |
+| `E0604` | Invalid effects or real-time task (ADR 0018 §1 to §6). |
+| `E0605` | Invalid use of a task or a resource (ADR 0018 §3). |
+| `E0606` | The tasks cannot be scheduled (ADR 0018 §5). |
+| `E0608` | `rt.overruns` takes the name of a task: `rt.overruns(regulation)`. |
 
 ## Erreurs internes
 
@@ -184,3 +187,4 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `W0006` | Code after `return`, `break`, `continue` or `panic` is never executed. |
 | `W0007` | An uppercase name in a pattern is a new variable, not a variant. |
 | `W0008` | A conversion with `as` converts a value to its own type. |
+| `W0009` | The program declares real-time tasks but never calls `rt.run()`: they never start. |

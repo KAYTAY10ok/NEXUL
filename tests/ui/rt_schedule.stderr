@@ -1,0 +1,7 @@
+error[E0606]: `SysTick_Handler` is the scheduler of the periodic tasks
+  --> rt_schedule.nx:11:4
+   |
+11 | fn mien() {
+   |    ^^^^ remove this `@export`
+
+error: could not compile due to 1 error

@@ -18,6 +18,7 @@ pub mod cabi;
 mod debuginfo;
 mod func;
 pub mod layout;
+mod rt;
 
 use debuginfo::DebugInfo;
 use layout::LayoutCx;
@@ -1203,11 +1204,17 @@ start:
                     .map(|s| s.to_string())
                     .collect();
                 names.extend((0..32).map(|i| format!("IRQ{}_Handler", i)));
+                // The scheduler of the real-time tasks takes SysTick and its lines (ADR 0018).
+                let scheduler = self.emit_rt();
                 let mut entries = vec!["ptr @__stack_top".to_string(), "ptr @nx_vector_entry".to_string()];
                 let mut defaults = String::new();
                 for n in &names {
                     if n.is_empty() {
                         entries.push("ptr null".into());
+                        continue;
+                    }
+                    if let Some((_, h)) = scheduler.iter().find(|(v, _)| v == n) {
+                        entries.push(format!("ptr @{}", h));
                         continue;
                     }
                     entries.push(format!("ptr @{}", n));

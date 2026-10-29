@@ -1,0 +1,11 @@
+// edition: 1
+// target: thumbv7em-none
+// Tasks that never start: `rt.run()` is not called (W0009).
+import std.rt.{ms}
+
+fn vite() every ms(1) with noalloc, nonblocking {
+}
+
+@clock(25_000_000)
+fn main() {
+}

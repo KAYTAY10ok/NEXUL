@@ -28,6 +28,23 @@ pub unsafe fn sys.CriticalSection critical_section() {
 // ---------------------------------------------------------------------------
 // Durations of the real-time tasks (ADR 0018 §2), in nanoseconds
 
+/// Starts the real-time tasks and the interrupts with resources (ADR 0018 §2), then waits
+/// for them; returns when a task calls `stop`. Without tasks, returns at once.
+@intrinsic
+pub fn run()
+
+/// Stops the tasks: `run` returns to `main` when the current task ends.
+@intrinsic
+pub fn stop()
+
+/// The deadlines missed by a task so far (ADR 0018 §5): `rt.overruns(regulation)`.
+@intrinsic
+pub fn u32 overruns[F](F task)
+
+/// Cycles of the core since `run` started, from SysTick (0 without periodic task).
+@intrinsic
+pub fn u64 now_cycles()
+
 /// `n` milliseconds: `every ms(10)`.
 pub fn u64 ms(u64 n) with noalloc, nonblocking {
     return n * 1_000_000

@@ -170,7 +170,8 @@ fn runs_on(nx: &Path, target: &Target) -> bool {
     let text = std::fs::read_to_string(nx).unwrap_or_default();
     // In the first lines, like `// edition:` (which may come first).
     match text.lines().take(3).find_map(|l| l.strip_prefix("// targets:")) {
-        Some(list) => list.split(',').any(|t| t.trim() == target.os.name()),
+        // A system (`linux`, `none`), or a target (`thumbv7em-none`).
+        Some(list) => list.split(',').any(|t| t.trim() == target.os.name() || t.trim() == target.name),
         None => true,
     }
 }
@@ -557,7 +558,16 @@ fn documentation_examples_compile() {
             checked += 1;
             let line = text[..text.len() - rest.len()].lines().count();
             let name = format!("{}:{}", doc.file_name().unwrap().to_string_lossy(), line);
-            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, &CompileOptions::new(Mode::Check));
+            // `// edition: 1` and `// target: thumbv7em-none` in the first lines, as in the
+            // test files.
+            let mut opts = CompileOptions::new(Mode::Check);
+            if let Some(t) = block.lines().take(3).find_map(|l| l.trim().strip_prefix("// target:")) {
+                opts.target = Target::from_name(t.trim()).unwrap();
+            }
+            if block.lines().take(3).any(|l| l.trim() == "// edition: 1") {
+                opts.edition = nxc_syntax::Edition::V1;
+            }
+            let c = nxc_driver::compile_source("doc.nx", block.as_bytes().to_vec(), None, &opts);
             match block.find("// erreur E") {
                 Some(i) => {
                     let code = &block[i + "// erreur ".len()..i + "// erreur ".len() + 5];

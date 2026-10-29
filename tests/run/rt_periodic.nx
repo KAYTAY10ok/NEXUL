@@ -1,0 +1,33 @@
+// edition: 1
+// targets: thumbv7em-none
+// Two periodic tasks (ADR 0018 §2): the scheduler releases them at their rate; `main`
+// reads the resource after `rt.run()`.
+import std.rt
+import std.rt.{ms}
+
+type Compteurs {
+    u32 rapide
+    u32 lent
+    u32 vus_par_lent
+}
+
+@resource
+static var Compteurs c = Compteurs(rapide: 0, lent: 0, vus_par_lent: 0)
+
+fn rapide(Compteurs c!) every ms(1) with noalloc, nonblocking {
+    c.rapide += 1
+    if c.rapide == 50 {
+        rt.stop()
+    }
+}
+
+fn lent(Compteurs c!) every ms(10) with noalloc, nonblocking {
+    c.lent += 1
+    c.vus_par_lent = c.rapide
+}
+
+@clock(25_000_000)
+fn main() {
+    rt.run()
+    println("rapide {c.rapide}, lent {c.lent}, retards {rt.overruns(rapide)} {rt.overruns(lent)}")
+}

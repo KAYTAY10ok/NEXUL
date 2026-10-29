@@ -380,7 +380,8 @@ impl<'a> FnCtxt<'a> {
                 }
                 PathRes::Static(st) => {
                     let sd = &self.p.statics[st.idx()];
-                    if sd.mutable {
+                    // `main` never runs at the same time as the tasks (ADR 0018 §3).
+                    if sd.mutable && !(sd.resource && self.in_main) {
                         self.require_unsafe(span, &format!("using the mutable static `{}`", sd.name));
                     }
                     self.mk(T::Static(st), sd.ty, span)

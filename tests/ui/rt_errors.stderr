@@ -1,0 +1,57 @@
+error[E0604]: the task `sans_effets` must be declared `with noalloc, nonblocking`
+  --> rt_errors.nx:17:4
+   |
+17 | fn sans_effets(Etat etat!) every ms(1) {
+   |    ^^^^^^^^^^^ missing effects
+   |
+   = help: add `with noalloc, nonblocking` after the parameters: the compiler checks them
+
+error[E0604]: the deadline (`within`) is positive and at most the period (`every`)
+  --> rt_errors.nx:21:16
+   |
+21 | fn trop_tard() every ms(1) within ms(2) with noalloc, nonblocking {
+   |                ^^^^^^^^^^^^^^^^^^^^^^^^ here
+
+error[E0605]: the parameter `x` of a task is not a resource
+  --> rt_errors.nx:24:13
+   |
+24 | fn variable(u64 x) every ms(x) with noalloc, nonblocking {
+   |             ^^^^^ no `@resource static var` of this name in the module
+   |
+   = help: declare it: `@resource static var u64 x = …`
+
+error[E0604]: a period or a deadline is a call of `ms`, `us` or `s` of `std.rt` with a whole number
+  --> rt_errors.nx:24:26
+   |
+24 | fn variable(u64 x) every ms(x) with noalloc, nonblocking {
+   |                          ^^^^^ not a constant duration
+   |
+   = help: write `ms(10)` or `us(400)`, with `import std.rt.{ms, us}`
+
+error[E0605]: the parameter `libre` of a task is not a resource
+  --> rt_errors.nx:28:18
+   |
+28 | fn pas_ressource(u32 libre!) every ms(5) with noalloc, nonblocking {
+   |                  ^^^^^^^^^^ no `@resource static var` of this name in the module
+   |
+   = help: declare it: `@resource static var u32 libre = …`
+
+error[E0605]: the resource `etat` is lent to the task, not given
+  --> rt_errors.nx:31:11
+   |
+31 | fn donnee(owned Etat etat) every ms(5) with noalloc, nonblocking {
+   |           ^^^^^^^^^^^^^^^ remove `owned`
+
+error[E0604]: the interrupt `sans_priorite` needs a `@priority`
+  --> rt_errors.nx:35:12
+   |
+35 | @interrupt(3)
+   |            ^ add `@priority(n)`, 1 (lowest) to 7
+
+error[E0604]: a priority is between 1 (lowest) and 7
+  --> rt_errors.nx:40:11
+   |
+40 | @priority(9)
+   |           ^ out of range
+
+error: could not compile due to 8 errors

@@ -128,11 +128,13 @@ la main.
   tâches libérées de son niveau, au plafond voulu (§3).
 - **Instant** : nombre de tops × recharge + position dans le top (registre `SYST_CVR`),
   au cycle près ; il ne dépend pas de `DWT_CYCCNT`, que QEMU n'émule pas.
-- **Dépassement** : une libération alors que l'instance précédente n'est pas finie, ou
-  une fin plus tard que libération + `within`, incrémente le compteur de la tâche,
+- **Dépassement** : une libération alors que l'instance précédente n'est pas finie (la
+  libération est alors sautée), ou une fin plus tard que libération + `within`, incrémente
+  le compteur de la tâche,
   `rt.overruns(regulation)` (l'argument doit nommer une tâche, E0608). Si le programme
   déclare `@overrun fn f() with noalloc, nonblocking`, `f` est appelée après chaque
-  dépassement, au niveau de la tâche fautive. Un dépassement n'est **jamais** ignoré en
+  dépassement, par l'ordonnanceur : depuis SysTick pour une libération sautée, depuis le
+  répartiteur pour une fin tardive. Un dépassement n'est **jamais** ignoré en
   silence.
 - **Niveaux** : 2^bits − 1 niveaux pour les tâches (SysTick garde le plus haut). La v1
   suppose 3 bits de priorité, le minimum des Cortex-M4 visés (`mps2-an386`), soit
