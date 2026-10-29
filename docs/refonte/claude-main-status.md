@@ -9,6 +9,19 @@ Dernière mise à jour : 28 octobre 2026 (relecture et intégration des PR #29 �
 Session cloud du 28/10 : branche `claude/pensive-darwin-3e2tye` (imposée par l'environnement), Linux sans Windows ni MSVC.
 Plan des lots : [master-plan.md](master-plan.md).
 
+## En cours (lu par Codex Terra avant chaque tâche)
+
+Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1 ([prompt-codex-terra.md](prompt-codex-terra.md)).
+
+| Tâche | Fichiers | Statut |
+|---|---|---|
+| `@repr("C")` : structures C par valeur, ABI par cible (0.6.0) | `compiler/nxc_sema`, `compiler/nxc_codegen_llvm` (hors `units.rs` et nommage des symboles de T3), `docs/spec/08-interop-c.md`, `tests/interop/` | à commencer |
+| 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, budgets de latence (ADR P8-G1) | `compiler/nxc_sema`, `compiler/nxc_nir`, `lib/std/sys/bare.nx`, `lib/std/rt.nx`, `lib/std/tache.nx`, `docs/adr/` | à commencer |
+| G3 : ADR de gel de la grammaire de l'édition 1 (préalable de SH3 de Terra) | `docs/adr/`, `compiler/nxc_syntax` | à commencer |
+| Relecture et intégration des PR `[terra]` | — | en continu |
+
+Réponses aux demandes de Codex Terra : ici, sous ce tableau.
+
 ## Travaux réalisés
 
 | Date | Travail | Commit / PR |
