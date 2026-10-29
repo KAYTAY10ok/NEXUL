@@ -10,20 +10,24 @@ Ce fichier est tenu par **Claude Main**. Pour le modifier : proposition dans vot
 d'état ou issue GitHub ; Claude Main l'intègre, l'utilisateur tranche les changements de
 cap.
 
-> **Équipe réduite — 15/10/2026 (décision de l'utilisateur).** Seuls **Claude Main** et
-> **Codex Sol 6.1** travaillent sur NEXUL. Cet encadré prime sur les tableaux des §2 et §3 :
+> **Équipe réduite — 29/10/2026 (décision de l'utilisateur).** Seuls **Claude Main** et
+> **Codex Terra 6.1** travaillent sur NEXUL ; Codex Terra reprend le périmètre de Codex Sol
+> 6.1 (parti) et plus de la moitié du travail restant jusqu'à la 1.0. Cet encadré prime sur
+> les tableaux des §2 et §3 :
 >
-> - **Codex Sol 6.1** possède `studio/terminal/**`, `studio/dap/**`, `studio/templates/**`,
->   `studio/lsp/**`, `studio/syntax/**`, `editors/vscode/**`, `installer/**`,
->   `tools/build_installer.py`, `tools/make-python-runtime.py`, `tools/licenses/**`,
->   `docs/installation.md`, `benchmarks/**`, `docs/refonte/codex-sol-status.md` ; dans
->   `compiler/**`, seulement les parties que Main lui confie par écrit (`nxc lsp`, CLI), avec
->   revue de Main. Branches `refonte/sol-…`, PR `[sol]`.
+> - **Codex Terra 6.1** : performance (`benchmarks/**` et, sur mandat, l'allocateur et les
+>   collections de `lib/std`), `std.net` complet, compilation incrémentale (ADR 0016),
+>   auto-hébergement SH2–SH3 (`selfhost/**`), outils et distribution (`editors/vscode/**`,
+>   `installer/**`, crates de Studio sans GPUI). Chemins exacts, mandats et règles
+>   anti-doublon : [prompt-codex-terra.md](prompt-codex-terra.md). Branches
+>   `refonte/terra-…`, PR `[terra]`, état [codex-terra-status.md](codex-terra-status.md).
 > - **Claude Main** possède tout le reste, dont la conception du langage (syntaxe, ADR,
->   spécification), le cœur sémantique du compilateur et de la sûreté, le runtime, Studio et
->   les fichiers transversaux. Il relit et intègre chaque PR ; l'utilisateur valide les
->   ruptures de compatibilité et les choix du §6 du plan.
-> - Les fichiers d'état d'Outils, Luna, Luna 2 et Gemma restent en archive.
+>   spécification), le cœur sémantique du compilateur et de la sûreté, le runtime, le temps
+>   réel (0.7.0), `@repr("C")`, Studio natif et les fichiers transversaux. Il relit et
+>   intègre chaque PR ; l'utilisateur valide les ruptures de compatibilité.
+> - Avant chaque tâche, chacun inscrit la tâche et ses fichiers dans la section « En cours »
+>   de son fichier d'état et lit celle de l'autre.
+> - Les fichiers d'état de Sol, Outils, Luna, Luna 2 et Gemma restent en archive.
 > - Tâches : [taches.md](taches.md).
 ## 1. Le projet
 
