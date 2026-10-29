@@ -10,7 +10,7 @@ error[E0503]: parameter `x` of an exported function cannot cross the C boundary
 3 | fn exported_generic[T](owned x: T) -> i32 {
   |                              ^ type `T0`
   |
-  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)
+  = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, the distinct and constrained types over them, and `@repr("C")` structures, passed by value (see spec §8.2)
 
 error[E0504]: an `@export` function must be a free function without generic parameters
   --> arrays_and_export.nx:13:8
@@ -24,7 +24,7 @@ error[E0503]: parameter `self` of an exported function cannot cross the C bounda
 13 |     fn exported_method(self) -> i32 {
    |                        ^^^^ type `Counter`
    |
-   = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)
+   = note: allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, the distinct and constrained types over them, and `@repr("C")` structures, passed by value (see spec §8.2)
 
 error[E0313]: the element of an array repeat expression `[x; n]` must be copyable
   --> arrays_and_export.nx:20:19

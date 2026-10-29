@@ -117,6 +117,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                 }
                 ItemKind::Struct(s) => {
                     let id = AdtId(prog.adts.len() as u32);
+                    let repr_c = repr_attr(&item.attrs, diags);
                     let newtype = prog.modules[m].newtypes.get(&s.name.name).map(|d| NewtypeDef { distinct: d.distinct, cond: d.cond.clone() });
                     prog.adts.push(AdtDef {
                         name: s.name.name.clone(),
@@ -130,6 +131,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         index_fn: None,
                         lang,
                         newtype,
+                        repr_c,
                     });
                     check_generic_names(&s.generics, diags);
                     pending_structs.push((id, s));
@@ -149,6 +151,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
                         index_fn: None,
                         lang,
                         newtype: None,
+                        repr_c: false,
                     });
                     check_generic_names(&e.generics, diags);
                     pending_enums.push((id, e));
@@ -343,6 +346,7 @@ pub fn collect(prog: &mut Program, diags: &DiagSink) {
         prog.statics[st].ty = ty;
     }
 
+    check_repr_c(prog, diags);
     check_recursive_types(prog, diags);
     check_lang_items(prog, diags);
     find_main(prog, diags);
@@ -407,7 +411,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
     for a in &item.attrs {
         let name = a.name.name.as_str();
         match name {
-            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "expects panic" | "type body" => {}
+            "test" | "link" | "export" | "cfg" | "inline" | "cold" | "derive" | "repr" | "expects panic" | "type body" => {}
             "lang" | "intrinsic" | "index" | "track_caller" | "no_builtins" => {
                 // The validation of a constrained type panics where `as` is written (ADR 0014).
                 let validation = name == "track_caller" && matches!(&item.kind, ItemKind::Fn(f) if f.name.name == crate::newtype::VALIDATE_FN);
@@ -420,7 +424,7 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             }
             _ => {
                 let mut d = Diagnostic::error("E0232", format!("unknown attribute `@{}`", name)).primary(a.name.span, "unknown attribute");
-                if let Some(s) = best_match(name, ["test", "link", "export", "cfg", "inline", "cold", "derive"]) {
+                if let Some(s) = best_match(name, ["test", "link", "export", "cfg", "inline", "cold", "derive", "repr"]) {
                     d = d.help(format!("did you mean `@{}`?", s));
                 }
                 diags.emit(d);
@@ -437,6 +441,8 @@ fn check_attrs(item: &ast::Item, is_std: bool, diags: &DiagSink) {
             ("cfg", _) => true,
             ("derive", ItemKind::Struct(_) | ItemKind::Enum(_)) => true,
             ("derive", _) => false,
+            ("repr", ItemKind::Struct(_)) => true,
+            ("repr", _) => false,
             ("test" | "link" | "lang" | "intrinsic" | "index" | "track_caller" | "export" | "inline" | "cold" | "no_builtins", _) => false,
             _ => true,
         };
@@ -769,6 +775,79 @@ fn item_as_type(prog: &Program, item: ItemRef, args: &[Ty], span: Span, name: &s
     }
 }
 
+/// A type an `extern` or `@export` function takes or returns by value: an FFI-safe scalar,
+/// or a `@repr("C")` structure (passed with the C calling convention of the target).
+fn is_ffi_value(prog: &Program, t: Ty, is_ret: bool) -> bool {
+    is_ffi_safe(prog, t, is_ret) || is_repr_c(prog, t)
+}
+
+fn is_repr_c(prog: &Program, t: Ty) -> bool {
+    matches!(&*prog.tcx.kind(t), TyKind::Adt(id, _) if prog.adts[id.idx()].repr_c)
+}
+
+/// `@repr("C")` on a structure (spec §8.2); any other argument is refused (E0505).
+fn repr_attr(attrs: &[ast::Attr], diags: &DiagSink) -> bool {
+    let Some(a) = attrs.iter().find(|a| a.name.name == "repr") else { return false };
+    match a.args.first() {
+        Some((Lit::Str(s), _)) if s == "C" && a.args.len() == 1 => true,
+        _ => {
+            diags.emit(
+                Diagnostic::error("E0505", "invalid `@repr`")
+                    .primary(a.span, "expected `@repr(\"C\")`")
+                    .note("`@repr(\"C\")` is the only representation (spec §8.2)"),
+            );
+            false
+        }
+    }
+}
+
+/// A field of a `@repr("C")` structure: a type C has, with a fixed layout.
+fn is_c_field(prog: &Program, t: Ty) -> bool {
+    match &*prog.tcx.kind(t) {
+        TyKind::Int(_) | TyKind::Float(_) | TyKind::Ptr(_) | TyKind::Error => true,
+        TyKind::Fn(..) => is_ffi_safe(prog, t, false),
+        TyKind::Array(e, n) => *n > 0 && is_c_field(prog, *e),
+        TyKind::Adt(id, args) => args.is_empty() && prog.adts[id.idx()].repr_c,
+        _ => false,
+    }
+}
+
+/// The rules of `@repr("C")` (spec §8.2, E0505): fields that C has (no `bool` or `char`,
+/// whose invalid values could come from C), at least one, no type parameter, no
+/// destructor.
+fn check_repr_c(prog: &Program, diags: &DiagSink) {
+    for adt in &prog.adts {
+        if !adt.repr_c {
+            continue;
+        }
+        let err = |msg: String, span: Span, label: &str| diags.emit(Diagnostic::error("E0505", msg).primary(span, label.to_string()));
+        if !adt.generics.is_empty() {
+            err(format!("the `@repr(\"C\")` structure `{}` cannot have type parameters", adt.name), adt.span, "generic structure");
+            continue;
+        }
+        if adt.newtype.is_some() {
+            err(format!("`{}` is a distinct or constrained type, not a structure", adt.name), adt.span, "not a structure");
+            continue;
+        }
+        if adt.drop_fn.is_some() {
+            err(format!("the `@repr(\"C\")` structure `{}` cannot have a destructor", adt.name), adt.span, "C copies it bit by bit");
+        }
+        let fields = adt.fields();
+        if fields.is_empty() {
+            err(format!("the `@repr(\"C\")` structure `{}` has no field", adt.name), adt.span, "C has no empty structure");
+        }
+        for f in fields {
+            if f.indirect || !is_c_field(prog, f.ty) {
+                diags.emit(
+                    Diagnostic::error("E0505", format!("field `{}` of a `@repr(\"C\")` structure has type `{}`, which C does not have", f.name, prog.ty_str(f.ty)))
+                        .primary(f.span, "not a C type")
+                        .note("allowed: integers, floats, `Ptr[T]`, C callbacks, arrays of them and other `@repr(\"C\")` structures; `bool` and `char` are refused because C could give invalid values: use `u8` or `u32`"),
+                );
+            }
+        }
+    }
+}
+
 fn is_ffi_safe(prog: &Program, t: Ty, is_ret: bool) -> bool {
     match &*prog.tcx.kind(t) {
         TyKind::Int(_) | TyKind::Float(_) | TyKind::Bool | TyKind::Char | TyKind::Ptr(_) | TyKind::Error => true,
@@ -776,7 +855,15 @@ fn is_ffi_safe(prog: &Program, t: Ty, is_ret: bool) -> bool {
         TyKind::Never => is_ret,
         // A function pointer is a C callback when its signature is itself FFI-safe:
         // scalar parameters are passed by value, exactly as in C.
-        TyKind::Fn(params, r) => params.iter().all(|&(c, p)| c != Convention::Inout && is_ffi_safe(prog, p, false)) && is_ffi_safe(prog, *r, true),
+        TyKind::Fn(params, r) => {
+            let float = |t: Ty| matches!(&*prog.tcx.kind(t), TyKind::Float(_));
+            // On ARM with the hard-float ABI, C passes floats in VFP registers, and a
+            // function pointer does not say which convention its target has: not yet.
+            let arm_hf = prog.cfg.target.arch == crate::target::Arch::Arm && prog.cfg.target.llvm_triple.ends_with("eabihf");
+            params.iter().all(|&(c, p)| c != Convention::Inout && is_ffi_safe(prog, p, false) && !(arm_hf && float(p)))
+                && is_ffi_safe(prog, *r, true)
+                && !(arm_hf && float(*r))
+        }
         _ => false,
     }
 }
@@ -794,11 +881,11 @@ fn resolve_extern(prog: &mut Program, id: FnId, decl: &ast::ExternFnDecl, diags:
     let mut params = Vec::new();
     for (name, texpr) in &decl.params {
         let ty = resolve_type(prog, &scope, texpr, diags);
-        if !is_ffi_safe(prog, ty, false) {
+        if !is_ffi_value(prog, ty, false) {
             diags.emit(
                 Diagnostic::error("E0503", format!("type `{}` cannot cross the C boundary", prog.ty_str(ty)))
                     .primary(texpr.span, "not FFI-safe")
-                    .note("allowed: integers, floats, `bool`, `char` and `Ptr[T]` (see spec §8.2)"),
+                    .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]`, C callbacks and `@repr(\"C\")` structures (see spec §8.2)"),
             );
         }
         params.push(ParamDef { name: name.name.clone(), conv: Convention::Borrow, ty, span: name.span });
@@ -806,11 +893,11 @@ fn resolve_extern(prog: &mut Program, id: FnId, decl: &ast::ExternFnDecl, diags:
     let ret = match &decl.ret {
         Some(t) => {
             let ty = resolve_type(prog, &scope, t, diags);
-            if !is_ffi_safe(prog, ty, true) {
+            if !is_ffi_value(prog, ty, true) {
                 diags.emit(
                     Diagnostic::error("E0503", format!("type `{}` cannot cross the C boundary", prog.ty_str(ty)))
                         .primary(t.span, "not FFI-safe")
-                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `()`"),
+                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]`, `@repr(\"C\")` structures and `()`"),
                 );
             }
             ty
@@ -928,15 +1015,15 @@ fn resolve_fn_sig(prog: &mut Program, id: FnId, decl: &ast::FnDecl, attrs: &[ast
         for p in &params {
             // A distinct or constrained type crosses as its base, checked on entry (ADR 0014).
             let newtype = matches!(&*prog.tcx.kind(p.ty), TyKind::Adt(id, _) if prog.adts[id.idx()].newtype.is_some());
-            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !(newtype || is_ffi_safe(prog, p.ty, false)) {
+            if p.conv != Convention::Borrow && p.conv != Convention::Owned || !(newtype || is_ffi_value(prog, p.ty, false)) {
                 diags.emit(
                     Diagnostic::error("E0503", format!("parameter `{}` of an exported function cannot cross the C boundary", p.name))
                         .primary(p.span, format!("type `{}`", prog.ty_str(p.ty)))
-                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, and the distinct and constrained types over them, passed by value (see spec §8.2)"),
+                        .note("allowed: integers, floats, `bool`, `char`, `Ptr[T]` and `fn` types, the distinct and constrained types over them, and `@repr(\"C\")` structures, passed by value (see spec §8.2)"),
                 );
             }
         }
-        if !is_ffi_safe(prog, ret, true) {
+        if !is_ffi_value(prog, ret, true) {
             diags.emit(
                 Diagnostic::error("E0503", format!("type `{}` cannot cross the C boundary", prog.ty_str(ret)))
                     .primary(decl.ret.as_ref().map(|r| r.span).unwrap_or(decl.name.span), "not FFI-safe"),

@@ -155,6 +155,7 @@ Ce fichier est généré à partir du compilateur et vérifié par la suite de t
 | `E0502` | Unsupported ABI: NEXUL 0.1 only supports `extern "C"`. |
 | `E0503` | This type cannot cross the C boundary. |
 | `E0504` | Invalid `@export` function. |
+| `E0505` | Invalid `@repr("C")` structure. |
 
 ## Erreurs internes
 

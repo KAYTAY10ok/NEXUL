@@ -399,6 +399,26 @@ impl<'a> Gen<'a> {
         let mut allocas = String::new();
         let mut code = String::new();
         let mut args = Vec::new();
+        let ptys: Vec<Ty> = fd.params.iter().map(|p| p.ty).collect();
+        let ret_ty = fd.ret;
+        let (c_abis, c_ret) = self.c_abi(&ptys, ret_ty);
+        // A `@repr("C")` result: where the function writes it (the memory C gives, or a
+        // buffer returned in registers).
+        let ret_buf = match &c_ret {
+            crate::cabi::RetAbi::Sret { align } => {
+                let lt = self.llty(ret_ty);
+                params.push(format!("ptr sret({lt}) align {align} %sret"));
+                Some("%sret".to_string())
+            }
+            crate::cabi::RetAbi::Agg(_) => {
+                let _ = writeln!(allocas, "  %rb = alloca [{} x i8], align 16", crate::layout::round_up(self.size_of(ret_ty).max(16), 16));
+                Some("%rb".to_string())
+            }
+            crate::cabi::RetAbi::Direct => None,
+        };
+        if let Some(b) = &ret_buf {
+            args.push(format!("ptr {b}"));
+        }
         for (i, p) in fd.params.iter().enumerate() {
             let t = p.ty;
             let loc = self.location(p.span);
@@ -411,6 +431,33 @@ impl<'a> Gen<'a> {
                         .unwrap();
                     params.push(format!("{param_ty} {a}"));
                     (value, lt)
+                }
+                TyKind::Adt(id, _) if self.p.adt(*id).repr_c => {
+                    // A `@repr("C")` structure, received as the target passes it, rebuilt
+                    // in memory for the function (spec §8.2).
+                    let size = self.size_of(t);
+                    let buf = format!("%cb{i}");
+                    let _ = writeln!(allocas, "  {buf} = alloca [{} x i8], align 16", crate::layout::round_up(size.max(16), 16));
+                    match &c_abis[i] {
+                        crate::cabi::ArgAbi::Pieces(ps) => {
+                            for (k, (off, ty)) in ps.iter().enumerate() {
+                                params.push(format!("{ty} {a}.{k}"));
+                                let _ = writeln!(code, "  %cp{i}.{k} = getelementptr inbounds i8, ptr {buf}, i64 {off}\n  store {ty} {a}.{k}, ptr %cp{i}.{k}");
+                            }
+                            (buf, "ptr".to_string())
+                        }
+                        crate::cabi::ArgAbi::Agg(ty, attr) => {
+                            params.push(format!("{ty}{attr} {a}"));
+                            let _ = writeln!(code, "  store {ty} {a}, ptr {buf}");
+                            (buf, "ptr".to_string())
+                        }
+                        crate::cabi::ArgAbi::Indirect { byval, align } => {
+                            let lt = self.llty(t);
+                            params.push(if *byval { format!("ptr byval({lt}) align {align} {a}") } else { format!("ptr {a}") });
+                            (a.clone(), "ptr".to_string())
+                        }
+                        crate::cabi::ArgAbi::Direct => unreachable!(),
+                    }
                 }
                 TyKind::Adt(id, _) => {
                     // A distinct or constrained type crosses the boundary as its base.
@@ -442,7 +489,9 @@ impl<'a> Gen<'a> {
                 }
                 _ => {
                     let lt = self.llty(t);
-                    params.push(format!("{lt} {a}"));
+                    // With the extension attribute C puts on it (`i32 signext` on RISC-V).
+                    let ct = self.c_param(t);
+                    params.push(format!("{ct} {a}"));
                     (a.clone(), lt)
                 }
             };
@@ -457,19 +506,29 @@ impl<'a> Gen<'a> {
                 (None, _) => args.push(format!("{lt} {value}")),
             }
         }
-        let ret = self.sig_ret(sig);
+        let mut ret = self.sig_ret(sig);
         let call = format!("{}({})", internal, args.join(", "));
-        if ret == "void" {
-            let _ = writeln!(code, "  call void {call}\n  ret void");
-        } else {
-            let _ = writeln!(code, "  %r = call {ret} {call}\n  ret {ret} %r");
+        match &c_ret {
+            crate::cabi::RetAbi::Sret { .. } => {
+                let _ = writeln!(code, "  call void {call}\n  ret void");
+            }
+            crate::cabi::RetAbi::Agg(ty) => {
+                let _ = writeln!(code, "  call void {call}\n  %r = load {ty}, ptr %rb\n  ret {ty} %r");
+                ret = ty.clone();
+            }
+            crate::cabi::RetAbi::Direct if ret == "void" => {
+                let _ = writeln!(code, "  call void {call}\n  ret void");
+            }
+            crate::cabi::RetAbi::Direct => {
+                let _ = writeln!(code, "  %r = call {ret} {call}\n  ret {ret} %r");
+            }
         }
         let linkage = if self.opts.target.os == Os::Windows { "dllexport " } else { "" };
         let mut attrs = String::from("nounwind");
         if self.opts.target.os == Os::Windows {
             attrs.push_str(" uwtable");
         }
-        let text = format!("define {}{} @{}({}) {} {{\nstart:\n{}{}}}\n\n", linkage, ret, quote_name(&sym), params.join(", "), attrs, allocas, code);
+        let text = format!("define {}{}{} @{}({}) {} {{\nstart:\n{}{}}}\n\n", linkage, self.c_cc(), ret, quote_name(&sym), params.join(", "), attrs, allocas, code);
         self.fn_defs.push_str(&text);
     }
 
@@ -1297,6 +1356,105 @@ impl<'a> Gen<'a> {
         }
     }
 
+    /// A buffer large enough for a `@repr("C")` structure and every coerced type it is
+    /// loaded or stored as (at most 16 bytes past its end, aligned to 16).
+    fn c_buffer(&mut self, cx: &mut FnCx, size: u64) -> String {
+        let n = crate::layout::round_up(size.max(16), 16);
+        let name = format!("%cb{}", self.fresh());
+        let _ = writeln!(cx.allocas, "  {} = alloca [{} x i8], align 16", name, n);
+        name
+    }
+
+    /// A call of a C function (spec §8.2): scalars as they are, `@repr("C")` structures
+    /// with the calling convention of the target (`cabi`).
+    fn emit_c_call(&mut self, cx: &mut FnCx, name: &str, ptys: &[Ty], ret_ty: Ty, args: &[Operand], dest: Option<&Place>) {
+        let (abis, rabi) = self.c_abi(ptys, ret_ty);
+        let mut argv = Vec::new();
+        // The result: in memory given to the callee, or in registers stored into a buffer.
+        let ret_buf = match &rabi {
+            crate::cabi::RetAbi::Sret { align } => {
+                let lt = self.llty(ret_ty);
+                let b = self.c_buffer(cx, self.size_of(ret_ty));
+                argv.push(format!("ptr sret({}) align {} {}", lt, align, b));
+                Some(b)
+            }
+            crate::cabi::RetAbi::Agg(_) => Some(self.c_buffer(cx, self.size_of(ret_ty))),
+            crate::cabi::RetAbi::Direct => None,
+        };
+        for ((a, &pt), abi) in args.iter().zip(ptys).zip(&abis) {
+            let (v, _) = self.operand(cx, a);
+            match abi {
+                crate::cabi::ArgAbi::Direct => {
+                    let ct = self.c_param(pt);
+                    argv.push(format!("{} {}", ct, v.scalar()));
+                }
+                _ => {
+                    // A structure, in memory: copied into a buffer the coerced loads may
+                    // read past its end, then loaded piece by piece or passed by address.
+                    let src = match &v {
+                        Val::Mem(m) => m.clone(),
+                        other => panic!("internal: a structure in a register: {:?}", other),
+                    };
+                    let size = self.size_of(pt);
+                    let buf = self.c_buffer(cx, size);
+                    self.memcpy(cx, &buf, &src, size);
+                    match abi {
+                        crate::cabi::ArgAbi::Pieces(ps) => {
+                            for (off, ty) in ps {
+                                let at = self.val(cx, format!("getelementptr inbounds i8, ptr {}, i64 {}", buf, off));
+                                let x = self.val(cx, format!("load {}, ptr {}", ty, at));
+                                argv.push(format!("{} {}", ty, x));
+                            }
+                        }
+                        crate::cabi::ArgAbi::Agg(ty, attr) => {
+                            let x = self.val(cx, format!("load {}, ptr {}", ty, buf));
+                            argv.push(format!("{}{} {}", ty, attr, x));
+                        }
+                        crate::cabi::ArgAbi::Indirect { byval: true, align } => {
+                            let lt = self.llty(pt);
+                            argv.push(format!("ptr byval({}) align {} {}", lt, align, buf));
+                        }
+                        crate::cabi::ArgAbi::Indirect { byval: false, .. } => argv.push(format!("ptr {}", buf)),
+                        crate::cabi::ArgAbi::Direct => unreachable!(),
+                    }
+                }
+            }
+        }
+        let call = format!("{}({})", name, argv.join(", "));
+        let cc = self.c_cc();
+        match (&rabi, ret_buf) {
+            (crate::cabi::RetAbi::Direct, _) if self.is_void(ret_ty) || self.tcx().is_never(ret_ty) => {
+                self.ins(cx, format!("call {}void {}", cc, call));
+            }
+            (crate::cabi::RetAbi::Direct, _) => {
+                let lt = self.llty(ret_ty);
+                let r = self.val(cx, format!("call {}{} {}", cc, lt, call));
+                if let Some(d) = dest {
+                    let (a, _) = self.place_addr(cx, d);
+                    self.ins(cx, format!("store {} {}, ptr {}", lt, r, a));
+                }
+            }
+            (crate::cabi::RetAbi::Agg(ty), Some(buf)) => {
+                let r = self.val(cx, format!("call {}{} {}", cc, ty, call));
+                self.ins(cx, format!("store {} {}, ptr {}", ty, r, buf));
+                self.copy_c_result(cx, &buf, ret_ty, dest);
+            }
+            (crate::cabi::RetAbi::Sret { .. }, Some(buf)) => {
+                self.ins(cx, format!("call {}void {}", cc, call));
+                self.copy_c_result(cx, &buf, ret_ty, dest);
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    fn copy_c_result(&mut self, cx: &mut FnCx, buf: &str, t: Ty, dest: Option<&Place>) {
+        if let Some(d) = dest {
+            let (a, _) = self.place_addr(cx, d);
+            let size = self.size_of(t);
+            self.memcpy(cx, &a, buf, size);
+        }
+    }
+
     fn emit_call(&mut self, cx: &mut FnCx, callee: &Callee, args: &[Operand], dest: Option<&Place>, span: Span) {
         let tcx = self.tcx();
         match callee {
@@ -1311,24 +1469,8 @@ impl<'a> Gen<'a> {
                 if let FnKind::Extern { .. } = fd.kind {
                     let name = self.extern_fn(*f);
                     let ret_ty = fd.ret;
-                    let mut argv = Vec::new();
                     let ptys: Vec<Ty> = fd.params.iter().map(|p| p.ty).collect();
-                    for (a, pt) in args.iter().zip(ptys) {
-                        let (v, _) = self.operand(cx, a);
-                        let ct = self.c_param(pt);
-                        argv.push(format!("{} {}", ct, v.scalar()));
-                    }
-                    if self.is_void(ret_ty) {
-                        self.ins(cx, format!("call void {}({})", name, argv.join(", ")));
-                    } else {
-                        let ct = self.c_param(ret_ty);
-                        let lt = self.llty(ret_ty);
-                        let r = self.val(cx, format!("call {} {}({})", ct, name, argv.join(", ")));
-                        if let Some(d) = dest {
-                            let (a, _) = self.place_addr(cx, d);
-                            self.ins(cx, format!("store {} {}, ptr {}", lt, r, a));
-                        }
-                    }
+                    self.emit_c_call(cx, &name, &ptys, ret_ty, args, dest);
                     return;
                 }
                 if fd.is_trait_decl() {

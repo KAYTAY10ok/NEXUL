@@ -27,6 +27,8 @@ jobs:
         sudo apt-get update -q
         sudo apt-get install -y -q qemu-user qemu-system-arm
         NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test suite run_programs_cross
+        # @repr("C") structures exchanged with C compiled by clang, on the same targets.
+        NEXUL_TEST_TARGETS=aarch64-linux,riscv64-linux,wasm32-wasi,thumbv7em-none cargo test --release -p nxc --test c_abi c_and_nexul_exchange_structures
     - name: Stress programs (10^6 messages between 64 tasks)
       timeout-minutes: 10
       env:

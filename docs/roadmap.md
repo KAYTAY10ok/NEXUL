@@ -110,8 +110,9 @@ serveur, une tâche par connexion, 8 clients simultanés) : Linux (trois archite
 Windows et macOS, CI verte le 28/10 (`99ad9e3`). Le critère « programme C qui appelle NEXUL et
 inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
 compris ; Linux ici, macOS et Windows par la CI). Restent la compilation séparée et le
-cache incrémental, `@repr("C")` (structures par valeur), UDP, et le critère du temps de
-compilation incrémentale. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
+cache incrémental (Codex Terra, T3), UDP (Terra, T2), et le critère du temps de
+compilation incrémentale. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
+vers et depuis C, conformes à clang sur 13 cibles. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
 Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct.
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)

@@ -39,8 +39,10 @@ fn main() {
 | `()` (retour) | `void` |
 | `fn R(A, B)` | `R (*)(A, B)` (pointeur de fonction de rappel) |
 
-Tout autre type dans une signature `extern` est l'erreur E0503. *(Pas encore : structures
-`@repr("C")` passées par valeur, variadiques.)*
+| structure `@repr("C")` (§8.5) | `struct` de mêmes champs, passée par valeur |
+
+Tout autre type dans une signature `extern` est l'erreur E0503. *(Pas encore : variadiques ;
+structures par valeur dans un pointeur de fonction de rappel.)*
 
 **Fonctions de rappel.** Une valeur de type fonction passée par valeur est toujours une
 fonction **nommée** (une fonction anonyme n'y est pas acceptée, E0248) : c'est un simple
@@ -112,4 +114,58 @@ fn main() {
   un type contraint est vérifié à l'entrée comme par `as`. Le symbole exporté est une
   petite fonction qui fait ces vérifications puis appelle la fonction ; le code NEXUL
   appelle la fonction directement, sans vérification (ses valeurs sont déjà valides).
+
+## 8.5 Structures C (`@repr("C")`)
+
+```nexul
+// edition: 1
+@repr("C")
+type Vec2 {
+    f32 x
+    f32 y
+}
+
+extern "C" fn Vec2 vec2_add(Vec2 a, Vec2 b)
+
+@export
+fn Vec2 nx_scale(Vec2 v, f32 k) {
+    return Vec2(x: v.x * k, y: v.y * k)
+}
+```
+
+- **Disposition** : celle de C — champs dans l'ordre de déclaration, chacun aligné
+  naturellement, taille arrondie à l'alignement de la structure. `@repr("C")` le garantit
+  (sans l'attribut, l'ordre des champs n'est pas promis).
+- **Champs permis** : entiers, flottants, `Ptr[T]`, pointeurs de fonction de rappel
+  (§8.2), tableaux `[T; n]` de ces types, autres structures `@repr("C")`. **Refusés** :
+  `bool` et `char`, car C pourrait donner une valeur invalide (`u8`, `u32` à la place), et
+  tout type qui possède une ressource. La structure a au moins un champ, pas de paramètre
+  de type, pas de destructeur. Toute autre règle enfreinte est l'erreur **E0505**, comme
+  `@repr` avec un autre argument que `"C"`.
+- **Par valeur** : une telle structure est un paramètre ou un résultat permis d'une
+  fonction `extern "C"` et d'une fonction `@export`, passée avec **la convention d'appel C
+  de la cible** — celle de clang :
+
+  | Cible | Paramètre | Résultat |
+  |---|---|---|
+  | x86-64 System V (Linux, macOS) | jusqu'à 16 octets : un ou deux morceaux de 8 octets en registres entiers ou SSE, si assez de registres restent ; sinon sur la pile (`byval`) | registres (`rax`/`rdx`, `xmm0`/`xmm1`) ; au-delà de 16 octets, en mémoire fournie par l'appelant (`sret`) |
+  | x86-64 Windows | 1, 2, 4 ou 8 octets : un entier ; sinon un pointeur vers une copie | 1, 2, 4 ou 8 octets : `rax` ; sinon `sret` |
+  | AArch64 (Linux, macOS, Windows) | 1 à 4 flottants identiques (HFA) : registres flottants ; jusqu'à 16 octets : un ou deux registres entiers ; sinon un pointeur vers une copie | de même, ou `sret` au-delà de 16 octets |
+  | RISC-V 64 (LP64D) | un flottant, deux flottants, ou un flottant et un entier : registres flottants et entiers, s'il en reste ; sinon un ou deux registres entiers ; au-delà de 16 octets, un pointeur | de même, ou `sret` |
+  | RISC-V 32 (ILP32) | jusqu'à 8 octets : un ou deux registres ; sinon un pointeur | de même, ou `sret` |
+  | WebAssembly | une structure à un seul champ scalaire : ce scalaire ; sinon un pointeur (`byval`) | ce scalaire, ou `sret` |
+  | ARM Cortex-M (AAPCS) | flottants identiques (HFA, `thumbv7em`) : registres VFP ; sinon registres et pile par mots | jusqu'à 4 octets : `r0` ; HFA : registres VFP ; sinon `sret` |
+
+- **Ce qui est vérifié** (`compiler/nxc/tests/c_abi.rs`, 30 formes de structures) :
+  - les signatures produites par `nxc` sont celles de clang pour les mêmes déclarations C,
+    sur les 13 cibles hébergées et sans système ;
+  - un programme NEXUL et du code C compilé par clang échangent ces structures dans les
+    deux sens (arguments, résultats, registres épuisés par huit structures, mélange avec
+    des scalaires), exécutés sur Linux x86-64, AArch64 et RISC-V (QEMU), WASI (Node),
+    Cortex-M4 (QEMU), macOS (Apple silicon) et Windows x86-64 dans la CI.
+- Sur ARM, le runtime fournit aussi les fonctions flottantes de l'ABI d'exécution ARM
+  (`__aeabi_dadd`…) que le code C appelle, pour lier du C à un programme NEXUL sans
+  bibliothèque de support.
+- **Pas encore** : une structure par valeur dans le type d'un pointeur de fonction de
+  rappel (E0503 : passer `Ptr[S]`) ; les unions et les champs de bits.
 

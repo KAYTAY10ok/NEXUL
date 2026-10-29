@@ -1,5 +1,27 @@
 # Historique des versions
 
+## Non publié
+
+**Interopérabilité C**
+- Structures C par valeur : `@repr("C")` (ADR 0017, spec §8.5). Une telle structure a la
+  disposition de C et se passe par valeur, en paramètre comme en résultat, aux fonctions
+  `extern "C"` et `@export`, avec la convention d'appel de chaque cible, celle de clang.
+  Champs : entiers, flottants, `Ptr`, rappels C, tableaux, structures `@repr("C")` ; refus
+  de `bool` et `char` (E0505).
+- Preuve : 30 formes de structures.
+  - Les signatures sont celles de clang sur 13 cibles.
+  - Les échanges NEXUL ↔ C s'exécutent sur Linux x86-64, AArch64 et RISC-V, WASI et
+    Cortex-M4 ; macOS et Windows dans la CI (`compiler/nxc/tests/c_abi.rs`).
+- Corrections trouvées en route :
+  - Cortex-M4 (`thumbv7em`) passait les flottants à C dans les registres entiers, alors
+    que C les attend dans les registres VFP : les appels vers C et les exports utilisent
+    maintenant `arm_aapcs_vfpcc`. Un rappel C avec des flottants y est refusé pour
+    l'instant (E0503).
+  - RISC-V 64 : les entiers de 32 bits passés à C sont étendus par signe (`signext`).
+  - Un résultat C de moins de 32 bits ne produit plus d'IR invalide.
+  - Sur ARM, le runtime fournit les fonctions flottantes de l'ABI d'exécution
+    (`__aeabi_dadd`…) pour le code C lié à un programme NEXUL.
+
 ## 0.3.0 — « Refonte »
 
 Première version de la refonte. Le langage, les garanties et leurs limites sont décrits
