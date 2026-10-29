@@ -6,7 +6,7 @@
 # Samples: 655  of event 'cpu-clock:u'
 # Event count (approx.): 656970895
 #
-# Overhead  Command      Shared Object     Symbol                
+# Overhead  Command      Shared Object     Symbol
 # ........  ...........  ................  ......................
 #
     27.33%  source_scan  source_scan       [.] 0x0000000000003d62
