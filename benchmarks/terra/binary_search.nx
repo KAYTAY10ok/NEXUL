@@ -1,0 +1,24 @@
+import std.system
+
+fn main() {
+    let n: usize = 65536
+    let count = 1000000 + system.args().len() - 1
+    var values: Vec[u64] = Vec.with_capacity(n)
+    for i in 0..n {
+        values.push((i * 3) as u64)
+    }
+    var x: u64 = 7
+    var checksum: u64 = 0
+    for _ in 0..count {
+        x = (x * 48271 + 17) % 2147483647
+        let key = x % 196608
+        var lo: usize = 0
+        var hi = n
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2
+            if values[mid] < key { lo = mid + 1 } else { hi = mid }
+        }
+        checksum += lo as u64
+    }
+    println("{checksum}")
+}

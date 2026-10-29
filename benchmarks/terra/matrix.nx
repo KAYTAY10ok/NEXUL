@@ -1,0 +1,28 @@
+import std.system
+
+fn main() {
+    let n: usize = 64
+    let rounds = 300 + system.args().len() - 1
+    var a: Vec[u64] = Vec.with_capacity(n * n)
+    var b: Vec[u64] = Vec.with_capacity(n * n)
+    var c: Vec[u64] = Vec.with_capacity(n * n)
+    for i in 0..n * n {
+        a.push((i % 17) as u64)
+        b.push((i % 13) as u64)
+        c.push(0)
+    }
+    for _ in 0..rounds {
+        for i in 0..n {
+            for j in 0..n {
+                var value: u64 = 0
+                for k in 0..n {
+                    value += a[i * n + k] * b[k * n + j]
+                }
+                c[i * n + j] += value
+            }
+        }
+    }
+    var checksum: u64 = 0
+    for value in c { checksum += value }
+    println("{checksum}")
+}

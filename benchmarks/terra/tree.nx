@@ -1,0 +1,46 @@
+fn main() {
+    let n: usize = 50000
+    var total: u64 = 0
+    for _ in 0..4 {
+        var keys: Vec[usize] = Vec.with_capacity(n + 1)
+        var left: Vec[usize] = Vec.with_capacity(n + 1)
+        var right: Vec[usize] = Vec.with_capacity(n + 1)
+        keys.push(0)
+        left.push(0)
+        right.push(0)
+        for i in 0..n {
+            let key = (i * 48271 + 17) % n + 1
+            keys.push(key)
+            left.push(0)
+            right.push(0)
+            let node = i + 1
+            if node > 1 {
+                var cur: usize = 1
+                while true {
+                    if key < keys[cur] {
+                        if left[cur] == 0 {
+                            left[cur] = node
+                            break
+                        }
+                        cur = left[cur]
+                    } else {
+                        if right[cur] == 0 {
+                            right[cur] = node
+                            break
+                        }
+                        cur = right[cur]
+                    }
+                }
+            }
+        }
+        for i in 0..n {
+            let key = (i * 48271 + 17) % n + 1
+            var cur: usize = 1
+            while keys[cur] != key {
+                if key < keys[cur] { cur = left[cur] } else { cur = right[cur] }
+            }
+            total += cur as u64
+        }
+    }
+    println("checksum={total}")
+}

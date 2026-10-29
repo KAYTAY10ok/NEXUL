@@ -1,0 +1,21 @@
+import std.fs
+import std.io
+import std.random
+
+fn main() {
+    let root = "/tmp/nexul-bench-" + random.secure_token(16)
+    fs.create_dir(root).unwrap()
+    let path = fs.join(root, "data")
+    let n: usize = 65536
+    var bytes: Vec[u8] = Vec.with_capacity(n)
+    for i in 0..n { bytes.push((i % 251) as u8) }
+    var sum: u64 = 0
+    for _ in 0..128 {
+        io.write_bytes(path, bytes).unwrap()
+        let data = io.read_bytes(path).unwrap()
+        for i in 0..data.len() { sum += data[i] as u64 }
+    }
+    fs.remove_file(path).unwrap()
+    fs.remove_dir(root).unwrap()
+    println("checksum={sum}")
+}
