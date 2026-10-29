@@ -13,7 +13,8 @@ partagé, les sections).
 
 | Tâche | Branche | Fichiers | Depuis |
 |---|---|---|---|
-| — | — | — | — |
+| T1 — banc de performance et profilage | `refonte/terra-performance` | `benchmarks/**`, `.github/workflows/terra-benchmarks.yml`, fichier d'état ; PR #72 | 29/10/2026 |
+| T3 — proposition d'ADR sur la compilation incrémentale et le cache std | `refonte/terra-incremental` | `docs/adr/0016-compilation-incrementale.md`, fichier d'état ; aucune implémentation avant accord de Main | 29/10/2026 |
 
 ## Tâches
 
