@@ -110,6 +110,18 @@ pub struct FnDecl {
     pub ret: Option<TypeExpr>,
     pub body: Option<Block>,
     pub is_unsafe: bool,
+    /// `with noalloc, nonblocking` (edition 1, ADR 0018 §1).
+    pub effects: Vec<Ident>,
+    /// `every … within …`: a periodic real-time task (ADR 0018 §2).
+    pub period: Option<Period>,
+    pub span: Span,
+}
+
+/// `every ms(10) within ms(2)`: period and optional deadline of a real-time task.
+#[derive(Clone, Debug)]
+pub struct Period {
+    pub every: Expr,
+    pub within: Option<Expr>,
     pub span: Span,
 }
 
@@ -228,6 +240,8 @@ pub struct ExternFnDecl {
     pub name: Ident,
     pub params: Vec<(Ident, TypeExpr)>,
     pub ret: Option<TypeExpr>,
+    /// `with noalloc, nonblocking`: what the programmer promises about the C function.
+    pub effects: Vec<Ident>,
 }
 
 // ---------------------------------------------------------------------------

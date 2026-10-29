@@ -46,8 +46,9 @@ fn i32 filtre(Filtre f!, i32 x) with noalloc, nonblocking { … }
   après monomorphisation ; la **récursion** (cycle du graphe). Les deux rendent la pile et
   les effets invérifiables.
 - **Paniques** : les chemins de panique (débordement, indice hors bornes…) ne comptent pas
-  comme effets. Une panique est un **arrêt sûr** (§5) : le système s'arrête, il ne
-  continue pas en retard. `rt.stop` (§4) a le même statut.
+  comme effets, ni un appel à une fonction qui ne rend jamais la main (type `Never` :
+  `panic`, `exit`). Une panique est un **arrêt sûr** (§5) : le système s'arrête, il ne
+  continue pas en retard. `rt.stop` (§2) a le même statut.
 
 ### 2. Tâches périodiques : `every … within …`
 

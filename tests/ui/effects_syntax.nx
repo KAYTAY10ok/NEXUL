@@ -1,0 +1,14 @@
+// edition: 1
+// The clauses `with` and `every` (ADR 0018): E0604, E0111.
+import std.rt.{ms}
+
+extern "C" fn i32 tick() every ms(1)
+
+fn double(i64 x) with noalloc, noalloc {
+}
+
+fn lourd() with io {
+}
+
+fn contrat(i64 x) requires x > 0 {
+}

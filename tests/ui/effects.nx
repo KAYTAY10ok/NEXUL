@@ -1,0 +1,63 @@
+// edition: 1
+// Effects `with noalloc, nonblocking` (ADR 0018 §1): E0601 to E0603.
+extern "C" fn i32 abs(i32 x) with noalloc, nonblocking
+extern "C" fn i32 rand()
+
+type Filtre {
+    i64 somme
+    [i64; 4] fenetre
+    usize pos
+}
+
+type Boite {
+    String nom
+}
+
+fn i64 filtrer(Filtre f!, i64 x) with noalloc, nonblocking {
+    f.somme += x - f.fenetre[f.pos]
+    f.fenetre[f.pos] = x
+    f.pos = (f.pos + 1) % 4
+    return f.somme / 4
+}
+
+fn T premier[T is Copy](Vec[T] v) with noalloc, nonblocking {
+    return v[0]
+}
+
+fn i32 c_permis(i32 x) with noalloc, nonblocking {
+    return unsafe { abs(x) }
+}
+
+fn i64 ajoute(Vec[i64] v!, i64 x) with noalloc {
+    v.push(x)
+    return x
+}
+
+fn detruit(owned Boite b) with noalloc {
+}
+
+fn bavard(i64 x) with nonblocking {
+    println("{x}")
+}
+
+fn i32 c_inconnu() with nonblocking {
+    return unsafe { rand() }
+}
+
+fn i64 recursif(i64 n) with noalloc {
+    if n == 0 {
+        return 0
+    }
+    return recursif(n - 1)
+}
+
+fn i64 appel(fn i64(i64) g) with noalloc {
+    return g(1)
+}
+
+fn main() {
+    var f = Filtre(somme: 0, fenetre: [0; 4], pos: 0)
+    var v = Vec[i64].new()
+    println("{filtrer(f!, 8)} {premier(v)} {c_permis(-3)} {ajoute(v!, 1)} {c_inconnu()}")
+    detruit(Boite(nom: "x"))
+}

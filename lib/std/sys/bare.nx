@@ -17,6 +17,7 @@ import std.heap
 
 /// A semihosting request: operation number and parameter (usually a parameter block).
 @intrinsic
+@blocks
 unsafe fn isize semihost(usize op, usize param)
 
 /// The start of the free RAM, after the data (`__heap_start` of the linker script).
@@ -336,6 +337,7 @@ pub fn i32 utc_offset(i64 unix_seconds) {
 }
 
 /// Busy waiting on the clock (no scheduler without an operating system).
+@blocks
 pub fn sleep_ns(u64 ns) {
     let start = monotonic_ns()
     while monotonic_ns() - start < ns {
@@ -376,6 +378,7 @@ pub fn thread_yield() {
 
 /// Without threads, a task that waits can never be woken: the other tasks have already run
 /// or run after it.
+@blocks
 pub unsafe fn wait_on(Ptr[u32] p, u32 expected) {
     let _ = p
     let _ = expected

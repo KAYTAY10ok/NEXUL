@@ -1,0 +1,67 @@
+error[E0601]: `effects.ajoute` is declared `with noalloc` but can allocate or free memory
+  --> effects.nx:32:5
+   |
+31 | fn i64 ajoute(Vec[i64] v!, i64 x) with noalloc {
+   |                                        ------- effects declared here
+32 |     v.push(x)
+   |     ^^^^^^^^^ this can allocate or free
+   |
+   = note: calls: `effects.ajoute` → `std.vec.Vec.push[i64]` → `std.vec.Vec.reserve[i64]` → `std.mem.alloc`
+   = note: `std.rt.alloc` allocates or frees memory
+
+error[E0601]: `effects.detruit` is declared `with noalloc` but can allocate or free memory
+  --> effects.nx:37:2
+   |
+36 | fn detruit(owned Boite b) with noalloc {
+   |                                ------- effects declared here
+37 | }
+   |  ^ this can allocate or free
+   |
+   = note: calls: `effects.detruit` → `std.string.String.drop` → `std.mem.free`
+   = note: `std.rt.free` allocates or frees memory
+
+error[E0602]: `effects.bavard` is declared `with nonblocking` but can wait
+  --> effects.nx:40:5
+   |
+39 | fn bavard(i64 x) with nonblocking {
+   |                       ----------- effects declared here
+40 |     println("{x}")
+   |     ^^^^^^^^^^^^^^ this can wait
+   |
+   = note: writing to the console waits for it
+
+error[E0602]: `effects.c_inconnu` is declared `with nonblocking` but can wait
+  --> effects.nx:44:21
+   |
+43 | fn i32 c_inconnu() with nonblocking {
+   |                         ----------- effects declared here
+44 |     return unsafe { rand() }
+   |                     ^^^^^^ this can wait
+   |
+   = note: the C function `rand` is not declared `with nonblocking`
+
+error[E0603]: `effects.recursif` has effects but can call itself again
+  --> effects.nx:51:12
+   |
+47 | fn i64 recursif(i64 n) with noalloc {
+   |                             ------- effects declared here
+...
+51 |     return recursif(n - 1)
+   |            ^^^^^^^^^^^^^^^ this call starts a recursion
+   |
+   = note: calls: `effects.recursif` → `effects.recursif`
+   = note: `effects.recursif` calls itself
+   = help: call the function directly, without a function value, `any` or a cycle: the effects and the stack must be known
+
+error[E0603]: `effects.appel` has effects but makes a call that cannot be checked
+  --> effects.nx:55:12
+   |
+54 | fn i64 appel(fn i64(i64) g) with noalloc {
+   |                                  ------- effects declared here
+55 |     return g(1)
+   |            ^^^^ the function called is not known
+   |
+   = note: a call through a function value
+   = help: call the function directly, without a function value, `any` or a cycle: the effects and the stack must be known
+
+error: could not compile due to 6 errors

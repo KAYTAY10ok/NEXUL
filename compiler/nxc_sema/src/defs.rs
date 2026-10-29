@@ -306,6 +306,26 @@ pub struct FnDef {
     pub abi_params: Option<Vec<Ty>>,
     /// The trait implemented (impl methods) or declaring the function.
     pub trait_id: Option<TraitId>,
+    /// `with noalloc, nonblocking`, and the roots `@allocates`, `@blocks` (ADR 0018 §1).
+    pub effects: Effects,
+}
+
+/// Effects of a function (ADR 0018 §1): what it promises (`with`), checked on every call
+/// it can reach, and, in the standard library, what it does (`@allocates`, `@blocks`).
+#[derive(Clone, Debug, Default)]
+pub struct Effects {
+    pub noalloc: bool,
+    pub nonblocking: bool,
+    /// The `with` clause, for diagnostics.
+    pub span: Option<Span>,
+    pub allocates: bool,
+    pub blocks: bool,
+}
+
+impl Effects {
+    pub fn declared(&self) -> bool {
+        self.noalloc || self.nonblocking
+    }
 }
 
 impl FnDef {

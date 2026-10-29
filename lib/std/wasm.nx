@@ -3,6 +3,7 @@
 import std.mem
 
 @intrinsic
+@allocates
 unsafe fn isize wasm_memory_grow(usize pages)
 
 const usize PAGE = 65536

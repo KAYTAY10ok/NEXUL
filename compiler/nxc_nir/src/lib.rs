@@ -2,6 +2,7 @@
 //! analysis and drop elaboration.
 
 pub mod build;
+pub mod effects;
 pub mod nir;
 pub mod ownership;
 
@@ -23,6 +24,7 @@ pub fn lower_program(p: &Program, sm: &SourceMap, diags: &DiagSink) -> HashMap<F
         for body in out.values_mut() {
             ownership::elaborate_drops(p, body);
         }
+        effects::check(p, &out, diags);
     }
     out
 }

@@ -153,6 +153,10 @@ them). Use `const` for a constant string, or keep the resource in a local variab
     ("E0503", "This type cannot cross the C boundary.\n\nAllowed: integers, floats, `bool`, `char`, `Ptr[T]`, `fn` types whose signature is itself\nallowed (C callbacks, scalars only), `@repr(\"C\")` structures (and `()` as return type)."),
     ("E0504", "Invalid `@export` function.\n\nAn exported function is called from other languages with the C calling convention: it\nmust be a free function without generic parameters, and its symbol name may contain only\nletters, digits and `_`:\n\n    @export(\"nexul_add\")\n    pub fn add(a: i32, b: i32) -> i32 { return a + b }"),
     ("E0505", "Invalid `@repr(\"C\")` structure.\n\nA `@repr(\"C\")` structure has the layout of C and crosses the C boundary by value: its\nfields are integers, floats, `Ptr[T]`, C callbacks, arrays of them or other `@repr(\"C\")`\nstructures (not `bool` or `char`: C could give invalid values; use `u8` or `u32`); it has\nat least one field, no type parameter and no destructor:\n\n    @repr(\"C\")\n    type Point {\n        f64 x\n        f64 y\n    }"),
+    ("E0601", "A function declared `with noalloc` can allocate or free memory (ADR 0018 §1).\n\nThe compiler follows every call the function can make, through generic instances and\ndestructors; the notes show the chain down to the allocation. Use fixed-size arrays and\nvalues prepared before, or remove `noalloc`:\n\n    fn i64 moyenne([i64; 4] v) with noalloc, nonblocking { … }"),
+    ("E0602", "A function declared `with nonblocking` can wait (ADR 0018 §1).\n\nWaiting means the console, files, semihosting, locks, channels, `join` and `sleep`, or a C\nfunction that is not declared `with nonblocking`. The notes show the chain of calls."),
+    ("E0603", "A function with effects makes a call that cannot be checked (ADR 0018 §1).\n\nA call through a function value or `any`, or a recursion, hides what the function does and\nhow much stack it needs. Call the functions directly, without a cycle."),
+    ("E0604", "Invalid effects or real-time task (ADR 0018 §1, §2).\n\nAn effect is written once; a C function declares effects (`with noalloc, nonblocking`)\nbut cannot be a periodic task."),
     ("E0900", "The standard library is incomplete (internal error)."),
     ("W0001", "A variable or parameter is never read.\n\nIf this is intentional, start its name with `_`."),
     ("W0002", "A `match` arm can never be reached: earlier arms already match all its values."),
@@ -178,6 +182,7 @@ pub fn catalogue_markdown() -> String {
         ("E03", "Types, motifs et constantes (chapitres 03 et 04)"),
         ("E04", "Modèle mémoire (chapitre 05)"),
         ("E05", "Code non sûr et interopérabilité C (chapitre 08)"),
+        ("E06", "Effets et temps réel (ADR 0018)"),
         ("E09", "Erreurs internes"),
         ("W00", "Avertissements"),
     ];

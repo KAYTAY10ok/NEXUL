@@ -291,7 +291,7 @@ impl<'a> Parser<'a> {
             self.removed(span, "->", &format!("the type before the name: `fn Type {}(…)`", name.name));
             return Err(());
         }
-        self.clauses1()?;
+        let (effects, period) = self.clauses1()?;
         let body = if self.is(&TokenKind::LBrace) {
             Some(self.block()?)
         } else if self.is(&TokenKind::Eq) {
@@ -303,7 +303,7 @@ impl<'a> Parser<'a> {
         } else {
             None
         };
-        Ok(FnDecl { name, generics, bounds, params, ret, body, is_unsafe, span: start.to(self.prev_span()) })
+        Ok(FnDecl { name, generics, bounds, params, ret, body, is_unsafe, effects, period, span: start.to(self.prev_span()) })
     }
 
     /// `self`, `self!`, `owned self`, `Type name`, `Type name!`, `owned Type name`
@@ -349,23 +349,46 @@ impl<'a> Parser<'a> {
         Ok(Param { conv, kind: ParamKind::Named { name, ty }, span: start.to(self.prev_span()) })
     }
 
-    /// `requires`, `ensures`, `with`, `every`: reserved, refused until P5, P7, P8.
-    fn clauses1(&mut self) -> PResult<()> {
+    /// The clauses after the parameters: `with` effects and `every … within …` (ADR 0018);
+    /// `requires` and `ensures` stay reserved (P5).
+    fn clauses1(&mut self) -> PResult<(Vec<Ident>, Option<Period>)> {
+        let mut effects: Vec<Ident> = Vec::new();
+        let mut period = None;
         while ["requires", "ensures", "with", "every"].iter().any(|w| self.is_word(w)) {
             let start = self.span();
-            let what = match self.peek() {
-                TokenKind::Ident(w) if w == "requires" || w == "ensures" => "a contract (`requires`, `ensures`)",
-                TokenKind::Ident(w) if w == "with" => "a list of effects (`with`)",
-                _ => "a periodic task (`every … within …`)",
-            };
+            if self.eat_word("with") {
+                loop {
+                    let e = self.ident("an effect: `noalloc` or `nonblocking`")?;
+                    if e.name != "noalloc" && e.name != "nonblocking" {
+                        self.not_yet(e.span, &format!("the effect `{}`", e.name));
+                    } else if effects.iter().any(|x| x.name == e.name) {
+                        self.error_here(Diagnostic::error("E0604", format!("the effect `{}` is written twice", e.name)).primary(e.span, "remove this one"));
+                    } else {
+                        effects.push(e);
+                    }
+                    if !self.eat(&TokenKind::Comma) {
+                        break;
+                    }
+                }
+                continue;
+            }
+            if self.eat_word("every") {
+                let every = self.expr()?;
+                let within = if self.eat_word("within") { Some(self.expr()?) } else { None };
+                if period.is_some() {
+                    self.error_here(Diagnostic::error("E0604", "a task has one period").primary(start.to(self.prev_span()), "remove this `every`"));
+                }
+                period = Some(Period { every, within, span: start.to(self.prev_span()) });
+                continue;
+            }
             self.bump();
             // Skip the clause to report the rest of the function normally.
             while !matches!(self.peek(), TokenKind::LBrace | TokenKind::Eq | TokenKind::Newline | TokenKind::Eof) && !["requires", "ensures", "with", "every"].iter().any(|w| self.is_word(w)) {
                 self.bump();
             }
-            self.not_yet(start.to(self.prev_span()), what);
+            self.not_yet(start.to(self.prev_span()), "a contract (`requires`, `ensures`)");
         }
-        Ok(())
+        Ok((effects, period))
     }
 
     /// `type Name[T] { fields and functions }`, `type Name is I { … }`, `type Name = .A | .B(T)`,
@@ -711,7 +734,7 @@ impl<'a> Parser<'a> {
         }
         let body = self.block()?;
         let name = Ident { name: self.test_name(&desc), span: dspan };
-        Ok(FnDecl { name, generics: vec![], bounds: vec![], params: vec![], ret: None, body: Some(body), is_unsafe: false, span: start.to(self.prev_span()) })
+        Ok(FnDecl { name, generics: vec![], bounds: vec![], params: vec![], ret: None, body: Some(body), is_unsafe: false, effects: vec![], period: None, span: start.to(self.prev_span()) })
     }
 
     /// The name of the function of a test: its description in ASCII, words joined by `_`.
@@ -785,7 +808,11 @@ impl<'a> Parser<'a> {
                 break;
             }
         }
-        Ok(ExternFnDecl { abi, abi_span, name, params, ret })
+        let (effects, period) = self.clauses1()?;
+        if let Some(p) = period {
+            self.error_here(Diagnostic::error("E0604", "a C function cannot be a periodic task").primary(p.span, "remove `every`"));
+        }
+        Ok(ExternFnDecl { abi, abi_span, name, params, ret, effects })
     }
 
     // -----------------------------------------------------------------------

@@ -636,6 +636,7 @@ fn check_fn(prog: &Program, id: FnId, decl: &ast::FnDecl, block: &ast::Block, di
             bounds: f.bounds.clone(),
             abi_params: None,
             trait_id: None,
+            effects: Default::default(),
         };
         let b = thir::Body { fn_id: c.fn_id, locals, params, block: c.block, ret_ty: ret, span: c.span };
         out.push((def, b));
