@@ -1,0 +1,227 @@
+{
+  "date_utc": "2026-10-29T08:11:50+00:00",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "commit": "0ca733e0d5104b3e81744f8180af182e2bb7dd7d",
+  "working_tree_status": "?? benchmarks/rapports/2026-10-29-codegen.md\n?? benchmarks/terra/profile_io.py",
+  "nexul_leak_check": null,
+  "nexul_llvm": "/workspace/.nexul-tools/llvm/usr/lib/llvm-19",
+  "tools": {
+    "C": "/usr/bin/cc",
+    "Rust": "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "NEXUL": "/workspace/NEXUL-terra/target/release/nxc"
+  },
+  "versions": {
+    "C": "cc (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "Rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "NEXUL": "nxc 0.3.0 (NEXUL 0.3, editions 0.2 and 1)"
+  },
+  "nxc_sha256": "904c9c5b80df8d9616b744e007b3bf501c798350a0790acfb090c96c339a8aad",
+  "source_sha256": {
+    "C": "99b9c31b14e0fc9245f769233028dffa5c8c0a9d3b53739053becdfbecbe8f6d",
+    "Rust": "2efe58b13a0e782440259197a86511fa3399dfa5fe3ed1b71c7c77204124f7d2",
+    "NEXUL": "86694405cf1bf86cd3d53cd14bd72a074e11dc3608eca375b92f388d93c8bd7c"
+  },
+  "method": "7 process wall-clock samples per language; rotated execution order; 400 reads per process; synthetic files contain ASCII a",
+  "cases": {
+    "0": {
+      "input_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "stdout": "tokens=0 checksum=0\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            1.483102,
+            1.155779,
+            1.238974,
+            1.507799,
+            1.168638,
+            1.1964,
+            1.292385
+          ],
+          "median_ms": 1.238974
+        },
+        "Rust": {
+          "samples_ms": [
+            1.597734,
+            1.177963,
+            1.917515,
+            1.180055,
+            1.418525,
+            1.455921,
+            1.210732
+          ],
+          "median_ms": 1.418525
+        },
+        "NEXUL": {
+          "samples_ms": [
+            1.495811,
+            1.337303,
+            1.765607,
+            1.40897,
+            1.494268,
+            1.365845,
+            1.341088
+          ],
+          "median_ms": 1.40897
+        }
+      }
+    },
+    "1": {
+      "input_sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+      "stdout": "tokens=400 checksum=38800\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            1.233105,
+            1.6485,
+            2.358258,
+            1.275934,
+            1.205203,
+            1.39524,
+            1.171543
+          ],
+          "median_ms": 1.275934
+        },
+        "Rust": {
+          "samples_ms": [
+            1.243741,
+            1.315128,
+            1.527478,
+            1.235455,
+            1.419756,
+            1.339005,
+            1.184422
+          ],
+          "median_ms": 1.315128
+        },
+        "NEXUL": {
+          "samples_ms": [
+            17.514849,
+            19.50973,
+            19.205924,
+            16.11674,
+            16.345354,
+            18.896963,
+            18.01807
+          ],
+          "median_ms": 18.01807
+        }
+      }
+    },
+    "3783": {
+      "input_sha256": "6e15e56d61aa02dcf9139f137260b83ae516d6e80e8386afaeb47ecc2c93d6fe",
+      "stdout": "tokens=400 checksum=146780400\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            2.765211,
+            3.264772,
+            3.692556,
+            2.383466,
+            2.940084,
+            3.143931,
+            2.41878
+          ],
+          "median_ms": 2.940084
+        },
+        "Rust": {
+          "samples_ms": [
+            2.373992,
+            3.248648,
+            2.393541,
+            2.109785,
+            2.698851,
+            2.222915,
+            2.228172
+          ],
+          "median_ms": 2.373992
+        },
+        "NEXUL": {
+          "samples_ms": [
+            22.100123,
+            19.152718,
+            19.83864,
+            20.829041,
+            19.254922,
+            18.64855,
+            18.587958
+          ],
+          "median_ms": 19.254922
+        }
+      }
+    },
+    "65536": {
+      "input_sha256": "bf718b6f653bebc184e1479f1935b8da974d701b893afcf49e701f3e2f9f9c5a",
+      "stdout": "tokens=400 checksum=2542796800\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            28.12983,
+            33.406605,
+            24.953107,
+            27.992206,
+            27.112357,
+            32.591045,
+            28.23998
+          ],
+          "median_ms": 28.12983
+        },
+        "Rust": {
+          "samples_ms": [
+            22.31369,
+            21.283804,
+            22.678107,
+            17.655463,
+            27.07369,
+            22.683136,
+            21.290359
+          ],
+          "median_ms": 22.31369
+        },
+        "NEXUL": {
+          "samples_ms": [
+            55.367178,
+            53.985279,
+            59.360065,
+            58.943101,
+            61.542004,
+            55.691246,
+            62.572065
+          ],
+          "median_ms": 58.943101
+        }
+      }
+    }
+  },
+  "build_commands": {
+    "C": [
+      "/usr/bin/cc",
+      "-std=c17",
+      "-O2",
+      "-ffp-contract=off",
+      "-fno-fast-math",
+      "-pthread",
+      "/workspace/NEXUL-terra-profil/benchmarks/terra/source_scan.c",
+      "-o",
+      "/tmp/nexul-io-probe-1542p9v4/c",
+      "-lm"
+    ],
+    "Rust": [
+      "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+      "--edition=2021",
+      "-C",
+      "opt-level=2",
+      "/workspace/NEXUL-terra-profil/benchmarks/terra/source_scan.rs",
+      "-o",
+      "/tmp/nexul-io-probe-1542p9v4/rust"
+    ],
+    "NEXUL": [
+      "/workspace/NEXUL-terra/target/release/nxc",
+      "build",
+      "/workspace/NEXUL-terra-profil/benchmarks/terra/source_scan.nx",
+      "--release",
+      "-o",
+      "/tmp/nexul-io-probe-1542p9v4/nexul"
+    ]
+  }
+}
