@@ -1,0 +1,950 @@
+{
+  "date_utc": "2026-10-29T07:50:22+00:00",
+  "commit": "40b946e7bc0614eb6f558d8c0e5fec978e7ebd25",
+  "working_tree_status": "?? .github/workflows/terra-benchmarks.yml\n?? benchmarks/README.md\n?? benchmarks/terra/binary_search.c\n?? benchmarks/terra/binary_search.nx\n?? benchmarks/terra/binary_search.rs\n?? benchmarks/terra/channels.c\n?? benchmarks/terra/channels.nx\n?? benchmarks/terra/channels.rs\n?? benchmarks/terra/file_io.c\n?? benchmarks/terra/file_io.nx\n?? benchmarks/terra/file_io.rs\n?? benchmarks/terra/float_iter.c\n?? benchmarks/terra/float_iter.nx\n?? benchmarks/terra/float_iter.rs\n?? benchmarks/terra/hash.c\n?? benchmarks/terra/hash.nx\n?? benchmarks/terra/hash.rs\n?? benchmarks/terra/integer.c\n?? benchmarks/terra/integer.nx\n?? benchmarks/terra/integer.rs\n?? benchmarks/terra/matrix.c\n?? benchmarks/terra/matrix.nx\n?? benchmarks/terra/matrix.rs\n?? benchmarks/terra/run.py\n?? benchmarks/terra/sort.c\n?? benchmarks/terra/sort.nx\n?? benchmarks/terra/sort.rs\n?? benchmarks/terra/source_scan.c\n?? benchmarks/terra/source_scan.nx\n?? benchmarks/terra/source_scan.rs\n?? benchmarks/terra/string_build.c\n?? benchmarks/terra/string_build.nx\n?? benchmarks/terra/string_build.rs\n?? benchmarks/terra/tree.c\n?? benchmarks/terra/tree.nx\n?? benchmarks/terra/tree.rs\n?? benchmarks/terra/vec_ops.c\n?? benchmarks/terra/vec_ops.nx\n?? benchmarks/terra/vec_ops.rs",
+  "platform": "Linux-6.18.55-x86_64-with-glibc2.41",
+  "cpu": "AMD EPYC 9V74 80-Core Processor",
+  "python": "3.12.14",
+  "toolchains": {
+    "C": "cc (Debian 14.2.0-19) 14.2.0\nCopyright (C) 2024 Free Software Foundation, Inc.\nThis is free software; see the source for copying conditions.  There is NO\nwarranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.",
+    "Rust": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
+    "NEXUL": "nxc 0.3.0 (NEXUL 0.3, editions 0.2 and 1)"
+  },
+  "tool_paths": {
+    "C": "/usr/bin/cc",
+    "Rust": "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+    "NEXUL": "/workspace/NEXUL-terra/target/release/nxc"
+  },
+  "repetitions": 7,
+  "measurement": "wall clock process execution including startup and output; rotating order",
+  "nexul_leak_check": null,
+  "measurements": {
+    "binary_search": {
+      "source_sha256": {
+        "C": "fd4ef0138cbf620e02a102db979928da304b98351b610e1f0045c08a1a8f439b",
+        "Rust": "8d213748ed5884ed55327a155d2d6891d70e09ccfe38c5cd36dcc13cba3dffc3",
+        "NEXUL": "e482a03b3d3c606d4dcc9f829ccbea6b4f0eb7026aa2dc1b89542d7c3dc47f8b"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/binary_search.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/binary_search-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/binary_search.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/binary_search-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/binary_search.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/binary_search-nexul"
+        ]
+      },
+      "output_utf8": "32769651272\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            97.273314,
+            98.909846,
+            101.206506,
+            101.089231,
+            108.911695,
+            102.87613,
+            106.983641
+          ],
+          "median_ms": 101.206506
+        },
+        "Rust": {
+          "samples_ms": [
+            93.997414,
+            94.600701,
+            94.071654,
+            94.412562,
+            98.679948,
+            96.368996,
+            95.159714
+          ],
+          "median_ms": 94.600701
+        },
+        "NEXUL": {
+          "samples_ms": [
+            98.610397,
+            95.820323,
+            95.076291,
+            96.667744,
+            102.802777,
+            197.820939,
+            102.442855
+          ],
+          "median_ms": 98.610397
+        }
+      }
+    },
+    "channels": {
+      "source_sha256": {
+        "C": "230f09fe404c903fa0cfc3a2e6d21de6d74ae4b14566974e515a08c3face1224",
+        "Rust": "7bacda17cbdd1f5874c35c3c1d7c9fb96e9d2f490f2ed49fbc975c2136d27958",
+        "NEXUL": "4ad78ba122ec7cf270718fde9566ffdb60fc070396b1c228fb13b8012c38dfab"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/channels.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/channels-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/channels.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/channels-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/channels.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/channels-nexul"
+        ]
+      },
+      "output_utf8": "sent=100000 count=100000 sum=4999950000\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            23.555552,
+            23.104026,
+            24.56806,
+            31.558635,
+            34.511888,
+            39.509681,
+            27.566417
+          ],
+          "median_ms": 27.566417
+        },
+        "Rust": {
+          "samples_ms": [
+            2.923958,
+            6.940429,
+            7.836339,
+            13.203823,
+            25.167013,
+            12.858209,
+            24.534834
+          ],
+          "median_ms": 12.858209
+        },
+        "NEXUL": {
+          "samples_ms": [
+            21.982006,
+            22.935066,
+            27.259801,
+            24.389501,
+            24.647332,
+            27.33213,
+            23.486242
+          ],
+          "median_ms": 24.389501
+        }
+      }
+    },
+    "file_io": {
+      "source_sha256": {
+        "C": "8aab2b425842ff72ad6a6a26ce0f25d3305cb1932c18675d29efceeb32f13bc4",
+        "Rust": "d8b2f23a9808476c4f003abbaffeff1ae8e7f908a74598f17a908efdc74089a9",
+        "NEXUL": "3abcfd7d5146202b14dfb632a6650d2862c8dde5738246f7b66318c08d4d7e08"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/file_io.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/file_io-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/file_io.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/file_io-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/file_io.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/file_io-nexul"
+        ]
+      },
+      "output_utf8": "checksum=1048214400\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            4.146141,
+            4.072457,
+            3.686593,
+            3.759345,
+            4.736371,
+            4.282336,
+            4.096791
+          ],
+          "median_ms": 4.096791
+        },
+        "Rust": {
+          "samples_ms": [
+            5.264515,
+            7.53877,
+            5.012276,
+            6.462231,
+            6.203172,
+            6.341164,
+            5.120202
+          ],
+          "median_ms": 6.203172
+        },
+        "NEXUL": {
+          "samples_ms": [
+            16.573407,
+            16.196105,
+            14.822067,
+            14.643992,
+            13.434708,
+            13.351851,
+            14.226815
+          ],
+          "median_ms": 14.643992
+        }
+      }
+    },
+    "float_iter": {
+      "source_sha256": {
+        "C": "e1668b43b1710b58b2c268fe63ceb325af51ae42f26a4e34067d0662190e4eb3",
+        "Rust": "7ccff8898d490d9e168dabc33d88c7619e37cab2a9a4b282ed24903b58531107",
+        "NEXUL": "be5c36830c24be0cfabbdc10602b7863979ddfbba0539838f0d5004c7195e18e"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/float_iter.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/float_iter-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/float_iter.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/float_iter-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/float_iter.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/float_iter-nexul"
+        ]
+      },
+      "output_utf8": "247499952\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            19.40704,
+            19.801052,
+            19.529148,
+            19.781773,
+            19.003322,
+            19.542759,
+            24.055175
+          ],
+          "median_ms": 19.542759
+        },
+        "Rust": {
+          "samples_ms": [
+            19.512091,
+            22.189814,
+            21.277593,
+            21.176321,
+            18.45027,
+            18.690781,
+            20.257825
+          ],
+          "median_ms": 20.257825
+        },
+        "NEXUL": {
+          "samples_ms": [
+            19.502387,
+            18.412151,
+            20.331139,
+            18.006115,
+            18.073819,
+            19.610328,
+            19.359426
+          ],
+          "median_ms": 19.359426
+        }
+      }
+    },
+    "hash": {
+      "source_sha256": {
+        "C": "bb0fd907e328cda7228a861502436c57d5120b962607e6ea0d06b6db66f884f5",
+        "Rust": "d80eab517aa4b0e264653ed35e731fac882b97c42bccdef4b6e9574a7a46c531",
+        "NEXUL": "5c576e95564a1bd3b6363fb52409e452911ab565b18204868d133a5a25ab65aa"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/hash.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/hash-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/hash.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/hash-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/hash.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/hash-nexul"
+        ]
+      },
+      "output_utf8": "checksum=25000750000\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            13.397631,
+            9.862387,
+            10.635855,
+            9.593212,
+            11.429928,
+            10.421273,
+            11.261785
+          ],
+          "median_ms": 10.635855
+        },
+        "Rust": {
+          "samples_ms": [
+            10.410066,
+            10.275284,
+            13.038909,
+            11.039637,
+            10.559957,
+            12.165602,
+            12.899845
+          ],
+          "median_ms": 11.039637
+        },
+        "NEXUL": {
+          "samples_ms": [
+            13.9023,
+            14.989771,
+            12.940657,
+            10.946149,
+            12.816156,
+            11.454095,
+            14.522125
+          ],
+          "median_ms": 12.940657
+        }
+      }
+    },
+    "integer": {
+      "source_sha256": {
+        "C": "e74f95bdcf361d7d665e1566b5786044ce0a3d63e35c8ad6cd6f9a322d91ccc9",
+        "Rust": "4717558a375efc5812d6dbc0b592da71646f0b24de7125b860cf6ddcf36b2ffc",
+        "NEXUL": "2939eb1ef08218a712a0622e4261c40835feb8db904b0256823afe722a583f87"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/integer.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/integer-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/integer.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/integer-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/integer.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/integer-nexul"
+        ]
+      },
+      "output_utf8": "10080742358\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            113.569877,
+            98.1015,
+            103.718222,
+            103.639903,
+            95.635445,
+            96.500542,
+            99.569279
+          ],
+          "median_ms": 99.569279
+        },
+        "Rust": {
+          "samples_ms": [
+            95.547206,
+            94.32474,
+            104.433396,
+            85.414938,
+            87.973483,
+            85.472521,
+            96.613009
+          ],
+          "median_ms": 94.32474
+        },
+        "NEXUL": {
+          "samples_ms": [
+            125.224177,
+            107.652392,
+            100.409965,
+            99.527071,
+            96.993679,
+            95.517936,
+            95.024309
+          ],
+          "median_ms": 99.527071
+        }
+      }
+    },
+    "matrix": {
+      "source_sha256": {
+        "C": "09983ddde9e2323564f568705eaa483a6f18d3e6db5024f0ae2d36fa23b1279e",
+        "Rust": "5884e44009836cea46e690307c2c9e50fd58fc849ed9a018b1357f93e0605b2a",
+        "NEXUL": "8becc83f8b95af1286d39869a72f393379d9baaf1b42f43d4674282140f094d0"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/matrix.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/matrix-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/matrix.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/matrix-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/matrix.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/matrix-nexul"
+        ]
+      },
+      "output_utf8": "3772944000\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            48.967994,
+            46.064598,
+            53.81607,
+            50.648487,
+            50.783603,
+            45.086418,
+            46.234667
+          ],
+          "median_ms": 48.967994
+        },
+        "Rust": {
+          "samples_ms": [
+            29.408853,
+            28.195356,
+            28.977797,
+            29.434597,
+            28.716153,
+            40.33871,
+            27.754602
+          ],
+          "median_ms": 28.977797
+        },
+        "NEXUL": {
+          "samples_ms": [
+            87.644888,
+            88.842587,
+            89.346535,
+            77.155307,
+            87.162895,
+            87.819455,
+            77.550933
+          ],
+          "median_ms": 87.644888
+        }
+      }
+    },
+    "sort": {
+      "source_sha256": {
+        "C": "531d3cb51caf09a1138f9bef88fc43e2fdc567a1611e7c8860c8d53c82671e0d",
+        "Rust": "968e83f0f385de4f215c9aa924c20c25349a80b690e1a16e4e4bf1425af5e63c",
+        "NEXUL": "43321038f240dfe8d88b9dd96fe6dc52d9676558b48feab0109ec28be4ff2adf"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/sort.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/sort-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/sort.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/sort-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/sort.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/sort-nexul"
+        ]
+      },
+      "output_utf8": "checksum=179994599956\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            11.120417,
+            14.270213,
+            12.903217,
+            15.701749,
+            11.53744,
+            11.785002,
+            12.243908
+          ],
+          "median_ms": 12.243908
+        },
+        "Rust": {
+          "samples_ms": [
+            11.383398,
+            11.830346,
+            14.3427,
+            12.172623,
+            13.583201,
+            12.48872,
+            12.335214
+          ],
+          "median_ms": 12.335214
+        },
+        "NEXUL": {
+          "samples_ms": [
+            15.317737,
+            17.333246,
+            17.88361,
+            12.830351,
+            12.043484,
+            12.584276,
+            14.915142
+          ],
+          "median_ms": 14.915142
+        }
+      }
+    },
+    "source_scan": {
+      "source_sha256": {
+        "C": "99b9c31b14e0fc9245f769233028dffa5c8c0a9d3b53739053becdfbecbe8f6d",
+        "Rust": "2efe58b13a0e782440259197a86511fa3399dfa5fe3ed1b71c7c77204124f7d2",
+        "NEXUL": "86694405cf1bf86cd3d53cd14bd72a074e11dc3608eca375b92f388d93c8bd7c"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/source_scan.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/source_scan-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/source_scan.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/source_scan-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/source_scan.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/source_scan-nexul"
+        ]
+      },
+      "output_utf8": "tokens=199600 checksum=123319600\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            3.393216,
+            3.355338,
+            3.716213,
+            3.440299,
+            9.168541,
+            3.5091,
+            3.960184
+          ],
+          "median_ms": 3.5091
+        },
+        "Rust": {
+          "samples_ms": [
+            3.6948,
+            4.052962,
+            3.295055,
+            4.135619,
+            4.082628,
+            4.290178,
+            5.566724
+          ],
+          "median_ms": 4.082628
+        },
+        "NEXUL": {
+          "samples_ms": [
+            19.461875,
+            19.655604,
+            19.144356,
+            20.913791,
+            25.429026,
+            25.400822,
+            23.270932
+          ],
+          "median_ms": 20.913791
+        }
+      },
+      "input_sha256": {
+        "lib/std/io.nx": "65243c1cdaad63730162803054dfda1c8dc517b98543013befa0dd7ac2cf52a0"
+      }
+    },
+    "string_build": {
+      "source_sha256": {
+        "C": "4ab19e8b321601181d2072f16ba4149c3f7d03ec144bfd21cd8800391710149e",
+        "Rust": "d27c522571421bc6003cac2fd59b069981669979fd8e69a6e34724589e34947a",
+        "NEXUL": "25f2635e65af72bd0b6795d1385a86256a8d26672db969fa4be6d0757f950652"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/string_build.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/string_build-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/string_build.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/string_build-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/string_build.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/string_build-nexul"
+        ]
+      },
+      "output_utf8": "547499928\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            7.249115,
+            6.748675,
+            8.46642,
+            13.287976,
+            8.014915,
+            7.354077,
+            7.762386
+          ],
+          "median_ms": 7.762386
+        },
+        "Rust": {
+          "samples_ms": [
+            9.604432,
+            9.897534,
+            9.685558,
+            10.668316,
+            10.185337,
+            10.170985,
+            9.756942
+          ],
+          "median_ms": 9.897534
+        },
+        "NEXUL": {
+          "samples_ms": [
+            10.486111,
+            9.442684,
+            10.226381,
+            9.64753,
+            9.153478,
+            9.259205,
+            11.044526
+          ],
+          "median_ms": 9.64753
+        }
+      }
+    },
+    "tree": {
+      "source_sha256": {
+        "C": "17415947dc95a97845dea379cae7a0df8dbdbc562012d018da69ba87fe821038",
+        "Rust": "8e3f24a7f463a6bce3f4c39c14b3c049dc70f27793018f42b94afa32029a76f4",
+        "NEXUL": "b51a006b371e2b0e968d69dfbe7f393ec05272ce67fd6ed4f68a6e69c7b6d897"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/tree.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/tree-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/tree.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/tree-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/tree.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/tree-nexul"
+        ]
+      },
+      "output_utf8": "checksum=5000100000\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            32.402376,
+            24.588845,
+            25.880656,
+            23.695556,
+            23.816502,
+            23.156025,
+            23.274847
+          ],
+          "median_ms": 23.816502
+        },
+        "Rust": {
+          "samples_ms": [
+            33.537199,
+            28.932436,
+            30.494862,
+            30.080295,
+            32.251173,
+            30.444671,
+            28.659451
+          ],
+          "median_ms": 30.444671
+        },
+        "NEXUL": {
+          "samples_ms": [
+            27.337815,
+            25.081977,
+            25.049431,
+            26.391478,
+            25.70468,
+            26.0752,
+            28.680243
+          ],
+          "median_ms": 26.0752
+        }
+      }
+    },
+    "vec_ops": {
+      "source_sha256": {
+        "C": "06f767f61ac8b55502852f41d1c33a1137568f0d3f804dca407d190a297be905",
+        "Rust": "e0612da1a7d6be177e4ebeaa00ec3e78df77c2903931f6e1e607ff0100cf33bb",
+        "NEXUL": "215906c108289a68fe935285ff7b9c940c87a56edbfdf57cc08ff1a438e3fecb"
+      },
+      "build_commands": {
+        "C": [
+          "/usr/bin/cc",
+          "-std=c17",
+          "-O2",
+          "-ffp-contract=off",
+          "-fno-fast-math",
+          "-pthread",
+          "/workspace/NEXUL-terra/benchmarks/terra/vec_ops.c",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/vec_ops-c",
+          "-lm"
+        ],
+        "Rust": [
+          "/workspace/.nexul-tools/rustup/toolchains/1.99.1-x86_64-unknown-linux-gnu/bin/rustc",
+          "--edition=2021",
+          "-C",
+          "opt-level=2",
+          "/workspace/NEXUL-terra/benchmarks/terra/vec_ops.rs",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/vec_ops-rust"
+        ],
+        "NEXUL": [
+          "/workspace/NEXUL-terra/target/release/nxc",
+          "build",
+          "/workspace/NEXUL-terra/benchmarks/terra/vec_ops.nx",
+          "--release",
+          "-o",
+          "/tmp/nexul-bench-q5bv3wix/vec_ops-nexul"
+        ]
+      },
+      "output_utf8": "54310000000\n",
+      "languages": {
+        "C": {
+          "samples_ms": [
+            16.124716,
+            16.233498,
+            18.740599,
+            17.357104,
+            17.999107,
+            16.974825,
+            16.187131
+          ],
+          "median_ms": 16.974825
+        },
+        "Rust": {
+          "samples_ms": [
+            17.548618,
+            17.602401,
+            16.386909,
+            16.746523,
+            16.896884,
+            19.060993,
+            21.917302
+          ],
+          "median_ms": 17.548618
+        },
+        "NEXUL": {
+          "samples_ms": [
+            24.080674,
+            24.456338,
+            24.881232,
+            27.088992,
+            27.532681,
+            26.832537,
+            24.518533
+          ],
+          "median_ms": 24.881232
+        }
+      }
+    }
+  }
+}

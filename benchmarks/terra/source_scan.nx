@@ -1,0 +1,18 @@
+import std.io
+
+fn main() {
+    var count: u64 = 0
+    var checksum: u64 = 0
+    for _ in 0..400 {
+        let bytes = io.read_bytes("lib/std/io.nx").unwrap()
+        var in_word = false
+        for i in 0..bytes.len() {
+            let b = bytes[i]
+            let word = (b >= 65 and b <= 90) or (b >= 97 and b <= 122) or (b >= 48 and b <= 57) or b == 95
+            if word and not in_word { count += 1 }
+            in_word = word
+            checksum += b as u64
+        }
+    }
+    println("tokens={count} checksum={checksum}")
+}

@@ -1,0 +1,38 @@
+fn main() {
+    let n: usize = 100000
+    var total: u64 = 0
+    for round in 0..4 {
+        var data: Vec[u64] = Vec.with_capacity(n)
+        var tmp: Vec[u64] = Vec.with_capacity(n)
+        for i in 0..n {
+            data.push(((i * 48271 + 17 + round) % n) as u64)
+            tmp.push(0)
+        }
+        var width: usize = 1
+        while width < n {
+            var start: usize = 0
+            while start < n {
+                let mid = if start + width < n { start + width } else { n }
+                let end = if start + 2 * width < n { start + 2 * width } else { n }
+                var a = start
+                var b = mid
+                var out = start
+                while out < end {
+                    if b == end or (a < mid and data[a] <= data[b]) {
+                        tmp[out] = data[a]
+                        a += 1
+                    } else {
+                        tmp[out] = data[b]
+                        b += 1
+                    }
+                    out += 1
+                }
+                start = end
+            }
+            for i in 0..n { data[i] = tmp[i] }
+            width *= 2
+        }
+        for i in 0..n { total += data[i] * ((i % 17 + 1) as u64) }
+    }
+    println("checksum={total}")
+}

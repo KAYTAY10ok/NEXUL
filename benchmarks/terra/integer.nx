@@ -1,0 +1,12 @@
+import std.system
+
+fn main() {
+    let count = 20000000 + system.args().len() - 1
+    var x: u64 = 7
+    var sum: u64 = 0
+    for _ in 0..count {
+        x = (x * 48271 + 17) % 2147483647
+        sum += x % 1009
+    }
+    println("{sum}")
+}

@@ -1,0 +1,27 @@
+fn main() {
+    let n: usize = 100000
+    let cap: usize = 262144
+    var total: u64 = 0
+    for round in 0..5 {
+        var keys: Vec[usize] = Vec.with_capacity(cap)
+        var values: Vec[u64] = Vec.with_capacity(cap)
+        for _ in 0..cap {
+            keys.push(0)
+            values.push(0)
+        }
+        for i in 0..n {
+            let key = (i * 48271 + 17) % n + 1
+            var slot = (key * 2654435761) % cap
+            while keys[slot] != 0 { slot = (slot + 1) % cap }
+            keys[slot] = key
+            values[slot] = (i + round) as u64
+        }
+        for i in 0..n {
+            let key = (i * 48271 + 17) % n + 1
+            var slot = (key * 2654435761) % cap
+            while keys[slot] != key { slot = (slot + 1) % cap }
+            total += values[slot]
+        }
+    }
+    println("checksum={total}")
+}

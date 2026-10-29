@@ -1,0 +1,13 @@
+fn main() {
+    let n: usize = 5000000
+    var text = String.with_capacity(n)
+    for i in 0..n {
+        let byte = (97 + i % 26) as u32
+        text.push(byte as char)
+    }
+    var sum: u64 = 0
+    for i in 0..text.len() {
+        sum += unsafe { text.as_ptr().offset(i).read() as u64 }
+    }
+    println("{sum}")
+}

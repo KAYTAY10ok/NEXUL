@@ -1,0 +1,24 @@
+import std.tache
+
+fn produce(owned sender: tache.Emetteur[i64]) -> i64 {
+    var sent: i64 = 0
+    for i in 0..100000 {
+        if sender.envoyer(i as i64) { sent += 1 }
+    }
+    return sent
+}
+
+fn main() {
+    let (sender, receiver) = tache.canal[i64](64)
+    let producer = tache.lancer_detachee(produce, sender)
+    var count: i64 = 0
+    var sum: i64 = 0
+    while count < 100000 {
+        match receiver.recevoir() {
+            Some(value) => { sum += value; count += 1 }
+            None => break
+        }
+    }
+    let sent = producer.rejoindre()
+    println("sent={sent} count={count} sum={sum}")
+}

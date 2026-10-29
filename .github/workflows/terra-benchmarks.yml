@@ -1,0 +1,55 @@
+name: Mesures de performance
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmarks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - name: Prepare report directory
+        run: mkdir -p "$RUNNER_TEMP/nexul-benchmarks"
+      - uses: actions/checkout@v4
+      - name: Install LLVM and LLD
+        id: llvm
+        run: |
+          set -o pipefail
+          { sudo apt-get update -q && sudo apt-get install -y -q llvm-18 lld-18; } 2>&1 | tee "$RUNNER_TEMP/nexul-benchmarks/llvm.log"
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+          echo "NEXUL_LLVM=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+      - name: Build nxc
+        id: build
+        run: |
+          set -o pipefail
+          cargo build --release -p nxc 2>&1 | tee "$RUNNER_TEMP/nexul-benchmarks/build.log"
+      - name: Measure workloads
+        id: measure
+        run: |
+          set -o pipefail
+          python3 benchmarks/terra/run.py --nxc target/release/nxc --output "$RUNNER_TEMP/nexul-benchmarks" 2>&1 | tee "$RUNNER_TEMP/nexul-benchmarks/measure.log"
+      - name: Record job outcomes
+        if: always()
+        env:
+          LLVM_OUTCOME: ${{ steps.llvm.outcome }}
+          BUILD_OUTCOME: ${{ steps.build.outcome }}
+          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/nexul-benchmarks"
+          printf 'LLVM: %s\nBuild: %s\nMesures: %s\n' "$LLVM_OUTCOME" "$BUILD_OUTCOME" "$MEASURE_OUTCOME" > "$RUNNER_TEMP/nexul-benchmarks/status.txt"
+          if [ -f "$RUNNER_TEMP/nexul-benchmarks/latest.md" ]; then
+            cat "$RUNNER_TEMP/nexul-benchmarks/latest.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            printf 'Mesures indisponibles ; consulter les journaux dans l’artefact.\n' >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Publish measurements and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nexul-benchmarks-linux
+          path: ${{ runner.temp }}/nexul-benchmarks/
+          if-no-files-found: warn
