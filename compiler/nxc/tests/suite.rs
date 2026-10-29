@@ -218,7 +218,9 @@ fn run_cross(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process:
 fn run_qemu(target: &Target, exe: &Path, stdin: Option<&Path>) -> std::process::Output {
     use nxc_driver::Arch;
     let (system, machine): (&str, &[&str]) = match target.arch {
-        Arch::Arm => ("arm", &["-machine", "mps2-an386"]),
+        // `-icount`: the time of the board follows the instructions executed, not the clock
+        // of the host; the real-time tasks (ADR 0018) see the same time on a loaded machine.
+        Arch::Arm => ("arm", &["-machine", "mps2-an386", "-icount", "shift=5"]),
         Arch::Aarch64 => ("aarch64", &["-machine", "virt", "-cpu", "cortex-a53"]),
         Arch::Riscv32 => ("riscv32", &["-machine", "virt", "-bios", "none"]),
         _ => ("riscv64", &["-machine", "virt", "-bios", "none"]),

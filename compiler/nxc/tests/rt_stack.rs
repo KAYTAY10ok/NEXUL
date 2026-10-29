@@ -57,7 +57,7 @@ fn bound_covers_the_observed_maximum() {
             .find_map(|l| l.strip_prefix("stack of the real-time tasks (").and_then(|r| r.split(' ').next()).and_then(|n| n.parse().ok()))
             .unwrap_or_else(|| panic!("{}: no bound in the report:\n{}", level, report));
         let run = Command::new("timeout")
-            .args(["120", "qemu-system-arm", "-machine", "mps2-an386", "-nographic", "-monitor", "none", "-serial", "none", "-semihosting-config", "enable=on,target=native", "-kernel"])
+            .args(["120", "qemu-system-arm", "-machine", "mps2-an386", "-icount", "shift=5", "-nographic", "-monitor", "none", "-serial", "none", "-semihosting-config", "enable=on,target=native", "-kernel"])
             .arg(&exe)
             .output()
             .expect("run QEMU");
