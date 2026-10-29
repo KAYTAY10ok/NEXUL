@@ -16,7 +16,7 @@ Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1 ([prompt-codex-terra.md](pr
 | Tâche | Fichiers | Statut |
 |---|---|---|
 | `@repr("C")` : structures C par valeur, ABI par cible (0.6.0) | `compiler/nxc_sema` (collect.rs), `compiler/nxc_codegen_llvm` (`cabi.rs`, appels C et exports dans `func.rs`, `extern_fn`/`c_*` et `emit_aeabi_float` dans `lib.rs`), `docs/spec/08-interop-c.md`, `docs/adr/0017-structures-c.md`, `compiler/nxc/tests/c_abi.rs` | IMPLÉMENTÉ, TESTÉ (13 cibles), PR #75 |
-| 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, budgets de latence (ADR P8-G1) | `compiler/nxc_sema`, `compiler/nxc_nir`, `lib/std/sys/bare.nx`, `lib/std/rt.nx`, `lib/std/tache.nx`, `docs/adr/` | à commencer |
+| 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, échéances ([ADR 0018](../adr/0018-profil-temps-reel.md), P8-G1) | `compiler/nxc_syntax` (`parser/ed1.rs`, AST), `compiler/nxc_sema`, `compiler/nxc_nir`, `compiler/nxc_codegen_llvm` (répartiteurs, table des vecteurs), `compiler/nxc/src/stack.rs` et `link.rs` (script `bare`), `lib/std/rt.nx`, `lib/std/sys/bare.nx`, attributs `@allocates`/`@blocks` dans `lib/std`, `docs/spec/12-temps-reel.md` | ADR acceptée ; G2 en cours |
 | G3 : ADR de gel de la grammaire de l'édition 1 (préalable de SH3 de Terra) | `docs/adr/`, `compiler/nxc_syntax` | à commencer |
 | Relecture et intégration des PR `[terra]` | — | en continu |
 
