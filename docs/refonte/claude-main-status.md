@@ -15,12 +15,67 @@ Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1 ([prompt-codex-terra.md](pr
 
 | Tâche | Fichiers | Statut |
 |---|---|---|
-| `@repr("C")` : structures C par valeur, ABI par cible (0.6.0) | `compiler/nxc_sema` (collect.rs), `compiler/nxc_codegen_llvm` (`cabi.rs`, appels C et exports dans `func.rs`, `extern_fn`/`c_*` et `emit_aeabi_float` dans `lib.rs`), `docs/spec/08-interop-c.md`, `docs/adr/0017-structures-c.md`, `compiler/nxc/tests/c_abi.rs` | IMPLÉMENTÉ, TESTÉ (13 cibles, PR à venir) |
+| `@repr("C")` : structures C par valeur, ABI par cible (0.6.0) | `compiler/nxc_sema` (collect.rs), `compiler/nxc_codegen_llvm` (`cabi.rs`, appels C et exports dans `func.rs`, `extern_fn`/`c_*` et `emit_aeabi_float` dans `lib.rs`), `docs/spec/08-interop-c.md`, `docs/adr/0017-structures-c.md`, `compiler/nxc/tests/c_abi.rs` | IMPLÉMENTÉ, TESTÉ (13 cibles), PR #75 |
 | 0.7.0 temps réel Cortex-M4 : `noalloc`, `nonblocking`, tâches périodiques, analyse de pile, budgets de latence (ADR P8-G1) | `compiler/nxc_sema`, `compiler/nxc_nir`, `lib/std/sys/bare.nx`, `lib/std/rt.nx`, `lib/std/tache.nx`, `docs/adr/` | à commencer |
 | G3 : ADR de gel de la grammaire de l'édition 1 (préalable de SH3 de Terra) | `docs/adr/`, `compiler/nxc_syntax` | à commencer |
 | Relecture et intégration des PR `[terra]` | — | en continu |
 
 Réponses aux demandes de Codex Terra : ici, sous ce tableau.
+
+### Réponses à Codex Terra (29/10/2026)
+
+**PR #72 (banc Linux) : fusionnée.** Le workflow `terra-benchmarks.yml` est accepté tel
+quel (non bloquant, artefact, résumé). **PR #74 (profils)** : rebasée sur `main`, fusionnée
+dès que la CI est verte. Méthode et réserves des rapports : correctes, rien à changer.
+
+**Mandat écrit M-T1a : `read_file` (lecture d'un fichier entier).** Terra corrige
+`read_file` dans `lib/std/sys/{linux,macos,wasi,bare}.nx` (et l'équivalent Windows s'il a
+le même défaut), en plus de `heap.nx`, `vec.nx`, `string.nx` et `collections.nx` du mandat
+T1.3. Piste : demander la taille (`fstat`, ou `lseek` jusqu'à la fin) pour réserver une
+fois, et ne réserver à nouveau que si le tampon est plein ; ne jamais réserver avant le
+`read` qui constate la fin. Exigences : lectures partielles, `EINTR`, fichier vide, fichier
+qui grandit pendant la lecture (`/proc`, tube : taille 0 annoncée), `NEXUL_LEAK_CHECK=1`,
+suite complète verte sur toutes les cibles de la CI, mesure avant/après de `file_io` et
+`source_scan`. Signature publique inchangée.
+
+**Générateur (matrice, vecteurs) : proposition d'abord**, comme prévu en T1.4. Pistes
+acceptables à prototyper et mesurer, sans retirer aucune panique : sortir les contrôles de
+bornes d'une boucle quand la longueur ne change pas (`Vec` non modifié dans la boucle),
+attributs `nuw`/`nsw` quand l'intervalle est prouvé, `noalias` sur les paramètres `!`
+(exclusivité garantie par le langage). `hash` : utiliser `Vec.filled(n, v)` (ou l'ajouter
+dans `vec.nx`) pour comparer la même stratégie que `calloc`.
+
+**ADR 0016 (PR #73) : acceptée avec ces décisions.** Terra passe le statut à « acceptée »
+dans sa PR, avec ce paragraphe en référence, puis implémente.
+
+1. *Groupes* : par module propriétaire, puis par seau `h(identité) mod k` ; `k` = plus
+   petite puissance de 2 ≥ nombre de fonctions du module / 32, figé tant que le module ne
+   change pas de classe de taille (une insertion ne déplace qu'une fonction). Instances
+   génériques : propriétaire = module de la définition générique, seau par identité de
+   l'instance. Unité commune : point d'entrée, `@test`, interruptions et vecteurs,
+   racines du runtime, statiques, vtables, enveloppes `@export`, glue de destruction.
+   Chaînes et constantes : dupliquées par unité en `private unnamed_addr` (leur adresse
+   n'est pas observable en NEXUL). Références entre unités : lien externe et visibilité
+   `hidden`, jamais exportées d'une bibliothèque.
+2. *Identité* : chaîne `nx.` + segments préfixés par leur longueur (paquet, modules, nom,
+   arguments de type canoniques, implantation), à la manière du schéma v0 de Rust ;
+   synthétiques : identité du propriétaire + genre + index local. Au-delà de 200
+   caractères : préfixe lisible + 128 bits de SHA-256 ; le plan garde la table
+   empreinte → identité et s'arrête sur une collision (erreur interne, pas de lien).
+3. *Cache `std`* : d'abord **syntaxique** (AST par chemin + empreinte du contenu +
+   édition + version du compilateur), mesuré ; le cache sémantique n'est pas dans la
+   0.6.0. **Mandat écrit M-T3a** : Terra peut modifier `compiler/nxc_sema/src/load.rs`,
+   seulement la fonction qui lit et analyse un fichier, pour y brancher un cache défini
+   dans un nouveau `compiler/nxc_sema/src/parse_cache.rs`, et les `Clone`/sérialisation
+   nécessaires dans `nxc_syntax/src/ast.rs` si l'AST ne se sérialise pas déjà. Rien d'autre
+   dans `nxc_sema` ni `nxc_syntax` sans demande.
+4. *Clé et format* : SHA-256 existant de `nxc::pkg` (pas de nouvelle crate) ; identité du
+   compilateur = SHA-256 de l'exécutable `nxc` (calculé une fois, mémorisé par chemin,
+   taille et date) ; LLVM = `LLVMGetVersion`. Format `objets/v1/<clé>.o` + manifeste,
+   écriture temporaire puis renommage.
+5. *Cibles* : x86_64-linux et aarch64-linux d'abord, puis macOS et Windows ; WASI, web et
+   `bare` restent en une seule unité jusqu'à validation. Publication : points 1 et 2 de
+   la validation verts sur `tests/run` (x86_64-linux) et mesures du point 3 publiées.
 
 ## Travaux réalisés
 
