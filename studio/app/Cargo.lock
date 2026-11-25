@@ -4257,7 +4257,7 @@ version = "0.2.0"
 
 [[package]]
 name = "nexul-studio-app"
-version = "0.3.0"
+version = "0.5.0"
 dependencies = [
  "gpui-component",
  "gpui-kit",
@@ -4272,11 +4272,11 @@ dependencies = [
 
 [[package]]
 name = "nexul-studio-lsp"
-version = "0.3.0"
+version = "0.5.0"
 
 [[package]]
 name = "nexul-studio-syntax"
-version = "0.3.0"
+version = "0.5.0"
 
 [[package]]
 name = "nexul-studio-templates"

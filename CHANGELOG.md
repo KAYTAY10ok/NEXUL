@@ -2,7 +2,23 @@
 
 ## Non publié
 
-**Effets (0.7.0, ADR 0018)**
+## 0.5.0 — « Concurrence »
+
+Les critères de sortie de la 0.4.0 et de la 0.5.0 sont tous prouvés ; leur contenu est
+arrivé en avance dans la 0.3.0 (section « Aussi dans la 0.3.0 » ci-dessous) : conditions
+C3–C4 de l'ADR 0011 levées, `Copy`, types distincts, erreurs, concurrence sans course,
+10⁶ messages entre 64 tâches, scénario C.
+
+Cette version ajoute des **aperçus** de la 0.6.0 et de la 0.7.0. Ils sont testés comme
+décrit, mais leurs versions ne sont pas atteintes :
+- 0.6.0 : restent la compilation séparée et le cache incrémental, UDP, les en-têtes C ;
+- 0.7.0 : les temps sur carte réelle ne sont **pas mesurés** (QEMU seulement) ; aucune
+  garantie de temps réel n'est donnée par cette version.
+
+La grammaire de l'édition 1 est gelée ([ADR 0019](docs/adr/0019-gel-grammaire-edition-1.md)) :
+elle ne change plus que par ajout, sans rien casser.
+
+**Effets (aperçu 0.7.0, ADR 0018)**
 - `with noalloc, nonblocking` après les paramètres d'une fonction (spec §12.1).
   - Le compilateur suit tous les appels, à travers les instances génériques et les
     destructeurs.
@@ -17,7 +33,7 @@
   programmeur. Sans elle, un appel C alloue et bloque.
 - `std.rt.ms`, `us` et `s` donnent des durées en nanosecondes.
 
-**Tâches temps réel sur Cortex-M (0.7.0, ADR 0018 §2 à §5, spec §12.2)**
+**Tâches temps réel sur Cortex-M (aperçu 0.7.0, ADR 0018 §2 à §5, spec §12.2)**
 - Tâches périodiques `every ms(1) within us(400)`, interruptions `@interrupt(n)` et
   `@priority(p)`, ressources `@resource static var`.
 - Le NVIC ordonnance, sans noyau, sur une seule pile :
@@ -46,7 +62,7 @@
   Sous QEMU, la borne couvre le maximum observé en O0, O2 et Os (664 ≤ 1180, 256 ≤ 648,
   216 ≤ 608 octets sur le programme de test).
 
-**Interopérabilité C**
+**Interopérabilité C (aperçu 0.6.0)**
 - Structures C par valeur : `@repr("C")` (ADR 0017, spec §8.5). Une telle structure a la
   disposition de C et se passe par valeur, en paramètre comme en résultat, aux fonctions
   `extern "C"` et `@export`, avec la convention d'appel de chaque cible, celle de clang.
