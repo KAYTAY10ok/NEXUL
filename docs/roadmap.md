@@ -102,6 +102,8 @@ refusées) et positif ; 10⁶ messages entre 64 tâches, résultat déterministe
 ([fiche](scenarios/C-concurrence.md)) ; ThreadSanitizer **non testé** (les threads de NEXUL
 ne passent pas par la libc ; raison dans la fiche).
 
+**0.5.0 publiée le 25/11/2026** : critères de la 0.4.0 et de la 0.5.0 prouvés ; le travail déjà fait pour la 0.6.0 et la 0.7.0 y est livré comme aperçu (CHANGELOG).
+
 État de la **0.6.0** (28/10, en cours) : `std.fs` et `std.process` faits, testés par
 `tests/run/fs.nx` (Linux x86-64, AArch64 et RISC-V, WASI ; Windows et macOS par la CI) et
 `tests/run/process.nx` (Linux, Windows, macOS) ; `std.net` (TCP sur IPv4) fait, et le
