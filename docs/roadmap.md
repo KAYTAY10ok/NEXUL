@@ -111,9 +111,7 @@ critère « serveur TCP concurrent d'exemple testé » **rempli** par `tests/run
 serveur, une tâche par connexion, 8 clients simultanés) : Linux (trois architectures),
 Windows et macOS, CI verte le 28/10 (`99ad9e3`). Le critère « programme C qui appelle NEXUL et
 inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
-compris ; Linux ici, macOS et Windows par la CI). Restent la compilation séparée et le
-cache incrémental (Codex Terra, T3), UDP (Terra, T2), et le critère du temps de
-compilation incrémentale. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
+compris ; Linux ici, macOS et Windows par la CI). La compilation incrémentale est faite le 25/11 ([ADR 0016](adr/0016-compilation-incrementale.md)) : en `-O0` sous Linux, le programme est découpé en unités et les objets sont gardés en cache. Le critère « temps de compilation incrémentale mesuré » est **rempli** : 0,60 s au lieu de 2,16 s après la modification d'un corps, sur 21 000 lignes ([mesures](../benchmarks/rapports/2026-11-25-incremental.md)). Restent UDP et les en-têtes C. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
 vers et depuis C, conformes à clang sur 13 cibles. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
 Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct.
 

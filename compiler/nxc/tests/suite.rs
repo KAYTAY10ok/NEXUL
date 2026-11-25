@@ -9,6 +9,13 @@
 //! Set `NEXUL_BLESS=1` to (re)write the expectation files from the current results.
 
 use nxc_driver::{build, compile_file, BuildOptions, CompileOptions, Mode, Target};
+
+/// An error of the incremental build (ADR 0016) fails the test, instead of falling back to
+/// one module.
+fn strict(mut o: BuildOptions) -> BuildOptions {
+    o.strict_incremental = true;
+    o
+}
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -97,7 +104,7 @@ fn run_one_at(nx: &Path, optimized: bool) -> Vec<String> {
     let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
     let dir = std::env::temp_dir().join(format!("nexul-suite-run-{}{}", std::process::id(), if optimized { "-O2" } else { "" }));
     let exe = dir.join(format!("{}{}", stem, if cfg!(windows) { ".exe" } else { "" }));
-    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), optimized)) {
+    if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &strict(BuildOptions::new(Target::host(), optimized))) {
         return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
     }
     let stdin_path = nx.with_extension("in");
@@ -294,7 +301,7 @@ fn run_programs_cross() {
             }
             let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
             let exe = dir.join(target.exe_name(&stem));
-            if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(target.clone(), false)) {
+            if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &strict(BuildOptions::new(target.clone(), false))) {
                 return vec![format!("[{}] {}: code generation failed\n{}", target.name, nx.display(), e)];
             }
             let stdin = nx.with_extension("in");
@@ -421,7 +428,7 @@ fn migrated_programs_behave_the_same() {
         let stem = nx.file_stem().unwrap().to_string_lossy().to_string();
         let dir = std::env::temp_dir().join(format!("nexul-suite-migrate-{}", std::process::id()));
         let exe = dir.join(format!("{}-ed1{}", stem, if cfg!(windows) { ".exe" } else { "" }));
-        if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), false)) {
+        if let Err(e) = build(c.output.as_ref().unwrap(), &exe, &strict(BuildOptions::new(Target::host(), false))) {
             return vec![format!("{}: code generation failed\n{}", nx.display(), e)];
         }
         let mut cmd = Command::new(&exe);
@@ -681,7 +688,7 @@ fn numerics_against_python() {
         let c = compile_file(&dir.join(format!("{}.nx", name)), &opts);
         assert!(c.errors == 0 && c.warnings == 0, "{}", c.diagnostics);
         let exe = work.join(Target::host().exe_name(name));
-        build(c.output.as_ref().unwrap(), &exe, &BuildOptions::new(Target::host(), true)).unwrap();
+        build(c.output.as_ref().unwrap(), &exe, &strict(BuildOptions::new(Target::host(), true))).unwrap();
         exe
     };
     let python = |args: &[&std::ffi::OsStr]| {

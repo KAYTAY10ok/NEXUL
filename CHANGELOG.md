@@ -2,6 +2,24 @@
 
 ## Non publié
 
+**Compilation incrémentale (0.6.0, ADR 0016)**
+- En `-O0`, un exécutable Linux x86-64 ou AArch64 est découpé en unités :
+  - par module, puis par seau de fonctions ;
+  - l'unité commune reçoit le point d'entrée, les tests, les exports, les statiques et le
+    runtime.
+- L'objet de chaque unité est gardé dans le cache (`objects/v1`), sous une clé tirée du
+  texte de l'unité, de `nxc`, de LLVM, de la cible et des options.
+- Seules les unités dont le texte change passent par LLVM, en parallèle.
+- **Mesure** : 21 000 lignes, un corps de fonction modifié, 0,60 s au lieu de 2,16 s
+  (médianes sur 7 répétitions,
+  [rapport](benchmarks/rapports/2026-11-25-incremental.md)). Une seule unité est
+  recompilée.
+- **Noms stables** : les symboles ne portent plus l'ordre de découverte (`main.f#304`
+  devient `main.f`). Un nom repris reçoit `#2`.
+- `NEXUL_INCREMENTAL=0` revient à un seul module, et `NEXUL_INCREMENTAL_REPORT=1`
+  affiche les unités compilées et les temps.
+- **Non fait** : le cache syntaxique de `std`, les autres systèmes et les bibliothèques.
+
 ## 0.5.0 — « Concurrence »
 
 Les critères de sortie de la 0.4.0 et de la 0.5.0 sont tous prouvés ; leur contenu est

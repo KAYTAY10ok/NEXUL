@@ -34,6 +34,12 @@ pub fn eligible(output: &Output, opts: &BuildOptions) -> bool {
         && output.stack.is_none()
 }
 
+/// `NEXUL_INCREMENTAL=1`: an error of the incremental build is an error of the build,
+/// instead of a fallback to one module.
+pub fn strict() -> bool {
+    std::env::var_os("NEXUL_INCREMENTAL").is_some_and(|v| v == "1")
+}
+
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{:02x}", b)).collect()
 }
@@ -84,6 +90,14 @@ fn compiler_id(cache: Option<&Path>) -> String {
     .clone()
 }
 
+/// Does `p` start like an ELF object, and is it longer than its header?
+fn is_object(p: &Path) -> bool {
+    use std::io::Read;
+    let Ok(mut f) = std::fs::File::open(p) else { return false };
+    let mut head = [0u8; 4];
+    f.read_exact(&mut head).is_ok() && head == *b"\x7fELF" && f.metadata().map(|m| m.len() > 64).unwrap_or(false)
+}
+
 /// Keeps the `keep` most recent objects of `dir` once it holds more than `max`.
 fn trim(dir: &Path, max: usize, keep: usize) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
@@ -113,7 +127,9 @@ pub fn objects(output: &Output, opts: &BuildOptions, work: &Path) -> Result<Vec<
         pic: opts.kind != OutputKind::Executable && t.os != Os::Windows,
         code_model: code_model(t),
     };
+    let t0 = std::time::Instant::now();
     let units = units::split(&output.parts);
+    let t_split = t0.elapsed();
     let cache = cache_dir().map(|d| d.join("objects").join("v1")).filter(|d| std::fs::create_dir_all(d).is_ok());
     let context = format!(
         "nexul-object-v1\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n{}\n",
@@ -126,19 +142,38 @@ pub fn objects(output: &Output, opts: &BuildOptions, work: &Path) -> Result<Vec<
         cg.pic,
         cg.code_model,
     );
+    // The keys, in parallel: SHA-256 of the context and of the text of each unit.
+    let keys: Vec<String> = match &cache {
+        Some(_) => std::thread::scope(|s| {
+            let hs: Vec<_> = units
+                .chunks(units.len().div_ceil(4).max(1))
+                .map(|chunk| {
+                    let context = &context;
+                    s.spawn(move || {
+                        chunk
+                            .iter()
+                            .map(|u| {
+                                let mut keyed = context.clone().into_bytes();
+                                keyed.extend_from_slice(u.ir.as_bytes());
+                                hex(&crate::pkg::sha256(&keyed)[..16])
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                })
+                .collect();
+            hs.into_iter().flat_map(|h| h.join().expect("hashing a unit")).collect()
+        }),
+        None => Vec::new(),
+    };
     let mut paths = Vec::with_capacity(units.len());
     let mut todo: Vec<(usize, PathBuf)> = Vec::new();
-    for (i, u) in units.iter().enumerate() {
+    for (i, _) in units.iter().enumerate() {
         let path = match &cache {
-            Some(d) => {
-                let mut keyed = context.clone().into_bytes();
-                keyed.extend_from_slice(u.ir.as_bytes());
-                let key = hex(&crate::pkg::sha256(&keyed)[..16]);
-                d.join(format!("{}.o", key))
-            }
+            Some(d) => d.join(format!("{}.o", keys[i])),
             None => work.join(format!("unit{}.o", i)),
         };
-        let hit = cache.is_some() && std::fs::metadata(&path).map(|m| m.len() > 0).unwrap_or(false);
+        // An object that is not one (truncated, overwritten) is compiled again.
+        let hit = cache.is_some() && is_object(&path);
         if hit {
             // Recently used objects are the last ones removed.
             let _ = std::fs::File::options().write(true).open(&path).and_then(|f| f.set_modified(std::time::SystemTime::now()));
@@ -147,6 +182,7 @@ pub fn objects(output: &Output, opts: &BuildOptions, work: &Path) -> Result<Vec<
         }
         paths.push(path);
     }
+    let t_keys = t0.elapsed() - t_split;
     let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(todo.len().max(1));
     let next = std::sync::atomic::AtomicUsize::new(0);
     let errors: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
@@ -177,7 +213,15 @@ pub fn objects(output: &Output, opts: &BuildOptions, work: &Path) -> Result<Vec<
         return Err(e);
     }
     if std::env::var_os("NEXUL_INCREMENTAL_REPORT").is_some() {
-        eprintln!("incremental: {} units, {} compiled", units.len(), todo.len());
+        let t_llvm = t0.elapsed() - t_split - t_keys;
+        eprintln!(
+            "incremental: {} units, {} compiled (cut {} ms, keys {} ms, LLVM {} ms)",
+            units.len(),
+            todo.len(),
+            t_split.as_millis(),
+            t_keys.as_millis(),
+            t_llvm.as_millis()
+        );
     }
     if let Some(d) = &cache {
         trim(d, 20_000, 15_000);

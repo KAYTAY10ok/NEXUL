@@ -147,15 +147,23 @@ fn first(line: &str, kind: Tok) -> Option<String> {
     r
 }
 
-/// `s` with its names renamed by `map`.
-fn rename(s: &str, map: &HashMap<(Tok, String), String>) -> String {
-    if map.is_empty() {
-        return s.to_string();
+/// New names, by kind of name.
+type Names = [HashMap<String, String>; 3];
+
+fn kind_index(k: Tok) -> usize {
+    match k {
+        Tok::Global => 0,
+        Tok::Local => 1,
+        Tok::Meta => 2,
     }
+}
+
+/// `s` with its names renamed by `map`.
+fn rename(s: &str, map: &Names) -> String {
     let mut out = String::with_capacity(s.len());
     let mut last = 0;
     tokens(s, |k, a, b| {
-        if let Some(n) = map.get(&(k, s[a..b].to_string())) {
+        if let Some(n) = map[kind_index(k)].get(&s[a..b]) {
             out.push_str(&s[last..a]);
             out.push_str(n);
             last = b;
@@ -239,10 +247,11 @@ struct Collect<'a, 'b> {
     types: &'b HashMap<String, &'a str>,
     md: &'b HashMap<String, &'a str>,
     /// The canonical name of each private constant, type and metadata.
-    rn: HashMap<(Tok, String), String>,
+    rn: Names,
     queue: VecDeque<(Tok, String)>,
     order: Vec<(Tok, String)>,
-    seen: HashSet<(Tok, String)>,
+    seen: [HashSet<String>; 3],
+    n_seen: usize,
     ext_fns: Vec<String>,
     ext_vars: Vec<String>,
     used_decls: Vec<String>,
@@ -256,47 +265,40 @@ impl Collect<'_, '_> {
         tokens(text, |k, a, b| found.push((k, a, b)));
         for (k, a, b) in found {
             let name = &text[a..b];
-            let key = (k, name.to_string());
-            if self.seen.contains(&key) {
+            let ki = kind_index(k);
+            if self.seen[ki].contains(name) {
                 continue;
             }
-            match k {
+            self.seen[ki].insert(name.to_string());
+            self.n_seen += 1;
+            let new = match k {
                 Tok::Global => {
                     if let Some(f) = self.defined.get(name) {
                         if f.unit != self.unit {
                             self.ext_fns.push(name.to_string());
                         }
+                        None
                     } else if self.private.contains_key(name) {
-                        let n = format!("@p.{}", self.count[0]);
-                        self.count[0] += 1;
-                        self.rn.insert(key.clone(), n);
-                        self.queue.push_back(key.clone());
-                    } else if self.shared.contains_key(name) {
-                        if !self.common {
-                            self.ext_vars.push(name.to_string());
+                        Some(format!("@p.{}", self.count[0]))
+                    } else {
+                        if self.shared.contains_key(name) {
+                            if !self.common {
+                                self.ext_vars.push(name.to_string());
+                            }
+                        } else if self.decls.contains_key(name) {
+                            self.used_decls.push(name.to_string());
                         }
-                    } else if self.decls.contains_key(name) {
-                        self.used_decls.push(name.to_string());
+                        None
                     }
                 }
-                Tok::Local => {
-                    if self.types.contains_key(name) {
-                        let n = format!("%T{}", self.count[1]);
-                        self.count[1] += 1;
-                        self.rn.insert(key.clone(), n);
-                        self.queue.push_back(key.clone());
-                    }
-                }
-                Tok::Meta => {
-                    if self.md.contains_key(name) {
-                        let n = format!("!{}", self.count[2]);
-                        self.count[2] += 1;
-                        self.rn.insert(key.clone(), n);
-                        self.queue.push_back(key.clone());
-                    }
-                }
+                Tok::Local => self.types.contains_key(name).then(|| format!("%T{}", self.count[1])),
+                Tok::Meta => self.md.contains_key(name).then(|| format!("!{}", self.count[2])),
+            };
+            if let Some(n) = new {
+                self.count[ki] += 1;
+                self.rn[ki].insert(name.to_string(), n);
+                self.queue.push_back((k, name.to_string()));
             }
-            self.seen.insert(key);
         }
     }
 }
@@ -360,11 +362,11 @@ pub fn split(p: &Parts) -> Vec<Unit> {
     names.retain(|n| *n != COMMON);
     names.insert(0, COMMON);
 
-    let mut out = Vec::new();
-    for unit in names {
+    // The units are independent: cut them in parallel.
+    let one = |unit: &str| -> Unit {
         let common = unit == COMMON;
         let mine: Vec<&Func> = funcs.iter().filter(|f| f.unit == unit).collect();
-        let mut c = Collect { unit, common, defined: &defined, private: &private, shared: &shared_map, decls: &decls, types: &types, md: &md, rn: HashMap::new(), queue: VecDeque::new(), order: Vec::new(), seen: HashSet::new(), ext_fns: Vec::new(), ext_vars: Vec::new(), used_decls: Vec::new(), count: [0; 3] };
+        let mut c = Collect { unit, common, defined: &defined, private: &private, shared: &shared_map, decls: &decls, types: &types, md: &md, rn: Default::default(), queue: VecDeque::new(), order: Vec::new(), seen: Default::default(), n_seen: 0, ext_fns: Vec::new(), ext_vars: Vec::new(), used_decls: Vec::new(), count: [0; 3] };
         c.visit(&p.md_tail);
         for f in &mine {
             c.visit(f.text);
@@ -385,7 +387,7 @@ pub fn split(p: &Parts) -> Vec<Unit> {
                 c.order.push(key);
             }
             // Declarations use types too: only the signature of a function, not its body.
-            let before = c.seen.len();
+            let before = c.n_seen;
             let pending: Vec<String> = c.used_decls.iter().chain(c.ext_fns.iter()).chain(c.ext_vars.iter()).cloned().collect();
             for n in pending {
                 let line = decls
@@ -396,7 +398,7 @@ pub fn split(p: &Parts) -> Vec<Unit> {
                     .unwrap_or("");
                 c.visit(line);
             }
-            if c.queue.is_empty() && c.seen.len() == before {
+            if c.queue.is_empty() && c.n_seen == before {
                 break;
             }
         }
@@ -412,7 +414,6 @@ pub fn split(p: &Parts) -> Vec<Unit> {
             }
         }
         let by_kind = |k: Tok| order.iter().filter(move |o| o.0 == k);
-        let _ = &rn;
         for key in by_kind(Tok::Local) {
             let _ = writeln!(ir, "{}", rename(types[&key.1], &rn));
         }
@@ -473,9 +474,31 @@ pub fn split(p: &Parts) -> Vec<Unit> {
         for key in by_kind(Tok::Meta) {
             let _ = writeln!(ir, "{}", rename(md[&key.1], &rn));
         }
-        out.push(Unit { name: unit.to_string(), ir });
+        Unit { name: unit.to_string(), ir }
+    };
+    let threads = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1).min(names.len()).max(1);
+    let next = std::sync::atomic::AtomicUsize::new(0);
+    let mut out: Vec<Option<Unit>> = vec![None; names.len()];
+    let done: Vec<Vec<(usize, Unit)>> = std::thread::scope(|s| {
+        let hs: Vec<_> = (0..threads)
+            .map(|_| {
+                s.spawn(|| {
+                    let mut mine = Vec::new();
+                    loop {
+                        let i = next.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let Some(unit) = names.get(i) else { break };
+                        mine.push((i, one(unit)));
+                    }
+                    mine
+                })
+            })
+            .collect();
+        hs.into_iter().map(|h| h.join().expect("cutting a unit")).collect()
+    });
+    for (i, u) in done.into_iter().flatten() {
+        out[i] = Some(u);
     }
-    out
+    out.into_iter().map(|u| u.expect("every unit is cut")).collect()
 }
 
 #[cfg(test)]

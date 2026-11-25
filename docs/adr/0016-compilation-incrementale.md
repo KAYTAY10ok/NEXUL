@@ -1,7 +1,8 @@
 # 0016 — Compilation incrémentale et cache de la bibliothèque standard
 
-Auteur : Codex Terra 6.1. **Statut : proposée**, le 29/10/2026 ; accord de Claude Main
-requis avant implémentation. Cette proposition ne change ni la syntaxe ni les garanties du
+Auteur : Codex Terra 6.1. **Statut : acceptée** par Claude Main le 29/10/2026, avec les
+décisions de [claude-main-status.md](../refonte/claude-main-status.md) (« ADR 0016 (PR #73) »).
+Implémentée par Claude Main le 25/11/2026 (section « Implémentation » à la fin). Cette proposition ne change ni la syntaxe ni les garanties du
 langage et ne revendique aucun gain mesuré pour une implémentation qui n'existe pas encore.
 Elle répond au critère de temps de compilation incrémentale de la 0.6.0.
 
@@ -202,3 +203,65 @@ Décisions demandées : stratégie de groupes et entités partagées ; représen
 des identités ; cache `std` syntaxique puis/ou sémantique et propriétaire de son interface ;
 identité de LLVM et format de cache ; matrice initiale de cibles et critères de publication.
 Aucune de ces décisions n'est supposée acceptée par ce document.
+
+## Implémentation (Claude Main, 25/11/2026)
+
+Faite sur décision de l'utilisateur, qui a demandé à Main de reprendre les tâches de Terra.
+
+- **Noms stables** (§2) : les fonctions, la glue de destruction et les statiques portent
+  leur libellé lisible (`main.g12`, `std.vec.Vec.push[i64]`), sans le numéro de découverte.
+  Un libellé déjà pris reçoit `#2`, `#3`… ; au-delà de 200 caractères, un préfixe de 120
+  caractères et 128 bits de hachage.
+- **Unités** (`compiler/nxc_codegen_llvm/src/units.rs`, décision 1) : par module
+  propriétaire, puis par seau `FNV-1a(symbole) mod k`. L'unité commune reçoit le point
+  d'entrée, les exports, les tests, la glue, le runtime, les aides et les statiques.
+  Chaque unité reçoit les constantes privées, les types et les métadonnées qu'elle
+  utilise ; elle déclare ce que les autres définissent.
+- **Texte canonique** : dans chaque unité, constantes privées, types et métadonnées sont
+  renommés dans l'ordre d'utilisation (`@p.0`, `%T0`, `!0`). Sans cela, la numérotation du
+  programme entier changerait le texte de toutes les unités à chaque ajout.
+- **Cache** (`compiler/nxc/src/incremental.rs`, décision 4) : `objects/v1/<clé>.o`.
+  - La clé est le SHA-256 du texte de l'unité et du contexte : SHA-256 de l'exécutable
+    `nxc` (mémorisé par chemin, taille et date), bibliothèque LLVM, cible et options.
+  - Les unités absentes sont compilées en parallèle, puis écrites sous un nom temporaire
+    et renommées.
+  - Un objet qui n'a pas l'en-tête ELF est compilé à nouveau.
+  - Le cache des exécutables entiers reste devant.
+- **Cibles** (décision 5) : exécutables Linux x86-64 et AArch64 en `-O0`. Les autres
+  cibles, les bibliothèques, l'optimisation et les programmes à pile bornée gardent un
+  seul module. `NEXUL_INCREMENTAL=0` désactive le découpage, et
+  `NEXUL_INCREMENTAL_REPORT=1` affiche les unités compilées.
+- **Repli** : si le découpage échoue (un bogue de `nxc`), la construction se refait en un
+  seul module et avertit. Avec `NEXUL_INCREMENTAL=1`, et dans la suite de tests, l'échec
+  arrête la construction.
+
+**Écarts avec les décisions**
+- Les vtables sont copiées dans chaque unité comme constantes privées, au lieu d'aller
+  dans l'unité commune : leur adresse n'est pas observable en NEXUL.
+- Le hachage des noms longs est FNV-1a sur 128 bits, et non SHA-256 : la crate du
+  générateur n'a pas SHA-256. Une collision ne peut pas donner deux fois le même symbole,
+  car l'ensemble des symboles donnés ajoute `#2`.
+- LLVM est identifié par le chemin, la taille et la date de sa bibliothèque, et non par
+  `LLVMGetVersion` : une bibliothèque reconstruite à la même version change la clé.
+- Le cache syntaxique de `std` (décision 3) n'est **pas fait**. `nxc check` prend
+  0,3 s sur le programme de 21 000 lignes ci-dessous, contre 0,78 s pour une
+  reconstruction après modification, et l'analyse reste à mesurer étape par étape.
+
+**Limite** : les informations de débogage donnent la ligne de chaque fonction. Ajouter une
+ligne au-dessus d'une fonction change donc le texte de son unité, et cette unité est
+recompilée. Le test `a_new_function_does_not_rename_the_others` le vérifie : il ne
+recompile qu'une partie des unités.
+
+**Preuves**
+- Validation §1 : toute la suite `tests/run` passe en construction découpée, car c'est
+  la construction par défaut en `-O0` sous Linux (`cargo test --release -p nxc`).
+  `tests/incremental.rs` compare aussi les sorties avec celles d'une construction en un
+  seul module.
+- Validation §2 : `tests/incremental.rs` vérifie quatre cas :
+  - un corps modifié ne recompile qu'une unité ;
+  - une fonction ajoutée ne recompile pas tout ;
+  - un objet tronqué ou écrasé est recompilé ;
+  - trois constructions simultanées partagent le cache.
+- Validation §3 : [mesures](../../benchmarks/rapports/2026-11-25-incremental.md), faites
+  par `benchmarks/incremental/measure.py`.
+- Validation §4 (LSP) et §5 (temps d'exécution en `-O0`) : **non testés**.

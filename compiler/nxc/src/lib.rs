@@ -276,7 +276,11 @@ pub fn compile_source(
         root_dir: root,
         profile: opts.profile,
     };
+    let generating = std::time::Instant::now();
     let out = nxc_codegen_llvm::generate(&prog, &sm, &bodies, &entry, &gen_opts);
+    if std::env::var_os("NEXUL_INCREMENTAL_REPORT").is_some() {
+        eprintln!("ir: {} ms", generating.elapsed().as_millis());
+    }
     let mut c = finish(
         &sm,
         &diags,
@@ -489,6 +493,9 @@ pub struct BuildOptions {
     pub link_args: Vec<String>,
     /// `--stack-report`: print the bound of the stack of the real-time tasks.
     pub stack_report: bool,
+    /// An error of the incremental build fails the build, instead of falling back to one
+    /// module (`NEXUL_INCREMENTAL=1`; the tests).
+    pub strict_incremental: bool,
 }
 
 impl BuildOptions {
@@ -501,6 +508,7 @@ impl BuildOptions {
             kind: OutputKind::Executable,
             link_args: Vec::new(),
             stack_report: false,
+            strict_incremental: incremental::strict(),
         }
     }
 
@@ -699,8 +707,22 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
     std::fs::create_dir_all(&work)
         .map_err(|e| format!("cannot create `{}`: {}", work.display(), e))?;
     let result = (|| -> Result<(), String> {
-        let objects = if incremental::eligible(output, opts) {
-            incremental::objects(output, opts, &work)?
+        let units = if incremental::eligible(output, opts) {
+            match incremental::objects(output, opts, &work) {
+                Ok(objects) => Some(objects),
+                // A bug of the cut must not stop the build: one module then, unless the
+                // incremental build was asked for (`NEXUL_INCREMENTAL=1`, the tests).
+                Err(e) if !opts.strict_incremental => {
+                    eprintln!("warning: the incremental build failed (a bug in nxc, please report it); building as one module:\n{}", e);
+                    None
+                }
+                Err(e) => return Err(e),
+            }
+        } else {
+            None
+        };
+        let objects = if let Some(objects) = units {
+            objects
         } else {
             let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
             emit_object(output, &obj, opts)?;
@@ -727,7 +749,11 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
             work_dir: work.clone(),
             extra: &opts.link_args,
         };
+        let linking = std::time::Instant::now();
         link::link(&tc, &job)?;
+        if std::env::var_os("NEXUL_INCREMENTAL_REPORT").is_some() {
+            eprintln!("link: {} ms", linking.elapsed().as_millis());
+        }
         // An executable whose stack is not bounded is not kept, nor cached.
         if let Err(e) = check_stack(output, &target_path, opts) {
             let _ = std::fs::remove_file(&target_path);
