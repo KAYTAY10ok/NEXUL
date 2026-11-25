@@ -3,6 +3,7 @@
 
 pub mod codes;
 pub mod ide;
+mod incremental;
 pub mod link;
 pub mod llvm;
 pub mod migrate;
@@ -503,7 +504,7 @@ impl BuildOptions {
         }
     }
 
-    fn level(&self) -> char {
+    pub(crate) fn level(&self) -> char {
         self.opt_level
             .unwrap_or(if self.release { '2' } else { '0' })
     }
@@ -512,7 +513,7 @@ impl BuildOptions {
 /// The folder of the build cache: `NEXUL_CACHE_DIR`, else `%LOCALAPPDATA%\nexul\cache`
 /// (Windows), `$XDG_CACHE_HOME/nexul` or `~/.cache/nexul`. `None` disables the cache
 /// (also with `NEXUL_NO_CACHE`).
-fn cache_dir() -> Option<PathBuf> {
+pub(crate) fn cache_dir() -> Option<PathBuf> {
     if std::env::var_os("NEXUL_NO_CACHE").is_some() {
         return None;
     }
@@ -567,7 +568,7 @@ fn trim_cache(dir: &Path, keep: usize) {
     }
 }
 
-fn unique_suffix() -> String {
+pub(crate) fn unique_suffix() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
     static N: AtomicU64 = AtomicU64::new(0);
     format!(
@@ -587,7 +588,7 @@ fn obj_ext(t: &Target) -> &'static str {
 }
 
 /// RISC-V 64 programs may live above 2 GiB (bare-metal boards): `medany` addressing.
-fn code_model(t: &Target) -> i32 {
+pub(crate) fn code_model(t: &Target) -> i32 {
     if t.arch == nxc_sema::target::Arch::Riscv64 {
         5
     } else {
@@ -698,8 +699,13 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
     std::fs::create_dir_all(&work)
         .map_err(|e| format!("cannot create `{}`: {}", work.display(), e))?;
     let result = (|| -> Result<(), String> {
-        let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
-        emit_object(output, &obj, opts)?;
+        let objects = if incremental::eligible(output, opts) {
+            incremental::objects(output, opts, &work)?
+        } else {
+            let obj = work.join(format!("program.{}", obj_ext(&opts.target)));
+            emit_object(output, &obj, opts)?;
+            vec![obj]
+        };
         let target_path = match &cached {
             Some(_) => work.join(
                 out.file_name()
@@ -710,7 +716,7 @@ pub fn build(output: &Output, out: &Path, opts: &BuildOptions) -> Result<(), Str
         let tc = Toolchain::find();
         let job = link::LinkJob {
             target: &opts.target,
-            objects: vec![obj],
+            objects,
             out: target_path.clone(),
             kind: opts.kind,
             imports: &output.imports,
