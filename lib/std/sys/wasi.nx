@@ -602,6 +602,34 @@ pub fn socket_close(i64 handle) {
     let _ = handle
 }
 
+// UDP (std.net): unavailable on this target (-1).
+
+pub fn i32 udp_bind(u32 ip, u16 port, i64 handle!) {
+    let _ = ip
+    let _ = port
+    let _ = handle
+    return -1
+}
+
+pub fn i32 udp_send_to(i64 handle, u32 ip, u16 port, Ptr[u8] data, usize len) {
+    let _ = handle
+    let _ = ip
+    let _ = port
+    let _ = data
+    let _ = len
+    return -1
+}
+
+pub fn i32 udp_recv_from(i64 handle, Ptr[u8] buffer, usize len, usize got!, u32 ip!, u16 port!) {
+    let _ = handle
+    let _ = buffer
+    let _ = len
+    let _ = got
+    let _ = ip
+    let _ = port
+    return -1
+}
+
 pub fn u8 net_error_kind(i32 code) {
     let _ = code
     return 0

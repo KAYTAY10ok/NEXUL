@@ -2,6 +2,15 @@
 
 ## Non publié
 
+**UDP (0.6.0)**
+- `std.net.UdpSocket` : `bind`, `port`, `send_to`, `send_to_address`, `send_text`,
+  `receive`, `receive_text`. Un datagramme plus long que le tampon garde son début.
+- Disponible sous Linux (appels système directs), macOS (`libSystem`) et Windows
+  (`ws2_32`). Ailleurs, les fonctions renvoient une erreur.
+- Testé par `tests/run/udp.nx` : un serveur d'écho dans sa tâche, quatre clients en même
+  temps, une troncature, les erreurs. Sous Linux x86-64, AArch64 et RISC-V (QEMU) ;
+  macOS et Windows par la CI.
+
 **Compilation incrémentale (0.6.0, ADR 0016)**
 - En `-O0`, un exécutable Linux x86-64 ou AArch64 est découpé en unités :
   - par module, puis par seau de fonctions ;

@@ -1,0 +1,11 @@
+port chosen: true
+HELLO 0 from the server: true
+HELLO 1 from the server: true
+HELLO 2 from the server: true
+HELLO 3 from the server: true
+bytes echoed: 28
+truncated: 0123
+bytes: 3 3, from itself: true true
+bound twice: true
+invalid data: not an IPv4 address with a port: nowhere
+invalid data: not an IPv4 address with a port: 300.0.0.1:9
