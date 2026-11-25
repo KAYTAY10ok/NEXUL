@@ -114,6 +114,25 @@ fn main() {
   un type contraint est vérifié à l'entrée comme par `as`. Le symbole exporté est une
   petite fonction qui fait ces vérifications puis appelle la fonction ; le code NEXUL
   appelle la fonction directement, sans vérification (ses valeurs sont déjà valides).
+- **En-tête C** (0.6.0) : `nxc build lib.nx --lib --header lib.h` écrit aussi l'en-tête
+  des fonctions `@export`. Il contient leurs déclarations et les structures `@repr("C")`
+  qu'elles utilisent, définies avant leur premier usage. Le fichier est protégé contre
+  l'inclusion multiple et utilisable depuis C++ (`extern "C"`). Les types deviennent :
+
+  | NEXUL | C |
+  |---|---|
+  | `i8` à `i64`, `u8` à `u64` | `int8_t` à `int64_t`, `uint8_t` à `uint64_t` |
+  | `usize`, `isize` | `size_t`, `ptrdiff_t` |
+  | `f32`, `f64` | `float`, `double` |
+  | `bool` | `bool` (`<stdbool.h>`) |
+  | `char` | `uint32_t` |
+  | `Ptr[T]`, `Ptr[()]` | `T *`, `void *` |
+  | `fn` | pointeur de fonction |
+  | type distinct ou contraint | sa base |
+  | structure `@repr("C")` | `typedef struct` |
+
+  **Testé** : `tests/interop/main.c` n'a plus de déclarations écrites à la main. Il inclut
+  l'en-tête produit et compile avec `-Wall -Werror`.
 
 ## 8.5 Structures C (`@repr("C")`)
 

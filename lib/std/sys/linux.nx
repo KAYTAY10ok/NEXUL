@@ -1246,6 +1246,71 @@ pub fn socket_close(i64 handle) {
     let _ = unsafe { sys1(SYS_CLOSE, handle as isize) }
 }
 
+// UDP over IPv4 (std.net)
+
+/// A UDP socket bound to `ip:port` (port 0: one chosen by the system); `handle`
+/// receives it. Returns 0, or the error code.
+pub fn i32 udp_bind(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        // AF_INET, SOCK_DGRAM | SOCK_CLOEXEC
+        let fd = sys3(SYS_SOCKET, 2, 0x80002, 0)
+        if fd < 0 {
+            return (-fd) as i32
+        }
+        var a = sockaddr(ip, port)
+        let r = sys3(SYS_BIND, fd, addr(mem.addr_of(a!).cast[u8]()), 16)
+        if r < 0 {
+            let _ = sys1(SYS_CLOSE, fd)
+            return (-r) as i32
+        }
+        handle = fd as i64
+        return 0
+    }
+}
+
+/// Sends `len` bytes as one datagram to `ip:port`. Returns 0, or the error code.
+pub fn i32 udp_send_to(i64 handle, u32 ip, u16 port, Ptr[u8] data, usize len) {
+    unsafe {
+        var a = sockaddr(ip, port)
+        loop {
+            // MSG_NOSIGNAL
+            let n = syscall6(SYS_SENDTO, handle as isize, addr(data), len as isize, 0x4000, addr(mem.addr_of(a!).cast[u8]()), 16)
+            if n == EINTR {
+                continue
+            }
+            if n < 0 {
+                return (-n) as i32
+            }
+            return 0
+        }
+    }
+}
+
+/// Waits for one datagram, of which at most `len` bytes are kept (the rest is dropped);
+/// `got` receives their number, `ip` and `port` the sender. Returns 0, or the error code.
+pub fn i32 udp_recv_from(i64 handle, Ptr[u8] buffer, usize len, usize got!, u32 ip!, u16 port!) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        loop {
+            var u32 alen = 16
+            let n = syscall6(SYS_RECVFROM, handle as isize, addr(buffer), len as isize, 0, addr(mem.addr_of(a!).cast[u8]()), addr(mem.addr_of(alen!).cast[u8]()))
+            if n == EINTR {
+                continue
+            }
+            if n < 0 {
+                return (-n) as i32
+            }
+            got = n as usize
+            break
+        }
+        let p = (a[0] >> 16) & 0xffff
+        port = ((p >> 8) | (p & 0xff) << 8) as u16
+        let i = (a[0] >> 32) & 0xffff_ffff
+        ip = (i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24) as u32
+        return 0
+    }
+}
+
 /// The `std.net` category of an error code: 1 connection refused, 2 connection reset or
 /// peer gone, 3 address in use, 4 interrupted, 5 timed out, 6 unreachable, 0 another.
 pub fn u8 net_error_kind(i32 code) {

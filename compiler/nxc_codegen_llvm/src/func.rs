@@ -1360,7 +1360,8 @@ impl<'a> Gen<'a> {
     /// loaded or stored as (at most 16 bytes past its end, aligned to 16).
     fn c_buffer(&mut self, cx: &mut FnCx, size: u64) -> String {
         let n = crate::layout::round_up(size.max(16), 16);
-        let name = format!("%cb{}", self.fresh());
+        cx.n += 1;
+        let name = format!("%cb{}", cx.n);
         let _ = writeln!(cx.allocas, "  {} = alloca [{} x i8], align 16", name, n);
         name
     }

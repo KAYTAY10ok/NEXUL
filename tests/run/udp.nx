@@ -1,0 +1,91 @@
+// edition: 1
+// targets: linux, windows, macos
+// std.net, UDP: an echo server in its own task on a port chosen by the system, four
+// clients at the same time, a datagram longer than the buffer, then the errors.
+import std.net.{UdpSocket}
+import std.tache
+
+/// Answers `count` datagrams, each in capitals to its sender; the bytes it received.
+fn usize echo(owned (UdpSocket, i32) work) {
+    let (socket, count) = work
+    var usize total = 0
+    for _ in 0..count {
+        when socket.receive_text(1024) {
+            .Ok((text, from)) then {
+                total += text.len()
+                let _ = socket.send_to_address(text.to_uppercase().bytes(), from)
+            }
+            .Err(e) then println("receive: {e}")
+        }
+    }
+    return total
+}
+
+fn String client(owned (u16, i32) work) {
+    let (port, n) = work
+    let socket = when UdpSocket.bind("127.0.0.1:0") {
+        .Ok(s) then s
+        .Err(e) then return "bind: {e}"
+    }
+    when socket.send_text("hello {n}", "127.0.0.1:{port}") {
+        .Ok(_) then {}
+        .Err(e) then return "send: {e}"
+    }
+    return when socket.receive_text(1024) {
+        .Ok((text, from)) then "{text} from the server: {from.port == port}"
+        .Err(e) then "receive: {e}"
+    }
+}
+
+fn main() {
+    let server = when UdpSocket.bind("127.0.0.1:0") {
+        .Ok(s) then s
+        .Err(e) then {
+            println("bind: {e}")
+            return
+        }
+    }
+    let port = server.port()
+    println("port chosen: {port > 0}")
+    let echoing = tache.lancer_detachee(echo, (server, 4))
+    var Vec[tache.Tache[String]] clients = Vec.new()
+    for n in 0..4 {
+        clients.push(tache.lancer_detachee(client, (port, n)))
+    }
+    clients.reverse()
+    loop {
+        when clients.pop() {
+            .Some(c) then println(c.rejoindre())
+            .None then break
+        }
+    }
+    println("bytes echoed: {echoing.rejoindre()}")
+
+    // To itself; a datagram longer than the buffer keeps its start only.
+    let a = UdpSocket.bind("127.0.0.1:0").unwrap()
+    let me = "127.0.0.1:{a.port()}"
+    a.send_text("0123456789", me).unwrap()
+    let (part, _) = a.receive_text(4).unwrap()
+    println("truncated: {part}")
+    var Vec[u8] three = Vec.new()
+    three.push(1)
+    three.push(2)
+    three.push(3)
+    a.send_to(three, me).unwrap()
+    let (bytes, from) = a.receive(16).unwrap()
+    println("bytes: {bytes.len()} {bytes[2]}, from itself: {from.port == a.port()} {from.to_string().starts_with("127.0.0.1:")}")
+
+    // Errors.
+    when UdpSocket.bind("127.0.0.1:{a.port()}") {
+        .Ok(_) then println("bound twice")
+        .Err(e) then println("bound twice: {e.to_string().starts_with("address in use")}")
+    }
+    when UdpSocket.bind("nowhere") {
+        .Ok(_) then println("bound to nowhere")
+        .Err(e) then println("{e}")
+    }
+    when a.send_text("x", "300.0.0.1:9") {
+        .Ok(_) then println("sent to 300.0.0.1")
+        .Err(e) then println("{e}")
+    }
+}

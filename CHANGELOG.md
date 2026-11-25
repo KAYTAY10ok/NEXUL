@@ -2,6 +2,51 @@
 
 ## Non publié
 
+**Auto-hébergement, étape SH2 (0.8.0)**
+- Le lexer de NEXUL est écrit en NEXUL : `selfhost/nxc/lexer.nx`, avec l'outil
+  `selfhost/lex.nx`.
+- `nxc debug tokens --json` (caché) écrit les jetons du lexer Rust.
+- Le test `compiler/nxc/tests/selfhost.rs` compare les deux sur les 252 `.nx` du dépôt :
+  jetons, positions, chaînes, formats, codes et messages d'erreur. Aucune différence.
+- 1,8 fois plus lent que le lexer Rust, sur 1,7 Mo de source.
+- L'aide de `nxc` affiche la version de la construction : elle disait toujours 0.3.
+
+**En-têtes C (0.6.0, spec §8.4)**
+- `nxc build --lib|--staticlib --header lib.h` écrit l'en-tête des fonctions `@export` :
+  - les structures `@repr("C")` qu'elles utilisent, dans l'ordre où C les attend ;
+  - les rappels comme pointeurs de fonction, les tableaux et les pointeurs ;
+  - `extern "C"` pour C++.
+- `tests/interop/main.c` inclut l'en-tête produit, compilé avec `-Wall -Werror`, sur
+  Linux ici et sur macOS et Windows par la CI. Un test vérifie aussi des structures
+  imbriquées, des rappels et `char`.
+
+**UDP (0.6.0)**
+- `std.net.UdpSocket` : `bind`, `port`, `send_to`, `send_to_address`, `send_text`,
+  `receive`, `receive_text`. Un datagramme plus long que le tampon garde son début.
+- Disponible sous Linux (appels système directs), macOS (`libSystem`) et Windows
+  (`ws2_32`). Ailleurs, les fonctions renvoient une erreur.
+- Testé par `tests/run/udp.nx` : un serveur d'écho dans sa tâche, quatre clients en même
+  temps, une troncature, les erreurs. Sous Linux x86-64, AArch64 et RISC-V (QEMU) ;
+  macOS et Windows par la CI.
+
+**Compilation incrémentale (0.6.0, ADR 0016)**
+- En `-O0`, un exécutable Linux x86-64 ou AArch64 est découpé en unités :
+  - par module, puis par seau de fonctions ;
+  - l'unité commune reçoit le point d'entrée, les tests, les exports, les statiques et le
+    runtime.
+- L'objet de chaque unité est gardé dans le cache (`objects/v1`), sous une clé tirée du
+  texte de l'unité, de `nxc`, de LLVM, de la cible et des options.
+- Seules les unités dont le texte change passent par LLVM, en parallèle.
+- **Mesure** : 21 000 lignes, un corps de fonction modifié, 0,60 s au lieu de 2,16 s
+  (médianes sur 7 répétitions,
+  [rapport](benchmarks/rapports/2026-11-25-incremental.md)). Une seule unité est
+  recompilée.
+- **Noms stables** : les symboles ne portent plus l'ordre de découverte (`main.f#304`
+  devient `main.f`). Un nom repris reçoit `#2`.
+- `NEXUL_INCREMENTAL=0` revient à un seul module, et `NEXUL_INCREMENTAL_REPORT=1`
+  affiche les unités compilées et les temps.
+- **Non fait** : le cache syntaxique de `std`, les autres systèmes et les bibliothèques.
+
 ## 0.5.0 — « Concurrence »
 
 Les critères de sortie de la 0.4.0 et de la 0.5.0 sont tous prouvés ; leur contenu est

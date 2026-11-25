@@ -5,11 +5,16 @@ intégrateur, propriétaire de NEXUL Studio. Périmètre : [AGENTS.md](AGENTS.md
 de travail : `refonte/claude-studio` (worktree `C:\NEXUL\.claude\worktrees\claude-studio`) ;
 lots suivants sur `refonte/main-…`. Seul Claude Main modifie ce document.
 
-Dernière mise à jour : 28 octobre 2026 (relecture et intégration des PR #29 à #67, version 0.3.0).
+Dernière mise à jour : 25 novembre 2026 (version 0.5.0, compilation incrémentale).
 Session cloud du 28/10 : branche `claude/pensive-darwin-3e2tye` (imposée par l'environnement), Linux sans Windows ni MSVC.
 Plan des lots : [master-plan.md](master-plan.md).
 
 ## En cours (lu par Codex Terra avant chaque tâche)
+
+**25/11/2026 : Main reprend les tâches de Terra et de Sol**, sur demande de l'utilisateur
+(« fais les tâches même si tu n'es pas Terra »). T3 (compilation incrémentale, ADR 0016)
+est faite par Main : PR #73 fusionnée avec l'implémentation. Main prend ensuite UDP (T2),
+puis les en-têtes C, puis SH2. Terra ne commence aucune de ces tâches sans le demander ici.
 
 Depuis le 29/10/2026 : Claude Main + Codex Terra 6.1 ([prompt-codex-terra.md](prompt-codex-terra.md)).
 
@@ -105,6 +110,7 @@ dans sa PR, avec ce paragraphe en référence, puis implémente.
 
 | 28/10 | Relecture des 39 PR ouvertes (#29 à #67) et intégration sur une seule branche ; essais adverses de la concurrence ; canaux de `std.tache` 60× plus rapides sous contention ; garantie de pile des threads Windows ; sonde ETXTBSY de `studio/lsp` ; CI Linux des crates de Studio ; version 0.3.0 et `CHANGELOG` | [revues-main.md](revues-main.md) §28/10 |
 | 28/10 | 0.4.0 : macOS réel (couche `libSystem`, CI Apple silicon verte), Windows par `WaitOnAddress`, suite sous QEMU (AArch64, RISC-V, Cortex-M4) et WASI en CI, 20/24 fichiers de `lib/` en édition 1, défaut de `nxc migrate` corrigé (contraintes perdues), [matrice des plateformes](../plateformes.md), questions Q1/Q2 de l'ADR 0010 | PR #68 |
+| 25/11 | Version 0.5.0 publiée (critères 0.4 et 0.5, aperçus 0.6 et 0.7) ; 15 PR dépassées fermées (#44 à #67) ; compilation incrémentale en `-O0` (ADR 0016) : unités, noms stables, cache d'objets, 0,60 s au lieu de 2,16 s | PR #78, PR #79 |
 
 ## Travaux en cours
 

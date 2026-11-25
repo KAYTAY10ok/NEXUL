@@ -1157,6 +1157,10 @@ extern "C" fn i32 send(usize s, Ptr[u8] buffer, i32 len, i32 flags)
 extern "C" fn i32 shutdown(usize s, i32 how)
 @link("ws2_32")
 extern "C" fn i32 closesocket(usize s)
+@link("ws2_32")
+extern "C" fn i32 sendto(usize s, Ptr[u8] buffer, i32 len, i32 flags, Ptr[u8] address, i32 alen)
+@link("ws2_32")
+extern "C" fn i32 recvfrom(usize s, Ptr[u8] buffer, i32 len, i32 flags, Ptr[u8] address, Ptr[i32] alen)
 
 static var u32 WINSOCK_READY = 0
 
@@ -1305,6 +1309,72 @@ pub fn socket_shutdown(i64 handle) {
 
 pub fn socket_close(i64 handle) {
     let _ = unsafe { closesocket(handle as usize) }
+}
+
+// UDP over IPv4 (std.net)
+
+/// A UDP socket bound to `ip:port` (port 0: one chosen by the system); `handle`
+/// receives it. Returns 0, or the error code.
+pub fn i32 udp_bind(u32 ip, u16 port, i64 handle!) {
+    unsafe {
+        let started = winsock()
+        if started != 0 {
+            return started
+        }
+        // AF_INET, SOCK_DGRAM, IPPROTO_UDP
+        var s = socket(2, 2, 17)
+        if s == usize.MAX {
+            return WSAGetLastError()
+        }
+        s = private_socket(s)
+        var a = sockaddr(ip, port)
+        if bind(s, mem.addr_of(a!).cast[u8](), 16) != 0 {
+            let e = WSAGetLastError()
+            let _ = closesocket(s)
+            return e
+        }
+        handle = s as i64
+        return 0
+    }
+}
+
+/// Sends `len` bytes as one datagram to `ip:port`. Returns 0, or the error code.
+pub fn i32 udp_send_to(i64 handle, u32 ip, u16 port, Ptr[u8] data, usize len) {
+    unsafe {
+        if len > 0x4000_0000 {
+            // WSAEMSGSIZE
+            return 10040
+        }
+        var a = sockaddr(ip, port)
+        if sendto(handle as usize, data, len as i32, 0, mem.addr_of(a!).cast[u8](), 16) < 0 {
+            return WSAGetLastError()
+        }
+        return 0
+    }
+}
+
+/// Waits for one datagram, of which at most `len` bytes are kept (the rest is dropped);
+/// `got` receives their number, `ip` and `port` the sender. Returns 0, or the error code.
+pub fn i32 udp_recv_from(i64 handle, Ptr[u8] buffer, usize len, usize got!, u32 ip!, u16 port!) {
+    unsafe {
+        var [u64; 2] a = [0; 2]
+        var i32 alen = 16
+        var n = recvfrom(handle as usize, buffer, if len > 0x4000_0000 { 0x4000_0000 } else { len as i32 }, 0, mem.addr_of(a!).cast[u8](), mem.addr_of(alen!))
+        if n < 0 {
+            let e = WSAGetLastError()
+            // WSAEMSGSIZE: the datagram was longer than the buffer, its start was kept.
+            if e != 10040 {
+                return e
+            }
+            n = if len > 0x4000_0000 { 0x4000_0000 } else { len as i32 }
+        }
+        got = n as usize
+        let p = (a[0] >> 16) & 0xffff
+        port = ((p >> 8) | (p & 0xff) << 8) as u16
+        let i = (a[0] >> 32) & 0xffff_ffff
+        ip = (i >> 24 | (i >> 8) & 0xff00 | (i & 0xff00) << 8 | (i & 0xff) << 24) as u32
+        return 0
+    }
 }
 
 /// The `std.net` category of an error code: 1 connection refused, 2 connection reset or

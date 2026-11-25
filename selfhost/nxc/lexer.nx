@@ -1,0 +1,1078 @@
+// edition: 1
+import std.mem
+import std.collections.{Map}
+
+/// The lexer of NEXUL, written in NEXUL (self-hosting, step SH2).
+///
+/// A translation of `compiler/nxc_syntax/src/lexer.rs`: it must give the same tokens
+/// and the same diagnostics for every file. `selfhost/lex.nx` prints them in the format
+/// of `nxc debug tokens --json`, and `compiler/nxc/tests/selfhost.rs` compares both on
+/// every `.nx` file of the repository.
+
+/// A part of a string literal: text, or an interpolated expression.
+pub type Part {
+    pub bool is_text
+    pub String text
+    pub Vec[Token] tokens
+    pub usize lo
+    pub usize hi
+    pub bool has_spec
+    pub Spec spec
+}
+
+/// `[[fill]align][+][0][width][.precision][type]`; -1: no width or precision; "": no
+/// alignment or kind.
+@derive(Clone)
+pub type Spec {
+    pub u32 fill
+    pub String align
+    pub bool plus
+    pub bool zero
+    pub i64 width
+    pub i64 prec
+    pub String kind
+    pub usize lo
+    pub usize hi
+}
+
+/// A token. `kind` is the name of its kind in the Rust lexer (`Ident`, `LParen`...).
+pub type Token {
+    pub String kind
+    /// The name of an identifier.
+    pub String text
+    /// The value of an integer.
+    pub u64 int
+    /// The bits of a float.
+    pub u64 bits
+    /// The code point of a character.
+    pub u32 ch
+    /// The parts of a string.
+    pub Vec[Part] parts
+    pub usize lo
+    pub usize hi
+    /// The token is the first of its line.
+    pub bool ls
+}
+
+@derive(Clone)
+pub type Diag {
+    pub String code
+    pub String msg
+    pub usize lo
+    pub usize hi
+}
+
+const u64 U64_MAX = 18446744073709551615
+
+fn bool is_digit(u8 c) = c >= 48 and c <= 57
+fn bool is_alpha(u8 c) = (c >= 65 and c <= 90) or (c >= 97 and c <= 122)
+fn bool is_alnum(u8 c) = is_digit(c) or is_alpha(c)
+fn bool is_word(u8 c) = is_alnum(c) or c == 95
+fn bool is_lower(u8 c) = c >= 97 and c <= 122
+
+/// The value of a hexadecimal digit, or 99.
+fn u32 hex_value(u8 c) {
+    if is_digit(c) {
+        return (c - 48) as u32
+    }
+    if c >= 97 and c <= 102 {
+        return (c - 87) as u32
+    }
+    if c >= 65 and c <= 70 {
+        return (c - 55) as u32
+    }
+    return 99
+}
+
+/// Bidirectional control characters, forbidden everywhere ("Trojan Source").
+fn bool is_bidi(u32 c) {
+    return c == 0x061C or c == 0x200E or c == 0x200F or (c >= 0x202A and c <= 0x202E) or (c >= 0x2066 and c <= 0x2069)
+}
+
+/// The White_Space characters of Unicode (what Rust's `trim` removes).
+fn bool is_space(u32 c) {
+    return (c >= 9 and c <= 13) or c == 32 or c == 0x85 or c == 0xA0 or c == 0x1680 or (c >= 0x2000 and c <= 0x200A) or c == 0x2028 or c == 0x2029 or c == 0x202F or c == 0x205F or c == 0x3000
+}
+
+/// The keywords, by their kind in the Rust lexer.
+fn Map[String, String] keywords() {
+    var Map[String, String] m = Map.new()
+    m.insert("and", "And")
+    m.insert("as", "As")
+    m.insert("break", "Break")
+    m.insert("const", "Const")
+    m.insert("continue", "Continue")
+    m.insert("else", "Else")
+    m.insert("enum", "Enum")
+    m.insert("extern", "Extern")
+    m.insert("false", "False")
+    m.insert("fn", "Fn")
+    m.insert("for", "For")
+    m.insert("if", "If")
+    m.insert("impl", "Impl")
+    m.insert("import", "Import")
+    m.insert("in", "In")
+    m.insert("indirect", "Indirect")
+    m.insert("inout", "Inout")
+    m.insert("let", "Let")
+    m.insert("match", "Match")
+    m.insert("module", "Module")
+    m.insert("move", "Move")
+    m.insert("not", "Not")
+    m.insert("or", "Or")
+    m.insert("owned", "Owned")
+    m.insert("pub", "Pub")
+    m.insert("return", "Return")
+    m.insert("self", "SelfValue")
+    m.insert("Self", "SelfType")
+    m.insert("static", "Static")
+    m.insert("struct", "Struct")
+    m.insert("trait", "Trait")
+    m.insert("true", "True")
+    m.insert("type", "Type")
+    m.insert("unsafe", "Unsafe")
+    m.insert("var", "Var")
+    m.insert("where", "Where")
+    m.insert("while", "While")
+    m.insert("dyn", "Dyn")
+    return m
+}
+
+/// Keywords reserved for future versions of the language.
+fn bool reserved(String w) {
+    return w == "async" or w == "await" or w == "class" or w == "defer" or w == "interface" or w == "loop" or w == "macro" or w == "ref" or w == "try" or w == "yield"
+}
+
+/// Can a statement end with a token of this kind? (spec §1.7, rule 2)
+fn bool can_end(String k) {
+    return k == "Ident" or k == "Int" or k == "Float" or k == "Char" or k == "Str" or k == "True" or k == "False" or k == "SelfValue" or k == "SelfType" or k == "Return" or k == "Break" or k == "Continue" or k == "RParen" or k == "RBracket" or k == "RBrace" or k == "Question" or k == "Bang"
+}
+
+/// Reports a diagnostic.
+fn err(Vec[Diag] diags!, owned String code, owned String msg, usize lo, usize hi) {
+    diags.push(Diag(code: code, msg: msg, lo: lo, hi: hi))
+}
+
+fn Token token(owned String kind, usize lo, usize hi) {
+    return Token(kind: kind, text: String.new(), int: 0, bits: 0, ch: 0, parts: Vec.new(), lo: lo, hi: hi, ls: false)
+}
+
+fn String hex4(u32 c) {
+    var s = "{c:X}"
+    while s.len() < 4 {
+        s = "0" + s
+    }
+    return s
+}
+
+type Lexer {
+    Vec[u8] b
+    String src
+    usize pos
+    usize end
+    Vec[Token] tokens
+    Vec[u8] delims
+    bool saw_newline
+    bool nested
+    bool ed1
+    Vec[Diag] diags
+    Map[String, String] kw
+}
+
+extend Lexer {
+    fn u8 peek(self) {
+        if self.pos < self.end {
+            return self.b[self.pos]
+        }
+        return 0
+    }
+
+    fn u8 peek_at(self, usize n) {
+        if self.pos + n < self.end {
+            return self.b[self.pos + n]
+        }
+        return 0
+    }
+
+    /// The length of the UTF-8 sequence that starts at `i`.
+    fn usize char_len(self, usize i) {
+        let c = self.b[i]
+        if c < 0x80 {
+            return 1
+        }
+        if c < 0xE0 {
+            return 2
+        }
+        if c < 0xF0 {
+            return 3
+        }
+        return 4
+    }
+
+    /// The code point that starts at `i`.
+    fn u32 char_at(self, usize i) {
+        let c = self.b[i] as u32
+        return when self.char_len(i) {
+            1 then c
+            2 then (c & 0x1F) << 6 | (self.b[i + 1] as u32 & 0x3F)
+            3 then (c & 0x0F) << 12 | (self.b[i + 1] as u32 & 0x3F) << 6 | (self.b[i + 2] as u32 & 0x3F)
+            else (c & 0x07) << 18 | (self.b[i + 1] as u32 & 0x3F) << 12 | (self.b[i + 2] as u32 & 0x3F) << 6 | (self.b[i + 3] as u32 & 0x3F)
+        }
+    }
+
+
+    fn bool newline_significant(self) {
+        if self.nested {
+            return false
+        }
+        if self.delims.len() > 0 and self.delims[self.delims.len() - 1] != 123 {
+            return false
+        }
+        if self.tokens.len() == 0 {
+            return false
+        }
+        return can_end(self.tokens[self.tokens.len() - 1].kind)
+    }
+
+    fn usize last_hi(self, usize otherwise) {
+        if self.tokens.len() == 0 {
+            return otherwise
+        }
+        return self.tokens[self.tokens.len() - 1].hi
+    }
+
+    fn push(self!, owned Token t) {
+        var Token tok = t
+        tok.ls = self.saw_newline
+        if self.saw_newline {
+            self.saw_newline = false
+            // Rule 3: a line starting with `.ident` or `.0` continues the previous line.
+            // In edition 1, `.Name` starts a variant, and a line starting with `|>` or
+            // `|` continues.
+            var bool continues = false
+            if tok.kind == "Dot" {
+                let c = if tok.hi < self.b.len() { self.b[tok.hi] } else { 0 }
+                continues = if self.ed1 { is_lower(c) or is_digit(c) or c == 95 } else { is_word(c) }
+            }
+            if self.ed1 and (tok.kind == "PipeGt" or tok.kind == "Pipe") {
+                continues = true
+            }
+            if not continues and self.newline_significant() {
+                let at = self.last_hi(tok.lo)
+                self.tokens.push(token("Newline", at, at))
+            }
+        }
+        self.tokens.push(tok)
+    }
+
+    fn run(self!) {
+        loop {
+            self.skip_trivia()
+            if self.pos >= self.end {
+                break
+            }
+            self.lex_token()
+        }
+        // A final terminator simplifies the parser.
+        if self.saw_newline or not self.nested {
+            if self.newline_significant() {
+                let at = self.last_hi(self.end)
+                self.tokens.push(token("Newline", at, at))
+            }
+        }
+        var eof = token("Eof", self.end, self.end)
+        eof.ls = self.saw_newline
+        self.tokens.push(eof)
+    }
+
+    fn skip_trivia(self!) {
+        while self.pos < self.end {
+            let c = self.peek()
+            if c == 32 or c == 9 {
+                self.pos += 1
+            } else if c == 10 {
+                self.pos += 1
+                self.saw_newline = true
+            } else if c == 13 {
+                if self.peek_at(1) == 10 {
+                    self.pos += 2
+                    self.saw_newline = true
+                } else {
+                    err(self.diags!, "E0002", "carriage return not followed by a line feed", self.pos, self.pos + 1)
+                    self.pos += 1
+                }
+            } else if c == 47 and self.peek_at(1) == 47 {
+                while self.pos < self.end and self.peek() != 10 {
+                    self.pos += 1
+                }
+            } else if c == 47 and self.peek_at(1) == 42 {
+                self.block_comment()
+            } else {
+                break
+            }
+        }
+    }
+
+    fn block_comment(self!) {
+        let start = self.pos
+        self.pos += 2
+        var i32 depth = 1
+        while self.pos < self.end {
+            if self.peek() == 47 and self.peek_at(1) == 42 {
+                depth += 1
+                self.pos += 2
+            } else if self.peek() == 42 and self.peek_at(1) == 47 {
+                depth -= 1
+                self.pos += 2
+                if depth == 0 {
+                    return
+                }
+            } else {
+                if self.peek() == 10 {
+                    self.saw_newline = true
+                }
+                self.pos += 1
+            }
+        }
+        err(self.diags!, "E0005", "unterminated block comment", start, start + 2)
+    }
+
+    fn lex_token(self!) {
+        let lo = self.pos
+        let c = self.peek()
+        if is_alpha(c) or c == 95 {
+            // Raw string r"..."
+            if c == 114 and self.peek_at(1) == 34 {
+                self.pos += 1
+                self.string(lo, true)
+                return
+            }
+            while self.pos < self.end and is_word(self.peek()) {
+                self.pos += 1
+            }
+            let word = self.src.substring(lo, self.pos)
+            if word != "_" {
+                if self.kw.get(word) is .Some(kw) {
+                    self.push(token(kw.clone(), lo, self.pos))
+                    return
+                }
+            }
+            if word != "_" and reserved(word) and not (self.ed1 and (word == "interface" or word == "loop")) {
+                err(self.diags!, "E0010", "`{word}` is a reserved keyword", lo, self.pos)
+            }
+            var t = token("Ident", lo, self.pos)
+            t.text = word
+            self.push(t)
+            return
+        }
+        if is_digit(c) {
+            self.number(lo)
+            return
+        }
+        if c == 34 {
+            self.string(lo, false)
+            return
+        }
+        if c == 39 {
+            self.char_lit(lo)
+            return
+        }
+        if c >= 0x80 {
+            let ch = self.char_at(self.pos)
+            self.pos += self.char_len(self.pos)
+            if not is_bidi(ch) {
+                err(self.diags!, "E0017", "unexpected character `{self.src.substring(lo, self.pos)}`", lo, self.pos)
+            }
+            return
+        }
+        let c1 = self.peek_at(1)
+        let c2 = self.peek_at(2)
+        var String kind = ""
+        var usize len = 3
+        if c == 61 and c1 == 61 and c2 == 61 and self.ed1 {
+            kind = "EqEqEq"
+        } else if c == 33 and c1 == 61 and c2 == 61 and self.ed1 {
+            kind = "NotEqEq"
+        } else if c == 60 and c1 == 60 and c2 == 61 {
+            kind = "ShlEq"
+        } else if c == 62 and c1 == 62 and c2 == 61 {
+            kind = "ShrEq"
+        } else if c == 43 and c1 == 37 and c2 == 61 {
+            kind = "PlusWrapEq"
+        } else if c == 45 and c1 == 37 and c2 == 61 {
+            kind = "MinusWrapEq"
+        } else if c == 42 and c1 == 37 and c2 == 61 {
+            kind = "StarWrapEq"
+        } else if c == 46 and c1 == 46 and c2 == 61 {
+            kind = "DotDotEq"
+        }
+        if kind.len() == 0 {
+            len = 2
+            kind = when (c, c1) {
+                (60, 60) then "Shl"
+                (62, 62) then "Shr"
+                (43, 37) then "PlusWrap"
+                (45, 37) then "MinusWrap"
+                (42, 37) then "StarWrap"
+                (43, 61) then "PlusEq"
+                (45, 61) then "MinusEq"
+                (42, 61) then "StarEq"
+                (47, 61) then "SlashEq"
+                (37, 61) then "PercentEq"
+                (38, 61) then "AmpEq"
+                (124, 61) then "PipeEq"
+                (94, 61) then "CaretEq"
+                (61, 61) then "EqEq"
+                (33, 61) then "NotEq"
+                (60, 61) then "Le"
+                (62, 61) then "Ge"
+                (45, 62) then "Arrow"
+                (61, 62) then "FatArrow"
+                (124, 62) if self.ed1 then "PipeGt"
+                (46, 46) then "DotDot"
+                else ""
+            }
+        }
+        if kind.len() == 0 {
+            len = 1
+            kind = when c {
+                43 then "Plus"
+                45 then "Minus"
+                42 then "Star"
+                47 then "Slash"
+                37 then "Percent"
+                38 then "Amp"
+                124 then "Pipe"
+                94 then "Caret"
+                126 then "Tilde"
+                61 then "Eq"
+                60 then "Lt"
+                62 then "Gt"
+                40 then "LParen"
+                41 then "RParen"
+                91 then "LBracket"
+                93 then "RBracket"
+                123 then "LBrace"
+                125 then "RBrace"
+                44 then "Comma"
+                46 then "Dot"
+                58 then "Colon"
+                59 then "Semi"
+                63 then "Question"
+                64 then "At"
+                33 if self.ed1 then "Bang"
+                35 if self.ed1 then "Hash"
+                else ""
+            }
+        }
+        if kind.len() == 0 {
+            self.pos += 1
+            if c == 33 {
+                err(self.diags!, "E0017", "unexpected character `!`", lo, lo + 1)
+            } else if c < 0x20 or c == 0x7f {
+                err(self.diags!, "E0004", "unexpected control character U+{hex4(c as u32)}", lo, lo + 1)
+            } else {
+                err(self.diags!, "E0017", "unexpected character `{self.src.substring(lo, lo + 1)}`", lo, lo + 1)
+            }
+            return
+        }
+        self.pos += len
+        // Push first: a pending newline before a closing delimiter is judged with the
+        // delimiter still open.
+        let closing = kind == "RParen" or kind == "RBracket" or kind == "RBrace"
+        let u8 opening = if kind == "LParen" { 40 } else if kind == "LBracket" { 91 } else if kind == "LBrace" { 123 } else { 0 }
+        let u8 want = if kind == "RParen" { 40 } else if kind == "RBracket" { 91 } else { 123 }
+        self.push(token(kind, lo, self.pos))
+        if opening != 0 {
+            self.delims.push(opening)
+        } else if closing {
+            var usize i = self.delims.len()
+            while i > 0 {
+                i -= 1
+                if self.delims[i] == want {
+                    self.delims.truncate(i)
+                    break
+                }
+            }
+        }
+    }
+
+    fn number(self!, usize lo) {
+        let after_dot = self.tokens.len() > 0 and self.tokens[self.tokens.len() - 1].kind == "Dot"
+        var u32 radix = 10
+        if self.peek() == 48 {
+            let p = self.peek_at(1)
+            if p == 120 or p == 88 {
+                radix = 16
+            } else if p == 111 or p == 79 {
+                radix = 8
+            } else if p == 98 or p == 66 {
+                radix = 2
+            }
+        }
+        if radix != 10 {
+            self.pos += 2
+            let digits_start = self.pos
+            if self.peek() == 95 {
+                err(self.diags!, "E0006", "`_` cannot follow a radix prefix", self.pos, self.pos + 1)
+            }
+            var u64 value = 0
+            var bool overflow = false
+            var bool seen = false
+            while self.pos < self.end {
+                let b = self.peek()
+                if b == 95 {
+                    self.pos += 1
+                    continue
+                }
+                let d = hex_value(b)
+                if d == 99 {
+                    break
+                }
+                if d >= radix {
+                    let p = self.pos
+                    self.pos += 1
+                    err(self.diags!, "E0016", "invalid digit `{self.src.substring(p, p + 1)}` in base {radix} literal", p, p + 1)
+                    continue
+                }
+                seen = true
+                if not overflow {
+                    if value > (U64_MAX - d as u64) / radix as u64 {
+                        overflow = true
+                    } else {
+                        value = value * radix as u64 + d as u64
+                    }
+                }
+                self.pos += 1
+            }
+            if not seen {
+                err(self.diags!, "E0016", "missing digits after the radix prefix", lo, self.pos)
+            } else if self.b[self.pos - 1] == 95 and self.pos > digits_start {
+                err(self.diags!, "E0006", "a numeric literal cannot end with `_`", self.pos - 1, self.pos)
+            }
+            self.check_suffix()
+            if overflow {
+                err(self.diags!, "E0301", "integer literal is too large", lo, self.pos)
+                value = 0
+            }
+            var t = token("Int", lo, self.pos)
+            t.int = value
+            self.push(t)
+            return
+        }
+        while self.pos < self.end and (is_digit(self.peek()) or self.peek() == 95) {
+            self.pos += 1
+        }
+        var bool is_float = false
+        if not after_dot and self.peek() == 46 and is_digit(self.peek_at(1)) {
+            is_float = true
+            self.pos += 1
+            while self.pos < self.end and (is_digit(self.peek()) or self.peek() == 95) {
+                self.pos += 1
+            }
+        }
+        if not after_dot and (self.peek() == 101 or self.peek() == 69) {
+            let save = self.pos
+            var p = self.pos + 1
+            if p < self.end and (self.b[p] == 43 or self.b[p] == 45) {
+                p += 1
+            }
+            if p < self.end and is_digit(self.b[p]) {
+                is_float = true
+                self.pos = p
+                while self.pos < self.end and (is_digit(self.peek()) or self.peek() == 95) {
+                    self.pos += 1
+                }
+            } else {
+                self.pos = save
+            }
+        }
+        let text = self.src.substring(lo, self.pos)
+        if text.ends_with("_") {
+            err(self.diags!, "E0006", "a numeric literal cannot end with `_`", self.pos - 1, self.pos)
+        }
+        if text.contains("_.") or text.contains("._") or text.contains("_e") or text.contains("_E") {
+            err(self.diags!, "E0006", "misplaced `_` in numeric literal", lo, self.pos)
+        }
+        let clean = text.replace("_", "")
+        self.check_suffix()
+        if is_float {
+            let v = when clean.parse_float() {
+                .Some(v) then v
+                .None then 0.0
+            }
+            if v - v != 0.0 {
+                err(self.diags!, "E0011", "float literal is out of range", lo, self.pos)
+            }
+            var t = token("Float", lo, self.pos)
+            t.bits = v.to_bits()
+            self.push(t)
+        } else {
+            var u64 v = 0
+            var bool big = false
+            for b in clean.bytes() {
+                let d = (b - 48) as u64
+                if v > (U64_MAX - d) / 10 {
+                    big = true
+                    break
+                }
+                v = v * 10 + d
+            }
+            if big {
+                err(self.diags!, "E0301", "integer literal is too large", lo, self.pos)
+                v = 0
+            }
+            var t = token("Int", lo, self.pos)
+            t.int = v
+            self.push(t)
+        }
+    }
+
+    /// Letters directly after a number (`10px`) are an error rather than two tokens.
+    fn check_suffix(self!) {
+        let start = self.pos
+        if self.pos < self.end and (is_alpha(self.peek()) or self.peek() == 95) {
+            while self.pos < self.end and is_word(self.peek()) {
+                self.pos += 1
+            }
+            err(self.diags!, "E0016", "invalid suffix `{self.src.substring(start, self.pos)}` on numeric literal", start, self.pos)
+        }
+    }
+
+    /// One escape sequence after a backslash: its code point, or -1.
+    fn i64 escape(self!) {
+        let lo = self.pos - 1
+        if self.pos >= self.end {
+            return -1
+        }
+        let c = self.peek()
+        self.pos += 1
+        return when c {
+            110 then 10
+            114 then 13
+            116 then 9
+            48 then 0
+            92 then 92
+            39 then 39
+            34 then 34
+            123 then 123
+            125 then 125
+            117 then {
+                if self.peek() != 123 {
+                    err(self.diags!, "E0007", "invalid unicode escape", lo, self.pos)
+                    return -1
+                }
+                self.pos += 1
+                let start = self.pos
+                while self.pos < self.end and hex_value(self.peek()) != 99 {
+                    self.pos += 1
+                }
+                let n = self.pos - start
+                if self.peek() != 125 or n == 0 or n > 6 {
+                    if self.peek() == 125 {
+                        self.pos += 1
+                    }
+                    err(self.diags!, "E0007", "invalid unicode escape", lo, self.pos)
+                    return -1
+                }
+                var u32 v = 0
+                for i in start..self.pos {
+                    v = v * 16 + hex_value(self.b[i])
+                }
+                self.pos += 1
+                if (v >= 0xD800 and v <= 0xDFFF) or v > 0x10FFFF {
+                    err(self.diags!, "E0007", "invalid unicode scalar value U+{v:X}", lo, self.pos)
+                    return -1
+                }
+                v as i64
+            }
+            0 then -1
+            else {
+                if c >= 0x80 {
+                    self.pos += self.char_len(self.pos - 1) - 1
+                }
+                err(self.diags!, "E0007", "unknown escape sequence", lo, self.pos)
+                -1
+            }
+        }
+    }
+
+    fn char_lit(self!, usize lo) {
+        self.pos += 1
+        var i64 value = -1
+        var usize count = 0
+        loop {
+            if self.pos >= self.end or self.peek() == 10 or self.peek() == 13 {
+                err(self.diags!, "E0015", "unterminated character literal", lo, self.pos)
+                var t = token("Char", lo, self.pos)
+                t.ch = if value < 0 { 0 } else { value as u32 }
+                self.push(t)
+                return
+            }
+            let c = self.peek()
+            if c == 39 {
+                self.pos += 1
+                break
+            }
+            count += 1
+            if c == 92 {
+                self.pos += 1
+                let e = self.escape()
+                if e >= 0 and value < 0 {
+                    value = e
+                }
+            } else {
+                let ch = self.char_at(self.pos)
+                self.pos += self.char_len(self.pos)
+                if value < 0 {
+                    value = ch as i64
+                }
+            }
+        }
+        if count == 0 {
+            err(self.diags!, "E0015", "empty character literal", lo, self.pos)
+        } else if count > 1 {
+            err(self.diags!, "E0015", "character literal contains more than one character", lo, self.pos)
+        }
+        var t = token("Char", lo, self.pos)
+        t.ch = if value < 0 { 0 } else { value as u32 }
+        self.push(t)
+    }
+
+    fn string(self!, usize lo, bool raw) {
+        self.pos += 1
+        var Vec[Part] parts = Vec.new()
+        var String text = String.new()
+        loop {
+            if self.pos >= self.end {
+                err(self.diags!, "E0008", "unterminated string literal", lo, self.pos)
+                break
+            }
+            let c = self.peek()
+            if c == 34 {
+                self.pos += 1
+                break
+            }
+            if c == 10 or c == 13 {
+                err(self.diags!, "E0008", "unterminated string literal", lo, self.pos)
+                break
+            }
+            if c == 92 and not raw {
+                self.pos += 1
+                let e = self.escape()
+                if e >= 0 {
+                    text.push(e as u32 as char)
+                }
+            } else if c == 123 and not raw {
+                if not text.is_empty() {
+                    parts.push(text_part(text))
+                    text = String.new()
+                }
+                when self.interpolation() {
+                    .Some(p) then parts.push(p)
+                    .None then {}
+                }
+            } else if c == 125 and not raw {
+                self.pos += 1
+                text.push('}')
+            } else {
+                let ch = self.char_at(self.pos)
+                if (ch < 0x20 and ch != 9) or ch == 0x7f {
+                    err(self.diags!, "E0004", "control character U+{hex4(ch)} must be escaped in a string", self.pos, self.pos + 1)
+                }
+                let n = self.char_len(self.pos)
+                if not is_bidi(ch) {
+                    text.push_str(self.src.substring(self.pos, self.pos + n))
+                }
+                self.pos += n
+            }
+        }
+        if not text.is_empty() or parts.is_empty() {
+            parts.push(text_part(text))
+        }
+        var t = token("Str", lo, self.pos)
+        t.parts = parts
+        self.push(t)
+    }
+
+    fn unterminated(self!, usize open) {
+        err(self.diags!, "E0013", "unterminated interpolation in string", open, self.pos)
+    }
+
+    /// At `{` inside a string: tokenizes the embedded expression and its format.
+    fn Option[Part] interpolation(self!) {
+        let open = self.pos
+        self.pos += 1
+        let start = self.pos
+        var i32 depth = 0
+        var i64 colon = -1
+        loop {
+            if self.pos >= self.end or self.peek() == 10 or self.peek() == 13 {
+                self.unterminated(open)
+                return .None
+            }
+            let c = self.peek()
+            if c == 34 {
+                // A nested string literal, possibly with its own interpolations.
+                let raw = self.pos >= start + 1 and self.b[self.pos - 1] == 114 and (self.pos < start + 2 or not is_word(self.b[self.pos - 2]))
+                let next = skip_string(self.b, self.pos, self.end, raw)
+                if next < 0 {
+                    self.unterminated(open)
+                    return .None
+                }
+                self.pos = next as usize
+                continue
+            }
+            if c == 39 {
+                // Skip a character literal so that `'}'` or `':'` is not misread.
+                self.pos += 1
+                while self.pos < self.end and self.peek() != 39 and self.peek() != 10 {
+                    if self.peek() == 92 {
+                        self.pos += 1
+                    }
+                    self.pos += 1
+                }
+                self.pos += 1
+                continue
+            }
+            if c == 40 or c == 91 or c == 123 {
+                depth += 1
+            } else if c == 41 or c == 93 {
+                depth -= 1
+            } else if c == 125 {
+                if depth == 0 {
+                    break
+                }
+                depth -= 1
+            } else if c == 58 and depth == 0 and colon < 0 {
+                colon = self.pos as i64
+            }
+            self.pos += self.char_len(self.pos)
+        }
+        let close = self.pos
+        self.pos += 1
+        let expr_end = if colon >= 0 { colon as usize } else { close }
+        var bool blank = true
+        var i = start
+        while i < expr_end {
+            if not is_space(self.char_at(i)) {
+                blank = false
+                break
+            }
+            i += self.char_len(i)
+        }
+        if blank {
+            err(self.diags!, "E0014", "empty interpolation in string", open, close + 1)
+            return .None
+        }
+        let tokens = self.sub_lex(start, expr_end)
+        var Part part = Part(is_text: false, text: String.new(), tokens: tokens, lo: start, hi: expr_end, has_spec: false, spec: no_spec())
+        if colon >= 0 {
+            part.has_spec = true
+            part.spec = self.format_spec(colon as usize + 1, close)
+        }
+        return .Some(part)
+    }
+
+    /// The tokens of `start..stop`, lexed as the inside of an interpolation.
+    fn Vec[Token] sub_lex(self!, usize start, usize stop) {
+        let pos = self.pos
+        let end = self.end
+        let tokens = mem.replace(self.tokens!, Vec.new())
+        let delims = mem.replace(self.delims!, Vec.new())
+        let saw = self.saw_newline
+        let nested = self.nested
+        self.pos = start
+        self.end = stop
+        self.saw_newline = false
+        self.nested = true
+        self.run()
+        let inner = mem.replace(self.tokens!, tokens)
+        self.delims = delims
+        self.pos = pos
+        self.end = end
+        self.saw_newline = saw
+        self.nested = nested
+        return inner
+    }
+
+    fn Spec format_spec(self!, usize lo, usize hi) {
+        var Spec spec = no_spec()
+        spec.lo = lo
+        spec.hi = hi
+        var Vec[u32] chars = Vec.new()
+        var j = lo
+        while j < hi {
+            chars.push(self.char_at(j))
+            j += self.char_len(j)
+        }
+        var usize i = 0
+        if chars.len() >= 2 and align_of(chars[1]).len() > 0 {
+            spec.fill = chars[0]
+            spec.align = align_of(chars[1])
+            i = 2
+        } else if chars.len() > 0 and align_of(chars[0]).len() > 0 {
+            spec.align = align_of(chars[0])
+            i = 1
+        }
+        if i < chars.len() and chars[i] == 43 {
+            spec.plus = true
+            i += 1
+        }
+        if i < chars.len() and chars[i] == 48 {
+            spec.zero = true
+            i += 1
+        }
+        spec.width = number_at(chars, i!)
+        if i < chars.len() and chars[i] == 46 {
+            i += 1
+            spec.prec = number_at(chars, i!)
+            if spec.prec < 0 {
+                err(self.diags!, "E0009", "invalid format specification", lo, hi)
+                return spec
+            }
+        }
+        if i < chars.len() {
+            spec.kind = when chars[i] {
+                120 then "x"
+                88 then "X"
+                111 then "o"
+                98 then "b"
+                101 then "e"
+                else ""
+            }
+            if spec.kind.len() > 0 {
+                i += 1
+            }
+        }
+        if i != chars.len() {
+            err(self.diags!, "E0009", "invalid format specification", lo, hi)
+        }
+        if spec.width > 1024 or spec.prec > 1024 {
+            err(self.diags!, "E0009", "format width or precision is too large", lo, hi)
+        }
+        return spec
+    }
+}
+
+fn Part text_part(owned String text) {
+    return Part(is_text: true, text: text, tokens: Vec.new(), lo: 0, hi: 0, has_spec: false, spec: no_spec())
+}
+
+fn Spec no_spec() {
+    return Spec(fill: 32, align: String.new(), plus: false, zero: false, width: -1, prec: -1, kind: String.new(), lo: 0, hi: 0)
+}
+
+fn String align_of(u32 c) = when c {
+    60 then "<"
+    94 then "^"
+    62 then ">"
+    else ""
+}
+
+/// The number written at `chars[i..]` (u32.MAX when larger), or -1; `i` moves past it.
+fn i64 number_at(Vec[u32] chars, usize i!) {
+    let st = i
+    var i64 v = 0
+    while i < chars.len() and chars[i] >= 48 and chars[i] <= 57 {
+        if v <= 4294967295 {
+            v = v * 10 + (chars[i] - 48) as i64
+        }
+        i += 1
+    }
+    if i == st {
+        return -1
+    }
+    return if v > 4294967295 { 4294967295 } else { v }
+}
+
+/// Skips a string literal whose opening quote is at `start`: the position after its
+/// closing quote, or -1. Nested interpolations may themselves contain strings.
+fn i64 skip_string(Vec[u8] b, usize start, usize end, bool raw) {
+    var i = start + 1
+    while i < end {
+        let c = b[i]
+        if c == 34 {
+            return (i + 1) as i64
+        }
+        if c == 92 and not raw {
+            i += 2
+        } else if c == 10 or c == 13 {
+            return -1
+        } else if c == 123 and not raw {
+            var i32 depth = 0
+            i += 1
+            loop {
+                if i >= end or b[i] == 10 {
+                    return -1
+                }
+                let d = b[i]
+                if d == 34 {
+                    let next = skip_string(b, i, end, b[i - 1] == 114)
+                    if next < 0 {
+                        return -1
+                    }
+                    i = next as usize
+                    continue
+                }
+                if d == 40 or d == 91 or d == 123 {
+                    depth += 1
+                } else if d == 41 or d == 93 {
+                    depth -= 1
+                } else if d == 125 {
+                    if depth == 0 {
+                        break
+                    }
+                    depth -= 1
+                }
+                i += 1
+            }
+            i += 1
+        } else {
+            i += 1
+        }
+    }
+    return -1
+}
+
+/// The tokens of `text`, and the diagnostics of the lexer in the order `nxc` reports
+/// them (by position, duplicates once).
+pub fn (Vec[Token], Vec[Diag]) lex(String text, bool ed1) {
+    var Lexer lx = Lexer(b: text.bytes(), src: text.clone(), pos: 0, end: text.len(), tokens: Vec.new(), delims: Vec.new(), saw_newline: false, nested: false, ed1: ed1, diags: Vec.new(), kw: keywords())
+    // Security pre-pass: every forbidden bidirectional control character, once.
+    var usize i = 0
+    var Vec[Diag] bidi = Vec.new()
+    while i < lx.b.len() {
+        let n = lx.char_len(i)
+        let c = lx.char_at(i)
+        if is_bidi(c) {
+            bidi.push(Diag(code: "E0003", msg: "forbidden bidirectional control character U+{hex4(c)}", lo: i, hi: i + n))
+        }
+        i += n
+    }
+    lx.run()
+    var Vec[Diag] all = bidi
+    all.extend(lx.diags)
+    // A stable sort by position, then the duplicates once.
+    var Vec[Diag] sorted = Vec.new()
+    for d in all {
+        var usize at = sorted.len()
+        while at > 0 and sorted[at - 1].lo > d.lo {
+            at -= 1
+        }
+        sorted.insert(at, d.clone())
+    }
+    var Vec[Diag] out = Vec.new()
+    for d in sorted {
+        var bool dup = false
+        for o in out {
+            if o.code == d.code and o.msg == d.msg and o.lo == d.lo and o.hi == d.hi {
+                dup = true
+            }
+        }
+        if not dup {
+            out.push(d.clone())
+        }
+    }
+    return (mem.replace(lx.tokens!, Vec.new()), out)
+}

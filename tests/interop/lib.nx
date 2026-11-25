@@ -43,3 +43,15 @@ fn i32 nx_choose(bool first, i32 a, i32 b) {
 fn nx_hello(i32 n) {
     println("hello {n} from NEXUL")
 }
+
+/// A structure of C, by value both ways (ADR 0017); its declaration in the header.
+@repr("C")
+pub type Point {
+    pub i32 x
+    pub i32 y
+}
+
+@export
+fn Point nx_middle(Point a, Point b) {
+    return Point(x: (a.x + b.x) / 2, y: (a.y + b.y) / 2)
+}

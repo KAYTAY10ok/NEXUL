@@ -13,7 +13,7 @@ par `cargo test --release`.
 | Exigence | État | Preuve / remarque |
 |---|---|---|
 | Compilation native sans interprétation obligatoire | ✅ | NEXUL → NIR → IR LLVM → code machine, lié par LLD ; aucun interpréteur, aucun compilateur C |
-| Compilation séparée et édition de liens | 🟡 | édition de liens avec des bibliothèques natives (`@link`), bibliothèques NEXUL statiques et partagées (`--lib`, `--staticlib`) ; cache des binaires ; compilation **séparée** des modules prévue en 0.3 |
+| Compilation séparée et édition de liens | 🟡 | édition de liens avec des bibliothèques natives (`@link`), bibliothèques NEXUL statiques et partagées (`--lib`, `--staticlib`) ; cache des binaires ; compilation incrémentale en `-O0` (unités et cache d'objets, Linux, ADR 0016) |
 | Diagnostics et débogage | ✅ | près de 130 codes documentés (`nxc explain`), diagnostics JSON pour les éditeurs, informations de débogage (PDB, DWARF), débogueur LLDB intégré à NEXUL Studio, `@track_caller` |
 | Optimisations configurables | ✅ | `-O0` à `-O3`, `-Os`, `-Oz`, `--release` ; LTO et PGO prévus |
 
@@ -43,7 +43,7 @@ par `cargo test --release`.
 | Gestionnaire de paquets | ✅ | `nxpm` : dépendances locales et Git, `nexul.lock` (commit exact, SHA-256), `nxpm verify` ; registre central prévu |
 | Tests et documentation | ✅ | `nxc test`, spécification, guide, exemples de la documentation compilés automatiquement |
 | Outils | ✅ | formateur `nxc fmt`, services d'éditeur `nxc ide`, NEXUL Studio (IDE officiel, débogueur, extensions), installateur Windows |
-| Interopérabilité C et Python | 🟡 | appel de C (`extern "C"`), exposition à C (`@export`, bibliothèques) ; génération d'en-têtes C et interopérabilité Python prévues |
+| Interopérabilité C et Python | 🟡 | appel de C (`extern "C"`), exposition à C (`@export`, bibliothèques) ; structures `@repr("C")`, en-têtes C générés (`--header`) ; interopérabilité Python après la 1.0 |
 
 ### Domaines
 
@@ -111,11 +111,9 @@ critère « serveur TCP concurrent d'exemple testé » **rempli** par `tests/run
 serveur, une tâche par connexion, 8 clients simultanés) : Linux (trois architectures),
 Windows et macOS, CI verte le 28/10 (`99ad9e3`). Le critère « programme C qui appelle NEXUL et
 inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
-compris ; Linux ici, macOS et Windows par la CI). Restent la compilation séparée et le
-cache incrémental (Codex Terra, T3), UDP (Terra, T2), et le critère du temps de
-compilation incrémentale. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
+compris ; Linux ici, macOS et Windows par la CI). La compilation incrémentale est faite le 25/11 ([ADR 0016](adr/0016-compilation-incrementale.md)) : en `-O0` sous Linux, le programme est découpé en unités et les objets sont gardés en cache. Le critère « temps de compilation incrémentale mesuré » est **rempli** : 0,60 s au lieu de 2,16 s après la modification d'un corps, sur 21 000 lignes ([mesures](../benchmarks/rapports/2026-11-25-incremental.md)). UDP fait le 25/11 (`tests/run/udp.nx`). En-têtes C faits le 25/11 (`--header`, spec §8.4). **Tout le contenu de la 0.6.0 est fait** ; tous ses critères de sortie sont remplis. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
 vers et depuis C, conformes à clang sur 13 cibles. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
-Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct.
+Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct (prérequis de la 0.8.0, pas critère de la 0.6.0).
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les
@@ -138,7 +136,7 @@ capacité non prête est reportée et le dit, plutôt que livrée partiellement.
 | **0.5.0** « Concurrence » | Concurrence sans course de données dans le code sûr | ADR 0013 : tâches liées à une portée, `Transfer`/`Share`, tâches détachées par transfert, canaux bornés, verrous, atomiques ; threads du système sur Windows et Linux | corpus négatif (courses refusées) et positif ; stress (10⁶ messages, 64 tâches) déterministe ; ThreadSanitizer sur Linux ou « non testé » écrit ; scénario C | 0.4.0 (`Copy`, `Share` reposent sur les mêmes mécanismes) |
 | **0.6.0** « Système et interopérabilité » | Écrire des serveurs et des outils système ; préparer l'auto-hébergement | compilation séparée des modules et cache incrémental ; `@repr("C")`, rappels C, en-têtes C ; `std.fs` (dossiers, chemins, métadonnées), `std.process` ; `std.net` (TCP, UDP) ; vues de chaînes | serveur TCP concurrent d'exemple testé ; temps de compilation incrémentale mesuré ; programme C qui appelle NEXUL et inversement, testé sur deux systèmes | 0.5.0 (serveurs), SH1 |
 | **0.7.0** « Temps réel » | Profil temps réel v1 sur **une** cible : Cortex-M4 sans système (décision 3, 28/10/2026) | `with noalloc, nonblocking`, tâches périodiques `every … within …`, analyse de pile, runtime réentrant (C4 levée sur cette cible) | budgets de latence mesurés et publiés avec leur méthode ; aucune allocation vérifiée par le compilateur ; scénario D. **Aucune** garantie de temps réel strict hors de la cible validée | 0.5.0, étude P8-G0, [ADR 0018](adr/0018-profil-temps-reel.md) (acceptée le 29/10) |
-| **0.8.0** « Auto-hébergement » | Compilateur écrit en NEXUL | SH2–SH6 ([selfhost-sh0.md](adr/selfhost-sh0.md)) | critères A1–A5 (point fixe stage1 = stage2, construction sans Rust) ; scénario E | 0.6.0 ; grammaire de l'édition 1 gelée ([ADR 0019](adr/0019-gel-grammaire-edition-1.md), 29/10) |
+| **0.8.0** « Auto-hébergement » | Compilateur écrit en NEXUL | SH2–SH6 ([selfhost-sh0.md](adr/selfhost-sh0.md)) ; **SH2 (lexer) fait le 25/11** | critères A1–A5 (point fixe stage1 = stage2, construction sans Rust) ; scénario E | 0.6.0 ; grammaire de l'édition 1 gelée ([ADR 0019](adr/0019-gel-grammaire-edition-1.md), 29/10) |
 | **0.9.x** « Candidate » | Stabiliser | gel de l'API de `lib/std` (attributs de stabilité), politique de compatibilité (éditions, versions de `std`, paquets) écrite ; campagne de fuzzing (`nxc` ne plante jamais) ; références de performance (P13) ; documentation complète, guide de migration ; seulement des corrections | aucune régression sur deux candidates successives ; scénarios A–H passés ; chaque garantie du README renvoie à sa preuve | toutes |
 | **1.0.0** | Version méritée | — | critères de la mission maîtresse §9, vérifiés un par un et consignés | 0.9.x |
 

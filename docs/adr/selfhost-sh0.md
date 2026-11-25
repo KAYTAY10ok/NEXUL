@@ -59,6 +59,8 @@ l'interneur de types et les diagnostics). Ce style se transpose sans référence
 |---|---|---|---|
 | SH1 | Bibliothèque : processus, dossiers et chemins, vues de chaînes, `i128` ou équivalent, appel de LLVM-C par lien direct | tests `tests/run` par fonction | édition 1 figée (G3) |
 | SH2 | **Lexer** en NEXUL ; outil `nxc-lex-nx` qui écrit les jetons en JSON | jetons **identiques** au lexer Rust sur tous les `.nx` du dépôt (différentiel) | SH1 |
+
+**SH2 fait le 25/11/2026** (Claude Main) : `selfhost/nxc/lexer.nx`, l'outil `selfhost/lex.nx`, l'oracle `nxc debug tokens --json`. Le test `compiler/nxc/tests/selfhost.rs` compare jetons, positions, parties des chaînes, formats, codes et messages d'erreur sur les 252 `.nx` du dépôt, dont `selfhost/corpus` (cas limites, 36 et 41 erreurs) : aucune différence. Vitesse (règle du §5) : sur 1,7 Mo et 545 000 jetons, 0,41 s contre 0,23 s pour le lexer Rust, sortie JSON comprise (1,8 fois plus lent). SH1 n'était pas un préalable du lexer : il n'utilise ni `i128` ni LLVM-C.
 | SH3 | Parser et AST ; sortie JSON de l'AST | AST identique au parser Rust (différentiel) | SH2 |
 | SH4 | Analyse sémantique, THIR, diagnostics | diagnostics identiques sur `tests/ui` | SH3, ADR 0012 et 0013 tranchées |
 | SH5 | NIR, propriété, génération de l'IR LLVM **textuelle** | IR identique à l'octet au générateur Rust | SH4 |

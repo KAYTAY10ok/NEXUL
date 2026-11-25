@@ -1,0 +1,134 @@
+// edition: 1
+// The lexer written in NEXUL (self-hosting, step SH2), as a tool:
+//     lex <file.nx> [--edition 0.2|1]
+// prints the tokens and diagnostics of the file in the format of
+// `nxc debug tokens --json` (compiler/nxc/src/debug.rs), so that both can be compared.
+import std.io
+import std.system
+import nxc.lexer.{Token, Spec, lex}
+
+/// `s` as a JSON string, escaped as `nxc` does (`json_str`).
+fn String json(String s) {
+    var out = String.with_capacity(s.len() + 2)
+    out.push('"')
+    for c in s.chars() {
+        let n = c as u32
+        if c == '"' {
+            out.push_str("\\\"")
+        } else if c == '\\' {
+            out.push_str("\\\\")
+        } else if c == '\n' {
+            out.push_str("\\n")
+        } else if c == '\r' {
+            out.push_str("\\r")
+        } else if c == '\t' {
+            out.push_str("\\t")
+        } else if n < 0x20 {
+            out.push_str("\\u00")
+            out.push_str(if n < 16 { "0" } else { "1" })
+            out.push_str("{n % 16:x}")
+        } else {
+            out.push(c)
+        }
+    }
+    out.push('"')
+    return out
+}
+
+fn String opt(i64 v) = if v < 0 { "null" } else { "{v}" }
+
+fn String quoted_or_null(String s) = if s.is_empty() { "null" } else { "\"{s}\"" }
+
+fn String spec_json(Spec s) {
+    return "\{\"fill\":{s.fill},\"align\":{quoted_or_null(s.align)},\"plus\":{s.plus},\"zero\":{s.zero},\"width\":{opt(s.width)},\"prec\":{opt(s.prec)},\"kind\":{quoted_or_null(s.kind)},\"lo\":{s.lo},\"hi\":{s.hi}\}"
+}
+
+fn token_json(Token t, String out!) {
+    out.push_str("\{\"k\":\"{t.kind}\"")
+    if t.kind == "Ident" {
+        out.push_str(",\"v\":{json(t.text)}")
+    } else if t.kind == "Int" {
+        out.push_str(",\"v\":\"{t.int}\"")
+    } else if t.kind == "Float" {
+        out.push_str(",\"v\":\"0x{t.bits:016x}\"")
+    } else if t.kind == "Char" {
+        out.push_str(",\"v\":{t.ch}")
+    } else if t.kind == "Str" {
+        out.push_str(",\"parts\":[")
+        var bool first = true
+        for p in t.parts {
+            if not first {
+                out.push(',')
+            }
+            first = false
+            if p.is_text {
+                out.push_str("\{\"t\":{json(p.text)}\}")
+            } else {
+                out.push_str("\{\"i\":[")
+                var bool f = true
+                for tok in p.tokens {
+                    if not f {
+                        out.push(',')
+                    }
+                    f = false
+                    token_json(tok, out!)
+                }
+                let spec = if p.has_spec { spec_json(p.spec) } else { "null" }
+                out.push_str("],\"lo\":{p.lo},\"hi\":{p.hi},\"spec\":{spec}\}")
+            }
+        }
+        out.push(']')
+    }
+    out.push_str(",\"lo\":{t.lo},\"hi\":{t.hi},\"ls\":{t.ls}\}")
+}
+
+fn main() {
+    let args = system.args()
+    var String file = ""
+    var String edition = ""
+    var usize i = 1
+    while i < args.len() {
+        if args[i] == "--edition" and i + 1 < args.len() {
+            edition = args[i + 1].clone()
+            i += 2
+        } else {
+            file = args[i].clone()
+            i += 1
+        }
+    }
+    let text = when io.read_file(file) {
+        .Ok(t) then t
+        .Err(e) then {
+            eprintln("cannot read `{file}`: {e}")
+            system.exit(1)
+        }
+    }
+    if edition.is_empty() {
+        edition = "0.2"
+        var usize n = 0
+        for line in text.lines() {
+            if n == 3 {
+                break
+            }
+            n += 1
+            let l = line.trim()
+            if l.starts_with("// edition:") {
+                let e = l.substring(11, l.len()).trim()
+                if e == "1" or e == "0.2" {
+                    edition = e
+                    break
+                }
+            }
+        }
+    }
+    let (tokens, diags) = lex(text, edition == "1")
+    var out = "\{\"edition\":\"{edition}\"\}\n"
+    for t in tokens {
+        token_json(t, out!)
+        out.push('\n')
+    }
+    for d in diags {
+        out.push_str("\{\"diag\":\"{d.code}\",\"msg\":{json(d.msg)},\"lo\":{d.lo},\"hi\":{d.hi}\}\n")
+    }
+    print(out)
+}

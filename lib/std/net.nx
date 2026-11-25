@@ -1,6 +1,6 @@
 // edition: 1
-/// TCP over IPv4 (spec chapter 09): a listener that accepts connections, and streams of
-/// bytes in both directions. The operations block the task that makes them; a server
+/// TCP and UDP over IPv4 (spec chapter 09): a listener that accepts connections, streams
+/// of bytes in both directions, and sockets that send and receive datagrams. The operations block the task that makes them; a server
 /// serves each connection in its own task (`tache.lancer_detachee`).
 ///
 /// An address is `a.b.c.d:port` or `localhost:port`; names are not resolved yet (no DNS)
@@ -217,6 +217,85 @@ extend TcpStream {
     /// Ends the writing side: the peer reads the end of the data, and can still answer.
     pub fn shutdown(self) {
         sys.socket_shutdown(self.handle)
+    }
+
+    fn drop(self!) {
+        sys.socket_close(self.handle)
+    }
+}
+
+/// A UDP socket: datagrams sent to and received from any address. Each datagram arrives
+/// whole or not at all, maybe out of order, maybe twice.
+pub type UdpSocket {
+    i64 handle
+}
+
+extend UdpSocket {
+    /// A socket bound to `address` (`127.0.0.1:0`: a free port chosen by the system, see
+    /// `port`; `0.0.0.0:p`: port `p` on every interface).
+    pub fn Result[UdpSocket, IoError] bind(String address) {
+        let a = to_address(address)?
+        var i64 handle = -1
+        let code = sys.udp_bind(a.ip, a.port, handle!)
+        if code != 0 {
+            return Err(error(code, "bind", address))
+        }
+        return Ok(UdpSocket(handle: handle))
+    }
+
+    /// The port it is bound to.
+    pub fn u16 port(self) {
+        return sys.socket_port(self.handle)
+    }
+
+    /// Sends `bytes` as one datagram to `address`.
+    pub fn Result[(), IoError] send_to(self, Vec[u8] bytes, String address) {
+        let a = to_address(address)?
+        return self.send_to_address(bytes, a)
+    }
+
+    /// Sends `bytes` as one datagram to `to` (the sender of a datagram, for an answer).
+    pub fn Result[(), IoError] send_to_address(self, Vec[u8] bytes, Address to) {
+        let code = sys.udp_send_to(self.handle, to.ip, to.port, bytes.as_ptr(), bytes.len())
+        if code != 0 {
+            return Err(error(code, "send to", to.to_string()))
+        }
+        return Ok(())
+    }
+
+    /// Sends `text` as one datagram to `address`.
+    pub fn Result[(), IoError] send_text(self, String text, String address) {
+        let a = to_address(address)?
+        let code = sys.udp_send_to(self.handle, a.ip, a.port, text.as_ptr(), text.len())
+        if code != 0 {
+            return Err(error(code, "send to", address))
+        }
+        return Ok(())
+    }
+
+    /// Waits for the next datagram: its bytes, at most `max` (the rest of a longer one is
+    /// lost), and its sender.
+    pub fn Result[(Vec[u8], Address), IoError] receive(self, usize max) {
+        var Vec[u8] out = Vec.new()
+        out.reserve(max)
+        var usize got = 0
+        var u32 ip = 0
+        var u16 port = 0
+        let code = unsafe { sys.udp_recv_from(self.handle, out.as_ptr(), max, got!, ip!, port!) }
+        if code != 0 {
+            return Err(error(code, "receive on", "port {self.port()}"))
+        }
+        unsafe {
+            out.set_len(got)
+        }
+        return Ok((out, Address(ip: ip, port: port)))
+    }
+
+    /// Waits for the next datagram, as UTF-8 text (invalid bytes become U+FFFD), and its
+    /// sender.
+    pub fn Result[(String, Address), IoError] receive_text(self, usize max) {
+        let (bytes, from) = self.receive(max)?
+        return Ok((unsafe { String.from_bytes_lossy(bytes.as_ptr(), bytes.len()) }, from))
     }
 
     fn drop(self!) {

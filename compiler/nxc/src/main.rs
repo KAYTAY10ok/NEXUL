@@ -8,8 +8,13 @@ use std::io::IsTerminal;
 use std::path::{Path, PathBuf};
 use std::process::{exit, Command};
 
+/// The help, with the version of this build.
+fn usage() -> String {
+    USAGE.replace("{version}", env!("CARGO_PKG_VERSION"))
+}
+
 const USAGE: &str = "\
-nxc — the NEXUL compiler, version 0.3
+nxc — the NEXUL compiler, version {version}
 
 usage:
     nxc run    <file.nx> [options] [-- program arguments]   compile and run
@@ -39,6 +44,7 @@ options:
     --staticlib          build a static library (.lib, .a) of the @export functions
     --emit llvm-ir       write the LLVM IR produced by NEXUL (after optimization)
     --no-debug           no debug information
+    --header <file.h>    also write the C header of the @export functions
     --link-arg <arg>     pass an argument to the linker
     --json               print diagnostics as JSON v0 (for existing editors)
     --json=1             print diagnostics using the version 1 JSON envelope
@@ -62,6 +68,7 @@ struct Args {
     no_debug: bool,
     link_args: Vec<String>,
     stack_report: bool,
+    header: Option<PathBuf>,
     json_version: Option<u8>,
     stdin: bool,
     /// `--edition`; otherwise the file and its project say (`pkg::edition_for`).
@@ -84,6 +91,7 @@ fn parse_args() -> Args {
         no_debug: false,
         link_args: vec![],
         stack_report: false,
+        header: None,
         json_version: None,
         stdin: false,
         edition: None,
@@ -113,6 +121,7 @@ fn parse_args() -> Args {
             "--target" => a.target = it.next(),
             "--link-arg" => a.link_args.extend(it.next()),
             "--stack-report" => a.stack_report = true,
+            "--header" => a.header = Some(PathBuf::from(it.next().unwrap_or_else(|| fail("--header needs a file name")))),
             "--emit" => match it.next().as_deref() {
                 Some("llvm-ir") | Some("ir") => a.emit_ir = true,
                 other => fail(&format!(
@@ -127,7 +136,7 @@ fn parse_args() -> Args {
                     a.release = true;
                 }
             }
-            s if s.starts_with('-') => fail(&format!("unknown option `{}`\n\n{}", s, USAGE)),
+            s if s.starts_with('-') => fail(&format!("unknown option `{}`\n\n{}", s, usage())),
             _ => {
                 if a.file.is_none() {
                     a.file = Some(PathBuf::from(arg));
@@ -179,6 +188,7 @@ fn real_main() {
         Some("lsp") => exit(nxc_driver::lsp::run(&argv[1..])),
         Some("fmt") => return fmt_command(&argv[1..]),
         Some("migrate") => return migrate_command(&argv[1..]),
+        Some("debug") => return debug_command(&argv[1..]),
         _ => {}
     }
     let args = parse_args();
@@ -198,7 +208,7 @@ fn real_main() {
                 );
             }
         }
-        "help" | "--help" | "-h" => print!("{}", USAGE),
+        "help" | "--help" | "-h" => print!("{}", usage()),
         "targets" => {
             let host = Target::host();
             for name in Target::known_names() {
@@ -223,7 +233,7 @@ fn real_main() {
             }
         }
         "check" | "build" | "run" | "test" => compile_command(&args),
-        other => fail(&format!("unknown command `{}`\n\n{}", other, USAGE)),
+        other => fail(&format!("unknown command `{}`\n\n{}", other, usage())),
     }
 }
 
@@ -239,7 +249,7 @@ fn compile_command(args: &Args) {
                     .map(|m| nxc_driver::pkg::main_file(&p, &m))
             }) {
                 Some(f) => f,
-                None => fail(&format!("missing input file\n\n{}", USAGE)),
+                None => fail(&format!("missing input file\n\n{}", usage())),
             }
         }
     };
@@ -374,6 +384,11 @@ fn compile_command(args: &Args) {
             &target,
         )),
     };
+    if let Some(h) = &args.header {
+        if let Err(e) = std::fs::write(h, &output.c_header) {
+            fail(&format!("cannot write `{}`: {}", h.display(), e));
+        }
+    }
     if let Err(e) = build(&output, &out, &bopts) {
         fail(&e);
     }
@@ -559,6 +574,32 @@ fn migrate_command(argv: &[String]) {
 }
 
 /// `nxc fmt <file> [--check]`
+/// `nxc debug tokens --json <file.nx> [--edition e]`: the tokens of the lexer (hidden;
+/// the reference of the self-hosted lexer, step SH2).
+fn debug_command(argv: &[String]) {
+    let usage = "usage: nxc debug tokens --json <file.nx> [--edition 0.2|1]";
+    if argv.first().map(|s| s.as_str()) != Some("tokens") || !argv.iter().any(|a| a == "--json") {
+        fail(usage);
+    }
+    let mut file = None;
+    let mut edition = None;
+    let mut it = argv[1..].iter();
+    while let Some(a) = it.next() {
+        match a.as_str() {
+            "--json" => {}
+            "--edition" => {
+                let e = it.next().map(|s| s.as_str()).unwrap_or_default();
+                edition = Some(nxc_syntax::Edition::parse(e).unwrap_or_else(|| fail(&format!("unknown edition `{}`", e))));
+            }
+            f => file = Some(f.to_string()),
+        }
+    }
+    let file = file.unwrap_or_else(|| fail(usage));
+    let text = std::fs::read_to_string(&file).unwrap_or_else(|e| fail(&format!("cannot read `{}`: {}", file, e)));
+    let edition = edition.or_else(|| nxc_syntax::header_edition(&text)).unwrap_or(nxc_syntax::Edition::V0_2);
+    print!("{}", nxc_driver::debug::tokens_json(&text, edition));
+}
+
 fn fmt_command(argv: &[String]) {
     let check = argv.iter().any(|a| a == "--check");
     let files: Vec<&String> = argv.iter().filter(|a| !a.starts_with("--")).collect();
