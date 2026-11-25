@@ -13,7 +13,7 @@ par `cargo test --release`.
 | Exigence | État | Preuve / remarque |
 |---|---|---|
 | Compilation native sans interprétation obligatoire | ✅ | NEXUL → NIR → IR LLVM → code machine, lié par LLD ; aucun interpréteur, aucun compilateur C |
-| Compilation séparée et édition de liens | 🟡 | édition de liens avec des bibliothèques natives (`@link`), bibliothèques NEXUL statiques et partagées (`--lib`, `--staticlib`) ; cache des binaires ; compilation **séparée** des modules prévue en 0.3 |
+| Compilation séparée et édition de liens | 🟡 | édition de liens avec des bibliothèques natives (`@link`), bibliothèques NEXUL statiques et partagées (`--lib`, `--staticlib`) ; cache des binaires ; compilation incrémentale en `-O0` (unités et cache d'objets, Linux, ADR 0016) |
 | Diagnostics et débogage | ✅ | près de 130 codes documentés (`nxc explain`), diagnostics JSON pour les éditeurs, informations de débogage (PDB, DWARF), débogueur LLDB intégré à NEXUL Studio, `@track_caller` |
 | Optimisations configurables | ✅ | `-O0` à `-O3`, `-Os`, `-Oz`, `--release` ; LTO et PGO prévus |
 
@@ -43,7 +43,7 @@ par `cargo test --release`.
 | Gestionnaire de paquets | ✅ | `nxpm` : dépendances locales et Git, `nexul.lock` (commit exact, SHA-256), `nxpm verify` ; registre central prévu |
 | Tests et documentation | ✅ | `nxc test`, spécification, guide, exemples de la documentation compilés automatiquement |
 | Outils | ✅ | formateur `nxc fmt`, services d'éditeur `nxc ide`, NEXUL Studio (IDE officiel, débogueur, extensions), installateur Windows |
-| Interopérabilité C et Python | 🟡 | appel de C (`extern "C"`), exposition à C (`@export`, bibliothèques) ; génération d'en-têtes C et interopérabilité Python prévues |
+| Interopérabilité C et Python | 🟡 | appel de C (`extern "C"`), exposition à C (`@export`, bibliothèques) ; structures `@repr("C")`, en-têtes C générés (`--header`) ; interopérabilité Python après la 1.0 |
 
 ### Domaines
 
@@ -111,9 +111,9 @@ critère « serveur TCP concurrent d'exemple testé » **rempli** par `tests/run
 serveur, une tâche par connexion, 8 clients simultanés) : Linux (trois architectures),
 Windows et macOS, CI verte le 28/10 (`99ad9e3`). Le critère « programme C qui appelle NEXUL et
 inversement, testé sur deux systèmes » est couvert par `tests/interop` (rappels C
-compris ; Linux ici, macOS et Windows par la CI). La compilation incrémentale est faite le 25/11 ([ADR 0016](adr/0016-compilation-incrementale.md)) : en `-O0` sous Linux, le programme est découpé en unités et les objets sont gardés en cache. Le critère « temps de compilation incrémentale mesuré » est **rempli** : 0,60 s au lieu de 2,16 s après la modification d'un corps, sur 21 000 lignes ([mesures](../benchmarks/rapports/2026-11-25-incremental.md)). UDP fait le 25/11 (`tests/run/udp.nx`). Restent les en-têtes C. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
+compris ; Linux ici, macOS et Windows par la CI). La compilation incrémentale est faite le 25/11 ([ADR 0016](adr/0016-compilation-incrementale.md)) : en `-O0` sous Linux, le programme est découpé en unités et les objets sont gardés en cache. Le critère « temps de compilation incrémentale mesuré » est **rempli** : 0,60 s au lieu de 2,16 s après la modification d'un corps, sur 21 000 lignes ([mesures](../benchmarks/rapports/2026-11-25-incremental.md)). UDP fait le 25/11 (`tests/run/udp.nx`). En-têtes C faits le 25/11 (`--header`, spec §8.4). **Tout le contenu de la 0.6.0 est fait** ; tous ses critères de sortie sont remplis. `@repr("C")` fait le 29/10 (ADR 0017) : structures par valeur
 vers et depuis C, conformes à clang sur 13 cibles. Vues de chaînes faites (`std.strview`, `tests/run/strview.nx`).
-Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct.
+Pour SH1, il reste `i128` « ou équivalent » et l'appel de LLVM-C par lien direct (prérequis de la 0.8.0, pas critère de la 0.6.0).
 
 Proposée par Claude (architecture) à partir de l'[audit du 17/10](refonte/audit-claude-2026-10-17.md)
 et du [plan maître](refonte/master-plan.md) ; Codex la complète pour les outils, les

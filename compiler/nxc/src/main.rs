@@ -39,6 +39,7 @@ options:
     --staticlib          build a static library (.lib, .a) of the @export functions
     --emit llvm-ir       write the LLVM IR produced by NEXUL (after optimization)
     --no-debug           no debug information
+    --header <file.h>    also write the C header of the @export functions
     --link-arg <arg>     pass an argument to the linker
     --json               print diagnostics as JSON v0 (for existing editors)
     --json=1             print diagnostics using the version 1 JSON envelope
@@ -62,6 +63,7 @@ struct Args {
     no_debug: bool,
     link_args: Vec<String>,
     stack_report: bool,
+    header: Option<PathBuf>,
     json_version: Option<u8>,
     stdin: bool,
     /// `--edition`; otherwise the file and its project say (`pkg::edition_for`).
@@ -84,6 +86,7 @@ fn parse_args() -> Args {
         no_debug: false,
         link_args: vec![],
         stack_report: false,
+        header: None,
         json_version: None,
         stdin: false,
         edition: None,
@@ -113,6 +116,7 @@ fn parse_args() -> Args {
             "--target" => a.target = it.next(),
             "--link-arg" => a.link_args.extend(it.next()),
             "--stack-report" => a.stack_report = true,
+            "--header" => a.header = Some(PathBuf::from(it.next().unwrap_or_else(|| fail("--header needs a file name")))),
             "--emit" => match it.next().as_deref() {
                 Some("llvm-ir") | Some("ir") => a.emit_ir = true,
                 other => fail(&format!(
@@ -374,6 +378,11 @@ fn compile_command(args: &Args) {
             &target,
         )),
     };
+    if let Some(h) = &args.header {
+        if let Err(e) = std::fs::write(h, &output.c_header) {
+            fail(&format!("cannot write `{}`: {}", h.display(), e));
+        }
+    }
     if let Err(e) = build(&output, &out, &bopts) {
         fail(&e);
     }

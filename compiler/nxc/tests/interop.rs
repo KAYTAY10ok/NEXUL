@@ -2,7 +2,8 @@
 //! the C compiler of the system, calls the `@export` functions of `tests/interop/lib.nx`,
 //! which call back into C through the function pointers it passes.
 //! Linked once with the static library (`--staticlib`) and once with the shared one
-//! (`--lib`).
+//! (`--lib`). `main.c` includes the header that `nxc --header` writes, compiled with
+//! `-Wall -Werror`.
 //!
 //! Without a C compiler (`cc`, or `clang` on Windows), the test says so and passes,
 //! unless `NEXUL_REQUIRE_CC=1` (set by the CI).
@@ -47,9 +48,10 @@ fn c_calls_nexul_and_back() {
             (d.join(if kind == "--lib" { "libnxlib.so" } else { "libnxlib.a" }), d.join("main"))
         };
         let out_lib = if cfg!(windows) && kind == "--lib" { d.join("nxlib.dll") } else { lib.clone() };
-        run(Command::new(env!("CARGO_BIN_EXE_nxc")).arg("build").arg(kind).arg(src.join("lib.nx")).arg("-o").arg(&out_lib), "nxc build");
+        run(Command::new(env!("CARGO_BIN_EXE_nxc")).arg("build").arg(kind).arg(src.join("lib.nx")).arg("-o").arg(&out_lib).arg("--header").arg(d.join("nxlib.h")), "nxc build");
         let mut c = Command::new(&cc);
-        c.arg(src.join("main.c")).arg("-o").arg(&exe);
+        // The header that nxc wrote declares the functions: C sees their real types.
+        c.arg(src.join("main.c")).arg("-o").arg(&exe).arg(format!("-I{}", d.display())).arg("-Wall").arg("-Werror");
         if cfg!(windows) {
             // The import library of the DLL, or the static library, has the same name.
             c.arg(&lib);
@@ -71,6 +73,38 @@ fn c_calls_nexul_and_back() {
         });
         let got = run(&mut program, &format!("the C program ({})", kind));
         assert_eq!(got, expected, "output of the C program linked with {}", kind);
+    }
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// The header of `nxc --header` (spec §8.4): nested `@repr("C")` structures in the order
+/// C needs, arrays, pointers, callbacks and `char`; compiled by C with `-Wall -Werror`
+/// when a C compiler is there.
+#[test]
+fn the_header_declares_structures_and_callbacks() {
+    let dir = std::env::temp_dir().join(format!("nxc-header-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    let src = dir.join("shapes.nx");
+    std::fs::write(
+        &src,
+        "// edition: 1\n@repr(\"C\")\npub type Out {\n    pub In inner\n    pub Ptr[In] next\n    pub fn i32(i32) cb\n}\n@repr(\"C\")\npub type In {\n    pub [u8; 4] tag\n    pub f64 v\n}\n@export\nfn Out nx_wrap(owned In i, Ptr[()] raw, char c, usize n) {\n    let _ = raw\n    let _ = c\n    let _ = n\n    return Out(inner: i, next: Ptr.null(), cb: twice)\n}\nfn i32 twice(i32 x) {\n    return 2 * x\n}\n",
+    )
+    .unwrap();
+    let header = dir.join("shapes.h");
+    run(
+        Command::new(env!("CARGO_BIN_EXE_nxc")).arg("build").arg("--staticlib").arg(&src).arg("-o").arg(dir.join(if cfg!(windows) { "shapes.lib" } else { "libshapes.a" })).arg("--header").arg(&header),
+        "nxc build",
+    );
+    let h = std::fs::read_to_string(&header).unwrap();
+    let inner = h.find("typedef struct In {\n    uint8_t tag[4];\n    double v;\n} In;").expect(&h);
+    let outer = h.find("typedef struct Out {\n    In inner;\n    In *next;\n    int32_t (*cb)(int32_t);\n} Out;").expect(&h);
+    assert!(inner < outer, "{h}");
+    assert!(h.contains("Out nx_wrap(In i, void *raw, uint32_t c, size_t n);"), "{h}");
+    assert!(h.contains("#ifndef SHAPES_H") && h.contains("extern \"C\""), "{h}");
+    if let Some(cc) = c_compiler() {
+        std::fs::write(dir.join("use.c"), "#include \"shapes.h\"\nint main(void) { return sizeof(Out) > 0 ? 0 : 1; }\n").unwrap();
+        run(Command::new(&cc).arg("-Wall").arg("-Werror").arg("-fsyntax-only").arg(format!("-I{}", dir.display())).arg(dir.join("use.c")), "C compiler on the header");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }

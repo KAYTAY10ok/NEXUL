@@ -2,6 +2,15 @@
 
 ## Non publié
 
+**En-têtes C (0.6.0, spec §8.4)**
+- `nxc build --lib|--staticlib --header lib.h` écrit l'en-tête des fonctions `@export` :
+  - les structures `@repr("C")` qu'elles utilisent, dans l'ordre où C les attend ;
+  - les rappels comme pointeurs de fonction, les tableaux et les pointeurs ;
+  - `extern "C"` pour C++.
+- `tests/interop/main.c` inclut l'en-tête produit, compilé avec `-Wall -Werror`, sur
+  Linux ici et sur macOS et Windows par la CI. Un test vérifie aussi des structures
+  imbriquées, des rappels et `char`.
+
 **UDP (0.6.0)**
 - `std.net.UdpSocket` : `bind`, `port`, `send_to`, `send_to_address`, `send_text`,
   `receive`, `receive_text`. Un datagramme plus long que le tampon garde son début.

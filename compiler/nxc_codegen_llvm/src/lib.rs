@@ -17,6 +17,7 @@
 pub mod cabi;
 mod debuginfo;
 mod func;
+pub mod header;
 pub mod layout;
 mod rt;
 pub mod units;
@@ -68,6 +69,8 @@ pub struct Output {
     /// The pieces of `ir`, from which the driver cuts units for the incremental build
     /// (ADR 0016).
     pub parts: units::Parts,
+    /// The C header of the `@export` functions (`--header`, spec §8.4).
+    pub c_header: String,
 }
 
 /// The functions whose stack the driver bounds on the linked executable (ADR 0018 §6),
@@ -1646,7 +1649,10 @@ start:
         }
         out.push_str(&parts.md_tail);
         out.push_str(&parts.md_defs);
-        Output { ir: out, imports: self.imports, links: self.links, exports: self.exports, profile_names: self.profile_names, stack: self.stack, parts }
+        let root = self.sm.try_get(self.p.modules[self.p.root.idx()].file).map(|f| f.name.clone()).unwrap_or_else(|| "main.nx".into());
+        let stem = std::path::Path::new(&root).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
+        let c_header = header::c_header(self.p, &root, &format!("{}_h", stem));
+        Output { ir: out, imports: self.imports, links: self.links, exports: self.exports, profile_names: self.profile_names, stack: self.stack, parts, c_header }
     }
 
     /// The pieces of the module, and the unit of each function (ADR 0016 §1): by the
