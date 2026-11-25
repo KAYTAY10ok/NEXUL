@@ -2,6 +2,7 @@
 //! and linking with LLD.
 
 pub mod codes;
+pub mod debug;
 pub mod ide;
 mod incremental;
 pub mod link;

@@ -1,0 +1,21 @@
+// edition: 1
+// Edge cases of the lexer (self-hosting, SH2): compared token for token with the Rust
+// lexer by compiler/nxc/tests/selfhost.rs. Deliberately full of errors.
+let a = 0x 0b102 0o_7 0xFF_ 1__2 3._5 1_.5 2_e3 18446744073709551615 18446744073709551616
+let b = 0xFFFFFFFFFFFFFFFFF 10px 7u8 1.5e400 2.5E-3 1e 3.0.1 t.0.1 0..10 1..=2
+let c = 'a' '' 'ab' '\n' '\u{1F600}' '\u{D800}' '\u{110000}' '\q' '\u{}' '\u1' 'é
+let d = "a {x:>8.2} {y:*^+010.3e} {z:} {w:.} {v:2000} {u:x} {t:<} {s:q}"
+let e = "{f("a{g("b")}")} {r"raw{x}"} {'}'} {':'} {  } {} \{lit\} \u{202E} \z"
+let f = r"C:\x{y}" "unterminated
+let g = "tab	ok" "ctl" "{h(1,
+let h = x
+    .y
+    .Z
+    |> k
+    | j
+..q
+!x !== y === z |> w #outer a !b
+@attr(1) +% -% *% +%= -%= *%= <<= >>= .. ..= -> => ? ; : ~ ^ & | ^= &= |= %= /=
+let ok = 1 /* nested /* comment */ still */ + 2
+yield interface loop async é ` $ 
+/* unterminated

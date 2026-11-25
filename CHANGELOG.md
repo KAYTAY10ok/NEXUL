@@ -2,6 +2,15 @@
 
 ## Non publié
 
+**Auto-hébergement, étape SH2 (0.8.0)**
+- Le lexer de NEXUL est écrit en NEXUL : `selfhost/nxc/lexer.nx`, avec l'outil
+  `selfhost/lex.nx`.
+- `nxc debug tokens --json` (caché) écrit les jetons du lexer Rust.
+- Le test `compiler/nxc/tests/selfhost.rs` compare les deux sur les 252 `.nx` du dépôt :
+  jetons, positions, chaînes, formats, codes et messages d'erreur. Aucune différence.
+- 1,8 fois plus lent que le lexer Rust, sur 1,7 Mo de source.
+- L'aide de `nxc` affiche la version de la construction : elle disait toujours 0.3.
+
 **En-têtes C (0.6.0, spec §8.4)**
 - `nxc build --lib|--staticlib --header lib.h` écrit l'en-tête des fonctions `@export` :
   - les structures `@repr("C")` qu'elles utilisent, dans l'ordre où C les attend ;
