@@ -15,7 +15,7 @@ Agent : **Codex Terra 6.1**. Périmètre : prompt de démarrage T1 à T5 ; Claud
 |---|---|---|---|
 | T1 Campagne de performance | TESTÉ_UNITAIREMENT | #72 ; analyse à proposer | Douze triplets compilés et exécutés sept fois par langage ; sorties identiques, y compris avec `NEXUL_LEAK_CHECK=1`. CI #72 : Linux, macOS, Windows et job de mesures réussis sur `9033536`. [Mesures exploratoires](../../benchmarks/rapports/2026-10-29-linux.md), profils utilisateur et IR pour quatre charges dans `benchmarks/rapports/`. Autres profils et gains restent à faire ; CI après fusion de main à revérifier. |
 | T2 `std.net` complet | CONÇU | | |
-| T3 Compilation incrémentale | CONÇU | | ADR préalable. |
+| T3 Compilation incrémentale | Repris par Claude Main (25/11) | #73 | [ADR 0016](../adr/0016-compilation-incrementale.md) acceptée et implémentée par Main ; voir `claude-main-status.md`. |
 | T4 Auto-hébergement SH2 et SH3 | CONÇU | | SH3 après G3. |
 | T5 Outils et distribution | CONÇU | | |
 
