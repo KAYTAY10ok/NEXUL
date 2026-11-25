@@ -15,9 +15,9 @@ use std::ops::Range;
 
 /// Lexical errors that the highlighting flags as [`Kind::Invalid`]: lone carriage return,
 /// bidirectional or other control character, unknown escape, invalid format spec, empty
-/// interpolation, malformed character literal, bad digits or suffix, unexpected character.
-/// The others are not flagged on purpose (see the README): unterminated comment, string or
-/// interpolation (text being typed), misplaced `_` in a number, reserved keyword used as a
+/// interpolation, empty or multiple character literal, bad digits or suffix, unexpected character.
+/// The others are not flagged on purpose (see the README): unterminated comment, string,
+/// character or interpolation (text being typed), misplaced `_` in a number, reserved keyword used as a
 /// name (shown as a keyword), literal too large.
 const SHOWN: &[&str] = &["E0002", "E0003", "E0004", "E0007", "E0009", "E0014", "E0015", "E0016", "E0017"];
 
@@ -136,7 +136,10 @@ fn agrees_with_the_compiler_lexer() {
             let mine = tokens(lang, &text);
             for d in diags.take_sorted() {
                 let Some(span) = d.primary_span() else { continue };
-                if SHOWN.contains(&d.code) {
+                // An unclosed character literal is text being typed (README): only an
+                // empty or multiple one (`''`, `'ab'`) is flagged.
+                let being_typed = d.code == "E0015" && d.message == "unterminated character literal";
+                if SHOWN.contains(&d.code) && !being_typed {
                     errors_checked += 1;
                     let (lo, hi) = (span.lo as usize, span.hi as usize);
                     assert!(
@@ -200,8 +203,9 @@ fn agrees_with_the_compiler_lexer() {
     eprintln!("{checked} files agree ({atoms_checked} tokens); {errors_checked} lexical errors flagged in {skipped:?}");
     assert!(checked >= 100, "only {checked} files checked");
     assert!(errors_checked >= 6, "only {errors_checked} lexical errors checked");
-    // The files named by the coordination document are all checked.
-    assert!(skipped.iter().all(|p| p.starts_with("tests") && p.contains("ui")), "{skipped:?}");
+    // Only the files that hold lexical errors on purpose: the diagnostics tests, and the
+    // corpus of the self-hosted lexer (`selfhost/corpus`).
+    assert!(skipped.iter().all(|p| (p.starts_with("tests") && p.contains("ui")) || (p.starts_with("selfhost") && p.contains("corpus"))), "{skipped:?}");
 }
 
 /// The word lists of the highlighter are the compiler's keywords, and nothing else.
